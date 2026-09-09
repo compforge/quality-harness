@@ -1,8 +1,11 @@
 import type { Findings } from "../analyze/diagnose";
-import type { TraceContext } from "./context";
+import { TraceContext } from "./context";
+import { AnalysisContext } from "../analyze/context";
+import { Measurements } from "./measurement";
+import { Node } from "./node";
 import type { Emphasis, Severity } from "./node";
 
-export const ANALYSIS_SCHEMA = "trace-harness/analysis@1";
+export const ANALYSIS_SCHEMA = "trace-harness/analysis@2";
 
 export interface AnalysisNode {
   node_id: string;
@@ -38,12 +41,14 @@ export interface AnalysisSnapshot {
   span_count: number;
   nodes: AnalysisNode[];
   findings: AnalysisFinding[];
+  measurements: Measurements;
 }
 
 export function analysisSnapshot(
-  context: TraceContext,
-  findings: Findings = {},
+  analysis: AnalysisContext,
 ): AnalysisSnapshot {
+  const context = analysis.trace;
+  const findings = analysis.findings;
   const nodes = [...context.nodes]
     .sort((left, right) => left.start_ms - right.start_ms || left.node_id.localeCompare(right.node_id))
     .map((node): AnalysisNode => ({
@@ -74,6 +79,7 @@ export function analysisSnapshot(
     schema: ANALYSIS_SCHEMA,
     trace_id: context.trace_id,
     span_count: context.span_count,
+    measurements: analysis.measurements,
     nodes,
     findings: flattened.map((finding): AnalysisFinding => ({
       ref: finding.ref ?? null,
@@ -87,4 +93,18 @@ export function analysisSnapshot(
       causes: [...(finding.causes ?? [])],
     })),
   };
+}
+
+
+/** Restore persisted observations and results; never recompute measurements or findings. */
+export function loadAnalysis(data: AnalysisSnapshot): AnalysisContext {
+  if (data.schema !== ANALYSIS_SCHEMA) throw new Error(`not a ${ANALYSIS_SCHEMA} analysis`);
+  const nodes = data.nodes.map((node) => new Node({ ...node, service: node.service ?? undefined, parent_node_id: node.parent_node_id ?? undefined }));
+  const trace = new TraceContext(data.trace_id, new Map(), nodes, new Map(), data.span_count);
+  const findings: Findings = {};
+  for (const finding of data.findings) {
+    const value = { ...finding, ref: finding.ref ?? undefined, rank: finding.rank ?? undefined };
+    (findings[finding.ref ?? ""] ??= []).push(value);
+  }
+  return new AnalysisContext(trace, new Measurements(data.measurements.specs, data.measurements.sources, data.measurements.results), findings);
 }

@@ -1,7 +1,11 @@
 export { builtinDetectors } from "./analyze/detectors";
 export { diagnose, type Findings } from "./analyze/diagnose";
 export { DetectorRegistry, type Detector } from "./analyze/registry";
-export * from "./feature";
+export * from "./transform";
+export * from "./model/measurement";
+export { AnalysisContext } from "./analyze/context";
+export { measure, type Measurer } from "./analyze/measure";
+export { measurementsMd } from "./view/measurements";
 export { TraceHarness, mergeTraceContributions, type TraceContributions } from "./harness";
 export { assemble } from "./ingest/assemble";
 export { normalizeJaegerSpan, normalizeJaegerSpans } from "./ingest/jaeger";
@@ -10,6 +14,7 @@ export { genAiSpecs } from "./kinds/genai";
 export {
   ANALYSIS_SCHEMA,
   analysisSnapshot,
+  loadAnalysis,
   type AnalysisFinding,
   type AnalysisNode,
   type AnalysisSnapshot,

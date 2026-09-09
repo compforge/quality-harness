@@ -16,6 +16,6 @@ EXPECTED = ROOT / "conformance" / "trace" / "cases" / "genai-basic.analysis.json
 def test_shared_genai_analysis_ir():
     harness = TraceHarness(TraceContributions(specs=tuple(genai.specs())))
     context = harness.build_context(RAW)
-    actual = analysis_snapshot(context, harness.diagnose(context))
+    actual = analysis_snapshot(harness.analyze(context))
 
     assert actual == json.loads(EXPECTED.read_text(encoding="utf-8"))

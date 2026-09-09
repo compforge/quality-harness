@@ -18,7 +18,7 @@ function compactNames(component: unknown, name: string, detail = ""): string[] {
 function sourcePayload(
   context: TraceContext,
   sourceNodeIds: string[] = [],
-  findings: Record<string, Finding[]>,
+  findings: Readonly<Record<string, readonly Finding[]>>,
   status = "",
 ): Record<string, unknown> {
   const nodes = sourceNodeIds
@@ -61,7 +61,7 @@ function payloadHasError(payload: Record<string, unknown>): boolean {
 function itemPayload(
   context: TraceContext,
   item: TurnItem,
-  findings: Record<string, Finding[]>,
+  findings: Readonly<Record<string, readonly Finding[]>>,
 ): Record<string, unknown> {
   const itemFacts = facts(item.status, item.attributes, item.source_node_ids);
   const brief: string[] = [];
@@ -93,7 +93,7 @@ function itemPayload(
     duration_ms: item.duration_ms,
     brief: brief.join(" · "),
     facts: itemFacts,
-    features: Object.fromEntries([
+    details: Object.fromEntries([
       ...(item.input === undefined ? [] : [["input", text(item.input)]]),
       ...(item.output === undefined ? [] : [["output", text(item.output)]]),
     ]),
@@ -109,7 +109,7 @@ function turnPayload(
   context: TraceContext,
   turn: AgentTurn,
   index: number,
-  findings: Record<string, Finding[]>,
+  findings: Readonly<Record<string, readonly Finding[]>>,
 ): Record<string, unknown> {
   const children = turn.items.map((item) => itemPayload(context, item, findings));
   const sources = turn.source_node_ids?.length
@@ -125,7 +125,7 @@ function turnPayload(
     duration_ms: turn.duration_ms,
     brief: `${turn.items.length} items`,
     facts: facts(turn.status, turn.attributes, sources),
-    features: {},
+    details: {},
     folded: 0,
     children,
     ...sourcePayload(context, sources, findings, turn.status),
@@ -154,7 +154,7 @@ function runSources(run: AgentRun): string[] {
 function runPayload(
   context: TraceContext,
   run: AgentRun,
-  findings: Record<string, Finding[]>,
+  findings: Readonly<Record<string, readonly Finding[]>>,
 ): Record<string, unknown> {
   let turnIndex = 0;
   const children = run.items.map((item) => {
@@ -174,7 +174,7 @@ function runPayload(
     duration_ms: run.duration_ms,
     brief: `${turnIndex} turns · ${operationCount} operations`,
     facts: facts(run.status, run.attributes, sources),
-    features: {},
+    details: {},
     folded: 0,
     children,
     ...sourcePayload(context, sources, findings, run.status),
@@ -184,7 +184,7 @@ function runPayload(
 export function agentRunRoots(
   context: TraceContext,
   ir: AgentRunIR,
-  findings: Record<string, Finding[]>,
+  findings: Readonly<Record<string, readonly Finding[]>>,
 ): Array<Record<string, unknown>> {
   return ir.runs.map((run) => runPayload(context, run, findings));
 }

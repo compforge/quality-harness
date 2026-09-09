@@ -139,9 +139,12 @@ class Cohort:
         if self._tables is None:
             items = []
             for ctx in self._contexts:
+                # Prefix measurements and topology diagnosis require the complete observation.
+                findings = diagnose(ctx) if diagnose_nodes else {}
                 if self._filter is not None:
                     ctx = _sliced(ctx, self._filtered(ctx))
-                findings = diagnose(ctx) if diagnose_nodes else {}
+                    kept = {node.node_id for node in ctx.nodes}
+                    findings = {key: value for key, value in findings.items() if key in kept}
                 items.append((ctx, findings))
             self._tables = build_tables(items)
         return self._tables

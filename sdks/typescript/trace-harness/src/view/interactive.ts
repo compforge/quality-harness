@@ -1,8 +1,7 @@
 import renderJsonSource from "renderjson/renderjson.js" with { type: "text" };
 
-import { lazyFeatures } from "../feature";
-import { builtinFeatures } from "../feature/builtins";
-import { FeatureRegistry } from "../feature/registry";
+import { Measurements } from "../model/measurement";
+import { measurementRows } from "./measurements";
 import type { AgentRunIR } from "../model/agent";
 import type { TraceContext } from "../model/context";
 import type { Finding, Node } from "../model/node";
@@ -50,11 +49,11 @@ function displayPayload(
   context: TraceContext,
   display: DisplayNode,
   byId: Map<string, Node>,
-  featureRegistry: FeatureRegistry,
+  measurements: Measurements,
   path: string,
 ): Record<string, unknown> {
   const children = display.children.map((child, i) => (
-    displayPayload(context, child, byId, featureRegistry, `${path}.${i}`)
+    displayPayload(context, child, byId, measurements, `${path}.${i}`)
   ));
   const findings = display.findings.map((finding) => ({
     severity: finding.severity,
@@ -74,16 +73,6 @@ function displayPayload(
       : node.kind === "tool-call"
       ? new DisplayName(displayName, toolNameDetail(argumentsValue))
       : display;
-    const features = Object.fromEntries(
-      Object.entries(lazyFeatures(
-        node,
-        context.view(),
-        (spanId) => context.raw_attr(spanId),
-        featureRegistry,
-      ))
-        .filter(([, value]) => value !== undefined && value !== null && value !== "")
-        .map(([key, value]) => [key, typeof value === "string" ? value : JSON.stringify(value)]),
-    );
     return {
       node_id: node.node_id,
       kind: display.kind,
@@ -93,15 +82,15 @@ function displayPayload(
       start_ms: node.start_ms,
       duration_ms: Number(node.facts.wall_ms ?? node.duration_ms),
       has_error: node.has_error,
-      error: node.has_error ? context.error_text(node.error_anchor) : "",
+      error: node.has_error ? node.error_text : "",
       brief: display.brief.map((field) => `${field.label}=${field.value}`).join("  "),
       findings,
       facts: Object.fromEntries(
         Object.entries(node.facts)
           .filter(([key]) => !key.startsWith("_"))
-          .map(([key, value]) => [key, String(value)]),
+          .map(([key, value]) => [key, value]),
       ),
-      features,
+      measurements: measurementRows(measurements, node.node_id),
       span_ids: node.span_ids,
       primary_span_id: node.primary_span_id,
       error_span_ids: node.error_span_ids,
@@ -126,7 +115,7 @@ function displayPayload(
     brief: display.brief.map((field) => `${field.label}=${field.value}`).join("  "),
     findings,
     facts: {},
-    features: {},
+    details: {},
     span_ids: [],
     primary_span_id: "",
     error_span_ids: [],
@@ -205,12 +194,14 @@ function renderInto(n,depth,parent){byId[n.node_id]=n;parentOf[n.node_id]=parent
 // 竖条跟随 node 的缩进而非整行边框，避免选中态覆盖，也让 leaf 的时间高度直接可见。
 if(perspective==='agent'){row.classList.add('agent-row');row.style.setProperty('--node-color',KCOLOR[n.kind]||'#9ca3af');row.style.setProperty('--node-indent',(depth*16+4)+'px');row.style.minHeight=rowHeight+'px';row.style.alignItems='center';}
 const tw=document.createElement('span');tw.className='tw';tw.textContent=n.children.length?'▾':'·';row.appendChild(tw);if(n.kind){const k=document.createElement('span');k.className='kind '+n.kind;k.textContent=n.kind;row.appendChild(k);}const nm=document.createElement('span');nm.className='node-name';row.appendChild(nm);applyNameLayout(row,n,depth,rowHeight);const dur=document.createElement('span');dur.className='dur';dur.textContent=fmtMs(n.duration_ms);row.appendChild(dur);if(n.brief){const b=document.createElement('span');b.className='brief';b.textContent='('+n.brief+')';row.appendChild(b);}if(n.has_error){const e=document.createElement('span');e.className='errdot';e.textContent='[ERROR]';row.appendChild(e);}box.appendChild(row);const kids=document.createElement('div');box.appendChild(kids);boxOf[n.node_id]=kids;twOf[n.node_id]=tw;n.children.forEach(c=>kids.appendChild(renderInto(c,depth+1,n)));if((n.folded||n.collapsed)&&n.children.length){kids.style.display='none';tw.textContent='▸';}tw.onclick=ev=>{ev.stopPropagation();const open=kids.style.display!=='none';kids.style.display=open?'none':'';tw.textContent=n.children.length?(open?'▸':'▾'):'·';};row.onclick=()=>select(n.node_id);return box;}
-function facts(n){const rows=Object.entries(n.facts||{});return rows.length?'<table class="facts">'+rows.map(([k,v])=>'<tr><td>'+esc(k)+'</td><td>'+esc(v)+'</td></tr>').join('')+'</table>':'';}
+function factValue(v){const text=typeof v==='string'?v:JSON.stringify(v,null,2);return typeof v==='object'||text.length>160||text.includes('\n')?'<details><summary>'+esc(text.slice(0,120))+'</summary><pre>'+esc(text)+'</pre></details>':esc(text);}
+function facts(n){const rows=Object.entries(n.facts||{});return rows.length?'<table class="facts">'+rows.map(([k,v])=>'<tr><td>'+esc(k)+'</td><td>'+factValue(v)+'</td></tr>').join('')+'</table>':'';}
 function findings(n){const marks={error:'✗',warn:'▲',info:'·'};return(n.findings||[]).length?'<div class="findings">'+n.findings.map(f=>'<div class="f-'+esc(f.severity)+'">'+(marks[f.severity]||'·')+' ['+esc(f.source)+'] '+esc(f.note)+'</div>').join('')+'</div>':'';}
-function features(n){const rows=Object.entries(n.features||{});return rows.length?'<div class="meta">特征：</div>'+rows.map(([k,v])=>'<div class="feat"><div class="feat-h">'+esc(k)+'</div><pre class="feat-body">'+esc(v)+'</pre></div>').join(''):'';}
+function details(n){const rows=Object.entries(n.details||{});return rows.length?'<div class="meta">详情：</div>'+rows.map(([k,v])=>'<div class="feat"><div class="feat-h">'+esc(k)+'</div><pre class="feat-body">'+esc(typeof v==='string'?v:JSON.stringify(v,null,2))+'</pre></div>').join(''):'';}
 function attrValue(payload){const dd=document.createElement('dd');if(payload&&payload.kind==='json'){dd.className='json';dd.appendChild(renderjson(payload.value));}else{dd.textContent=payload&&payload.kind==='text'?payload.value:String(payload??'');}return dd;}
 function unfold(id){let p=parentOf[id];while(p){const b=boxOf[p];if(b&&b.style.display==='none'){b.style.display='';twOf[p].textContent='▾';}p=parentOf[p];}}
-function select(id){document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));unfold(id);const row=document.querySelector('.row[data-id="'+CSS.escape(id)+'"]');if(row){row.classList.add('sel');row.scrollIntoView({block:'nearest'});}const n=byId[id];if(!n)return;selectedId=id;location.hash=id;paneEl.innerHTML='<h2>'+esc(n.name)+'</h2><div class="meta">'+esc(n.kind)+' · '+fmtMs(n.duration_ms)+(n.service?' · '+esc(n.service):'')+(n.has_error?' · <b style="color:#dc2626">ERROR：'+esc(n.error)+'</b>':'')+'</div>'+findings(n)+facts(n)+features(n)+'<div class="meta">溯源 span（'+n.span_ids.length+'）：</div><div class="chips">'+n.span_ids.map(sid=>'<span class="chip'+((n.error_span_ids||[]).includes(sid)?' errc':'')+'" data-sid="'+esc(sid)+'">'+(sid===n.primary_span_id?'primary':'卫星')+' · '+esc((SPANS[sid]||{}).operation||sid)+'</span>').join('')+'</div><div id="attrs"></div>';paneEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>showSpan(c.dataset.sid));paneEl.querySelectorAll('.feat-h').forEach(h=>h.onclick=()=>h.parentElement.classList.toggle('open'));const sid=(n.error_span_ids||[])[0]||n.primary_span_id;if(sid)showSpan(sid);else document.getElementById('attrs').innerHTML='<div class="meta">视图压缩节点，无独立 span</div>';}
+function measurementBlock(n){const rows=n.measurements||[];if(!rows.length)return '';return '<h3>Measurements</h3><div class="meta">trace_prefix：请求开始 → 此节点结束（含进行中的调用）。各 kind 可重叠；累计耗时不等于 wall-clock 贡献。</div><table><tr><th>Measurement / Scope</th><th>Kind</th><th>Count</th><th>Duration sum</th><th>Covered</th><th>Value / Status</th></tr>'+rows.map(r=>'<tr><td>'+esc(r.id)+'<br>'+esc(r.scope)+'</td><td>'+esc(r.kind)+'</td><td>'+esc(r.values.count??'')+'</td><td>'+esc(r.values.duration_sum_ms==null?'':r.values.duration_sum_ms+' ms')+'</td><td>'+esc(r.values.covered_ms==null?'':r.values.covered_ms+' ms')+'</td><td>'+esc(r.status==='measured'?Object.entries(r.values).filter(([k])=>!['count','duration_sum_ms','covered_ms'].includes(k)).map(([k,v])=>k+'='+v+' '+(r.units[k]||'')).join(', '):r.status+': '+(r.error||''))+'</td></tr>').join('')+'</table>';}
+function select(id){document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));unfold(id);const row=document.querySelector('.row[data-id="'+CSS.escape(id)+'"]');if(row){row.classList.add('sel');row.scrollIntoView({block:'nearest'});}const n=byId[id];if(!n)return;selectedId=id;location.hash=id;paneEl.innerHTML='<h2>'+esc(n.name)+'</h2><div class="meta">'+esc(n.kind)+' · '+fmtMs(n.duration_ms)+(n.service?' · '+esc(n.service):'')+(n.has_error?' · <b style="color:#dc2626">ERROR：'+esc(n.error)+'</b>':'')+'</div>'+findings(n)+measurementBlock(n)+facts(n)+details(n)+'<div class="meta">溯源 span（'+n.span_ids.length+'）：</div><div class="chips">'+n.span_ids.map(sid=>'<span class="chip'+((n.error_span_ids||[]).includes(sid)?' errc':'')+'" data-sid="'+esc(sid)+'">'+(sid===n.primary_span_id?'primary':'卫星')+' · '+esc((SPANS[sid]||{}).operation||sid)+'</span>').join('')+'</div><div id="attrs"></div>';paneEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>showSpan(c.dataset.sid));paneEl.querySelectorAll('.feat-h').forEach(h=>h.onclick=()=>h.parentElement.classList.toggle('open'));const sid=(n.error_span_ids||[])[0]||n.primary_span_id;if(sid)showSpan(sid);else document.getElementById('attrs').innerHTML='<div class="meta">视图压缩节点，无独立 span</div>';}
 function showSpan(sid){paneEl.querySelectorAll('.chip').forEach(c=>c.classList.toggle('sel',c.dataset.sid===sid));const sp=SPANS[sid],box=document.getElementById('attrs');box.replaceChildren();if(!sp){const missing=document.createElement('div');missing.className='meta';missing.textContent='span 不在快照内';box.appendChild(missing);return;}const meta=document.createElement('div');meta.className='meta';meta.textContent='span '+sid+' · '+sp.operation+' · '+fmtMs(sp.duration_ms);box.appendChild(meta);const attrs=document.createElement('dl');attrs.className='attrs';for(const [key,value] of Object.entries(sp.attrs)){const name=document.createElement('dt');name.textContent=key;attrs.append(name,attrValue(value));}box.appendChild(attrs);}
 function firstError(ns){for(const n of ns){if(n.has_error&&n.kind)return n.node_id;const child=firstError(n.children);if(child)return child;}return null;}
 function firstReal(ns){for(const n of ns){if(n.kind)return n.node_id;const child=firstReal(n.children);if(child)return child;}return null;}
@@ -237,20 +228,20 @@ renderTree();showLayout('tree');
 
 export function renderInteractive(
   context: TraceContext,
-  findings: Record<string, Finding[]> = {},
+  findings: Readonly<Record<string, readonly Finding[]>> = {},
   options: {
-    featureRegistry?: FeatureRegistry;
+    measurements?: Measurements;
     facetRegistry?: FacetRegistry;
     agentRunIR?: AgentRunIR;
   } = {},
 ): string {
-  const featureRegistry = options.featureRegistry ?? new FeatureRegistry(builtinFeatures());
+  const measurements = options.measurements ?? new Measurements();
   const facetRegistry = options.facetRegistry ?? new FacetRegistry(builtinFacets());
   const byId = new Map(context.nodes.map((node) => [node.node_id, node]));
   const trees: Record<string, { roots: Array<Record<string, unknown>> }> = {
     full: {
       roots: renderDisplay(context.view(), findings, facetRegistry, { perspective: "full" })
-        .map((root, i) => displayPayload(context, root, byId, featureRegistry, String(i))),
+        .map((root, i) => displayPayload(context, root, byId, measurements, String(i))),
     },
   };
   if (options.agentRunIR?.runs.length) {
@@ -266,7 +257,7 @@ export function renderInteractive(
   const errorCount = context.nodes.filter((node) => node.has_error).length;
   const agentButton = trees.agent ? '<button data-perspective="agent">Agent</button>' : "";
   return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>trace ${title}</title><style>${CSS}</style></head>
-<body><header><h1>trace <b>${title}</b> · ${context.nodes.length} nodes / ${context.spans.size} spans · errors ${errorCount}</h1>
+<body><header><h1>trace <b>${title}</b> · ${context.nodes.length} nodes / ${context.span_count} spans · errors ${errorCount}</h1>
 <nav class="switch"><span>侧重点</span><button data-perspective="full" class="active">完整</button>${agentButton}</nav>
 <nav class="switch"><span>形态</span><button data-layout="tree" class="active">调用栈</button><button data-layout="flame">火焰图</button></nav><button id="expand">全部展开</button><button id="fold">全部折叠</button></header>
 <div class="wrap" id="view-stack"><div class="tree" id="tree"></div><div class="splitter" id="splitter" role="separator" aria-label="调整调用栈与节点详情宽度" aria-orientation="vertical" tabindex="0"></div><div class="pane" id="pane"></div></div>

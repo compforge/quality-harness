@@ -102,11 +102,11 @@ def _item_payload(
         brief_parts.append(f"{len(operations)} operation{'s' if len(operations) != 1 else ''}")
     if agent_runs:
         brief_parts.append(f"{len(agent_runs)} agent run{'s' if len(agent_runs) != 1 else ''}")
-    features = {}
+    details = {}
     if item.input is not None:
-        features["input"] = _text(item.input)
+        details["input"] = _text(item.input)
     if item.output is not None:
-        features["output"] = _text(item.output)
+        details["output"] = _text(item.output)
     children = [
         *(_item_payload(context, child, findings) for child in operations),
         *(_run_payload(context, run, findings) for run in agent_runs),
@@ -123,7 +123,7 @@ def _item_payload(
         "duration_ms": item.duration_ms,
         "brief": " · ".join(brief_parts),
         "facts": facts,
-        "features": features,
+        "details": details,
         "folded": 0,
         # Operation 是上下文包装层，默认降噪；包含错误时保持展开，避免隐藏观测信号。
         "collapsed": (
@@ -157,7 +157,7 @@ def _turn_payload(
         "duration_ms": turn.duration_ms,
         "brief": f"{len(turn.items)} items",
         "facts": _facts(turn.status, turn.attributes, sources),
-        "features": {},
+        "details": {},
         "folded": 0,
         "children": children,
         **_source_payload(context, sources, findings, turn.status),
@@ -220,7 +220,7 @@ def _run_payload(
         "duration_ms": run.duration_ms,
         "brief": f"{turn_index} turns · {operation_count} operations",
         "facts": _facts(run.status, run.attributes, sources),
-        "features": {},
+        "details": {},
         "folded": 0,
         "children": children,
         **_source_payload(context, sources, findings, run.status),

@@ -59,6 +59,7 @@ function modelSpec(): KindSpec {
       if (node.has_error || node.facts.out_tokens !== 0) return [];
       return [{ ref: node.node_id, source: "empty_output", severity: "warn", note: "模型返回 0 output tokens（疑似空响应）" }];
     }],
+    project_requires: ["http_status"],
     project: (node) => {
       const fields = [];
       if (node.facts.model) fields.push({ label: "model", value: String(node.facts.model), emphasis: "strong" as const });

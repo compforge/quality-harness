@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from trace_harness import TraceContributions, TraceHarness
-from trace_harness.feature import Feature
+from trace_harness import FactTransform, TraceContributions, TraceHarness
 from trace_harness.ingest.sources.jaeger_file import load_jaeger_file
 from trace_harness.kinds import genai
 from trace_harness.model.node import Finding
@@ -14,7 +13,7 @@ from trace_harness.view.facet import DefaultFacet
 FIXTURE = Path(__file__).parents[4] / "conformance" / "trace" / "fixtures" / "genai-basic.jsonl"
 
 
-def _scope_detector(node, ctx, found):
+def _scope_detector(node, ctx):
     if node.facts.get("scope_marker") == "alpha":
         return [Finding(node.node_id, "scope:alpha", "info")]
     return []
@@ -44,18 +43,16 @@ def test_contributions_do_not_leak_between_harnesses():
     alpha = TraceHarness(
         TraceContributions(
             specs=tuple(genai.specs()),
-            features=(
-                Feature(
+            transforms=(
+                FactTransform(
                     ("scope_marker",),
                     lambda node: node.kind == "agent",
                     lambda node, ctx: {"scope_marker": "alpha"},
-                    bake=True,
                 ),
-                Feature(
+                FactTransform(
                     ("scope_action",),
                     lambda node: node.kind == "agent",
                     lambda node, ctx: {"scope_action": "alpha-action"},
-                    bake=False,
                 ),
             ),
             detectors=(_scope_detector,),
@@ -69,10 +66,13 @@ def test_contributions_do_not_leak_between_harnesses():
     alpha_agent = next(node for node in alpha_context.nodes if node.kind == "agent")
     plain_agent = next(node for node in plain_context.nodes if node.kind == "agent")
 
+    alpha.transform_all(alpha_context, "scope_marker")
     assert alpha_agent.facts["scope_marker"] == "alpha"
     assert "scope_marker" not in plain_agent.facts
-    assert alpha.lazy_features(alpha_agent, alpha_context) == {"scope_action": "alpha-action"}
-    assert plain.lazy_features(plain_agent, plain_context) == {}
+    assert alpha.transform(alpha_agent, alpha_context, "scope_action") == {
+        "scope_action": "alpha-action"
+    }
+    assert plain.transform(plain_agent, plain_context, "scope_action") == {}
     alpha_findings = alpha.diagnose(alpha_context)
     plain_findings = plain.diagnose(plain_context)
     assert any(finding.source == "scope:alpha" for finding in alpha_findings[alpha_agent.node_id])

@@ -6,20 +6,6 @@ import type { Detector } from "./registry";
 const HOLE_MIN_GAP_MS = 1000;
 const HOLE_MIN_FRAC = 0.2;
 
-function intervalUnion(intervals: Array<[number, number]>): number {
-  if (intervals.length === 0) return 0;
-  const sorted = [...intervals].sort((left, right) => left[0] - right[0]);
-  let [start, end] = sorted[0]!;
-  let total = 0;
-  for (const [nextStart, nextEnd] of sorted.slice(1)) {
-    if (nextStart <= end) end = Math.max(end, nextEnd);
-    else {
-      total += end - start;
-      [start, end] = [nextStart, nextEnd];
-    }
-  }
-  return total + end - start;
-}
 
 function errorSignature(context: TraceContext, node: Node): string {
   const span = context.spans.get(node.error_anchor);
@@ -27,7 +13,8 @@ function errorSignature(context: TraceContext, node: Node): string {
   return type || context.error_text(node.error_anchor).slice(0, 60);
 }
 
-const detached: Detector = (node, context) => {
+const detached: Detector = (node, analysis) => {
+  const context = analysis.trace;
   const parentSpanId = context.spans.get(node.primary_span_id)?.parent_span_id;
   if (!parentSpanId || context.spans.has(parentSpanId)) return [];
   return [{
@@ -38,18 +25,15 @@ const detached: Detector = (node, context) => {
   }];
 };
 
-const observationHole: Detector = (node, context) => {
+const observationHole: Detector = (node, analysis) => {
+  const context = analysis.trace;
   const spec = context.specs.get(node.kind);
   if (spec?.obs_hole === false) return [];
   const children = context.view().children(node);
   if (children.length === 0 || node.duration_ms <= 0) return [];
-  const intervals = children
-    .map((child): [number, number] => [
-      Math.max(node.start_ms, child.start_ms),
-      Math.min(node.end_ms, child.end_ms),
-    ])
-    .filter(([start, end]) => end > start);
-  const gap = node.duration_ms - intervalUnion(intervals);
+  const measurement = analysis.measurements.get(node.node_id, "self_ms");
+  if (measurement?.status !== "measured") return [];
+  const gap = Number(measurement.values.self_ms);
   if (gap < HOLE_MIN_GAP_MS || gap < HOLE_MIN_FRAC * node.duration_ms) return [];
   return [{
     ref: node.node_id,
@@ -59,7 +43,8 @@ const observationHole: Detector = (node, context) => {
   }];
 };
 
-const propagated: Detector = (node, context) => {
+const propagated: Detector = (node, analysis) => {
+  const context = analysis.trace;
   if (!node.has_error) return [];
   const signature = errorSignature(context, node);
   const stack = [...context.view().children(node)];

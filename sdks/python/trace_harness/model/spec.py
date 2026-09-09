@@ -20,7 +20,7 @@ from trace_harness.model.node import Field, Node
 from trace_harness.model.span import NormSpan
 
 if TYPE_CHECKING:
-    from trace_harness.model.context import TraceContext
+    from trace_harness.analyze.context import AnalysisContext
 
 
 # 类型别名（仅作可读签名，不强制）
@@ -30,7 +30,7 @@ Claimer = Callable[[NormSpan, list[NormSpan]], set]
 # build：吃 primary + 已认领卫星，产 facts 列（业务字段到此为止）
 Builder = Callable[[NormSpan, list[NormSpan]], dict]
 # rule：吃 node + ctx，产 Finding 列表（per-kind 域判读）
-Rule = Callable[["Node", "TraceContext"], list]
+Rule = Callable[["Node", "AnalysisContext"], list]
 
 
 @dataclass
@@ -51,6 +51,7 @@ class KindSpec:
     obs_hole: bool = True
     # —— IR projection —— per-kind 一行投影（assemble bake 期烤进 node.brief）
     project: Callable[[Node], list[Field]] | None = None
+    project_requires: tuple[str, ...] = ()
 
 
 class SpecSet:

@@ -23,7 +23,8 @@ def test_finding_symptoms_causes_default_empty():
 def test_registered_detector_runs_with_found_accumulator():
     saw_base = {"yes": False}
 
-    def det(node, ctx, found):
+    def det(node, ctx):
+        found = ctx.findings
         # found 里应已有 base findings（diagnose 先产 base 再跑注册 detector）
         if sum(len(v) for v in found.values()) > 0:
             saw_base["yes"] = True

@@ -1,3 +1,4 @@
+import type { TransformContext } from "../transform";
 import type { Node } from "./node";
 import type { KindSpec } from "./spec";
 import { spanErrorText, type NormSpan } from "./span";
@@ -5,16 +6,18 @@ import { buildView, type ViewTree } from "./viewtree";
 
 export class TraceContext {
   #view?: ViewTree;
+  transforms?: TransformContext;
 
   constructor(
     readonly trace_id: string,
     readonly spans: Map<string, NormSpan>,
     readonly nodes: Node[],
     readonly specs: Map<string, KindSpec>,
+    readonly observed_span_count?: number,
   ) {}
 
   get span_count(): number {
-    return this.spans.size;
+    return this.observed_span_count ?? this.spans.size;
   }
 
   view(): ViewTree {

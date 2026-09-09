@@ -9,7 +9,6 @@ import {
   diagnose,
   DisplayName,
   type DisplayNode,
-  type FeatureContext,
   genAiSpecs,
   Node,
   normalizeJaegerSpans,
@@ -45,7 +44,6 @@ describe("Python trace_harness parity fixture", () => {
       model: "model-alpha-seed-2",
       in_tokens: 1820,
       out_tokens: 640,
-      self_ms: 100,
       http_status: 200,
     });
   });
@@ -202,7 +200,7 @@ describe("shared conformance", () => {
     const harness = new TraceHarness({ specs: genAiSpecs() });
     const context = harness.assemble(normalizeJaegerSpans(fixtureDocuments()));
 
-    expect(analysisSnapshot(context, harness.diagnose(context))).toEqual(expected);
+    expect(analysisSnapshot(harness.analyze(context))).toEqual(expected);
   });
 });
 
@@ -217,16 +215,14 @@ describe("scoped TraceHarness", () => {
 
     const alpha = new TraceHarness({
       specs: genAiSpecs(),
-      features: [{
+      transforms: [{
         produces: ["scope_marker"],
         applies: (node) => node.kind === "agent",
         compute: () => ({ scope_marker: "alpha" }),
-        bake: true,
       }, {
         produces: ["scope_action"],
         applies: (node) => node.kind === "agent",
-        compute: (_node: Node, _context: FeatureContext) => ({ scope_action: "alpha-action" }),
-        bake: false,
+        compute: () => ({ scope_action: "alpha-action" }),
       }],
       detectors: [(node) => node.facts.scope_marker === "alpha" ? [{
         ref: node.node_id,
@@ -242,10 +238,11 @@ describe("scoped TraceHarness", () => {
     const alphaAgent = alphaContext.nodes.find((node) => node.kind === "agent")!;
     const plainAgent = plainContext.nodes.find((node) => node.kind === "agent")!;
 
+    alpha.transformAll(alphaContext, "scope_marker");
     expect(alphaAgent.facts.scope_marker).toBe("alpha");
     expect(plainAgent.facts.scope_marker).toBeUndefined();
-    expect(alpha.lazyFeatures(alphaAgent, alphaContext)).toEqual({ scope_action: "alpha-action" });
-    expect(plain.lazyFeatures(plainAgent, plainContext)).toEqual({});
+    expect(alpha.transform(alphaAgent, alphaContext, "scope_action")).toEqual({ scope_action: "alpha-action" });
+    expect(plain.transform(plainAgent, plainContext, "scope_action")).toEqual({});
     const alphaFindings = alpha.diagnose(alphaContext);
     const plainFindings = plain.diagnose(plainContext);
     expect(alphaFindings[alphaAgent.node_id]?.map((finding) => finding.source))

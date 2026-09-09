@@ -38,7 +38,8 @@ function serialRuns(requests: HttpRequest[]): HttpRequest[][] {
 }
 
 /** Run once per trace; use caller spans for sequence timing to avoid cross-host clock skew. */
-export const httpRequestPatterns: Detector = (node, context) => {
+export const httpRequestPatterns: Detector = (node, analysis) => {
+  const context = analysis.trace;
   const anchor = context.nodes.reduce((earliest, candidate) =>
     !earliest || candidate.start_ms < earliest.start_ms
       || (candidate.start_ms === earliest.start_ms && candidate.node_id < earliest.node_id)

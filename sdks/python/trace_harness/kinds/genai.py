@@ -71,7 +71,7 @@ def _build_model(primary: NormSpan, satellites: list[NormSpan]) -> dict:
     total_tok = primary.num("gen_ai.usage.total_tokens", "llm.token_count.total")
     if total_tok is not None:
         facts["total_tokens"] = total_tok
-    # http_status 不在此抽：1:1 后 http 是独立子 node，由 derive 的 HttpStatusOp 从 http 子卷上来。
+    # http_status 不在此抽：1:1 后 http 是独立子 node，由 FactTransform 从 http 子节点转换得到。
     # 原文填指针：prompt/completion 在 primary 上，按需经 raw_attr 回原文（probe 阶段）
     if primary.attr("gen_ai.prompt", "gen_ai.input.messages") is not None:
         facts["io_span"] = primary.span_id
@@ -120,6 +120,7 @@ def _model_spec() -> KindSpec:
         },
         rules=(_rule_empty_output,),
         project=_project_model,
+        project_requires=("http_status",),
     )
 
 

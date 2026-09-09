@@ -6,7 +6,7 @@ import type { ChildOp } from "./facet";
 
 type Group = Extract<ChildOp, { type: "group" }>;
 
-export function httpCallGroups(view: ViewTree, findings: Record<string, Finding[]>): Map<string, Group> {
+export function httpCallGroups(view: ViewTree, findings: Readonly<Record<string, readonly Finding[]>>): Map<string, Group> {
   const groups = new Map<string, Group>();
   for (const finding of Object.values(findings).flat()) {
     if (finding.source !== "http_serial_same_api") continue;

@@ -1,3 +1,6 @@
+import { measure } from "./measure";
+import type { Measurements } from "../model/measurement";
+import { AnalysisContext } from "./context";
 import type { TraceContext } from "../model/context";
 import type { Finding, Node } from "../model/node";
 import { builtinDetectors } from "./detectors";
@@ -27,7 +30,9 @@ function postOrder(context: TraceContext): Node[] {
 export function diagnose(
   context: TraceContext,
   detectorRegistry?: DetectorRegistry,
+  measurements: Measurements = measure(context),
 ): Findings {
+  const analysis = new AnalysisContext(context, measurements);
   const activeRegistry = detectorRegistry ?? new DetectorRegistry(builtinDetectors());
   const findings: Findings = {};
   for (const node of context.nodes) {
@@ -40,12 +45,12 @@ export function diagnose(
       });
     }
     for (const rule of context.specs.get(node.kind)?.rules ?? []) {
-      for (const finding of rule(node, context)) append(findings, finding);
+      for (const finding of rule(node, analysis)) append(findings, finding);
     }
   }
   for (const node of postOrder(context)) {
     for (const detector of activeRegistry.registered()) {
-      for (const finding of detector(node, context, findings)) append(findings, finding);
+      for (const finding of detector(node, new AnalysisContext(context, analysis.measurements, findings))) append(findings, finding);
     }
   }
   return findings;

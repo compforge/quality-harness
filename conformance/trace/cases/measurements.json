@@ -1,0 +1,541 @@
+[
+  {
+    "name": "serial",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "service",
+        "start_ms": 0,
+        "dur_ms": 100,
+        "service": "svc",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "GET /items",
+        "start_ms": 10,
+        "dur_ms": 10,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "GET /items",
+        "start_ms": 30,
+        "dur_ms": 20,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      }
+    ],
+    "expected": {
+      "a": {
+        "http": {
+          "count": 1,
+          "duration_sum_ms": 10,
+          "covered_ms": 10
+        }
+      },
+      "b": {
+        "http": {
+          "count": 2,
+          "duration_sum_ms": 30,
+          "covered_ms": 30
+        }
+      },
+      "root": {
+        "http": {
+          "count": 2,
+          "duration_sum_ms": 30,
+          "covered_ms": 30
+        }
+      }
+    }
+  },
+  {
+    "name": "parallel-inflight",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "service",
+        "start_ms": 0,
+        "dur_ms": 100,
+        "service": "svc",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "GET /items",
+        "start_ms": 10,
+        "dur_ms": 40,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "GET /items",
+        "start_ms": 20,
+        "dur_ms": 10,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      }
+    ],
+    "expected": {
+      "b": {
+        "http": {
+          "count": 2,
+          "duration_sum_ms": 30,
+          "covered_ms": 20
+        }
+      },
+      "a": {
+        "http": {
+          "count": 2,
+          "duration_sum_ms": 50,
+          "covered_ms": 40
+        }
+      },
+      "root": {
+        "http": {
+          "count": 2,
+          "duration_sum_ms": 50,
+          "covered_ms": 40
+        }
+      }
+    }
+  },
+  {
+    "name": "boundary-zero",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "service",
+        "start_ms": 0,
+        "dur_ms": 100,
+        "service": "svc",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "GET /items",
+        "start_ms": 10,
+        "dur_ms": 10,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "GET /items",
+        "start_ms": 20,
+        "dur_ms": 0,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      },
+      {
+        "span_id": "c",
+        "parent_span_id": "root",
+        "name": "GET /items",
+        "start_ms": 20,
+        "dur_ms": 10,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      },
+      {
+        "span_id": "d",
+        "parent_span_id": "root",
+        "name": "GET /items",
+        "start_ms": 21,
+        "dur_ms": 2,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      }
+    ],
+    "expected": {
+      "a": {
+        "http": {
+          "count": 3,
+          "duration_sum_ms": 10,
+          "covered_ms": 10
+        }
+      },
+      "b": {
+        "http": {
+          "count": 3,
+          "duration_sum_ms": 10,
+          "covered_ms": 10
+        }
+      },
+      "root": {
+        "http": {
+          "count": 4,
+          "duration_sum_ms": 22,
+          "covered_ms": 20
+        }
+      }
+    }
+  },
+  {
+    "name": "prefix-not-subtree",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "service",
+        "start_ms": 0,
+        "dur_ms": 100,
+        "service": "svc",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "GET /items",
+        "start_ms": 10,
+        "dur_ms": 10,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      },
+      {
+        "span_id": "tool",
+        "parent_span_id": "root",
+        "name": "tool",
+        "start_ms": 30,
+        "dur_ms": 20,
+        "service": "svc",
+        "attrs": {
+          "gen_ai.operation.name": "execute_tool",
+          "gen_ai.tool.name": "read"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "tool",
+        "name": "GET /items",
+        "start_ms": 35,
+        "dur_ms": 20,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      }
+    ],
+    "expected": {
+      "tool": {
+        "http": {
+          "count": 2,
+          "duration_sum_ms": 25,
+          "covered_ms": 25
+        },
+        "tool-call": {
+          "count": 1,
+          "duration_sum_ms": 20,
+          "covered_ms": 20
+        }
+      }
+    }
+  },
+  {
+    "name": "paired-caller-clock",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "service",
+        "start_ms": 0,
+        "dur_ms": 100,
+        "service": "svc",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "GET /items",
+        "start_ms": 10,
+        "dur_ms": 10,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "server",
+        "parent_span_id": "a",
+        "name": "GET /items",
+        "start_ms": 5,
+        "dur_ms": 40,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items",
+          "span.kind": "server"
+        }
+      }
+    ],
+    "expected": {
+      "a": {
+        "http": {
+          "count": 1,
+          "duration_sum_ms": 10,
+          "covered_ms": 10
+        }
+      },
+      "server": {
+        "http": {
+          "count": 1,
+          "duration_sum_ms": 10,
+          "covered_ms": 10
+        }
+      },
+      "root": {
+        "http": {
+          "count": 1,
+          "duration_sum_ms": 10,
+          "covered_ms": 10
+        }
+      }
+    }
+  },
+  {
+    "name": "stream-and-model-http",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "service",
+        "start_ms": 0,
+        "dur_ms": 100,
+        "service": "svc",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "GET /items",
+        "start_ms": 10,
+        "dur_ms": 10,
+        "service": "svc",
+        "attrs": {
+          "http.method": "POST",
+          "http.url": "http://example.test/chat/completions",
+          "http.request.body": {
+            "stream": true
+          }
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "GET /items",
+        "start_ms": 30,
+        "dur_ms": 10,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items",
+          "http.request.header.accept": "text/event-stream"
+        }
+      }
+    ],
+    "expected": {
+      "root": {
+        "http": {
+          "count": 2,
+          "duration_sum_ms": 20,
+          "covered_ms": 20
+        }
+      }
+    }
+  },
+  {
+    "name": "nested-model-http",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "service",
+        "start_ms": 0,
+        "dur_ms": 100,
+        "service": "svc",
+        "attrs": {}
+      },
+      {
+        "span_id": "model",
+        "parent_span_id": "root",
+        "name": "model",
+        "start_ms": 10,
+        "dur_ms": 50,
+        "service": "svc",
+        "attrs": {
+          "gen_ai.operation.name": "chat",
+          "gen_ai.request.model": "m"
+        }
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "model",
+        "name": "GET /items",
+        "start_ms": 20,
+        "dur_ms": 20,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      }
+    ],
+    "expected": {
+      "a": {
+        "http": {
+          "count": 1,
+          "duration_sum_ms": 20,
+          "covered_ms": 20
+        },
+        "model-call": {
+          "count": 1,
+          "duration_sum_ms": 30,
+          "covered_ms": 30
+        }
+      },
+      "root": {
+        "http": {
+          "count": 1,
+          "duration_sum_ms": 20,
+          "covered_ms": 20
+        },
+        "model-call": {
+          "count": 1,
+          "duration_sum_ms": 50,
+          "covered_ms": 50
+        }
+      }
+    }
+  },
+  {
+    "name": "empty-calls",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "service",
+        "start_ms": 0,
+        "dur_ms": 100,
+        "service": "svc",
+        "attrs": {}
+      }
+    ],
+    "expected": {
+      "root": {}
+    }
+  },
+  {
+    "name": "multiple-roots",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "service",
+        "start_ms": 0,
+        "dur_ms": 100,
+        "service": "svc",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": null,
+        "name": "GET /items",
+        "start_ms": 10,
+        "dur_ms": 10,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": null,
+        "name": "GET /items",
+        "start_ms": 30,
+        "dur_ms": 20,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      }
+    ],
+    "expected": {
+      "b": {
+        "http": {
+          "count": 2,
+          "duration_sum_ms": 30,
+          "covered_ms": 30
+        }
+      }
+    }
+  },
+  {
+    "name": "fractional-half-up",
+    "spans": [
+      {
+        "span_id": "h",
+        "parent_span_id": null,
+        "name": "GET /items",
+        "start_ms": 0,
+        "dur_ms": 1.2345,
+        "service": "svc",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "http://example.test/items"
+        }
+      }
+    ],
+    "expected": {
+      "h": {
+        "http": {
+          "count": 1,
+          "duration_sum_ms": 1.235,
+          "covered_ms": 1.235
+        }
+      }
+    }
+  }
+]

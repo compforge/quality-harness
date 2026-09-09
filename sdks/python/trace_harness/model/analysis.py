@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
-from trace_harness.model.context import TraceContext
-from trace_harness.model.node import Finding
+import json
+from dataclasses import asdict
+from pathlib import Path
 
-SCHEMA = "trace-harness/analysis@1"
+from trace_harness.analyze.context import AnalysisContext
+from trace_harness.model.context import TraceContext
+from trace_harness.model.measurement import CallSource, Measurement, Measurements, MeasurementSpec
+from trace_harness.model.node import Field, Finding, Node
+
+SCHEMA = "trace-harness/analysis@2"
 
 
 def analysis_snapshot(
-    context: TraceContext,
-    findings: dict[str, list[Finding]] | None = None,
+    analysis: AnalysisContext,
 ) -> dict:
     """Project runtime objects into the canonical JSON-compatible analysis IR."""
+    context = analysis.trace
+    findings = analysis.findings
     nodes = sorted(context.nodes, key=lambda node: (node.start_ms, node.node_id))
     flattened = sorted(
         (finding for group in (findings or {}).values() for finding in group),
@@ -28,6 +35,7 @@ def analysis_snapshot(
         "schema": SCHEMA,
         "trace_id": context.trace_id,
         "span_count": context.span_count,
+        "measurements": json.loads(json.dumps(asdict(analysis.measurements))),
         "nodes": [
             {
                 "node_id": node.node_id,
@@ -68,3 +76,48 @@ def analysis_snapshot(
             for finding in flattened
         ],
     }
+
+
+def dump_analysis(analysis: AnalysisContext, path: str | Path) -> Path:
+    path = Path(path)
+    path.write_text(
+        json.dumps(analysis_snapshot(analysis), ensure_ascii=False, allow_nan=False),
+        encoding="utf-8",
+    )
+    return path
+
+
+def load_analysis(path: str | Path) -> AnalysisContext:
+    """Reload saved results for offline rendering, without running any extensions."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if data.get("schema") != SCHEMA:
+        raise ValueError(f"not a {SCHEMA} analysis file: {path}")
+    nodes = [
+        Node(**{**item, "brief": [Field(**value) for value in item["brief"]]})
+        for item in data["nodes"]
+    ]
+    trace = TraceContext(data["trace_id"], {}, nodes, {}, observed_span_count=data["span_count"])
+    payload = data["measurements"]
+    measurements = Measurements(
+        [
+            MeasurementSpec(**{**item, "dimensions": tuple(item["dimensions"])})
+            for item in payload["specs"]
+        ],
+        [
+            CallSource(**{**item, "span_ids": tuple(item["span_ids"])})
+            for item in payload["sources"]
+        ],
+        {
+            node_id: [Measurement(**item) for item in results]
+            for node_id, results in payload["results"].items()
+        },
+    )
+    findings: dict[str, list[Finding]] = {}
+    for item in data["findings"]:
+        finding = Finding(
+            **{**item, "symptoms": tuple(item["symptoms"]), "causes": tuple(item["causes"])}
+        )
+        findings.setdefault(finding.node_id, []).append(finding)
+    return AnalysisContext(
+        trace, measurements, {key: tuple(value) for key, value in findings.items()}
+    )

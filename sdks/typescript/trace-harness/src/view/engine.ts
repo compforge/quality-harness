@@ -19,7 +19,7 @@ function subtreeSize(view: ViewTree, node: Node): { count: number; total: number
   return { count, total };
 }
 
-function flagged(view: ViewTree, findings: Record<string, Finding[]>): Map<string, boolean> {
+function flagged(view: ViewTree, findings: Readonly<Record<string, readonly Finding[]>>): Map<string, boolean> {
   const result = new Map<string, boolean>();
   const mark = (node: Node): boolean => {
     let value = node.has_error || Boolean(findings[node.node_id]?.length);
@@ -44,7 +44,7 @@ function foldedLine(view: ViewTree, nodes: Node[], cut: number): DisplayNode {
 
 export function renderDisplay(
   view: ViewTree,
-  findings: Record<string, Finding[]> = {},
+  findings: Readonly<Record<string, readonly Finding[]>> = {},
   registry?: FacetRegistry,
   config: RenderConfig = {},
 ): DisplayNode[] {

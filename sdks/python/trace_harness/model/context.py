@@ -12,12 +12,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from trace_harness.model.node import Node
 from trace_harness.model.span import NormSpan
 from trace_harness.model.span import error_text as span_error_text
 from trace_harness.model.viewtree import ViewTree, build_view
+
+if TYPE_CHECKING:
+    from trace_harness.transform import TransformContext
 
 
 @dataclass
@@ -29,11 +32,14 @@ class TraceContext:
     evidence_dir: Path | None = None
     _view: ViewTree | None = field(default=None, repr=False)
 
+    observed_span_count: int | None = None
+    transforms: TransformContext | None = field(default=None, repr=False)
+
     # 渲染面：与 TraceView（落盘 IR）共用的窄属性集（trace_id/nodes/span_count/view()），
     # 渲染器对此 duck-type，故 ctx（内存）与 nodes.json（落盘）走同一渲染路径。
     @property
     def span_count(self) -> int:
-        return len(self.spans)
+        return self.observed_span_count if self.observed_span_count is not None else len(self.spans)
 
     # —— 视图期树（惰性，仅渲染/火焰/最近祖先用）——
     def view(self) -> ViewTree:

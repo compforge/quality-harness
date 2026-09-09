@@ -1,21 +1,19 @@
 # trace_harness 设计文档
 
 > 本文解释设计理由；跨语言的 normative contract 以
-> [`spec/trace-harness.md`](../spec/trace-harness.md)、`schema/trace/v1/` 和
+> [`spec/trace-harness.md`](../spec/trace-harness.md)、`schema/trace/` 和
 > `conformance/trace/` 为准。Python 与 TypeScript 是对等实现。
 
 ## 0. 作用域与扩展边界
 
 `TraceHarness` 是一套 trace 分析配置的作用域 owner；每个实例独立持有
-specs / features / detectors / facets / agent_run_extractor。业务包或 Plugin 对外提供
+specs / transforms / measurers / detectors / facets / agent_run_extractor。业务包或 Plugin 对外提供
 `TraceContributions`，Host 在构造 harness 时显式合并。因此 import 顺序、包管理器
 hoist 结果、bundle 中是否出现两份 harness，都不再决定业务语义。
 
-五类贡献的分工是：spec/feature 把各业务 span 标准化为统一 Analysis IR；detector 在 IR
-上产出 Finding；facet 只声明该业务的展示意图（哪些 node 是骨架、哪些折叠/分组、行摘要
-是什么）；`agent_run_extractor` 作为 NodeTree 上的业务语义 pass，产出 AgentRun IR。
-树递归、DisplayNode 组装、Finding 上色、AgentRun IR 校验和 text/HTML 序列化始终由
-harness 执行，业务不能替换整套渲染算法。
+这些贡献按输出责任划分：spec 从原始 span 建模；FactTransform 将已有 facts 转为新 facts；
+Measurer 计算有 scope、单位、维度和证据的 Measurement；detector 据此输出 Finding；
+facet 和 extractor 声明展示及语义投影。
 
 `TraceContributions` 只承载确定性扩展；probe 会写 evidence，仍是 Host 在
 `diagnose(..., probes=True)` 调用点显式开启，不随 Plugin 导入自动执行。
@@ -58,6 +56,59 @@ trace 时机器自动指出的已知原因越多，人和模型只处理注册�
 两种资产互相放大：case 集喂出 trace 语料，判读注册表自动消化语料。
 
 ---
+
+### Facts、Measurement 与 Finding 如何协作
+
+用户看到一个 node 很慢，首先需要知道“到这里为止已经做了多少工作”，即使每次调用都很快，
+汇总也可能占用不少时间。事实标准化与这类统计有不同生命周期，因此各自拥有输出。
+
+| 概念 | 输出与用途 | 负责范围 |
+| --- | --- | --- |
+| KindSpec.build | node.facts 的基础字段 | 把 raw 协议字段转成标准化观察 |
+| FactTransform | node.facts 的新字段 | 转换已有 facts，包括 http_status、curl、messages |
+| Measurer → Measurement | 独立的定量结果 | 回答某个 scope 上的数量、耗时等问题，保留单位和证据 |
+| Detector → Finding | 独立的诊断结果 | 读取 facts、Measurement 与已有 Finding，给出有依据的判断 |
+
+Measurement 在 trace 与 trajectory 中都是“运行记录体现出来、但原始记录未直接给出的度量”。
+两者面向不同的观察对象，共享这个作用和语义即可，各自维护适合自身的类型。
+
+主链为 `assemble(build → transform 所需 facts → brief) → measure → diagnose → render`。
+调用方也可以只运行 measure，直接查看统计。AnalysisContext 引用原 trace，并携带本次分析的
+Measurement 与 Finding；重复分析不写 facts，也不复用前一轮分析结果。额外需要的 fact 由调用方
+显式请求，Transform 物化到 node.facts 后再交给 renderer；渲染不会触发计算或执行生成的请求。
+
+### 统一的 fact → fact 转换
+
+请求转换成 curl，与子调用状态转换成父调用的 http_status，都生成新的具名 fact，使用同一个
+FactTransform 契约。是否提前计算、是否作为详情展示，由消费方决定，Transform 不带执行时机
+或 facts/details 分类。原始协议字段由建模层标准化，Transform 只读取已有 facts 和关系。
+
+投影声明自己需要的 fact，装配在生成 brief 前计算这些输入。分析或用户按需查看时，通过显式
+transform 入口请求名称；依赖解析和缓存由 trace 自己的 TransformContext 负责。一次生产者的
+多个输出一起缓存，跨请求复用；不同 trace 的同名 node 不共享缓存。基础 facts 和关系是固定
+输入，物化只添加新 facts，不覆盖已有值。
+
+多个适用生产者、循环依赖或覆盖基础 facts 都是声明错误，直接报错，避免注册顺序改变事实。
+一批请求全部成功后才写入事实；计算失败不会留下部分结果或污染缓存，后续请求可以重试。
+已物化的 curl、结构化输入等随 facts 持久化，离线查看不依赖原始 span 或转换代码。
+
+### 累计调用如何帮助解释慢
+
+`calls_until_node_end` 的 scope 是当前 trace 的最早观测开始到锚点 node 结束，包括其他分支。
+已开始的调用计入次数，尚未结束的调用只计截至锚点的已发生耗时。每个 kind 分别给出调用次数、
+duration sum 与覆盖时间；后两者的差异揭示并发和重叠。HTTP client/server 配对只计一次，保留
+调用方时间和双方证据。粗粒度 service 残余节点与展示 Group 不计为调用。
+
+不同 kind 可以嵌套：model call 内的 HTTP 同时体现模型工作和网络工作，因此不能把各行相加
+解释成总 wall-clock 或耗时归因。Measurement 展示“发生了多少”，Finding 再判断“是否反常”。
+累计数额本身不隐含告警阈值。
+
+每个 kind 扫描一次时间事件，通过活跃调用数的积分得到 duration sum，通过是否有活跃调用的
+积分得到覆盖时间。各 node 复用索引查询，结果用窗口选择器引用共享调用证据，避免逐节点重扫和
+重复保存此前所有 span。`self_ms` 也是 Measurement，描述节点区间中未被直接子节点覆盖的时间。
+
+分析 artifact 将 nodes/facts、Measurement 描述和结果、Finding 分开保存。离线加载展示已经保存
+的度量，避免规则版本或插件变化导致同一份报告的数值漂移。
 
 ## 1. 核心模型
 
@@ -158,9 +209,9 @@ KindSpec（semantic bundle）
 ```
 cli single <trace_id|file> [--series kind:metric] [--curl span] [--html out]
   → Source.fetch → build_context（不自动判读）
-  → harness.diagnose(ctx, probes=…)   # 按需；probe 是唯一有副作用的环节，默认关
+  → analysis = harness.analyze(ctx, probes=…)   # 按需；probe 是唯一有副作用的环节，默认关
   → harness.extract_agent_runs(ctx)       # 有业务 extractor 时产出 AgentRun IR
-  → harness.render_* / render_series
+  → harness.render_*(ctx, findings, measurements=analysis.measurements) / render_series
 ```
 
 构建与判读分离：看树零副作用；`diagnose(ctx, probes=True)` 才写 evidence 文件。

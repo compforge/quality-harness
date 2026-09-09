@@ -12,6 +12,9 @@
 
 from __future__ import annotations
 
+from trace_harness.analyze.context import AnalysisContext as AnalysisContext
+from trace_harness.analyze.measure import Measurer as Measurer
+from trace_harness.analyze.measure import measure as measure
 from trace_harness.harness import TraceContributions as TraceContributions
 from trace_harness.harness import TraceHarness as TraceHarness
 from trace_harness.harness import contributions_from_specs as contributions_from_specs
@@ -31,10 +34,15 @@ from trace_harness.model.agent import TurnItem as TurnItem
 from trace_harness.model.agent import agent_run_snapshot as agent_run_snapshot
 from trace_harness.model.agent import validate_agent_run_ir as validate_agent_run_ir
 from trace_harness.model.analysis import analysis_snapshot as analysis_snapshot
+from trace_harness.model.analysis import dump_analysis as dump_analysis
+from trace_harness.model.analysis import load_analysis as load_analysis
 from trace_harness.model.context import TraceContext as TraceContext
 from trace_harness.model.ir import TraceView as TraceView
 from trace_harness.model.ir import dump_view as dump_view
 from trace_harness.model.ir import load_view as load_view
+from trace_harness.model.measurement import Measurement as Measurement
+from trace_harness.model.measurement import Measurements as Measurements
+from trace_harness.model.measurement import MeasurementSpec as MeasurementSpec
 from trace_harness.model.node import Finding as Finding
 from trace_harness.model.node import Node as Node
 from trace_harness.model.span import NormSpan as NormSpan
@@ -42,6 +50,8 @@ from trace_harness.model.spec import KindSpec as KindSpec
 from trace_harness.model.spec import SpecSet as SpecSet
 from trace_harness.model.spec import merge as merge
 from trace_harness.model.viewtree import NodeTreeExtractor as NodeTreeExtractor
+from trace_harness.transform import FactTransform as FactTransform
+from trace_harness.transform import TransformContext as TransformContext
 from trace_harness.view.explore import render_explore as render_explore
 from trace_harness.view.facet import DefaultFacet as DefaultFacet
 from trace_harness.view.facet import Facet as Facet
