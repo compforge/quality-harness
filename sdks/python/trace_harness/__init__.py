@@ -58,4 +58,5 @@ from trace_harness.view.facet import Facet as Facet
 from trace_harness.view.facet import PerspectiveLevel as PerspectiveLevel
 from trace_harness.view.facet import RenderConfig as RenderConfig
 from trace_harness.view.facet import TracePerspective as TracePerspective
+from trace_harness.view.measurements import MeasurementFilter as MeasurementFilter
 from trace_harness.view.text import render_text as render_text

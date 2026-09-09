@@ -476,3 +476,10 @@ sdks/python/trace_harness/
 | 主动模式 driver | 自带薄 httpx/SSE，不 import e2e_harness | 仓库"先复制后收敛"约定；driver 只驱动+捕获 trace_id，不做质量打分（打分归 eval） |
 | 原生 OTLP source 保真（后置，step 4+） | 读 pdata 的 Status / Events / typed Value，不从 jaeger-ism 反推 | OTel 规范里 error = `Status.Code==Error` + exception **Event**、attr 是 typed `pcommon.Value`（Str/Int/Double/Map/Slice…）；JaegerFileSource 现走 `otel.status_code` tag + `logs` 异常 + 扁平 tag，那是 jaeger ES 存储特例。OTLP source 落地时按 pdata 原义抽，归一收口在 source 层，NormSpan 骨架不变 |
 | **Finding 与 verdict 的关系** | Finding（发现）不直接变 verdict（判定）；trace batch 必产 verdict.json，判定只来自显式声明的 `gates:` → `checks[]`，无 gates → skipped | 范畴区分：Finding 无预期可对照（语料里找出错误签名是分析的成功，不是 run 的 fail）；run 契约层则统一进四家共用的 verdict 出口（`Face` 扩 `trace`），沿用 perf 记录门诚实原则——没验证过的 run 不读成 green |
+
+### Measurement 的展示范围
+
+量化计算和展示选择分开：detector 可以读取完整结果，报告通过域贡献的
+`measurement_filter` 只展示有意义的节点及指标。例如业务可以选择某个阶段完成的 action，
+而无需在每个节点重复展示累计调用数。筛选只读取已准备的结果及 trace 关系；
+HTML 与 Markdown 使用同一投影，不改变 analysis snapshot 或重新计算 Measurement。

@@ -1,7 +1,30 @@
 """Pure Measurement projections shared by interactive and Markdown output."""
 
+from collections.abc import Callable
+
+from trace_harness.model.context import TraceContext
 from trace_harness.model.ir import Renderable
-from trace_harness.model.measurement import Measurements
+from trace_harness.model.measurement import Measurement, Measurements
+from trace_harness.model.node import Node
+
+# A presentation predicate; it must not compute facts, measurements or findings.
+MeasurementFilter = Callable[[Node, Measurement, TraceContext], bool]
+
+
+def filter_measurements(
+    trace: TraceContext, measurements: Measurements, predicate: MeasurementFilter | None
+) -> Measurements:
+    """Select report rows without changing the analysis or its shared evidence."""
+    if predicate is None:
+        return measurements
+    results = {}
+    for node in trace.nodes:
+        selected = [
+            m for m in measurements.results.get(node.node_id, ()) if predicate(node, m, trace)
+        ]
+        if selected:
+            results[node.node_id] = selected
+    return Measurements(measurements.specs, measurements.sources, results)
 
 
 def measurement_rows(measurements: Measurements, node_id: str) -> list[dict]:
@@ -29,7 +52,7 @@ def measurement_rows(measurements: Measurements, node_id: str) -> list[dict]:
 
 
 def measurements_md(trace: Renderable, measurements: Measurements | None) -> str:
-    if measurements is None:
+    if measurements is None or not any(measurements.results.values()):
         return ""
     lines = [
         "",

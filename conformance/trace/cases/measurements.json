@@ -58,6 +58,14 @@
           "covered_ms": 30
         }
       }
+    },
+    "presentation": {
+      "anchor_span_ids": [
+        "b"
+      ],
+      "spec_ids": [
+        "calls_until_node_end"
+      ]
     }
   },
   {

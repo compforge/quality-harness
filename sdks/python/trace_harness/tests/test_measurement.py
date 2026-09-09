@@ -206,3 +206,52 @@ def test_failed_result_cannot_carry_numeric_values():
     )
     result = harness.measure(trace)
     assert all(result.get(n.node_id, "invalid").values == {} for n in trace.nodes)
+
+
+def test_report_selection_preserves_analysis_and_offline_evidence(tmp_path):
+    from trace_harness import merge_trace_contributions
+
+    case = CASES[0]
+    selection = case["presentation"]
+    seen = []
+
+    def detector(node, analysis):
+        seen.append(analysis.measurements.get(node.node_id, "self_ms") is not None)
+        return []
+
+    def selected(node, measurement, trace):
+        assert trace.view().by_id[node.node_id] is node
+        return (
+            node.primary_span_id in selection["anchor_span_ids"]
+            and measurement.spec_id in selection["spec_ids"]
+        )
+
+    contributions = merge_trace_contributions(
+        TraceContributions(
+            specs=tuple(genai.specs()), measurement_filter=selected, detectors=(detector,)
+        ),
+        TraceContributions(measurement_filter=lambda node, measurement, trace: False),
+    )
+    harness, trace = build(case, contributions)
+    analysis = harness.analyze(trace)
+    assert all(seen) and len(seen) == len(trace.nodes)
+    before = analysis_snapshot(analysis)
+    visible = harness.visible_measurements(trace, analysis.measurements)
+    assert set(visible.results) == {trace.view().by_span["b"].node_id}
+    assert [m.spec_id for values in visible.results.values() for m in values] == [
+        "calls_until_node_end"
+    ]
+    assert visible.sources is analysis.measurements.sources
+    md = harness.render_md(trace, measurements=analysis.measurements)
+    assert "| b | calls_until_node_end |" in md and "| a | calls_until_node_end |" not in md
+    assert "self_ms" not in md
+    loaded = load_analysis(dump_analysis(analysis, tmp_path / "filtered.json"))
+    html = harness.render_interactive(loaded.trace, measurements=loaded.measurements)
+    assert '"duration_sum_ms": 30' in html and '"id": "self_ms"' not in html
+    assert analysis_snapshot(analysis) == before == analysis_snapshot(loaded)
+    hidden = TraceHarness(TraceContributions(measurement_filter=lambda node, m, ctx: False))
+    assert hidden.visible_measurements(trace, analysis.measurements).results == {}
+    assert "### Measurements" not in hidden.render_md(trace, measurements=analysis.measurements)
+    assert '"measurements": []' in hidden.render_interactive(
+        trace, measurements=analysis.measurements
+    )
