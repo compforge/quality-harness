@@ -125,7 +125,7 @@ trajectory_harness 只保留 agent 决策和评估需要的语义步骤。
 ### 2.2 Failure 与 ExecutionResult
 
 轨迹本身不保证成功。ATIF 尚未规定统一失败 taxonomy；来源提供这类事实时，Adapter 把它放入
-`extra.case_harness`，Harness 可以读取为：
+`extra.quality_harness`，Harness 可以读取为：
 
 ```python
 Failure(
@@ -477,3 +477,9 @@ HTML 模板。这个“模型产物先落盘、报告可独立重建”的做法
 提供 operation、message、metrics 和 `error.type` 等遥测词汇；`OTelJsonLoader` 负责把它们映射到
 ATIF 标准字段，无法无损映射的来源事实保留在 namespaced `extra`。Harness 只拥有 Dataset/Run、
 Measurements、Detector、Verifier 和报告流程，不拥有另一个 Trajectory IR。
+
+### 扩展命名空间
+
+Harness 扩展统一读写 `extra.quality_harness`，不提供旧命名空间兼容或迁移。
+Trajectory 与 Step 的来源、执行和诊断事实均遵循此约定；其它 producer 的 `extra` 内容保持原样。
+回归契约见 `sdks/python/trajectory_harness/tests/test_atif_json.py` 与 `test_pipeline.py`。

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/compforge/case-harness/go/e2e/testrun"
+	"github.com/compforge/quality-harness/sdks/go/e2e/testrun"
 )
 
 var sandboxRun = testrun.New("sandbox-server")

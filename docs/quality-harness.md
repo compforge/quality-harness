@@ -1,7 +1,11 @@
-# Quality Harness
+# Quality Harness：上层实现设计
 
 > Quality Harness 在 Coding Harness 生成代码之后接过质量责任：它先理解被测项目，再发现并执行
 > 已有质量能力，最终给出有证据的质量结论；没有可执行能力时，明确暂停并报告能力缺口。
+
+本文描述 `quality-harness` 仓库长期计划中的项目级 Agent Harness，尚未实现。
+仓库当前交付 e2e、eval、perf、trace、trajectory 领域 SDK 与共享工具箱。
+下文的 Quality Harness 指上层执行与决策主体；领域 SDK 是它可以调用的能力。
 
 ## 1. 理念
 
@@ -45,12 +49,12 @@ Quality Harness 只负责评估，不修改被测代码。是否阻止合并、�
 ## 3. 质量能力
 
 Quality Harness 不拥有一套包办所有测试的工具箱。它连接各领域的通用执行机制、随业务演进的真实
-测试资产，以及 Agent 操作这些能力所需的过程知识。case-harness 提供其中可跨项目复用的基础能力，
+测试资产，以及 Agent 操作这些能力所需的过程知识。本仓库现有的领域 SDK 提供其中可跨项目复用的基础能力，
 但项目是否真正可测，仍取决于业务仓内是否存在可执行的测试代码、环境适配和判定标准。
 
 以 e2e 为例，能力由三部分共同组成：
 
-1. case-harness 或其它框架提供 Runner、生命周期、断言、证据和 Verdict 等基础机制；
+1. quality-harness 或其它框架提供 Runner、生命周期、断言、证据和 Verdict 等基础机制；
 2. 被测项目拥有跟随业务演进的 e2e 代码、Case、fixture、适配器和验收标准；
 3. e2e 目录附近的 AGENTS.md、README、runbook、配置和历史问题，沉淀该项目如何准备环境、执行、
    清理和解释证据的过程知识。
@@ -97,7 +101,7 @@ Quality Harness 首先像刚接手项目的质量工程师一样建立最低必�
 
 ### 4.2 发现能力
 
-Quality Harness 从已有事实中发现可以执行的质量能力，包括项目接入的 case-harness SDK、版本化 Case
+Quality Harness 从已有事实中发现可以执行的质量能力，包括项目接入的 quality-harness SDK、版本化 Case
 或实验资产、已有命令和运行配置，以及能够访问的目标环境。声明文件可以提高发现的确定性，但不是使用
 Quality Harness 的前置条件；即使项目没有新增专用声明，也应先从文档、代码和约定中尝试识别能力。
 

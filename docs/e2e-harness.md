@@ -56,7 +56,7 @@ API 功能测试是功能测试的一种 Target 投影，不是服务 API 契约
 - screenshot、录屏、网络日志、设备日志和 trace 等失败证据；
 - 与通用 Run / Verdict 契约对齐。
 
-平台通用能力属于 case-harness；“创建笔记”“邀请协作者”等产品域动作属于被测产品仓库。Web、
+平台通用能力属于 quality-harness；“创建笔记”“邀请协作者”等产品域动作属于被测产品仓库。Web、
 Android、iOS 和 API 共享 Playbook、Run 与 Verdict 语义，但各自持有会独立演进的 Driver。
 
 跨 Harness 的 Kubernetes、故障注入等环境能力由 [Harness 工具箱](toolbox.md) 持有。Target Driver
@@ -68,7 +68,7 @@ CLI、API、Pipeline 和 Kubernetes Job 只是外部触发适配。被测服务�
 ## 5. Owner 与状态
 
 - spec-case 持有未来 Playbook 等稳定资产格式。
-- case-harness 持有 authoring compiler、Target SDK / Driver、Run 产物和 Verdict 契约。
+- quality-harness 持有 authoring compiler、Target SDK / Driver、Run 产物和 Verdict 契约。
 - 被测项目持有 Playbook 实例、review 后的 Script、产品域动作与验收标准。
 
 当前 Case / CaseSet 与服务 API e2e 已实现。Playbook schema、Playbook → Script 编译以及 Web、Android、

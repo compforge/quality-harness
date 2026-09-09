@@ -1,4 +1,4 @@
-# case-harness 运行时兼容投影；canonical 资产 schema 与 Case/CaseSet 模型归 spec-case。
+# quality-harness 运行时兼容投影；canonical 资产 schema 与 Case/CaseSet 模型归 spec-case。
 # 本文件保留现有 harness/Go/TypeScript 消费所需字段及 judge 等运行时扩展；共享字段变更应先落到
 # spec-case，再同步到这里，不能让本文件独立演进成第二套 canonical case。
 #

@@ -1,11 +1,11 @@
-# case-harness 内核
+# quality-harness 内核
 
 > 本文只描述所有 Harness 共同遵守的稳定语义、数据边界和依赖方向。领域执行、分组、节点和切片等
 > 概念由各自设计文档持有。
 
 ## 1. 理念
 
-case-harness 让稳定的测试意图能够持续积累、重复执行，并把不同质量视角的结果收敛为可追溯产物。
+quality-harness 让稳定的测试意图能够持续积累、重复执行，并把不同质量视角的结果收敛为可追溯产物。
 e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共同遵守从测试意图、观察事实到
 评估结果的语义边界。
 
@@ -36,7 +36,7 @@ e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共
 | **Artifact** | ExperimentRun 产生的一份具名、可持久化产物；内容和 schema 归领域所有，公共层只记录逻辑名称与 run 目录内相对路径。 |
 | **Case** | 可重用的结构化测试意图，具有稳定 `case_id`；canonical 资产由 spec-case 持有，可被多个 Harness 消费。 |
 | **Observation** | 执行或采集后实际观察到的领域事实；必须保留来源 identity 与 provenance，不包含质量判断。 |
-| **Unit** | Harness 声明的评估单元，也是 Worksheet 一行所代表的基本粒度；其数据来源是对齐后的 Case 与一个或多个 Observation。Unit 拥有自己的稳定 key，唯一确定一行；Observation 尚未产生或失败时，该行可以保留 pending / failed 状态。 |
+| **Unit** | Harness 声明的评估单元，也是 Worksheet 一行所代表的基本粒度；其数据来源是一个或多个 Observation 及适用的 Case / Annotation。Unit 拥有自己的稳定 key，唯一确定一行；Observation 尚未产生或失败时，该行可以保留 pending / failed 状态。 |
 | **Annotation** | 运行当前评估前已经存在的人工、外部系统或模型监督信息，例如 label、reference 和复核结论；按 Unit 对齐并保留 producer 与 provenance。 |
 | **Dataset** | 一组可复用、版本化的 Unit facts，固定 Case、Observation、Annotation 及其来源关系，不包含某次 EvaluationRun 的 Finding、Evaluation 或 Measurement。相同 Dataset 可以按不同侧重点反复评估。 |
 | **EvaluationRun** | 对一个确定 Dataset version 执行一组 Detector、Evaluator、Measurer 与可选 Policy 的运行实例；它记录实际组件的 spec、模型、规则、版本和配置，并拥有 run identity、执行健康与对应 Worksheet。 |
@@ -69,10 +69,9 @@ Reducer.reduce(ExperimentRun) → Artifact × N → Report / Verdict
 ## 3. 共同数据闭环
 
 ```text
-Case
-  + execution / collection
-  → Observation
-  → Unit（Case + Observation + Annotation）
+Case / Experiment → execution → Observation
+已有 trace / trajectory / recording → collection → Observation
+  → Unit（Observation + 适用的 Case / Annotation）
   → versioned Dataset
 
 Dataset + Detectors / Evaluators / Measurers / optional Policy
@@ -86,8 +85,9 @@ Dataset + Detectors / Evaluators / Measurers / optional Policy
 
 ### Dataset 与反复评估
 
-所有 Harness 都按同一组顶层概念组织数据：先基于 Case 得到真实 Observation，以两者为数据来源建立
-评估 Unit，再将一组 Unit 固定为可复用 Dataset。每次运行选择的 Detector、确定性规则、LLM Judge、Measurer
+所有 Harness 都按同一组顶层概念组织数据：执行 Case / Experiment 或直接采集已有证据，得到真实
+Observation；结合适用的 Case 与 Annotation 建立评估 Unit，再将一组 Unit 固定为可复用 Dataset。
+直接分析 trace、trajectory 时不要求补造 Case。每次运行选择的 Detector、确定性规则、LLM Judge、Measurer
 与可选 Policy 直接定义评估侧重点；每次 EvaluationRun 形成自己的 Worksheet 和 Report。
 
 Worksheet 的一行始终等于 Unit seed 加上本次 Finding、Evaluation 与 Measurement；聚合、透视和报告都是这张
@@ -151,7 +151,7 @@ Dataset build、Observation production 和 Evaluation 融合在一个带 cell st
 ## 5. Owner 与依赖方向
 
 - [`spec-case`](https://github.com/compforge/spec-case) 持有 canonical Case 等稳定测试资产格式。
-- case-harness 持有执行机制、领域 Harness、Run 产物、报告基础设施与 Verdict 契约。
+- quality-harness 持有执行机制、领域 Harness、Run 产物、报告基础设施与 Verdict 契约。
 - 被测项目持有资产实例、业务适配、环境相关过程和验收标准。
 - 部署领域持有目标环境、凭据、触发时机、审批与发布策略。
 - `harness_common` 只承载中立能力，不能反向拥有 Trajectory、Trace、Perf 等领域模型。
@@ -161,7 +161,7 @@ Dataset build、Observation production 和 Evaluation 融合在一个带 cell st
 
 ## 6. 可验证交付
 
-case-harness 只有在被测项目持续维护验证资产时才能产出可信证据。一个可验证交付的项目需要同时形成两段闭环：
+quality-harness 只有在被测项目持续维护验证资产时才能产出可信证据。一个可验证交付的项目需要同时形成两段闭环：
 
 ```text
 需求 / 外部行为变更 / 缺陷
@@ -187,4 +187,4 @@ case-harness 只有在被测项目持续维护验证资产时才能产出可信�
 - Trace 领域模型：[`trace-harness.md`](trace-harness.md)
 - Trajectory 领域模型：[`trajectory-harness.md`](trajectory-harness.md)
 - Perf 跨语言契约：[`../spec/perf-contract.md`](../spec/perf-contract.md)
-- Eval 领域约定：[`../python/eval_harness/AGENTS.md`](../python/eval_harness/AGENTS.md)
+- Eval 领域约定：[`../sdks/python/eval_harness/AGENTS.md`](../sdks/python/eval_harness/AGENTS.md)

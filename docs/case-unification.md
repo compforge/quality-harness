@@ -4,7 +4,7 @@
 
 spec-case 的 `Case` / `CaseSet` 是 e2e、eval、perf 共用的唯一输入资产。Case 保存稳定、可分享的测试意图：一次 stimulus、facets、source 依赖、各 face 的判定数据，以及可选的代码契约 binding。环境、凭据、负载参数和运行过程不进入 Case。
 
-case-harness 持有执行侧：Runner、CaseRun、Judge、运行证据和 Verdict。
+quality-harness 持有执行侧：Runner、CaseRun、Judge、运行证据和 Verdict。
 
 ```text
 CaseSet + environment + variant
@@ -82,6 +82,6 @@ Python 同步 step 通过 `PhaseContext.remaining_s` 协作传递 deadline，并
 ## References
 
 - 资产与 binding 真源：[spec-case](https://github.com/compforge/spec-case)
-- Python e2e 代码地图：[`../python/e2e_harness/AGENTS.md`](../python/e2e_harness/AGENTS.md)
-- Go CaseRun 与 coverage gate：[`../go/AGENTS.md`](../go/AGENTS.md)
+- Python e2e 代码地图：[`../sdks/python/e2e_harness/AGENTS.md`](../sdks/python/e2e_harness/AGENTS.md)
+- Go CaseRun 与 coverage gate：[`../sdks/go/AGENTS.md`](../sdks/go/AGENTS.md)
 - 统一 Verdict：[`../spec/verdict-schema.yaml`](../spec/verdict-schema.yaml)

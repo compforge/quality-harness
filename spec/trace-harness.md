@@ -12,7 +12,7 @@ requirements.
 Collection, environment discovery, credentials, ID resolution, and delivery of evidence bundles
 belong to the host. A Trace Harness starts from raw span documents or normalized spans.
 
-In the case-harness kernel vocabulary, an assembled `Node` is an Observation and
+In the quality-harness kernel vocabulary, an assembled `Node` is an Observation and
 `trace_id + node_id` identifies a node-grain Unit. A nodes/corpus collection is the reusable
 Dataset; each EvaluationRun records the selected detector and gate configuration; diagnosis fills
 a run-scoped Worksheet with Findings returned by detection. A trace- or cohort-grain analysis MUST use a distinct Unit

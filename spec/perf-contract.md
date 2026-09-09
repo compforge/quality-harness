@@ -16,7 +16,7 @@ Outcome = 一次已发请求的原始事实
 Verdict = Workload 对 Outcome 的纯判定
 ```
 
-按 case-harness Kernel 语义，Outcome 和 Probe sample 是 Observation。Perf 必须为每张分析表声明一个
+按 quality-harness Kernel 语义，Outcome 和 Probe sample 是 Observation。Perf 必须为每张分析表声明一个
 Unit grain：request、window、run 是不同 Unit，不能混成同一行。raw/model Run facts 构成可离线复用
 Dataset；每次 EvaluationRun 直接记录所选 Workload judge、SLO 与 analysis 组件及其配置，并形成
 对应 Worksheet。更换 SLO、gate 或分析透镜不得重新发压。具体顶层定义见
