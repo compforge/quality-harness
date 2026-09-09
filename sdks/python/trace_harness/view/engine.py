@@ -37,6 +37,7 @@ from trace_harness.view.facet import (
     Summarize,
 )
 from trace_harness.view.facets import builtin_facets
+from trace_harness.view.http import group_http_calls, group_http_services, http_call_groups
 from trace_harness.view.perspective import project_perspective
 from trace_harness.view.registry import FacetRegistry
 
@@ -120,13 +121,14 @@ def _fold_iso_groups(ops: list[ChildOp]) -> list[ChildOp]:
     i, n = 0, len(ops)
     while i < n:
         op = ops[i]
-        if isinstance(op, Group) and op.collapsed:
+        if isinstance(op, Group) and op.collapsed and op.children is None:
             sig = _group_sig(op)
             j = i + 1
             while (
                 j < n
                 and isinstance(ops[j], Group)
                 and ops[j].collapsed
+                and ops[j].children is None
                 and _group_sig(ops[j]) == sig
             ):
                 j += 1
@@ -165,11 +167,11 @@ def render(
     flagged = _flagged(view, findings)
     rctx = RenderCtx(view=view, findings=findings, flagged=flagged, config=config)
     visible: dict[str, DisplayNode] = {}
+    http_groups = http_call_groups(view, findings)
 
-    def render_node(node: Node) -> DisplayNode:
-        facet = registry.dispatch(node)
-        children = view.children(node)
-        ops = _fold_iso_groups(facet.layout(node, children, rctx))  # 相邻同构 collapsed Group → ×N
+    def render_ops(ops: list[ChildOp], *, project: bool = True) -> list[DisplayNode]:
+        if project:
+            ops = group_http_services(group_http_calls(ops, http_groups))
         disp_children: list[DisplayNode] = []
         folded: list[Node] = []
         for op in ops:
@@ -199,23 +201,32 @@ def render(
                     )
             elif isinstance(op, Group):
                 line = _group_line(view, op)
-                line.children = [render_node(n) for n in op.nodes]
+                line.children = (
+                    render_ops(op.children, project=False)
+                    if op.children is not None
+                    else [render_node(n) for n in op.nodes]
+                )
                 disp_children.append(line)
             elif isinstance(op, Hide) and flagged.get(op.node.node_id):
                 disp_children.append(render_node(op.node))
         if folded:
             disp_children.append(_collapse_line(view, folded, config.prune_below_ms))  # type: ignore[arg-type]
+        return disp_children
+
+    def render_node(node: Node) -> DisplayNode:
+        facet = registry.dispatch(node)
+        ops = _fold_iso_groups(facet.layout(node, view.children(node), rctx))
         d = DisplayNode(
             kind=node.kind,
             name=node.name,
             brief=facet.brief(node),
             node_ids=[node.node_id],
-            children=disp_children,
+            children=render_ops(ops),
         )
         visible[node.node_id] = d
         return d
 
-    roots = [render_node(r) for r in view.roots]
+    roots = render_ops([Expand(r) for r in view.roots])
     _bind_findings(view, findings, visible)
     return project_perspective(roots, view.by_id, registry, config.perspective)
 

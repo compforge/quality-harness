@@ -33,7 +33,7 @@ trace_harness/
 │   └── ir.py         #   TraceView + nodes.json dump/load：模型的可序列化形态(渲染面契约·域无关)
 ├── kinds/            # 唯一领域代码(通用 genai；域专属 AS kinds 留消费方，spec.merge 叠加)
 │   ├── base.py       #   generic 残余 spec + duration 基线度量
-│   └── genai.py      #   OTel GenAI 通用 spec：model-call / tool-call / agent / http(LLM 端点 http 自成 node，1:1 不再吸附)
+│   └── genai.py      #   OTel GenAI 通用 spec：model-call / tool-call / agent / http(识别出的 HTTP 请求自成 node，分组在 view 层完成)
 ├── ingest/           # raw → model（主链入口 + 唯一领域边界）
 │   ├── sources/      #   采集协议(唯一知道后端的层)：base(Source/SpanQuery/Fidelity) / jaeger_file / opensearch
 │   ├── load.py       #   build_context_from_spans(Source 无关) / build_context(文件)

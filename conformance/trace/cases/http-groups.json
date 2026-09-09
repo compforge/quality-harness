@@ -1,0 +1,839 @@
+[
+  {
+    "name": "service-api-members",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "root",
+        "start_ms": 0,
+        "dur_ms": 1000,
+        "service": "caller",
+        "attrs": {
+          "gen_ai.operation.name": "invoke_agent"
+        }
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "a",
+        "start_ms": 100,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "b",
+        "start_ms": 180,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "node": "root",
+        "children": [
+          {
+            "name": "caller",
+            "members": [
+              "a",
+              "b"
+            ],
+            "folded": false,
+            "brief": {},
+            "children": [
+              {
+                "name": "⚠ GET catalog.test/items ×2",
+                "members": [
+                  "a",
+                  "b"
+                ],
+                "folded": true,
+                "brief": {
+                  "wall-clock": "100ms",
+                  "HTTP": "40ms",
+                  "gap": "60ms"
+                },
+                "children": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "without-findings",
+    "diagnose": false,
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "root",
+        "start_ms": 0,
+        "dur_ms": 1000,
+        "service": "caller",
+        "attrs": {
+          "gen_ai.operation.name": "invoke_agent"
+        }
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "a",
+        "start_ms": 100,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "b",
+        "start_ms": 180,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "node": "root",
+        "children": [
+          {
+            "name": "caller",
+            "members": [
+              "a",
+              "b"
+            ],
+            "folded": false,
+            "brief": {},
+            "children": [
+              "a",
+              "b"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "multiple-api-groups",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "root",
+        "start_ms": 0,
+        "dur_ms": 1000,
+        "service": "caller",
+        "attrs": {
+          "gen_ai.operation.name": "invoke_agent"
+        }
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "a",
+        "start_ms": 100,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "b",
+        "start_ms": 180,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "c",
+        "parent_span_id": "root",
+        "name": "c",
+        "start_ms": 260,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/other",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "d",
+        "parent_span_id": "root",
+        "name": "d",
+        "start_ms": 340,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/other",
+          "span.kind": "client"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "node": "root",
+        "children": [
+          {
+            "name": "caller",
+            "members": [
+              "a",
+              "b",
+              "c",
+              "d"
+            ],
+            "folded": false,
+            "brief": {},
+            "children": [
+              {
+                "name": "⚠ GET catalog.test/items ×2",
+                "members": [
+                  "a",
+                  "b"
+                ],
+                "folded": true,
+                "brief": {
+                  "wall-clock": "100ms",
+                  "HTTP": "40ms",
+                  "gap": "60ms"
+                },
+                "children": [
+                  "a",
+                  "b"
+                ]
+              },
+              {
+                "name": "⚠ GET catalog.test/other ×2",
+                "members": [
+                  "c",
+                  "d"
+                ],
+                "folded": true,
+                "brief": {
+                  "wall-clock": "100ms",
+                  "HTTP": "40ms",
+                  "gap": "60ms"
+                },
+                "children": [
+                  "c",
+                  "d"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "service-boundary",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "root",
+        "start_ms": 0,
+        "dur_ms": 1000,
+        "service": "caller",
+        "attrs": {
+          "gen_ai.operation.name": "invoke_agent"
+        }
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "a",
+        "start_ms": 100,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "b",
+        "start_ms": 180,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "c",
+        "parent_span_id": "root",
+        "name": "c",
+        "start_ms": 260,
+        "dur_ms": 20,
+        "service": "worker",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/other",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "d",
+        "parent_span_id": "root",
+        "name": "d",
+        "start_ms": 340,
+        "dur_ms": 20,
+        "service": "worker",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/other",
+          "span.kind": "client"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "node": "root",
+        "children": [
+          {
+            "name": "caller",
+            "members": [
+              "a",
+              "b"
+            ],
+            "folded": false,
+            "brief": {},
+            "children": [
+              {
+                "name": "⚠ GET catalog.test/items ×2",
+                "members": [
+                  "a",
+                  "b"
+                ],
+                "folded": true,
+                "brief": {
+                  "wall-clock": "100ms",
+                  "HTTP": "40ms",
+                  "gap": "60ms"
+                },
+                "children": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "worker",
+            "members": [
+              "c",
+              "d"
+            ],
+            "folded": false,
+            "brief": {},
+            "children": [
+              {
+                "name": "⚠ GET catalog.test/other ×2",
+                "members": [
+                  "c",
+                  "d"
+                ],
+                "folded": true,
+                "brief": {
+                  "wall-clock": "100ms",
+                  "HTTP": "40ms",
+                  "gap": "60ms"
+                },
+                "children": [
+                  "c",
+                  "d"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "intervening-node",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "root",
+        "start_ms": 0,
+        "dur_ms": 1000,
+        "service": "caller",
+        "attrs": {
+          "gen_ai.operation.name": "invoke_agent"
+        }
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "a",
+        "start_ms": 100,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "middle",
+        "parent_span_id": "root",
+        "name": "middle",
+        "start_ms": 140,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "gen_ai.operation.name": "execute_tool"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "b",
+        "start_ms": 180,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "node": "root",
+        "children": [
+          "a",
+          "middle",
+          "b"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "parent-boundary",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "root",
+        "start_ms": 0,
+        "dur_ms": 1000,
+        "service": "caller",
+        "attrs": {
+          "gen_ai.operation.name": "invoke_agent"
+        }
+      },
+      {
+        "span_id": "x",
+        "parent_span_id": "root",
+        "name": "x",
+        "start_ms": 50,
+        "dur_ms": 1000,
+        "service": "caller",
+        "attrs": {
+          "gen_ai.operation.name": "invoke_agent"
+        }
+      },
+      {
+        "span_id": "y",
+        "parent_span_id": "root",
+        "name": "y",
+        "start_ms": 300,
+        "dur_ms": 1000,
+        "service": "caller",
+        "attrs": {
+          "gen_ai.operation.name": "invoke_agent"
+        }
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "x",
+        "name": "a",
+        "start_ms": 100,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "x",
+        "name": "b",
+        "start_ms": 180,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "c",
+        "parent_span_id": "y",
+        "name": "c",
+        "start_ms": 400,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "d",
+        "parent_span_id": "y",
+        "name": "d",
+        "start_ms": 480,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "node": "root",
+        "children": [
+          {
+            "node": "x",
+            "children": [
+              {
+                "name": "caller",
+                "members": [
+                  "a",
+                  "b"
+                ],
+                "folded": false,
+                "brief": {},
+                "children": [
+                  {
+                    "name": "⚠ GET catalog.test/items ×2",
+                    "members": [
+                      "a",
+                      "b"
+                    ],
+                    "folded": true,
+                    "brief": {
+                      "wall-clock": "100ms",
+                      "HTTP": "40ms",
+                      "gap": "60ms"
+                    },
+                    "children": [
+                      "a",
+                      "b"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "node": "y",
+            "children": [
+              {
+                "name": "caller",
+                "members": [
+                  "c",
+                  "d"
+                ],
+                "folded": false,
+                "brief": {},
+                "children": [
+                  {
+                    "name": "⚠ GET catalog.test/items ×2",
+                    "members": [
+                      "c",
+                      "d"
+                    ],
+                    "folded": true,
+                    "brief": {
+                      "wall-clock": "100ms",
+                      "HTTP": "40ms",
+                      "gap": "60ms"
+                    },
+                    "children": [
+                      "c",
+                      "d"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "server-clock-skew",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "root",
+        "start_ms": 0,
+        "dur_ms": 1000,
+        "service": "caller",
+        "attrs": {
+          "gen_ai.operation.name": "invoke_agent"
+        }
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "a",
+        "start_ms": 100,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "b",
+        "start_ms": 180,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "server",
+        "parent_span_id": "a",
+        "name": "server",
+        "start_ms": 10000,
+        "dur_ms": 300,
+        "service": "downstream",
+        "attrs": {
+          "http.method": "GET",
+          "http.route": "/items",
+          "span.kind": "server"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "node": "root",
+        "children": [
+          {
+            "name": "caller",
+            "members": [
+              "a",
+              "b"
+            ],
+            "folded": false,
+            "brief": {},
+            "children": [
+              {
+                "name": "⚠ GET catalog.test/items ×2",
+                "members": [
+                  "a",
+                  "b"
+                ],
+                "folded": true,
+                "brief": {
+                  "wall-clock": "100ms",
+                  "HTTP": "40ms",
+                  "gap": "60ms"
+                },
+                "children": [
+                  {
+                    "node": "a",
+                    "children": [
+                      "server"
+                    ]
+                  },
+                  "b"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "root-siblings",
+    "spans": [
+      {
+        "span_id": "a",
+        "parent_span_id": "missing",
+        "name": "a",
+        "start_ms": 100,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "missing",
+        "name": "b",
+        "start_ms": 180,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "name": "caller",
+        "members": [
+          "a",
+          "b"
+        ],
+        "folded": false,
+        "brief": {},
+        "children": [
+          {
+            "name": "⚠ GET catalog.test/items ×2",
+            "members": [
+              "a",
+              "b"
+            ],
+            "folded": true,
+            "brief": {
+              "wall-clock": "100ms",
+              "HTTP": "40ms",
+              "gap": "60ms"
+            },
+            "children": [
+              "a",
+              "b"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "parallel-no-sequence",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "root",
+        "start_ms": 0,
+        "dur_ms": 1000,
+        "service": "caller",
+        "attrs": {
+          "gen_ai.operation.name": "invoke_agent"
+        }
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "a",
+        "start_ms": 100,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "b",
+        "start_ms": 110,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "http.method": "GET",
+          "http.url": "https://catalog.test/items",
+          "span.kind": "client"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "node": "root",
+        "children": [
+          {
+            "name": "caller",
+            "members": [
+              "a",
+              "b"
+            ],
+            "folded": false,
+            "brief": {},
+            "children": [
+              "a",
+              "b"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

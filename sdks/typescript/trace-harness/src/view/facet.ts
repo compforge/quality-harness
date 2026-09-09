@@ -7,10 +7,11 @@ export type PerspectiveLevel = "primary" | "context" | "detail";
 export type ChildOp =
   | { type: "expand"; node: Node }
   | { type: "fold"; node: Node }
+  /** Fixed ×N / sum summary, folded by default; children remain available for expansion. */
   | { type: "aggregate"; nodes: Node[]; label?: string }
   | { type: "summarize"; node: Node; line: Field[] }
   | { type: "hide"; node: Node }
-  | { type: "group"; nodes: Node[]; label: string; brief?: Field[]; collapsed?: boolean };
+  | { type: "group"; nodes: Node[]; label: string; brief?: Field[]; collapsed?: boolean; children?: ChildOp[] };
 
 export interface RenderConfig {
   prune_below_ms?: number;

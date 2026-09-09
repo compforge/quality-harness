@@ -45,13 +45,17 @@ def _disp_payload(
     d: DisplayNode,
     byid: dict[str, Node],
     feature_registry: FeatureRegistry,
+    path: str,
 ) -> dict:
     """DisplayNode（facet 折叠后的显示树）→ 交互页 payload。timing/原文/facts 用 `node_ids`
     回查底层 Node（duration 优先 wall_ms = 含子孙的 wall-clock duration）；折叠/聚合合成行（kind 空）无底层 node，
     时间用所聚合 node 的包络。findings 由 engine 绑在 DisplayNode 上（折叠则已上浮）。"""
     brief = "  ".join(f"{f.label}={f.value}" for f in d.brief)
     fnd = [{"severity": f.severity, "source": f.source, "note": f.note} for f in d.findings]
-    kids = [_disp_payload(ctx, c, byid, feature_registry) for c in d.children]
+    kids = [
+        _disp_payload(ctx, c, byid, feature_registry, f"{path}.{i}")
+        for i, c in enumerate(d.children)
+    ]
     node = byid.get(d.node_ids[0]) if (d.kind and d.node_ids) else None
     if node is not None:
         display_name = str(node.facts.get("tool") or d.name) if node.kind == "tool-call" else d.name
@@ -106,7 +110,8 @@ def _disp_payload(
     start = min((n.start_ms for n in folded), default=0.0)
     end = max((n.end_ms for n in folded), default=0.0)
     return {
-        "node_id": "fold:" + "·".join(d.node_ids[:3]) if d.node_ids else "fold:" + d.name,
+        # Nested service/API groups can reference identical members; the display path is unique.
+        "node_id": f"fold:{path}",
         "kind": "",
         "name": d.name,
         "name_variants": name_projections(d),
@@ -419,7 +424,11 @@ def render_interactive(
         config=RenderConfig(perspective="full"),
     )
     trees_payload = {
-        "full": {"roots": [_disp_payload(ctx, d, byid, feature_registry) for d in roots]}
+        "full": {
+            "roots": [
+                _disp_payload(ctx, d, byid, feature_registry, str(i)) for i, d in enumerate(roots)
+            ]
+        }
     }
     if agent_run_ir is not None and agent_run_ir.runs:
         trees_payload["agent"] = {"roots": agent_run_roots(ctx, agent_run_ir, findings)}

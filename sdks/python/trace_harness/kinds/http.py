@@ -1,4 +1,4 @@
-"""普通 HTTP 的单次慢请求与连续串行调用判读。"""
+"""HTTP 请求身份、配对与普通请求资格，供建模和判读复用。"""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def _object(value) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def _endpoint(span: NormSpan) -> tuple[str, str, str] | None:
+def http_endpoint(span: NormSpan) -> tuple[str, str, str] | None:
     if span.attr("asgi.event.type"):
         return None
     match = _HTTP_NAME.fullmatch(span.name)
@@ -122,7 +122,7 @@ class HttpRequest:
 
 def http_requests(ctx: TraceContext) -> list[HttpRequest]:
     endpoints = {
-        span.span_id: endpoint for span in ctx.spans.values() if (endpoint := _endpoint(span))
+        span.span_id: endpoint for span in ctx.spans.values() if (endpoint := http_endpoint(span))
     }
     peers: dict[str, list[NormSpan]] = defaultdict(list)
     paired: set[str] = set()
