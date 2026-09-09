@@ -485,3 +485,5 @@ sdks/python/trace_harness/
 HTML 与 Markdown 使用同一投影，不改变 analysis snapshot 或重新计算 Measurement。
 
 有展示结果的树节点在名称旁显示黄色气球。悬停提示“查看 Measurements”，点击或键盘激活会选中节点并将详情面板定位到 Measurement；没有展示结果的节点不显示气球。
+
+右侧详情将 Measurements 与 Facts 分区展示。每个 Measurement 的名称和范围只显示一次，维度值放在表格中；耗时统一使用可读时间单位，数值右对齐。
