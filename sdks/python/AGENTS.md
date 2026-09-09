@@ -25,7 +25,7 @@ python/
 - 五个领域 SDK 互不 import；公共能力集中在中立共享包。`harness_common` 统一执行事实与输出契约，各 SDK 自行拥有 runner、scheduler 和协议原语。
 - 测试贴近所属包，放在各包 `tests/`；默认 pytest 覆盖完整工程，发行包排除测试。
 - 领域可选依赖通过 extras 声明，避免给其它 SDK 增加安装负担。
-- 修改版本使用本目录 `make bump`，同步 `pyproject.toml` 与 `uv.lock`。
+- Python 包版本使用本目录 `make bump`，同步 `pyproject.toml` 与 `uv.lock`；仓库整体版本按根目录约定独立更新。
 
 ## 开发与测试
 

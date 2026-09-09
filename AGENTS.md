@@ -12,6 +12,8 @@
 
 ```text
 quality-harness/
+├── VERSION              # 仓库整体版本，各 SDK 包版本独立管理
+├── scripts/             # 仓库维护脚本
 ├── sdks/                # 按语言组织的独立工程
 │   ├── python/          # 五类领域 SDK 与中立共享包
 │   ├── go/              # e2e SDK 与平台工具箱
@@ -31,6 +33,14 @@ quality-harness/
 - **领域独立**：领域 SDK 之间互不 import；确属跨领域的模型与工具才进入中立共享层，共享层不能反向依赖领域。业务语义留在消费项目，通用包只提供机制。
 - **跨语言对等**：各语言保持惯用 API，共享契约与 conformance fixtures。修改公共行为时同步相关实现和 fixture；各语言的功能覆盖可以不同。
 - **文档按作用域组织**：中英文 README 面向读者，只保留定位、能力选择和最短接入路径；根 AGENTS.md 保留全仓约定，语言工程与领域细节放在对应目录的 AGENTS.md。详细设计归 `docs/`，完整使用步骤归 SDK 或示例指南。通过目录自动发现局部说明，不维护逐项 AGENTS.md / README 索引。
+
+## 版本管理
+
+根目录 `VERSION` 使用 `MAJOR.MINOR.PATCH`，表示仓库整体版本。提交代码、契约或文档改动时，
+一并更新该版本；默认在根目录运行 `make bump` 递增 patch，需要时用 `make bump PART=minor`
+或 `make bump PART=major`。bump 只更新版本文件，发布与打 tag 通过发布流程执行。
+
+各 SDK 保持独立包版本；涉及 SDK 发布内容的改动，还需按对应工程的约定更新包版本与锁文件。
 
 ## References
 
