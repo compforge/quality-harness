@@ -20,6 +20,16 @@
 负责理解目标、发现能力、选择验证和解释证据，设计见 `docs/quality-harness.md`。
 上层 Harness 尚未实现。领域 SDK 同时支持主动测试与已有运行证据分析，不强制所有入口提供 Case。
 
+## 核心概念与职责
+
+Case 描述可复用的测试输入与预期，格式由 spec-case 持有；Dataset 固定运行证据与标注，供不同规则
+反复评估；Verdict 是供人、CI 与 Agent 工作流消费的机器可读质量结论。证据与评估结果分开保存，
+对同一 Dataset 更换检查规则时无需重新运行被测系统，详细契约见 [`docs/kernel.md`](docs/kernel.md)。
+
+被测项目拥有用例、测试动作、资源生命周期与验收标准，部署工作流提供环境、凭据、目标版本和触发策略。
+本仓库提供执行、分析、报告机制与共享平台工具；环境控制由消费项目选择目标、故障时机和恢复判据。
+各语言 SDK 的能力覆盖可以不同，以各自使用指南为准；当前 e2e 聚焦服务 API。
+
 ## 代码地图与核心模块
 
 各子模块的定位、代码地图、关键约定收敛在**各自的 AGENTS.md**，本文件不再展开；改某个 SDK 前先读它的 AGENTS.md。
@@ -45,7 +55,7 @@ quality-harness/
 
 ## 关键约定
 
-- **md 文档分工**：`AGENTS.md` 给 developer 看（代码地图、约定、扩展点），`README.md` 给 user 看（怎么接入、怎么跑）。两者会共用一部分项目定位/边界的内容，但侧重点不同——允许适度重复，不允许混淆受众。
+- **文档分工**：`README.md` 与 `README.zh-CN.md` 面向读者，只保留产品定位、能力选择和最短接入路径；两者同步维护。目录组织、职责边界、开发约定和 Harness 实现规划归 `AGENTS.md`，详细模型与设计理由归 `docs/`，各场景的完整操作步骤归 SDK 或示例使用指南。
 - **资产与执行分工遵循 Kernel**：稳定资产格式只有一个 canonical owner；quality-harness 负责运行机制、领域 Harness、Run 产物与 Verdict。通用约束见 [`docs/kernel.md`](docs/kernel.md)，Playbook / Target 领域边界见 [`docs/e2e-harness.md`](docs/e2e-harness.md)。
 - **同一 CaseSet，多种执行视角**：Eval / Perf 直接消费 spec-case CaseSet；Experiment 只能选择 Case、设置 weight 或其它运行参数，不能复制或覆盖资产字段。跨语言约束由 `conformance/case/` 证明。
 - **执行 / 采集 → Observation → Unit → Dataset → EvaluationRun / Worksheet → Report**：所有 Harness 都按这套顶层语义对齐。Dataset 固定可复用的 Unit facts；每次运行选择的 Detector、Evaluator、Measurer 与可选 Policy 直接表达评估侧重点，并在不重新执行 Case 的前提下为同一 Dataset 产生新的 Worksheet、Verdict 与 JSON / HTML Report。`detect / evaluate / measure` 是并列处理职责，输出 Finding、Evaluation 与 Measurement；Finding 不自动决定 Verdict。各 Harness 保留自己的 Unit grain、强类型 key、调度和聚合模型，详见 [`docs/kernel.md`](docs/kernel.md#dataset-与反复评估)。
