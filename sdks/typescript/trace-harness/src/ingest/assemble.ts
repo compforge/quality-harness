@@ -1,5 +1,4 @@
-import { bakeFeatures } from "../feature";
-import type { FeatureRegistry } from "../feature/registry";
+import { TransformContext, builtinTransforms, type FactTransform } from "../transform";
 import { SERVICE_KIND, serviceSpec } from "../kinds/base";
 import { TraceContext } from "../model/context";
 import { Node } from "../model/node";
@@ -15,7 +14,7 @@ function round(value: number, digits: number): number {
 export function assemble(
   spans: Map<string, NormSpan>,
   specset: SpecSet,
-  featureRegistry?: FeatureRegistry,
+  transforms: Iterable<FactTransform> = builtinTransforms(),
 ): TraceContext {
   const kindOf = new Map<string, KindSpec | undefined>();
   for (const [spanId, span] of spans) kindOf.set(spanId, specset.classify(span));
@@ -134,11 +133,16 @@ export function assemble(
   const realized = new Map<string, KindSpec>([[SERVICE_KIND, serviceSpec()]]);
   for (const spec of specset) if (!realized.has(spec.kind)) realized.set(spec.kind, spec);
 
-  bakeFeatures(nodes, (spanId) => spans.get(spanId)?.attrs ?? {}, featureRegistry);
+  const traceId = String(spans.values().next().value?.raw.traceID ?? "?");
+  const context = new TraceContext(traceId, spans, nodes, realized);
+  const transformContext = new TransformContext(context.view(), transforms);
+  transformContext.materialize(nodes.flatMap((node) =>
+    (realized.get(node.kind)?.project_requires ?? []).map((name) => [node, name] as const)
+  ));
   for (const node of nodes) {
     node.brief = realized.get(node.kind)?.project?.(node) ?? [];
     if (node.has_error) node.error_text = spanErrorText(spans.get(node.error_anchor));
   }
-  const traceId = String(spans.values().next().value?.raw.traceID ?? "?");
-  return new TraceContext(traceId, spans, nodes, realized);
+  context.transforms = transformContext;
+  return context;
 }

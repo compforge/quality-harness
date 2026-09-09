@@ -1,8 +1,10 @@
 import { builtinDetectors } from "./analyze/detectors";
 import { diagnose, type Findings } from "./analyze/diagnose";
 import { DetectorRegistry, type Detector } from "./analyze/registry";
-import { builtinFeatures, lazyFeatures, type Feature } from "./feature";
-import { FeatureRegistry } from "./feature/registry";
+import { builtinTransforms, type FactTransform } from "./transform";
+import { AnalysisContext } from "./analyze/context";
+import { measure, builtinMeasurers, type Measurer } from "./analyze/measure";
+import type { Measurements } from "./model/measurement";
 import { assemble } from "./ingest/assemble";
 import { validateAgentRunIR, type AgentRunIR } from "./model/agent";
 import type { TraceContext } from "./model/context";
@@ -19,7 +21,8 @@ import { FacetRegistry } from "./view/registry";
 
 export interface TraceContributions {
   specs?: Iterable<KindSpec>;
-  features?: Iterable<Feature>;
+  transforms?: Iterable<FactTransform>;
+  measurers?: Iterable<Measurer>;
   detectors?: Iterable<Detector>;
   facets?: Iterable<Facet>;
   agentRunExtractor?: NodeTreeExtractor<AgentRunIR>;
@@ -28,7 +31,8 @@ export interface TraceContributions {
 export function mergeTraceContributions(...items: TraceContributions[]): TraceContributions {
   return {
     specs: items.flatMap((item) => [...(item.specs ?? [])]),
-    features: items.flatMap((item) => [...(item.features ?? [])]),
+    transforms: items.flatMap((item) => [...(item.transforms ?? [])]),
+    measurers: items.flatMap((item) => [...(item.measurers ?? [])]),
     detectors: items.flatMap((item) => [...(item.detectors ?? [])]),
     facets: items.flatMap((item) => [...(item.facets ?? [])]),
     agentRunExtractor: items.find((item) => item.agentRunExtractor)?.agentRunExtractor,
@@ -38,16 +42,15 @@ export function mergeTraceContributions(...items: TraceContributions[]): TraceCo
 /** Owns the complete, scoped executable configuration for trace analysis. */
 export class TraceHarness {
   readonly specs: SpecSet;
-  readonly features: FeatureRegistry;
+  readonly transforms: FactTransform[];
+  readonly measurers: Measurer[];
   readonly detectors: DetectorRegistry;
   readonly facets: FacetRegistry;
 
   constructor(readonly contributions: TraceContributions) {
     this.specs = new SpecSet(contributions.specs ?? []);
-    this.features = new FeatureRegistry([
-      ...builtinFeatures(),
-      ...(contributions.features ?? []),
-    ]);
+    this.transforms = [...builtinTransforms(), ...(contributions.transforms ?? [])];
+    this.measurers = [...builtinMeasurers(), ...(contributions.measurers ?? [])];
     this.detectors = new DetectorRegistry([
       ...builtinDetectors(),
       ...(contributions.detectors ?? []),
@@ -59,20 +62,27 @@ export class TraceHarness {
   }
 
   assemble(spans: Map<string, NormSpan>): TraceContext {
-    return assemble(spans, this.specs, this.features);
+    return assemble(spans, this.specs, this.transforms);
   }
 
-  diagnose(context: TraceContext): Findings {
-    return diagnose(context, this.detectors);
+  measure(context: TraceContext): Measurements { return measure(context, this.measurers); }
+
+  diagnose(context: TraceContext, measurements: Measurements = this.measure(context)): Findings {
+    return diagnose(context, this.detectors, measurements);
   }
 
-  lazyFeatures(node: Node, context: TraceContext): Record<string, unknown> {
-    return lazyFeatures(
-      node,
-      context.view(),
-      (spanId) => context.raw_attr(spanId),
-      this.features,
-    );
+  analyze(context: TraceContext, diagnosis = true): AnalysisContext {
+    const measurements = this.measure(context);
+    return new AnalysisContext(context, measurements, diagnosis ? this.diagnose(context, measurements) : {});
+  }
+
+  transform(node: Node, context: TraceContext, ...names: string[]): Record<string, unknown> {
+    context.transforms?.materialize(names.map((name) => [node, name] as const));
+    return Object.fromEntries(names.filter((name) => Object.hasOwn(node.facts, name)).map((name) => [name, node.facts[name]]));
+  }
+
+  transformAll(context: TraceContext, ...names: string[]): void {
+    context.transforms?.materialize(context.nodes.flatMap((node) => names.map((name) => [node, name] as const)));
   }
 
   extractAgentRuns(context: TraceContext): AgentRunIR | undefined {
@@ -82,7 +92,7 @@ export class TraceHarness {
 
   renderDisplay(
     context: TraceContext,
-    findings: Record<string, Finding[]> = {},
+    findings: Readonly<Record<string, readonly Finding[]>> = {},
     config: RenderConfig = {},
   ): DisplayNode[] {
     return renderDisplay(context.view(), findings, this.facets, config);
@@ -90,10 +100,11 @@ export class TraceHarness {
 
   renderInteractive(
     context: TraceContext,
-    findings: Record<string, Finding[]> = {},
+    findings: Readonly<Record<string, readonly Finding[]>> = {},
+    options: { measurements?: Measurements } = {},
   ): string {
     return renderInteractive(context, findings, {
-      featureRegistry: this.features,
+      ...options,
       facetRegistry: this.facets,
       agentRunIR: this.extractAgentRuns(context),
     });

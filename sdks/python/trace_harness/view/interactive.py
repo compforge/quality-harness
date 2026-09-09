@@ -23,17 +23,16 @@ from __future__ import annotations
 import html as html_mod
 import json
 
-from trace_harness.feature import lazy_features
-from trace_harness.feature.builtins import BUILTIN_FEATURES
-from trace_harness.feature.registry import FeatureRegistry
 from trace_harness.model.agent import AgentRunIR
 from trace_harness.model.context import TraceContext
+from trace_harness.model.measurement import Measurements
 from trace_harness.model.node import Finding, Node
 from trace_harness.view.agent_run import agent_run_roots
 from trace_harness.view.display import Compact, DisplayName, DisplayNode, name_projections
 from trace_harness.view.engine import render as _engine_render
 from trace_harness.view.facet import RenderConfig
 from trace_harness.view.facets import builtin_facets
+from trace_harness.view.measurements import measurement_rows
 from trace_harness.view.registry import FacetRegistry
 from trace_harness.view.tool_name import tool_name_detail
 
@@ -44,7 +43,7 @@ def _disp_payload(
     ctx: TraceContext,
     d: DisplayNode,
     byid: dict[str, Node],
-    feature_registry: FeatureRegistry,
+    measurements: Measurements,
     path: str,
 ) -> dict:
     """DisplayNode（facet 折叠后的显示树）→ 交互页 payload。timing/原文/facts 用 `node_ids`
@@ -53,8 +52,7 @@ def _disp_payload(
     brief = "  ".join(f"{f.label}={f.value}" for f in d.brief)
     fnd = [{"severity": f.severity, "source": f.source, "note": f.note} for f in d.findings]
     kids = [
-        _disp_payload(ctx, c, byid, feature_registry, f"{path}.{i}")
-        for i, c in enumerate(d.children)
+        _disp_payload(ctx, c, byid, measurements, f"{path}.{i}") for i, c in enumerate(d.children)
     ]
     node = byid.get(d.node_ids[0]) if (d.kind and d.node_ids) else None
     if node is not None:
@@ -84,21 +82,11 @@ def _disp_payload(
             "start_ms": node.start_ms,
             "duration_ms": node.facts.get("wall_ms", node.duration_ms),
             "has_error": node.has_error,
-            "error": ctx.error_text(node.error_anchor) if node.has_error else "",
+            "error": node.error_text if node.has_error else "",
             "brief": brief,
             "findings": fnd,
-            "facts": {k: str(v) for k, v in (node.facts or {}).items() if not k.startswith("_")},
-            # lazy Feature（curl/bash…）：渲染期算好嵌入（静态页无后端，按需算不了）；非适用节点为空
-            "features": {
-                k: v
-                for k, v in lazy_features(
-                    node,
-                    ctx.view(),
-                    ctx.raw_attr,
-                    registry=feature_registry,
-                ).items()
-                if v
-            },
+            "facts": {k: v for k, v in node.facts.items() if not k.startswith("_")},
+            "measurements": measurement_rows(measurements, node.node_id),
             "span_ids": node.span_ids,
             "primary_span_id": node.primary_span_id,
             "error_span_ids": node.error_span_ids,
@@ -123,7 +111,7 @@ def _disp_payload(
         "brief": brief,
         "findings": fnd,
         "facts": {},
-        "features": {},
+        "details": {},
         "span_ids": [],
         "primary_span_id": "",
         "error_span_ids": [],
@@ -282,14 +270,15 @@ function renderRowInto(box,n,depth,parent){
     kidsBox.style.display=open?'none':'';tw.textContent=n.children.length?(open?'▸':'▾'):'·';});
   row.addEventListener('click',()=>select(n.node_id));
   return row;}
+function factValue(v){const text=typeof v==='string'?v:JSON.stringify(v,null,2);return typeof v==='object'||text.length>160||text.includes('\\n')?'<details><summary>'+esc(text.slice(0,120))+'</summary><pre>'+esc(text)+'</pre></details>':esc(text);}
 function factsTable(n){const rows=Object.entries(n.facts||{});
   if(!rows.length)return'';
-  return '<table class="facts">'+rows.map(([k,v])=>'<tr><td>'+esc(k)+'</td><td>'+esc(v)+'</td></tr>').join('')+'</table>';}
-function featuresBlock(n){const fs=Object.entries(n.features||{});
+  return '<table class="facts">'+rows.map(([k,v])=>'<tr><td>'+esc(k)+'</td><td>'+factValue(v)+'</td></tr>').join('')+'</table>';}
+function detailsBlock(n){const fs=Object.entries(n.details||{});
   if(!fs.length)return'';
-  return '<div class="meta">特征：</div>'+fs.map(([k,v])=>
+  return '<div class="meta">详情：</div>'+fs.map(([k,v])=>
     '<div class="feat"><div class="feat-h"><span class="feat-t">'+esc(k)+'</span>'
-    +'<button class="copy">copy</button></div><pre class="feat-body">'+esc(v)+'</pre></div>').join('');}
+    +'<button class="copy">copy</button></div><pre class="feat-body">'+esc(typeof v==='string'?v:JSON.stringify(v,null,2))+'</pre></div>').join('');}
 function findingsBlock(n){const fs=n.findings||[];
   if(!fs.length)return'';
   return '<div class="findings">'+fs.map(f=>'<div class="f-'+esc(f.severity)+'">'
@@ -303,6 +292,7 @@ function unfoldAncestors(id){let p=parentOf[id];
   while(p){const kb=boxOf[p];
     if(kb&&kb.style.display==='none'){kb.style.display='';const t=twOf[p];if(t)t.textContent='▾';}
     p=parentOf[p];}}
+function measurementBlock(n){const rows=n.measurements||[];if(!rows.length)return '';return '<h3>Measurements</h3><div class="meta">trace_prefix：请求开始 → 此节点结束（含进行中的调用）。各 kind 可重叠；累计耗时不等于 wall-clock 贡献。</div><table><tr><th>Measurement / Scope</th><th>Kind</th><th>Count</th><th>Duration sum</th><th>Covered</th><th>Value / Status</th></tr>'+rows.map(r=>'<tr><td>'+esc(r.id)+'<br>'+esc(r.scope)+'</td><td>'+esc(r.kind)+'</td><td>'+esc(r.values.count??'')+'</td><td>'+esc(r.values.duration_sum_ms==null?'':r.values.duration_sum_ms+' ms')+'</td><td>'+esc(r.values.covered_ms==null?'':r.values.covered_ms+' ms')+'</td><td>'+esc(r.status==='measured'?Object.entries(r.values).filter(([k])=>!['count','duration_sum_ms','covered_ms'].includes(k)).map(([k,v])=>k+'='+v+' '+(r.units[k]||'')).join(', '):r.status+': '+(r.error||''))+'</td></tr>').join('')+'</table>';}
 function select(id){
   document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));
   unfoldAncestors(id);
@@ -314,7 +304,7 @@ function select(id){
     +'<div class="meta">'+esc(n.kind)+' · '+fmtMs(n.duration_ms)
     +(n.service?' · '+esc(n.service):'')
     +(n.has_error?' · <b style="color:#dc2626">ERROR'+(n.error?'：'+esc(n.error):'')+'</b>':'')
-    +'</div>'+findingsBlock(n)+factsTable(n)+featuresBlock(n)
+    +'</div>'+findingsBlock(n)+measurementBlock(n)+factsTable(n)+detailsBlock(n)
     +'<div class="meta">溯源 span（'+n.span_ids.length+'）：</div>'
     +'<div class="chips">'+n.span_ids.map(sid=>spanChip(sid,n)).join('')+'</div>'
     +'<div id="attrs"></div>';
@@ -409,13 +399,13 @@ def render_interactive(
     findings: dict[str, list[Finding]] | None = None,
     *,
     facet_registry: FacetRegistry | None = None,
-    feature_registry: FeatureRegistry | None = None,
+    measurements: Measurements | None = None,
     agent_run_ir: AgentRunIR | None = None,
 ) -> str:
     """渲染为单文件交互 HTML（菜单：调用栈=左树右详情 / 火焰图）。findings 为 diagnose 输出，可省。"""
     findings = findings or {}
     facet_registry = facet_registry or FacetRegistry(builtin_facets())
-    feature_registry = feature_registry or FeatureRegistry(BUILTIN_FEATURES)
+    measurements = measurements if measurements is not None else Measurements()
     byid = {n.node_id: n for n in ctx.nodes}
     roots = _engine_render(
         ctx.view(),
@@ -426,7 +416,7 @@ def render_interactive(
     trees_payload = {
         "full": {
             "roots": [
-                _disp_payload(ctx, d, byid, feature_registry, str(i)) for i, d in enumerate(roots)
+                _disp_payload(ctx, d, byid, measurements, str(i)) for i, d in enumerate(roots)
             ]
         }
     }

@@ -1,7 +1,7 @@
 # @compforge/trace-harness
 
-TypeScript implementation of this repository's Python `trace_harness` core. It consumes Jaeger
-span documents, fuses physical spans into logical nodes, derives facts and findings, and renders
+TypeScript implementation of the Trace Harness contract. It consumes Jaeger
+span documents, fuses physical spans into logical nodes, derives facts, computes cumulative call measurements and diagnoses findings, and renders
 a self-contained interactive HTML report. A domain may additionally extract AgentRun IR from the
 complete node tree; the same report then exposes an Agent view with ordered turns, model calls,
 tool calls, and framework operations.
@@ -16,14 +16,23 @@ import {
 const spans = normalizeJaegerSpans(rawJaegerDocuments);
 const harness = new TraceHarness({ specs: genAiSpecs() });
 const context = harness.assemble(spans);
-const html = harness.renderInteractive(context, harness.diagnose(context));
+const analysis = harness.analyze(context);
+const html = harness.renderInteractive(context, analysis.findings, {
+  measurements: analysis.measurements,
+});
 ```
 
 Domain-specific behavior stays in the consumer and is passed explicitly as scoped
-`TraceContributions` (`specs`, `features`, `detectors`, declarative `facets`, and an optional
+`TraceContributions` (`specs`, `transforms`, `measurers`, `detectors`, declarative `facets`, and an optional
 `agentRunExtractor`). The extractor implements `NodeTreeExtractor<AgentRunIR>` and owns the
 framework-specific run/turn/call correlation. The harness validates the AgentRun IR and owns both
 NodeTree and recursive AgentRun rendering, including nested operations and runs owned by a ToolCall
 or Operation.
 The language-neutral contract is
 [`spec/trace-harness.md`](../../../spec/trace-harness.md).
+
+Transform existing facts into additional facts by contributing `FactTransform` values. Each
+transform declares `produces`, `applies` and `compute`; a curl representation and a derived HTTP
+status use the same contract. Request output names with `harness.transform(node, context, "curl")`
+or `harness.transformAll(context, "curl")` before rendering. Outputs become `node.facts` and are
+cached within that trace. The renderer never runs transformations.

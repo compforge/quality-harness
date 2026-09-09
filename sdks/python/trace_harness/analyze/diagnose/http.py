@@ -2,8 +2,8 @@
 
 from collections import defaultdict
 
+from trace_harness.analyze.context import AnalysisContext
 from trace_harness.kinds.http import HttpRequest, http_requests
-from trace_harness.model.context import TraceContext
 from trace_harness.model.node import Finding, Node
 
 _SLOW_HTTP_MS = 200
@@ -34,7 +34,8 @@ def _serial_runs(requests: list[HttpRequest]) -> list[list[HttpRequest]]:
     return runs
 
 
-def http_request_patterns(node: Node, ctx: TraceContext, found: dict) -> list[Finding]:
+def http_request_patterns(node: Node, analysis: AnalysisContext) -> list[Finding]:
+    ctx = analysis.trace
     """同一 HTTP 调用 client/server 去重；两个独立 warn 各保留耗时最高的 10 条。"""
     if (
         not ctx.nodes

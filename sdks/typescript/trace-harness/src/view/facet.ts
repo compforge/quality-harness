@@ -22,7 +22,7 @@ export interface RenderConfig {
 
 export interface RenderContext {
   view: ViewTree;
-  findings: Record<string, Finding[]>;
+  findings: Readonly<Record<string, readonly Finding[]>>;
   flagged: Map<string, boolean>;
   config: RenderConfig;
 }

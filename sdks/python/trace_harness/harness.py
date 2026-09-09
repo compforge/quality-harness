@@ -11,21 +11,21 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from trace_harness.analyze.context import AnalysisContext
 from trace_harness.analyze.diagnose import diagnose as diagnose_context
 from trace_harness.analyze.diagnose.detectors import BUILTIN_DETECTORS
 from trace_harness.analyze.diagnose.registry import Detector, DetectorRegistry
-from trace_harness.feature.builtins import BUILTIN_FEATURES
-from trace_harness.feature.engine import lazy_features
-from trace_harness.feature.feature import Feature
-from trace_harness.feature.registry import FeatureRegistry
+from trace_harness.analyze.measure import BUILTIN_MEASURERS, Measurer, measure
 from trace_harness.ingest.assemble import assemble as assemble_spans
 from trace_harness.ingest.sources.jaeger_file import load_jaeger_file
 from trace_harness.model.agent import AgentRunIR, validate_agent_run_ir
 from trace_harness.model.context import TraceContext
+from trace_harness.model.measurement import Measurements
 from trace_harness.model.node import Finding, Node
 from trace_harness.model.span import NormSpan
 from trace_harness.model.spec import KindSpec, SpecSet
 from trace_harness.model.viewtree import NodeTreeExtractor
+from trace_harness.transform import BUILTIN_TRANSFORMS, FactTransform
 from trace_harness.view.engine import render as render_display_tree
 from trace_harness.view.engine import render_callstack as render_callstack_view
 from trace_harness.view.engine import render_md as render_markdown
@@ -40,7 +40,8 @@ class TraceContributions:
     """A domain or Plugin's explicit, deterministic Trace Harness extensions."""
 
     specs: tuple[KindSpec, ...] = field(default_factory=tuple)
-    features: tuple[Feature, ...] = field(default_factory=tuple)
+    transforms: tuple[FactTransform, ...] = ()
+    measurers: tuple[Measurer, ...] = ()
     detectors: tuple[Detector, ...] = field(default_factory=tuple)
     facets: tuple[Facet, ...] = field(default_factory=tuple)
     agent_run_extractor: NodeTreeExtractor[AgentRunIR] | None = None
@@ -50,7 +51,8 @@ def merge_trace_contributions(*items: TraceContributions) -> TraceContributions:
     """Compose contributions in declaration order; earlier matches keep their priority."""
     return TraceContributions(
         specs=tuple(spec for item in items for spec in item.specs),
-        features=tuple(feature for item in items for feature in item.features),
+        transforms=tuple(t for item in items for t in item.transforms),
+        measurers=tuple(m for item in items for m in item.measurers),
         detectors=tuple(detector for item in items for detector in item.detectors),
         facets=tuple(facet for item in items for facet in item.facets),
         agent_run_extractor=next(
@@ -70,12 +72,13 @@ class TraceHarness:
     def __init__(self, contributions: TraceContributions) -> None:
         self.contributions = contributions
         self.specs = SpecSet(list(contributions.specs))
-        self.features = FeatureRegistry((*BUILTIN_FEATURES, *contributions.features))
+        self.transforms = (*BUILTIN_TRANSFORMS, *contributions.transforms)
+        self.measurers = (*BUILTIN_MEASURERS, *contributions.measurers)
         self.detectors = DetectorRegistry((*BUILTIN_DETECTORS, *contributions.detectors))
         self.facets = FacetRegistry((*builtin_facets(), *contributions.facets))
 
     def assemble(self, spans: dict[str, NormSpan]) -> TraceContext:
-        return assemble_spans(spans, self.specs, feature_registry=self.features)
+        return assemble_spans(spans, self.specs, transforms=self.transforms)
 
     def build_context(self, path: str | Path) -> TraceContext:
         path = Path(path)
@@ -83,20 +86,44 @@ class TraceHarness:
         context.evidence_dir = path.parent / context.trace_id
         return context
 
-    def diagnose(self, context: TraceContext, *, probes: bool = False) -> dict[str, list[Finding]]:
+    def diagnose(
+        self,
+        context: TraceContext,
+        *,
+        probes: bool = False,
+        measurements: Measurements | None = None,
+    ) -> dict[str, list[Finding]]:
         return diagnose_context(
             context,
             probes=probes,
             detector_registry=self.detectors,
+            measurements=measurements if measurements is not None else self.measure(context),
         )
 
-    def lazy_features(self, node: Node, context: TraceContext) -> dict:
-        return lazy_features(
-            node,
-            context.view(),
-            context.raw_attr,
-            registry=self.features,
+    def measure(self, context: TraceContext) -> Measurements:
+        return measure(context, self.measurers)
+
+    def analyze(
+        self, context: TraceContext, *, diagnosis: bool = True, probes: bool = False
+    ) -> AnalysisContext:
+        measurements = self.measure(context)
+        findings = (
+            self.diagnose(context, measurements=measurements, probes=probes) if diagnosis else {}
         )
+        return AnalysisContext(
+            context, measurements, {key: tuple(value) for key, value in findings.items()}
+        )
+
+    def transform(self, node: Node, context: TraceContext, *names: str) -> dict:
+        """Materialize requested facts and dependencies in the trace's own context."""
+        if context.transforms is not None:
+            context.transforms.materialize((node, name) for name in names)
+        return {name: node.facts[name] for name in names if name in node.facts}
+
+    def transform_all(self, context: TraceContext, *names: str) -> None:
+        """Prepare explicitly selected facts before analysis or rendering."""
+        if context.transforms is not None:
+            context.transforms.materialize((node, name) for node in context.nodes for name in names)
 
     def extract_agent_runs(self, context: TraceContext) -> AgentRunIR | None:
         extractor = self.contributions.agent_run_extractor
@@ -122,12 +149,14 @@ class TraceHarness:
         self,
         context: TraceContext,
         findings: dict[str, list[Finding]] | None = None,
+        *,
+        measurements: Measurements | None = None,
     ) -> str:
         return render_interactive_view(
             context,
             findings,
             facet_registry=self.facets,
-            feature_registry=self.features,
+            measurements=measurements,
             agent_run_ir=self.extract_agent_runs(context),
         )
 
@@ -137,13 +166,16 @@ class TraceHarness:
         findings: dict[str, list[Finding]] | None = None,
         *,
         prune_below_ms: float | None = None,
+        measurements: Measurements | None = None,
     ) -> str:
+        from trace_harness.view.measurements import measurements_md
+
         return render_markdown(
             context,
             findings,
             prune_below_ms=prune_below_ms,
             registry=self.facets,
-        )
+        ) + measurements_md(context, measurements)
 
     def render_callstack(
         self,

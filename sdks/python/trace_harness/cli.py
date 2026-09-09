@@ -12,35 +12,57 @@ import json
 import sys
 from pathlib import Path
 
+from trace_harness.analyze.context import AnalysisContext
 from trace_harness.analyze.diagnose import diagnose
+from trace_harness.analyze.measure import measure
 from trace_harness.corpus.cohort import Cohort
 from trace_harness.corpus.experiment import run_experiment
 from trace_harness.ingest.load import build_context
 from trace_harness.ingest.sources.base import SpanQuery
 from trace_harness.ingest.sources.jaeger_file import JaegerFileSource
 from trace_harness.kinds.base import _fmt_ms
+from trace_harness.model.analysis import dump_analysis, load_analysis
 from trace_harness.model.ir import TraceView, is_nodes_file, load_view
 from trace_harness.view.explore import render_explore
 from trace_harness.view.interactive import render_interactive
+from trace_harness.view.measurements import measurements_md
 from trace_harness.view.series import render_series
 from trace_harness.view.state import ViewState, handle, resolve_selector
 from trace_harness.view.text import render_text
 
 
 def _cmd_single(args: argparse.Namespace) -> int:
-    ctx = build_context(args.path)
+    path = Path(args.path)
+    with path.open(encoding="utf-8") as source:
+        is_analysis = '"trace-harness/analysis@2"' in source.read(256)
+    saved = load_analysis(path) if is_analysis else None
+    ctx = saved.trace if saved else build_context(path)
     if args.series:
         kind, _, metric = args.series.partition(":")
         print(render_series(ctx, kind, metric))
         return 0
     # html 默认带判读上色；text 仅在显式 --diagnose/--probes 时判读
     want_findings = args.diagnose or args.probes or bool(args.html)
-    findings = diagnose(ctx, probes=args.probes) if want_findings else None
+    measurements = saved.measurements if saved else measure(ctx)
+    findings = (
+        {key: list(value) for key, value in saved.findings.items()}
+        if saved
+        else (
+            diagnose(ctx, probes=args.probes, measurements=measurements) if want_findings else None
+        )
+    )
     if args.html:
-        Path(args.html).write_text(render_interactive(ctx, findings), encoding="utf-8")
+        Path(args.html).write_text(
+            render_interactive(ctx, findings, measurements=measurements), encoding="utf-8"
+        )
+        dump_analysis(
+            AnalysisContext(ctx, measurements, findings or {}),
+            Path(args.html).with_suffix(".analysis.json"),
+        )
         print(f"wrote {args.html}")
         return 0
     print(render_text(ctx, findings))
+    print(measurements_md(ctx, measurements))
     return 0
 
 

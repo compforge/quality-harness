@@ -1,28 +1,415 @@
 {
-  "schema": "trace-harness/analysis@1",
+  "schema": "trace-harness/analysis@2",
   "trace_id": "abc123fixturetrace0000000000000001",
   "span_count": 6,
+  "measurements": {
+    "specs": [
+      {
+        "id": "self_ms",
+        "scope": "node",
+        "units": {
+          "self_ms": "ms"
+        },
+        "description": "Node duration not covered by direct children, clipped to the node interval.",
+        "dimensions": []
+      },
+      {
+        "id": "calls_until_node_end",
+        "scope": "trace_prefix",
+        "units": {
+          "count": "call",
+          "duration_sum_ms": "ms",
+          "covered_ms": "ms"
+        },
+        "description": "Calls started from earliest observed trace start through anchor end; in-flight durations clipped. Kind coverage can overlap.",
+        "dimensions": [
+          "kind"
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "1111111111111111",
+        "kind": "agent",
+        "start_ms": 1700000000000.0,
+        "end_ms": 1700000008000.0,
+        "node_id": "1111111111111111",
+        "span_ids": [
+          "1111111111111111"
+        ]
+      },
+      {
+        "id": "2222222222222222",
+        "kind": "model-call",
+        "start_ms": 1700000000100.0,
+        "end_ms": 1700000003500.0,
+        "node_id": "2222222222222222",
+        "span_ids": [
+          "2222222222222222"
+        ]
+      },
+      {
+        "id": "3333333333333333",
+        "kind": "http",
+        "start_ms": 1700000000150.0,
+        "end_ms": 1700000003450.0,
+        "node_id": "3333333333333333",
+        "span_ids": [
+          "3333333333333333"
+        ]
+      },
+      {
+        "id": "4444444444444444",
+        "kind": "tool-call",
+        "start_ms": 1700000003600.0,
+        "end_ms": 1700000004800.0,
+        "node_id": "4444444444444444",
+        "span_ids": [
+          "4444444444444444"
+        ]
+      },
+      {
+        "id": "5555555555555555",
+        "kind": "model-call",
+        "start_ms": 1700000004900.0,
+        "end_ms": 1700000007400.0,
+        "node_id": "5555555555555555",
+        "span_ids": [
+          "5555555555555555"
+        ]
+      },
+      {
+        "id": "6666666666666666",
+        "kind": "http",
+        "start_ms": 1700000004950.0,
+        "end_ms": 1700000007350.0,
+        "node_id": "6666666666666666",
+        "span_ids": [
+          "6666666666666666"
+        ]
+      }
+    ],
+    "results": {
+      "1111111111111111": [
+        {
+          "spec_id": "self_ms",
+          "anchor_node_id": "1111111111111111",
+          "status": "measured",
+          "values": {
+            "self_ms": 900.0
+          },
+          "evidence": {
+            "source": "direct_children",
+            "node_id": "1111111111111111"
+          },
+          "error": null
+        },
+        {
+          "spec_id": "calls_until_node_end",
+          "anchor_node_id": "1111111111111111",
+          "status": "measured",
+          "values": {
+            "agent": {
+              "count": 1,
+              "duration_sum_ms": 8000.0,
+              "covered_ms": 8000.0
+            },
+            "http": {
+              "count": 2,
+              "duration_sum_ms": 5700.0,
+              "covered_ms": 5700.0
+            },
+            "model-call": {
+              "count": 2,
+              "duration_sum_ms": 5900.0,
+              "covered_ms": 5900.0
+            },
+            "tool-call": {
+              "count": 1,
+              "duration_sum_ms": 1200.0,
+              "covered_ms": 1200.0
+            }
+          },
+          "evidence": {
+            "source": "calls",
+            "start_ms": 1700000000000.0,
+            "end_ms": 1700000008000.0
+          },
+          "error": null
+        }
+      ],
+      "5555555555555555": [
+        {
+          "spec_id": "self_ms",
+          "anchor_node_id": "5555555555555555",
+          "status": "measured",
+          "values": {
+            "self_ms": 100.0
+          },
+          "evidence": {
+            "source": "direct_children",
+            "node_id": "5555555555555555"
+          },
+          "error": null
+        },
+        {
+          "spec_id": "calls_until_node_end",
+          "anchor_node_id": "5555555555555555",
+          "status": "measured",
+          "values": {
+            "agent": {
+              "count": 1,
+              "duration_sum_ms": 7400.0,
+              "covered_ms": 7400.0
+            },
+            "http": {
+              "count": 2,
+              "duration_sum_ms": 5700.0,
+              "covered_ms": 5700.0
+            },
+            "model-call": {
+              "count": 2,
+              "duration_sum_ms": 5900.0,
+              "covered_ms": 5900.0
+            },
+            "tool-call": {
+              "count": 1,
+              "duration_sum_ms": 1200.0,
+              "covered_ms": 1200.0
+            }
+          },
+          "evidence": {
+            "source": "calls",
+            "start_ms": 1700000000000.0,
+            "end_ms": 1700000007400.0
+          },
+          "error": null
+        }
+      ],
+      "3333333333333333": [
+        {
+          "spec_id": "self_ms",
+          "anchor_node_id": "3333333333333333",
+          "status": "measured",
+          "values": {
+            "self_ms": 3300.0
+          },
+          "evidence": {
+            "source": "direct_children",
+            "node_id": "3333333333333333"
+          },
+          "error": null
+        },
+        {
+          "spec_id": "calls_until_node_end",
+          "anchor_node_id": "3333333333333333",
+          "status": "measured",
+          "values": {
+            "agent": {
+              "count": 1,
+              "duration_sum_ms": 3450.0,
+              "covered_ms": 3450.0
+            },
+            "http": {
+              "count": 1,
+              "duration_sum_ms": 3300.0,
+              "covered_ms": 3300.0
+            },
+            "model-call": {
+              "count": 1,
+              "duration_sum_ms": 3350.0,
+              "covered_ms": 3350.0
+            },
+            "tool-call": {
+              "count": 0,
+              "duration_sum_ms": 0.0,
+              "covered_ms": 0.0
+            }
+          },
+          "evidence": {
+            "source": "calls",
+            "start_ms": 1700000000000.0,
+            "end_ms": 1700000003450.0
+          },
+          "error": null
+        }
+      ],
+      "2222222222222222": [
+        {
+          "spec_id": "self_ms",
+          "anchor_node_id": "2222222222222222",
+          "status": "measured",
+          "values": {
+            "self_ms": 100.0
+          },
+          "evidence": {
+            "source": "direct_children",
+            "node_id": "2222222222222222"
+          },
+          "error": null
+        },
+        {
+          "spec_id": "calls_until_node_end",
+          "anchor_node_id": "2222222222222222",
+          "status": "measured",
+          "values": {
+            "agent": {
+              "count": 1,
+              "duration_sum_ms": 3500.0,
+              "covered_ms": 3500.0
+            },
+            "http": {
+              "count": 1,
+              "duration_sum_ms": 3300.0,
+              "covered_ms": 3300.0
+            },
+            "model-call": {
+              "count": 1,
+              "duration_sum_ms": 3400.0,
+              "covered_ms": 3400.0
+            },
+            "tool-call": {
+              "count": 0,
+              "duration_sum_ms": 0.0,
+              "covered_ms": 0.0
+            }
+          },
+          "evidence": {
+            "source": "calls",
+            "start_ms": 1700000000000.0,
+            "end_ms": 1700000003500.0
+          },
+          "error": null
+        }
+      ],
+      "6666666666666666": [
+        {
+          "spec_id": "self_ms",
+          "anchor_node_id": "6666666666666666",
+          "status": "measured",
+          "values": {
+            "self_ms": 2400.0
+          },
+          "evidence": {
+            "source": "direct_children",
+            "node_id": "6666666666666666"
+          },
+          "error": null
+        },
+        {
+          "spec_id": "calls_until_node_end",
+          "anchor_node_id": "6666666666666666",
+          "status": "measured",
+          "values": {
+            "agent": {
+              "count": 1,
+              "duration_sum_ms": 7350.0,
+              "covered_ms": 7350.0
+            },
+            "http": {
+              "count": 2,
+              "duration_sum_ms": 5700.0,
+              "covered_ms": 5700.0
+            },
+            "model-call": {
+              "count": 2,
+              "duration_sum_ms": 5850.0,
+              "covered_ms": 5850.0
+            },
+            "tool-call": {
+              "count": 1,
+              "duration_sum_ms": 1200.0,
+              "covered_ms": 1200.0
+            }
+          },
+          "evidence": {
+            "source": "calls",
+            "start_ms": 1700000000000.0,
+            "end_ms": 1700000007350.0
+          },
+          "error": null
+        }
+      ],
+      "4444444444444444": [
+        {
+          "spec_id": "self_ms",
+          "anchor_node_id": "4444444444444444",
+          "status": "measured",
+          "values": {
+            "self_ms": 1200.0
+          },
+          "evidence": {
+            "source": "direct_children",
+            "node_id": "4444444444444444"
+          },
+          "error": null
+        },
+        {
+          "spec_id": "calls_until_node_end",
+          "anchor_node_id": "4444444444444444",
+          "status": "measured",
+          "values": {
+            "agent": {
+              "count": 1,
+              "duration_sum_ms": 4800.0,
+              "covered_ms": 4800.0
+            },
+            "http": {
+              "count": 1,
+              "duration_sum_ms": 3300.0,
+              "covered_ms": 3300.0
+            },
+            "model-call": {
+              "count": 1,
+              "duration_sum_ms": 3400.0,
+              "covered_ms": 3400.0
+            },
+            "tool-call": {
+              "count": 1,
+              "duration_sum_ms": 1200.0,
+              "covered_ms": 1200.0
+            }
+          },
+          "evidence": {
+            "source": "calls",
+            "start_ms": 1700000000000.0,
+            "end_ms": 1700000004800.0
+          },
+          "error": null
+        }
+      ]
+    }
+  },
   "nodes": [
     {
       "node_id": "1111111111111111",
       "parent_node_id": null,
       "kind": "agent",
       "name": "invoke_agent main",
-      "start_ms": 1700000000000,
-      "duration_ms": 8000,
+      "start_ms": 1700000000000.0,
+      "duration_ms": 8000.0,
       "service": "planit-server",
       "primary_span_id": "1111111111111111",
-      "span_ids": ["1111111111111111"],
+      "span_ids": [
+        "1111111111111111"
+      ],
       "error_span_ids": [],
       "error_text": "",
       "facts": {
-        "duration_ms": 8000,
-        "agent": "main-agent",
-        "self_ms": 900
+        "duration_ms": 8000.0,
+        "agent": "main-agent"
       },
       "brief": [
-        {"label": "agent", "value": "main-agent", "emphasis": "strong"},
-        {"label": "dur", "value": "8.00s", "emphasis": "dim"}
+        {
+          "label": "agent",
+          "value": "main-agent",
+          "emphasis": "strong"
+        },
+        {
+          "label": "dur",
+          "value": "8.00s",
+          "emphasis": "dim"
+        }
       ]
     },
     {
@@ -30,27 +417,44 @@
       "parent_node_id": "1111111111111111",
       "kind": "model-call",
       "name": "chat planner",
-      "start_ms": 1700000000100,
-      "duration_ms": 3400,
+      "start_ms": 1700000000100.0,
+      "duration_ms": 3400.0,
       "service": "planit-server",
       "primary_span_id": "2222222222222222",
-      "span_ids": ["2222222222222222"],
+      "span_ids": [
+        "2222222222222222"
+      ],
       "error_span_ids": [],
       "error_text": "",
       "facts": {
-        "duration_ms": 3400,
+        "duration_ms": 3400.0,
         "model": "model-alpha-seed-2",
-        "in_tokens": 1820,
-        "out_tokens": 640,
+        "in_tokens": 1820.0,
+        "out_tokens": 640.0,
         "io_span": "2222222222222222",
-        "self_ms": 100,
         "http_status": 200
       },
       "brief": [
-        {"label": "model", "value": "model-alpha-seed-2", "emphasis": "strong"},
-        {"label": "tok", "value": "in 1820 / out 640", "emphasis": "normal"},
-        {"label": "dur", "value": "3.40s", "emphasis": "dim"},
-        {"label": "http", "value": "200", "emphasis": "normal"}
+        {
+          "label": "model",
+          "value": "model-alpha-seed-2",
+          "emphasis": "strong"
+        },
+        {
+          "label": "tok",
+          "value": "in 1820 / out 640",
+          "emphasis": "normal"
+        },
+        {
+          "label": "dur",
+          "value": "3.40s",
+          "emphasis": "dim"
+        },
+        {
+          "label": "http",
+          "value": "200",
+          "emphasis": "normal"
+        }
       ]
     },
     {
@@ -58,23 +462,37 @@
       "parent_node_id": "2222222222222222",
       "kind": "http",
       "name": "POST /chat/completions",
-      "start_ms": 1700000000150,
-      "duration_ms": 3300,
+      "start_ms": 1700000000150.0,
+      "duration_ms": 3300.0,
       "service": "planit-server",
       "primary_span_id": "3333333333333333",
-      "span_ids": ["3333333333333333"],
+      "span_ids": [
+        "3333333333333333"
+      ],
       "error_span_ids": [],
       "error_text": "",
       "facts": {
-        "duration_ms": 3300,
+        "duration_ms": 3300.0,
         "status": 200,
         "method": "POST",
         "url": "http://aigw/v1/chat/completions"
       },
       "brief": [
-        {"label": "method", "value": "POST", "emphasis": "dim"},
-        {"label": "http", "value": "200", "emphasis": "normal"},
-        {"label": "dur", "value": "3.30s", "emphasis": "dim"}
+        {
+          "label": "method",
+          "value": "POST",
+          "emphasis": "dim"
+        },
+        {
+          "label": "http",
+          "value": "200",
+          "emphasis": "normal"
+        },
+        {
+          "label": "dur",
+          "value": "3.30s",
+          "emphasis": "dim"
+        }
       ]
     },
     {
@@ -82,23 +500,37 @@
       "parent_node_id": "1111111111111111",
       "kind": "tool-call",
       "name": "execute_tool web_search",
-      "start_ms": 1700000003600,
-      "duration_ms": 1200,
+      "start_ms": 1700000003600.0,
+      "duration_ms": 1200.0,
       "service": "agent-executor",
       "primary_span_id": "4444444444444444",
-      "span_ids": ["4444444444444444"],
+      "span_ids": [
+        "4444444444444444"
+      ],
       "error_span_ids": [],
       "error_text": "",
       "facts": {
-        "duration_ms": 1200,
+        "duration_ms": 1200.0,
         "tool": "web_search",
         "result_bytes": 10,
         "io_span": "4444444444444444"
       },
       "brief": [
-        {"label": "tool", "value": "web_search", "emphasis": "strong"},
-        {"label": "dur", "value": "1.20s", "emphasis": "dim"},
-        {"label": "result", "value": "10B", "emphasis": "dim"}
+        {
+          "label": "tool",
+          "value": "web_search",
+          "emphasis": "strong"
+        },
+        {
+          "label": "dur",
+          "value": "1.20s",
+          "emphasis": "dim"
+        },
+        {
+          "label": "result",
+          "value": "10B",
+          "emphasis": "dim"
+        }
       ]
     },
     {
@@ -106,25 +538,44 @@
       "parent_node_id": "1111111111111111",
       "kind": "model-call",
       "name": "chat synth",
-      "start_ms": 1700000004900,
-      "duration_ms": 2500,
+      "start_ms": 1700000004900.0,
+      "duration_ms": 2500.0,
       "service": "planit-server",
       "primary_span_id": "5555555555555555",
-      "span_ids": ["5555555555555555"],
-      "error_span_ids": ["5555555555555555"],
+      "span_ids": [
+        "5555555555555555"
+      ],
+      "error_span_ids": [
+        "5555555555555555"
+      ],
       "error_text": "ModelTPOTTimeoutError: aigw 504 gateway timeout",
       "facts": {
-        "duration_ms": 2500,
+        "duration_ms": 2500.0,
         "model": "model-alpha-seed-2",
-        "in_tokens": 2100,
-        "self_ms": 100,
+        "in_tokens": 2100.0,
         "http_status": 504
       },
       "brief": [
-        {"label": "model", "value": "model-alpha-seed-2", "emphasis": "strong"},
-        {"label": "tok", "value": "in 2100", "emphasis": "normal"},
-        {"label": "dur", "value": "2.50s", "emphasis": "dim"},
-        {"label": "http", "value": "504", "emphasis": "normal"}
+        {
+          "label": "model",
+          "value": "model-alpha-seed-2",
+          "emphasis": "strong"
+        },
+        {
+          "label": "tok",
+          "value": "in 2100",
+          "emphasis": "normal"
+        },
+        {
+          "label": "dur",
+          "value": "2.50s",
+          "emphasis": "dim"
+        },
+        {
+          "label": "http",
+          "value": "504",
+          "emphasis": "normal"
+        }
       ]
     },
     {
@@ -132,23 +583,39 @@
       "parent_node_id": "5555555555555555",
       "kind": "http",
       "name": "POST /chat/completions",
-      "start_ms": 1700000004950,
-      "duration_ms": 2400,
+      "start_ms": 1700000004950.0,
+      "duration_ms": 2400.0,
       "service": "planit-server",
       "primary_span_id": "6666666666666666",
-      "span_ids": ["6666666666666666"],
-      "error_span_ids": ["6666666666666666"],
+      "span_ids": [
+        "6666666666666666"
+      ],
+      "error_span_ids": [
+        "6666666666666666"
+      ],
       "error_text": "",
       "facts": {
-        "duration_ms": 2400,
+        "duration_ms": 2400.0,
         "status": 504,
         "method": "POST",
         "url": "http://aigw/v1/chat/completions"
       },
       "brief": [
-        {"label": "method", "value": "POST", "emphasis": "dim"},
-        {"label": "http", "value": "504", "emphasis": "strong"},
-        {"label": "dur", "value": "2.40s", "emphasis": "dim"}
+        {
+          "label": "method",
+          "value": "POST",
+          "emphasis": "dim"
+        },
+        {
+          "label": "http",
+          "value": "504",
+          "emphasis": "strong"
+        },
+        {
+          "label": "dur",
+          "value": "2.40s",
+          "emphasis": "dim"
+        }
       ]
     }
   ],

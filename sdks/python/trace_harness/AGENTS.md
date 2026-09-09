@@ -6,7 +6,7 @@ e2e-harness 的第四个 SDK：trace/span 分析框架。前三个 harness 把�
 响应），trace_harness 开盒——消费遥测（OTel/Jaeger span），回答"链路内部哪一层先反常"。
 
 **长期目标**：把一套**概念**（类型化 node 树 / 派生 facts / 判读 finding / 渲染 facet）与**流程**
-（ingest→feature→diagnose→render）咬合成一个可生长的系统，靠**持续新增规则**（detector，case as
+（ingest→transform→measure→diagnose→render）咬合成一个可生长的系统，靠**持续新增规则**（detector，case as
 code）辅助分析、排查 trace 里的问题——排查中每定位一类新坏模式就沉成一条，框架越用越懂、越会自己说话。
 
 设计理念、流程、决策记录见 [`../../../docs/trace-harness.md`](../../../docs/trace-harness.md)，本文件只给代码地图与改动入口。
@@ -30,6 +30,8 @@ trace_harness/
 │   ├── context.py    #   TraceContext：单 trace 建模单元(内存事实源)，dispatch 挂这；view() 惰性建树
 │   ├── viewtree.py   #   视图期惰性索引(仅渲染/火焰/最近祖先用，分析侧从不持树)
 │   ├── agent.py      #   AgentRun IR + 递归校验/序列化；Operation/AgentRun 均可递归嵌套
+│   ├── measurement.py # MeasurementSpec / Measurement / Measurements：独立量化结果及共享证据
+│   ├── analysis.py   # analysis@2 snapshot/dump/load；离线渲染不重算
 │   └── ir.py         #   TraceView + nodes.json dump/load：模型的可序列化形态(渲染面契约·域无关)
 ├── kinds/            # 唯一领域代码(通用 genai；域专属 AS kinds 留消费方，spec.merge 叠加)
 │   ├── base.py       #   generic 残余 spec + duration 基线度量
@@ -37,14 +39,11 @@ trace_harness/
 ├── ingest/           # raw → model（主链入口 + 唯一领域边界）
 │   ├── sources/      #   采集协议(唯一知道后端的层)：base(Source/SpanQuery/Fidelity) / jaeger_file / opensearch
 │   ├── load.py       #   build_context_from_spans(Source 无关) / build_context(文件)
-│   └── assemble.py   #   fusion 七步 + bake_features + bake brief：raw span → list[Node]+父子边，末尾拉 eager Feature 烤 facts
-├── feature/          # 从 node 算命名值：统一 build/derive/repro（Feature 在 bake×读raw 平面上的点），与 view/analyze 对称
-│   ├── feature.py    #   Feature(produces/applies/compute/bake)：bake=True 烤进 facts、False 按需(curl/bash)
-│   ├── ctx.py        #   Ctx：pull+memo，get(node,name) 递归拉依赖+缓存 → 无 order/无 bottom-up；raw 随数据源
-│   ├── registry.py   #   FeatureRegistry；每个 TraceHarness 独立持有
-│   ├── engine.py     #   bake_features(eager 烤进 facts，取代 run_derive) / lazy_features(consumer 按需取)
-│   └── builtins.py   #   harness 自带 Feature：self_ms(=dur−子并集) / http_status(model-call 从 http 子卷)
-├── analyze/          # model → findings/gates（__init__：node-scope+table-scope 统一注册表）
+│   └── assemble.py   # fusion + 投影所需 facts + brief 投影；唯一父子结构写入方
+├── transform.py      # FactTransform / TransformContext：fact → fact，按需依赖解析、缓存与原子物化
+├── analyze/          # model → Measurements → findings/gates（__init__：node-scope+table-scope 统一注册表）
+│   ├── context.py    # AnalysisContext：原 trace + 本次 Measurements + 已产 Finding
+│   ├── measure.py    # Measurer：整 trace 一次计算；prefix 时间索引与 self_ms
 │   ├── diagnose/     #   node-scope 判读：scoped DetectorRegistry / 内置拓扑 / outliers / trend / patterns / probes
 │   └── verdict.py    #   gates → verdict.json 投影(统一判定出口，照 perf 模式)
 ├── view/             # model(+findings) → 各种呈现（perspective 层：node tree 只管结构，重点在这定）
@@ -72,7 +71,8 @@ trace_harness/
 ```
 source ─ingest───→ NormSpan 集
        ─assemble─→ node 树（matches/claims 定结构 + 父子边）
-       ─feature──→ node 树（+ eager Feature 烤 facts，结构不变）  ← 至此 node 树 / nodes.json 完整
+       ─transform→ 所需 facts（投影前或显式按需调用，结果写入 node.facts）
+       ─measure─→ Measurements（独立结果，可无 Findings）
        ─diagnose→ findings（可选；按 node_id 挂 node）
        ─render──→ facet 分派 → DisplayNode → text / html / treecli
        ─extract─→ NodeTreeExtractor<AgentRunIR> → AgentRun renderer
@@ -84,17 +84,17 @@ corpus parquet 走可选 extra `quality-harness[trace-corpus]`（pyarrow），�
 ## 关键约定
 
 - **Kernel 对齐**：raw span 经 normalize / assemble 得到的 `Node` 是 Observation，`trace_id + node_id` 定义 node-grain Unit；nodes / corpus 构成可复评 Dataset，本次选择的 detector 与 gate 直接定义评估侧重点，detect 输出 Finding。若使用 trace 或 cohort grain，应建立对应 Worksheet，不把多种 grain 混在同一行模型；详见 [`../../../docs/kernel.md`](../../../docs/kernel.md#dataset-与反复评估)。
-- **node 是分析本体，tree 退为视图期索引**：所有分析吃平 node 集，只在渲染等视图时刻才
-  `ctx.view()` 现搭树；改分析逻辑不要去持树。
-- **assemble 之后全是 structure-preserving**：只有 matches/claims 造结构（父子边）；其后 **feature(写
-  facts) / diagnose(产 findings) / render(facet 出 DisplayNode)** 三步都只读树、各写自己那一层、
-  **永不 re-parent**。三层同构：注册表 + 引擎，按 applies/match 分派（feature 用 pull+memo 自解依赖）。
+- **node 是分析本体，tree 是只读关系索引**：分析输入保持平 node 集，transform 和渲染按需
+  复用 `ctx.view()` 的关系索引，不另建或修改父子结构。
+- **输出责任独立**：transform 由消费方请求并写 facts，measure 写 Measurement，diagnose 写 Finding，
+  render 写 DisplayNode。各阶段只读父子关系，永不 re-parent。
+  renderer 只消费准备好的结果，不能调用 FactTransform、Measurer 或 detector。
 - **业务知识只在 classify + build**：span 是哪种逻辑事件由 `spec.matches` 在 assemble 判（语义 kind
   不在采集层，NormSpan 无 kind 字段）；raw 的 `gen_ai.*` 等抽成命名 facts 锁死在 `KindSpec.build`——
-  下游 feature/analyze/view/corpus 只见列名、零域知识。域专属 kind 随域包 `spec.merge` 叠加。
+  下游 transform/analyze/view/corpus 只见列名、零域知识。域专属 kind 随域包 `spec.merge` 叠加。
 - **可机判的判读知识一律沉 detector（case as code）**：通用/整树判读通过
-  `TraceContributions.detectors` 进入 scoped 注册表（统一 `(node, ctx, found)` 签名、
-  后序逐 node 跑、可读已产 findings 归因），kind 专属走
+  `TraceContributions.detectors` 进入 scoped 注册表（统一 `(node, analysis_context)` 签名、
+  后序逐 node 跑、可读 Measurements 与已产 findings 归因），kind 专属走
   `spec.rules`；内置拓扑(detached/obs_hole/propagated)也走注册表，不再硬编码。detector 每次 diagnose
   全量确定性召回，不靠文档被想起或检索命中；文档只留代码表达不了的 why（根因叙事、修复状态）。
 - **view 渲染 signal-aware**：是否值得让人看某个 node，统一成 **signal**——biz 的**骨干/重要性**与

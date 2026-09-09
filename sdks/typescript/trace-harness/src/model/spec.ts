@@ -1,4 +1,4 @@
-import type { TraceContext } from "./context";
+import type { AnalysisContext } from "../analyze/context";
 import type { Field, Finding, Node } from "./node";
 import type { NormSpan } from "./span";
 
@@ -9,9 +9,10 @@ export interface KindSpec {
   build?(primary: NormSpan, satellites: NormSpan[]): Record<string, unknown>;
   metrics?: Record<string, (node: Node) => number | undefined>;
   strategy?: Record<string, "ratio" | "topn">;
-  rules?: Array<(node: Node, context: TraceContext) => Finding[]>;
+  rules?: Array<(node: Node, context: AnalysisContext) => Finding[]>;
   obs_hole?: boolean;
   project?(node: Node): Field[];
+  project_requires?: readonly string[];
 }
 
 export class SpecSet implements Iterable<KindSpec> {

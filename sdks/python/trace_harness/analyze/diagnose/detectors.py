@@ -10,9 +10,9 @@ domain detector 与它们走同一套机制。
 
 from __future__ import annotations
 
+from trace_harness.analyze.context import AnalysisContext
 from trace_harness.analyze.diagnose.http import http_request_patterns
 from trace_harness.model.context import TraceContext
-from trace_harness.model.intervals import interval_union
 from trace_harness.model.node import Finding, Node
 
 # obs_hole 阈值：空隙既要够大（绝对）又要占父节点够大比例（相对），双门槛压误报。
@@ -30,7 +30,8 @@ def _error_sig(ctx: TraceContext, n: Node) -> str:
     return ctx.error_text(n.error_anchor)[:60]
 
 
-def detached(node: Node, ctx: TraceContext, found: dict) -> list[Finding]:
+def detached(node: Node, analysis: AnalysisContext) -> list[Finding]:
+    ctx = analysis.trace
     psid = ctx.spans[node.primary_span_id].parent_span_id
     if psid and psid not in ctx.spans:
         return [
@@ -44,7 +45,8 @@ def detached(node: Node, ctx: TraceContext, found: dict) -> list[Finding]:
     return []
 
 
-def obs_hole(node: Node, ctx: TraceContext, found: dict) -> list[Finding]:
+def obs_hole(node: Node, analysis: AnalysisContext) -> list[Finding]:
+    ctx = analysis.trace
     spec = ctx.specs.get(node.kind)
     if spec is not None and not spec.obs_hole:
         return []  # 聚合容器 kind 自行声明退出（误报教训见 spec.obs_hole 注释）
@@ -55,10 +57,10 @@ def obs_hole(node: Node, ctx: TraceContext, found: dict) -> list[Finding]:
     span = hi - lo
     if span <= 0:
         return []
-    # 子区间钳到父节点 wall-clock interval 内（异步子节点可能越界），并集求覆盖，剩下即空隙
-    clamped = [(max(lo, k.start_ms), min(hi, k.end_ms)) for k in kids]
-    clamped = [(s, e) for s, e in clamped if e > s]
-    gap = span - interval_union(clamped)
+    measurement = analysis.measurements.get(node.node_id, "self_ms")
+    if measurement is None or measurement.status != "measured":
+        return []
+    gap = measurement.values["self_ms"]
     if gap >= _HOLE_MIN_GAP_MS and gap >= _HOLE_MIN_FRAC * span:
         return [
             Finding(
@@ -71,7 +73,8 @@ def obs_hole(node: Node, ctx: TraceContext, found: dict) -> list[Finding]:
     return []
 
 
-def propagated(node: Node, ctx: TraceContext, found: dict) -> list[Finding]:
+def propagated(node: Node, analysis: AnalysisContext) -> list[Finding]:
+    ctx = analysis.trace
     """本节点若有 error 且子树里有同签名 error 后代 → 它是传播副本（源头在更深 node）。
     naive 计数会把一份错误沿 model-call→node→agent 重复算 N 倍，标出副本、留最深源头那一跳。"""
     if not node.has_error:

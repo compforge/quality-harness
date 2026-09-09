@@ -1,8 +1,7 @@
-import type { TraceContext } from "../model/context";
+import type { AnalysisContext } from "./context";
 import type { Finding, Node } from "../model/node";
-import type { Findings } from "./diagnose";
 
-export type Detector = (node: Node, context: TraceContext, found: Findings) => Finding[];
+export type Detector = (node: Node, context: AnalysisContext) => Finding[];
 
 export class DetectorRegistry {
   readonly #detectors: Detector[];

@@ -1,0 +1,372 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://compforge.dev/schema/trace/v2/analysis.schema.json",
+  "title": "Trace Harness analysis IR",
+  "type": "object",
+  "required": [
+    "schema",
+    "trace_id",
+    "span_count",
+    "nodes",
+    "findings",
+    "measurements"
+  ],
+  "properties": {
+    "schema": {
+      "const": "trace-harness/analysis@2"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "span_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "required": [
+        "specs",
+        "sources",
+        "results"
+      ],
+      "properties": {
+        "specs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/measurement_spec"
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/call_source"
+          }
+        },
+        "results": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/measurement"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "field": {
+      "type": "object",
+      "required": [
+        "label",
+        "value",
+        "emphasis"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "emphasis": {
+          "enum": [
+            "normal",
+            "dim",
+            "strong"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "node_id",
+        "parent_node_id",
+        "kind",
+        "name",
+        "start_ms",
+        "duration_ms",
+        "service",
+        "primary_span_id",
+        "span_ids",
+        "error_span_ids",
+        "error_text",
+        "facts",
+        "brief"
+      ],
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "parent_node_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "start_ms": {
+          "type": "number"
+        },
+        "duration_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "service": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "primary_span_id": {
+          "type": "string"
+        },
+        "span_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error_span_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error_text": {
+          "type": "string"
+        },
+        "facts": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "brief": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/field"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "finding": {
+      "type": "object",
+      "required": [
+        "ref",
+        "source",
+        "severity",
+        "scope",
+        "rank",
+        "note",
+        "data",
+        "symptoms",
+        "causes"
+      ],
+      "properties": {
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warn",
+            "error"
+          ]
+        },
+        "scope": {
+          "enum": [
+            "node",
+            "trace",
+            "cohort"
+          ]
+        },
+        "rank": {
+          "type": [
+            "integer",
+            "number",
+            "null"
+          ]
+        },
+        "note": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "symptoms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "causes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "measurement_spec": {
+      "type": "object",
+      "required": [
+        "id",
+        "scope",
+        "units",
+        "description",
+        "dimensions"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "node",
+            "trace_prefix"
+          ]
+        },
+        "units": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "call_source": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "start_ms",
+        "end_ms",
+        "node_id",
+        "span_ids"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "start_ms": {
+          "type": "number"
+        },
+        "end_ms": {
+          "type": "number"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "span_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "measurement": {
+      "type": "object",
+      "required": [
+        "spec_id",
+        "anchor_node_id",
+        "status",
+        "values",
+        "evidence",
+        "error"
+      ],
+      "properties": {
+        "spec_id": {
+          "type": "string"
+        },
+        "anchor_node_id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "measured",
+            "not_applicable",
+            "error"
+          ]
+        },
+        "values": {
+          "type": "object"
+        },
+        "evidence": {
+          "type": "object"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "error",
+                  "not_applicable"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "values": {
+                "maxProperties": 0
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

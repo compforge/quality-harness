@@ -16,7 +16,7 @@
 零域知识（只认 genai 通用 kind）。域层（如 trace-as 的 sandbox 归因）拿 `by_tool` 自己按
 工具名求和即可——见 `tool_frac_for`。
 
-与 `feature/builtins.py::self_ms`（单 node 减子并集）同源复用 `interval_union`，口径不漂移。
+与 `analyze/measure.py::_self`（单 node 减子并集）同源复用 `interval_union`，口径不漂移。
 """
 
 from __future__ import annotations
