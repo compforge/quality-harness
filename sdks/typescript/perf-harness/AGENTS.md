@@ -31,10 +31,20 @@ Prometheus、Kubernetes 等资源观测由消费方通过 Prombed 或自己的�
 6. Case/CaseSet 归 spec-case；Perf Experiment 只通过 `caseMix` 选择 id 和设置 weight。
 7. Kernel 对齐：Outcome 是 request Observation；request、window、run 是不同 Unit grain，应分别形成 Dataset / Worksheet。raw/model Run facts 可由不同 Workload judge、SLO 和 analysis 组件离线复评，实际组件配置由 EvaluationRun 记录，不得因换判定口径重新发压；详见 `../../../docs/kernel.md#dataset-与反复评估`。
 
+## 开发与测试
+
+从本包目录运行：
+
+```bash
+bun install --frozen-lockfile
+bun test
+bun run typecheck
+bun run build
+```
+
 ## References
 
 - `../../../spec/perf-contract.md` — 跨语言 canonical 契约
 - `../../../spec/perf-run-schema.yaml` / `perf-outcome-schema.yaml` — 落盘 schema
-- `../../python/perf_harness/AGENTS.md` — Python 实现代码地图
 - `../../python/perf_harness/docs/load-model-redesign.md` — 加压模型
 - `../../../spec/conventions.md` — 跨 harness 对齐键与产物布局

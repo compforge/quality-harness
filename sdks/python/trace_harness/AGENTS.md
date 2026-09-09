@@ -107,9 +107,18 @@ corpus parquet 走可选 extra `quality-harness[trace-corpus]`（pyarrow），�
 - **AgentRun 是第二层 IR**：域包通过 `agent_run_extractor` 从完整 Node Tree 提取
   run/turn/model/tool/operation 及调用点内的嵌套 run；trace_harness 负责 IR 校验和递归渲染，不内置任何 Agent Framework 的分轮或关联猜测。
 
+## 开发与测试
+
+从 `sdks/python` 对共享 fixture 做离线分析：
+
+```bash
+uv run trace single ../../conformance/trace/fixtures/genai-basic.jsonl --diagnose
+```
+
+Python 与 TypeScript 的分析结果共同遵守仓库根目录 `conformance/trace/` fixtures。
+
 ## References
 
 - 设计文档（理念/流程/决策记录）：[`../../../docs/trace-harness.md`](../../../docs/trace-harness.md)
 - 语言中立规范：[`../../../spec/trace-harness.md`](../../../spec/trace-harness.md)
-- 工程约定（uv workspace、SDK 注册、lint）：上级 [`../../../AGENTS.md`](../../../AGENTS.md)
 - 跨语言测试 fixture：`../../../conformance/trace/fixtures/genai-basic.jsonl`（真实 ES jaeger-span 形状）

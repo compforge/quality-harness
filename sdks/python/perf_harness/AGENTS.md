@@ -71,11 +71,20 @@ perf_harness/
 - `verdict.json` 是跨 harness 契约（spec/verdict-schema.yaml，devloop 消费），改动需五家对齐。
 - 请求侧指标走客户端 Outcome（没 `/metrics` 的服务也能压）；`/metrics` 只喂资源侧。
 
+## 开发与测试
+
+从 `sdks/python` 运行无需外部服务或集群的 smoke 实验：
+
+```bash
+uv run python -m perf_harness.cli run perf_harness/examples/mock.yaml --out /tmp/ph
+```
+
+共享 CaseSet 的选择语义由仓库根目录 `conformance/case/` fixture 验证。
+
 ## References
 
 - 跨语言契约：[`../../../spec/perf-contract.md`](../../../spec/perf-contract.md)
 - 落盘 schema：[`../../../spec/perf-run-schema.yaml`](../../../spec/perf-run-schema.yaml) / [`../../../spec/perf-outcome-schema.yaml`](../../../spec/perf-outcome-schema.yaml)
-- 使用指南（user 视角）：[`README.md`](README.md)
 - metric 模型（含 otel-collector 对照）：[`docs/metric-model.md`](docs/metric-model.md)
 - 结果/SLO 语义：[`docs/result-semantics.md`](docs/result-semantics.md)
 - 加压模型细节：[`docs/load-model-redesign.md`](docs/load-model-redesign.md)

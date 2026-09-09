@@ -42,7 +42,12 @@ e2e_harness/
 - **Config**（`config.yaml`，语言无关 schema）：`service.{name,component,environment,base_url,headers}`，其中当前 environment 默认按 `KubernetesEnvironment{name,kubeconfig,context}` 解析；另有 `runtime.*_timeout` / `discover.{source_root,test_root}`（discover/casegen 用）。harness 不内置服务专用 header 名。
 - **verdict**（`spec/verdict-schema.yaml`）：`e2e run` 跑完落 `runs/<scope>/<run-id>/verdict.json`（scope 默认 CaseSet 名，即 Experiment 名）。
 
+- **当前范围**：服务 API 契约测试；Playbook / Script 与 Web、移动端、产品 API Target 的长期边界见领域设计。
+- **跨语言对齐**：Python 与 Go 共享 CaseRun 生命周期、阶段 budget、cleanup 和 Verdict 语义，由仓库根目录 `conformance/e2e/` fixture 约束。
+
 ## References
+
+- [E2E、Playbook 与 Target 设计](../../../docs/e2e-harness.md)
 
 - 判定即数据架构（engine / 多编写前端 / 新老收敛）：[`../../../docs/case-unification.md`](../../../docs/case-unification.md)
 - casegen（NL marker → 结构化 case 的 build-time 编译器）：[`../../../docs/casegen.md`](../../../docs/casegen.md)

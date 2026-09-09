@@ -22,8 +22,18 @@ Python runtime 的环境中完成 trace 建模与渲染。规范、IR schema 与
 4. Python 与 TypeScript 的公开 IR 字段保持同名，便于 fixture 与产物交叉验证。
 5. Kernel 对齐：assemble 后的 Node 是 Observation，`trace_id + node_id` 是 node-grain Unit key；nodes / corpus 是可复评 Dataset，本次选择的 detector / gate 直接定义评估侧重点并由 EvaluationRun 记录，detect 输出 Finding。不同 Unit grain 使用不同 Worksheet；详见 `../../../docs/kernel.md#dataset-与反复评估`。
 
+## 开发与测试
+
+从本包目录运行：
+
+```bash
+bun install --frozen-lockfile
+bun test
+bun run typecheck
+bun run build
+```
+
 ## References
 
 - `../../../spec/trace-harness.md` — 语言中立规范
-- `../../python/trace_harness/AGENTS.md` — Python 实现的代码地图与设计约定
 - `../../../docs/trace-harness.md` — trace-harness 设计文档

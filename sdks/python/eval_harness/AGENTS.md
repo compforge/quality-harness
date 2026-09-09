@@ -39,6 +39,12 @@ eval_harness/
 - **产物两形态**：`worksheet.jsonl`（无损 checkpoint，可断点续跑）vs `results.csv`（有损扁平投影，人工 review 用）
 - 真实 Provisioner/Solver 是消费方关切，落在消费方仓库；本包用 `--mock` 自跑
 
-## References
+## 开发与测试
 
-- 使用指南（user 视角）：[`README.md`](README.md)
+从 `sdks/python` 运行无需外部服务的 smoke 评测：
+
+```bash
+uv run python -m eval_harness.cli eval_harness/materials/experiments/smoke.yaml --mock --fresh --runs-dir /tmp/eh
+```
+
+共享 CaseSet 的跨领域行为由仓库根目录 `conformance/case/` fixture 验证。
