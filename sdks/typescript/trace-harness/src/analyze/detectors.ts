@@ -1,3 +1,4 @@
+import { httpRequestPatterns } from "./http";
 import type { TraceContext } from "../model/context";
 import type { Node } from "../model/node";
 import type { Detector } from "./registry";
@@ -77,7 +78,7 @@ const propagated: Detector = (node, context) => {
   return [];
 };
 
-const DETECTORS = [detached, observationHole, propagated] satisfies Detector[];
+const DETECTORS = [detached, observationHole, propagated, httpRequestPatterns] satisfies Detector[];
 
 export function builtinDetectors(): Detector[] {
   return [...DETECTORS];

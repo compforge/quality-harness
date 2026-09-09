@@ -1,0 +1,1889 @@
+[
+  {
+    "name": "threshold-199",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 199,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "threshold-200",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 200,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "threshold-200.1",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 200.1,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "source": "http_slow_request",
+        "severity": "warn",
+        "span_ids": [
+          "a"
+        ],
+        "duration_ms": 200.1,
+        "threshold_ms": 200
+      }
+    ]
+  },
+  {
+    "name": "threshold-350",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 350,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "source": "http_slow_request",
+        "severity": "warn",
+        "span_ids": [
+          "a"
+        ],
+        "duration_ms": 350,
+        "threshold_ms": 200
+      }
+    ]
+  },
+  {
+    "name": "server-body-longer",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 10,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "s",
+        "parent_span_id": "a",
+        "name": "POST /configs",
+        "start_ms": 1,
+        "dur_ms": 250,
+        "service": "settings",
+        "attrs": {
+          "span.kind": "server",
+          "http.method": "POST",
+          "http.route": "/configs"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "source": "http_slow_request",
+        "severity": "warn",
+        "span_ids": [
+          "a",
+          "s"
+        ],
+        "duration_ms": 250,
+        "threshold_ms": 200
+      }
+    ]
+  },
+  {
+    "name": "modern-semconv",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "request",
+        "start_ms": 0,
+        "dur_ms": 201,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "server",
+          "http.request.method": "GET",
+          "url.path": "/items",
+          "server.address": "settings",
+          "server.port": 8080
+        }
+      }
+    ],
+    "expected": [
+      {
+        "source": "http_slow_request",
+        "severity": "warn",
+        "span_ids": [
+          "a"
+        ],
+        "duration_ms": 201,
+        "threshold_ms": 200,
+        "target": "settings:8080",
+        "route": "/items",
+        "method": "GET"
+      }
+    ]
+  },
+  {
+    "name": "stream-http.request.header.accept",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 9000,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs",
+          "http.request.header.accept": [
+            "text/event-stream"
+          ]
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "stream-http.response.header.content-type",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 9000,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs",
+          "http.response.header.content-type": "text/event-stream; charset=utf-8"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "stream-http.response.headers",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 9000,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs",
+          "http.response.headers": "{\"Content-Type\": \"text/event-stream\"}"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "stream-http.request.body",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 9000,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs",
+          "http.request.body": "{\"stream\": true}"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "stream-http.request.body.json",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 9000,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs",
+          "http.request.body.json": {
+            "stream": true
+          }
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "stream-server-body",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 8000,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "s",
+        "parent_span_id": "a",
+        "name": "POST /configs",
+        "start_ms": 0,
+        "dur_ms": 9000,
+        "service": "settings",
+        "attrs": {
+          "span.kind": "server"
+        }
+      },
+      {
+        "span_id": "body",
+        "parent_span_id": "s",
+        "name": "request-body",
+        "start_ms": 0,
+        "dur_ms": 0,
+        "service": "caller",
+        "attrs": {
+          "http.request.body.json": "\"{\\\"stream\\\": true}\""
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "model-endpoint-/v1/chat/completions",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 9000,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/v1/chat/completions"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "model-endpoint-/v1/embeddings",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 9000,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/v1/embeddings"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "model-endpoint-/v1/rerank",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 9000,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/v1/rerank"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "model-ancestor",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "business",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 2500,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/retrieve"
+        }
+      },
+      {
+        "span_id": "m",
+        "parent_span_id": "business",
+        "name": "custom-model",
+        "start_ms": 0,
+        "dur_ms": 2000,
+        "service": "caller",
+        "attrs": {
+          "gen_ai.operation.name": "chat"
+        }
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "m",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 1000,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/invoke"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "source": "http_slow_request",
+        "severity": "warn",
+        "span_ids": [
+          "business"
+        ],
+        "duration_ms": 2500,
+        "threshold_ms": 200
+      }
+    ]
+  },
+  {
+    "name": "not-descendant-wall-time",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "background",
+        "parent_span_id": "a",
+        "name": "job",
+        "start_ms": 0,
+        "dur_ms": 9000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "event",
+        "parent_span_id": "root",
+        "name": "POST /x http send",
+        "start_ms": 0,
+        "dur_ms": 5000,
+        "service": "caller",
+        "attrs": {
+          "http.method": "POST",
+          "url.full": "http://settings/x",
+          "asgi.event.type": "http.response.body"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "fast-serial-2",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 80,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "source": "http_serial_same_api",
+        "severity": "warn",
+        "span_ids": [
+          "0",
+          "1"
+        ],
+        "count": 2,
+        "wall_ms": 100,
+        "http_total_ms": 40,
+        "gap_ms": 60
+      }
+    ]
+  },
+  {
+    "name": "fast-serial-5",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 80,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "2",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 160,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "3",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 240,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "4",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 320,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "source": "http_serial_same_api",
+        "severity": "warn",
+        "span_ids": [
+          "0",
+          "1",
+          "2",
+          "3",
+          "4"
+        ],
+        "count": 5,
+        "wall_ms": 340,
+        "http_total_ms": 100,
+        "gap_ms": 240
+      }
+    ]
+  },
+  {
+    "name": "paired-clock-skew",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "s1",
+        "parent_span_id": "a",
+        "name": "POST /configs",
+        "start_ms": 500,
+        "dur_ms": 30,
+        "service": "settings",
+        "attrs": {
+          "span.kind": "server"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 80,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "s2",
+        "parent_span_id": "b",
+        "name": "POST /configs",
+        "start_ms": -500,
+        "dur_ms": 35,
+        "service": "settings",
+        "attrs": {
+          "span.kind": "server"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "source": "http_serial_same_api",
+        "severity": "warn",
+        "span_ids": [
+          "a",
+          "b"
+        ],
+        "count": 2,
+        "wall_ms": 100,
+        "http_total_ms": 40,
+        "gap_ms": 60
+      }
+    ]
+  },
+  {
+    "name": "parallel",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 100,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 50,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "inside-parallel-window",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 100,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 10,
+        "dur_ms": 10,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "c",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 30,
+        "dur_ms": 10,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "other-api-between",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 30,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/models"
+        }
+      },
+      {
+        "span_id": "c",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 60,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "other-target",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 30,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://other:8080/configs"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "other-method",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "GET",
+        "start_ms": 30,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "GET",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "other-parent",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "another",
+        "name": "POST",
+        "start_ms": 30,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "other-service",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 30,
+        "dur_ms": 20,
+        "service": "other",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "other-action",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/?Action=Get"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 30,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/?Action=Put"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "stream-between",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 30,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs",
+          "http.request.body.json": {
+            "stream": true
+          }
+        }
+      },
+      {
+        "span_id": "c",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 60,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "query-and-body-do-not-split-api",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/items?page=1",
+          "http.request.body.json": {
+            "names": [
+              "one"
+            ]
+          }
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 30,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/items?page=2",
+          "http.request.body.json": {
+            "names": [
+              "two"
+            ]
+          }
+        }
+      }
+    ],
+    "expected": [
+      {
+        "source": "http_serial_same_api",
+        "severity": "warn",
+        "span_ids": [
+          "a",
+          "b"
+        ],
+        "count": 2,
+        "wall_ms": 50,
+        "http_total_ms": 40,
+        "gap_ms": 10,
+        "route": "/items"
+      }
+    ]
+  },
+  {
+    "name": "server-route-template",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/items/1"
+        }
+      },
+      {
+        "span_id": "s1",
+        "parent_span_id": "a",
+        "name": "POST /items/{id}",
+        "start_ms": 0,
+        "dur_ms": 15,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "server",
+          "http.route": "/items/{id}"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 40,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/items/2"
+        }
+      },
+      {
+        "span_id": "s2",
+        "parent_span_id": "b",
+        "name": "POST /items/{id}",
+        "start_ms": 40,
+        "dur_ms": 15,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "server",
+          "http.route": "/items/{id}"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "source": "http_serial_same_api",
+        "severity": "warn",
+        "span_ids": [
+          "a",
+          "b"
+        ],
+        "count": 2,
+        "wall_ms": 60,
+        "http_total_ms": 40,
+        "gap_ms": 20,
+        "route": "/items/{id}"
+      }
+    ]
+  },
+  {
+    "name": "recover-after-overlap",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 100,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "b",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 10,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "c",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 120,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      },
+      {
+        "span_id": "d",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 150,
+        "dur_ms": 20,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/configs"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "source": "http_serial_same_api",
+        "severity": "warn",
+        "span_ids": [
+          "c",
+          "d"
+        ],
+        "count": 2,
+        "wall_ms": 50,
+        "http_total_ms": 40,
+        "gap_ms": 10
+      }
+    ]
+  },
+  {
+    "name": "credential-not-exposed",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 220,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://user:secret@settings:8080/configs"
+        }
+      }
+    ],
+    "expected": [
+      {
+        "source": "http_slow_request",
+        "severity": "warn",
+        "span_ids": [
+          "a"
+        ],
+        "duration_ms": 220,
+        "threshold_ms": 200,
+        "target": "settings:8080"
+      }
+    ]
+  },
+  {
+    "name": "malformed-url",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "a",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 220,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://[bad/path"
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "bounded-findings",
+    "spans": [
+      {
+        "span_id": "root",
+        "parent_span_id": null,
+        "name": "work",
+        "start_ms": 0,
+        "dur_ms": 100000,
+        "service": "caller",
+        "attrs": {}
+      },
+      {
+        "span_id": "0-0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 0,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/0"
+        }
+      },
+      {
+        "span_id": "0-1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 300,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/0"
+        }
+      },
+      {
+        "span_id": "1-0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 1000,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/1"
+        }
+      },
+      {
+        "span_id": "1-1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 1300,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/1"
+        }
+      },
+      {
+        "span_id": "2-0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 2000,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/2"
+        }
+      },
+      {
+        "span_id": "2-1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 2300,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/2"
+        }
+      },
+      {
+        "span_id": "3-0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 3000,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/3"
+        }
+      },
+      {
+        "span_id": "3-1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 3300,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/3"
+        }
+      },
+      {
+        "span_id": "4-0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 4000,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/4"
+        }
+      },
+      {
+        "span_id": "4-1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 4300,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/4"
+        }
+      },
+      {
+        "span_id": "5-0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 5000,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/5"
+        }
+      },
+      {
+        "span_id": "5-1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 5300,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/5"
+        }
+      },
+      {
+        "span_id": "6-0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 6000,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/6"
+        }
+      },
+      {
+        "span_id": "6-1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 6300,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/6"
+        }
+      },
+      {
+        "span_id": "7-0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 7000,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/7"
+        }
+      },
+      {
+        "span_id": "7-1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 7300,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/7"
+        }
+      },
+      {
+        "span_id": "8-0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 8000,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/8"
+        }
+      },
+      {
+        "span_id": "8-1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 8300,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/8"
+        }
+      },
+      {
+        "span_id": "9-0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 9000,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/9"
+        }
+      },
+      {
+        "span_id": "9-1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 9300,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/9"
+        }
+      },
+      {
+        "span_id": "10-0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 10000,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/10"
+        }
+      },
+      {
+        "span_id": "10-1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 10300,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/10"
+        }
+      },
+      {
+        "span_id": "11-0",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 11000,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/11"
+        }
+      },
+      {
+        "span_id": "11-1",
+        "parent_span_id": "root",
+        "name": "POST",
+        "start_ms": 11300,
+        "dur_ms": 210,
+        "service": "caller",
+        "attrs": {
+          "span.kind": "client",
+          "http.method": "POST",
+          "http.url": "http://settings:8080/api/11"
+        }
+      }
+    ],
+    "expected": [],
+    "limits": {
+      "http_slow_request": {
+        "count": 10,
+        "total": 24
+      },
+      "http_serial_same_api": {
+        "count": 10,
+        "total": 12
+      }
+    }
+  }
+]

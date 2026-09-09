@@ -10,6 +10,7 @@ domain detector 与它们走同一套机制。
 
 from __future__ import annotations
 
+from trace_harness.analyze.diagnose.http import http_request_patterns
 from trace_harness.model.context import TraceContext
 from trace_harness.model.intervals import interval_union
 from trace_harness.model.node import Finding, Node
@@ -93,4 +94,4 @@ def propagated(node: Node, ctx: TraceContext, found: dict) -> list[Finding]:
     return []
 
 
-BUILTIN_DETECTORS = (detached, obs_hole, propagated)
+BUILTIN_DETECTORS = (detached, obs_hole, propagated, http_request_patterns)
