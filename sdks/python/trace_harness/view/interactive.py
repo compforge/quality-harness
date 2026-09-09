@@ -165,6 +165,8 @@ nav.switch button.active{background:#2563eb;color:#fff}
 .pane{flex:1;overflow:auto;padding:16px}
 .row{white-space:nowrap;cursor:pointer;font-size:12px;padding:2px 8px;border-left:3px solid transparent;display:flex;align-items:baseline;gap:6px;position:relative}
 .row.agent-row::before{content:"";position:absolute;left:var(--node-indent,4px);top:3px;bottom:3px;width:3px;border-radius:2px;background:var(--node-color,#9ca3af)}
+.measurement-marker{border:0;background:transparent;padding:0;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;flex:none;cursor:pointer;border-radius:4px;align-self:center}
+.measurement-marker:hover{background:#fef3c7}.measurement-marker:focus-visible{outline:2px solid #ca8a04;outline-offset:1px}
 .row:hover{background:#f1f5f9}
 .row.sel{background:#e0edff;border-left-color:#3b82f6}
 .row.err{color:#b91c1c}
@@ -236,6 +238,15 @@ function timeHeight(ms,maxMs){const ratio=Math.sqrt(Math.max(0,ms||0)/Math.max(1
 function agentNameLayout(depth,rowHeight){const treeWidth=treeEl.clientWidth||Math.min(760,window.innerWidth*.52);
   const width=Math.max(84,treeWidth-depth*16-210),lines=Math.max(1,Math.min(4,Math.floor(rowHeight/22)));
   return{width,lines,budget:Math.max(12,Math.floor(width/7))*lines};}
+// Use a fixed-color SVG: platform emoji fonts do not preserve the balloon color.
+function appendMeasurementMarker(row,n){
+  if(!(n.measurements||[]).length)return;
+  const marker=document.createElement('button');marker.type='button';marker.className='measurement-marker';
+  marker.title='查看 Measurements';marker.setAttribute('aria-label','查看 Measurements');
+  marker.innerHTML='<svg width="16" height="20" viewBox="0 0 16 20" aria-hidden="true" focusable="false"><path d="M8 14c-3 2 3 3 0 5" fill="none" stroke="#78716c" stroke-width="1"/><path d="m8 12-2 3h4z" fill="#facc15" stroke="#ca8a04" stroke-width=".7"/><ellipse cx="8" cy="6.5" rx="5.5" ry="6" fill="#facc15" stroke="#ca8a04" stroke-width=".8"/><path d="M5 3.5c-1 .7-1.4 1.6-1.4 2.5" fill="none" stroke="#fef9c3" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  marker.onclick=event=>{event.stopPropagation();select(n.node_id);const heading=paneEl.querySelector('#measurements');heading.scrollIntoView({block:'start'});heading.focus({preventScroll:true});};
+  row.appendChild(marker);
+}
 function renderInto(n,depth,parent){const box=document.createElement('div');
   renderRowInto(box,n,depth,parent);return box;}
 function renderRowInto(box,n,depth,parent){
@@ -257,6 +268,7 @@ function renderRowInto(box,n,depth,parent){
   if(nameLayout){nm.style.maxWidth=nameLayout.width+'px';nm.style.maxHeight=(nameLayout.lines*18)+'px';
     nm.style.lineHeight='18px';nm.style.whiteSpace='normal';nm.style.overflowWrap='anywhere';nm.style.overflow='hidden';}
   row.appendChild(nm);
+  appendMeasurementMarker(row,n);
   const d=document.createElement('span');d.className='dur';d.textContent=fmtMs(n.duration_ms);row.appendChild(d);
   if(n.brief){const be=document.createElement('span');be.className='brief';be.textContent='('+n.brief+')';row.appendChild(be);}
   if(n.has_error){const e=document.createElement('span');e.className='errdot';e.textContent='[ERROR]';row.appendChild(e);}
@@ -292,7 +304,7 @@ function unfoldAncestors(id){let p=parentOf[id];
   while(p){const kb=boxOf[p];
     if(kb&&kb.style.display==='none'){kb.style.display='';const t=twOf[p];if(t)t.textContent='▾';}
     p=parentOf[p];}}
-function measurementBlock(n){const rows=n.measurements||[];if(!rows.length)return '';return '<h3>Measurements</h3><div class="meta">trace_prefix：请求开始 → 此节点结束（含进行中的调用）。各 kind 可重叠；累计耗时不等于 wall-clock 贡献。</div><table><tr><th>Measurement / Scope</th><th>Kind</th><th>Count</th><th>Duration sum</th><th>Covered</th><th>Value / Status</th></tr>'+rows.map(r=>'<tr><td>'+esc(r.id)+'<br>'+esc(r.scope)+'</td><td>'+esc(r.kind)+'</td><td>'+esc(r.values.count??'')+'</td><td>'+esc(r.values.duration_sum_ms==null?'':r.values.duration_sum_ms+' ms')+'</td><td>'+esc(r.values.covered_ms==null?'':r.values.covered_ms+' ms')+'</td><td>'+esc(r.status==='measured'?Object.entries(r.values).filter(([k])=>!['count','duration_sum_ms','covered_ms'].includes(k)).map(([k,v])=>k+'='+v+' '+(r.units[k]||'')).join(', '):r.status+': '+(r.error||''))+'</td></tr>').join('')+'</table>';}
+function measurementBlock(n){const rows=n.measurements||[];if(!rows.length)return '';return '<h3 id="measurements" tabindex="-1">Measurements</h3><div class="meta">trace_prefix：请求开始 → 此节点结束（含进行中的调用）。各 kind 可重叠；累计耗时不等于 wall-clock 贡献。</div><table><tr><th>Measurement / Scope</th><th>Kind</th><th>Count</th><th>Duration sum</th><th>Covered</th><th>Value / Status</th></tr>'+rows.map(r=>'<tr><td>'+esc(r.id)+'<br>'+esc(r.scope)+'</td><td>'+esc(r.kind)+'</td><td>'+esc(r.values.count??'')+'</td><td>'+esc(r.values.duration_sum_ms==null?'':r.values.duration_sum_ms+' ms')+'</td><td>'+esc(r.values.covered_ms==null?'':r.values.covered_ms+' ms')+'</td><td>'+esc(r.status==='measured'?Object.entries(r.values).filter(([k])=>!['count','duration_sum_ms','covered_ms'].includes(k)).map(([k,v])=>k+'='+v+' '+(r.units[k]||'')).join(', '):r.status+': '+(r.error||''))+'</td></tr>').join('')+'</table>';}
 function select(id){
   document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));
   unfoldAncestors(id);
