@@ -59,8 +59,8 @@ casegen compile --source ./server --out ./cases.yaml --caseset service-api
 casegen check   --source ./server --out ./cases.yaml
 
 # Go
-go run github.com/compforge/case-harness/go/cmd/casegen list \
+go run github.com/compforge/quality-harness/sdks/go/cmd/casegen list \
   --source ./internal/api
-go run github.com/compforge/case-harness/go/cmd/casegen check \
+go run github.com/compforge/quality-harness/sdks/go/cmd/casegen check \
   --source ./internal/api --test ./tests/e2e --caseset service-api
 ```

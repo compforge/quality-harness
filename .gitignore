@@ -15,7 +15,7 @@ htmlcov/
 *.tar.gz
 
 # Go
-/go/bin/
+/sdks/go/bin/
 
 # TypeScript
 node_modules/
@@ -31,7 +31,7 @@ node_modules/
 Thumbs.db
 
 # uv
-python/.venv/
+sdks/python/.venv/
 
 # DevOps plugin
 .devops/

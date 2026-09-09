@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compforge/case-harness/go/e2e/caserun"
-	"github.com/compforge/case-harness/go/e2e/core"
-	"github.com/compforge/case-harness/go/e2e/judge"
-	"github.com/compforge/case-harness/go/e2e/runner"
+	"github.com/compforge/quality-harness/sdks/go/e2e/caserun"
+	"github.com/compforge/quality-harness/sdks/go/e2e/core"
+	"github.com/compforge/quality-harness/sdks/go/e2e/judge"
+	"github.com/compforge/quality-harness/sdks/go/e2e/runner"
 )
 
 var budgets = caserun.Budgets{

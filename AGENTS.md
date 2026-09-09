@@ -1,4 +1,4 @@
-# case-harness
+# quality-harness
 
 ## 项目定位与边界
 
@@ -6,35 +6,39 @@
 
 | 问题 | 类型 | SDK |
 |------|----------|-----|
-| 接口对不对 | API 测试（e2e，黑盒） | `python/e2e_harness` / `go/e2e` |
-| agent 效果好不好 | 效果测试（eval，黑盒） | `python/eval_harness` |
-| 压力下表现如何 | 压力测试（perf，黑盒） | `python/perf_harness` / `typescript/perf-harness` |
-| 链路内部哪层先反常 | trace 分析（trace，开盒） | `python/trace_harness` / `typescript/trace-harness` |
-| agent 的行动过程是否合理 | 轨迹评估（trajectory，开盒） | `python/trajectory_harness` |
+| 接口对不对 | API 测试（e2e，黑盒） | `sdks/python/e2e_harness` / `sdks/go/e2e` |
+| agent 效果好不好 | 效果测试（eval，黑盒） | `sdks/python/eval_harness` |
+| 压力下表现如何 | 压力测试（perf，黑盒） | `sdks/python/perf_harness` / `sdks/typescript/perf-harness` |
+| 链路内部哪层先反常 | trace 分析（trace，开盒） | `sdks/python/trace_harness` / `sdks/typescript/trace-harness` |
+| agent 的行动过程是否合理 | 轨迹评估（trajectory，开盒） | `sdks/python/trajectory_harness` |
 
-**边界**：跨语言（Go + Python + TypeScript）测试框架聚合仓库，各语言目录是独立工程。框架不 import 被测服务的 internal 代码，纯黑盒（HTTP / SSE / DB-query 由服务侧自己包装）。
+**边界**：跨语言（Go + Python + TypeScript）测试框架聚合仓库，各语言 SDK 在 `sdks/` 下保持独立工程。框架不 import 被测服务的 internal 代码，纯黑盒（HTTP / SSE / DB-query 由服务侧自己包装）。
 
 跨 Harness 的通用模型与 owner 分工见 [`docs/kernel.md`](docs/kernel.md)；e2e 的 Case 路径及 Playbook → Script → Web / Android / iOS / 产品 API Target 长期边界见 [`docs/e2e-harness.md`](docs/e2e-harness.md)。
+
+当前交付的是领域 SDK、共享契约与平台工具箱；长期计划在本仓库实现项目级 Quality Harness，
+负责理解目标、发现能力、选择验证和解释证据，设计见 `docs/quality-harness.md`。
+上层 Harness 尚未实现。领域 SDK 同时支持主动测试与已有运行证据分析，不强制所有入口提供 Case。
 
 ## 代码地图与核心模块
 
 各子模块的定位、代码地图、关键约定收敛在**各自的 AGENTS.md**，本文件不再展开；改某个 SDK 前先读它的 AGENTS.md。
 
 ```
-case-harness/
+quality-harness/
 ├── spec/                # 运行时约定层：case 兼容投影 / config / verdict / conventions
 ├── conformance/         # 跨语言共享行为 fixture
-├── python/              # Python 工程（uv），五个 sibling SDK + 共享 common
-│   ├── e2e_harness/     # API 测试（e2e）：确定性契约测试，pytest 驱动      → 见其 AGENTS.md
-│   ├── eval_harness/    # 效果测试（eval）：非确定性质量评测，大表 + reconciler → 见其 AGENTS.md
-│   ├── perf_harness/    # 压力测试（perf）：资源约束下的容量/资源画像        → 见其 AGENTS.md
-│   ├── trace_harness/   # trace 分析（trace）：开盒 OTel/Jaeger span 归因，调用栈+判读+corpus → 见其 AGENTS.md
-│   ├── trajectory_harness/ # 轨迹分析：Trajectory→Measurements→Detector/Verifier → 见其 AGENTS.md
-│   ├── common/          # 中立共享层：运行时身份、Experiment/Run/Artifact、verdict、llm + report_kit，五个 SDK 共用
-│   ├── harness_toolbox/ # Python 平台工具箱；跨 Harness 的环境操作与观测
-│   └── …/tests/         # 测试在各自包内（e2e_harness/tests 等；common 同），打包时排除
-├── go/                  # Go SDK（e2e 参考实现 + toolbox/* 平台工具箱）→ 见 go/AGENTS.md
-├── typescript/          # TypeScript SDK；perf/trace 实现共同遵守 spec 下的跨语言契约
+├── sdks/                # 各语言独立工程，共享根目录的契约与 conformance fixtures
+│   ├── python/          # uv 工程；五个 sibling SDK + harness_common + harness_toolbox
+│   │   ├── e2e_harness/        # API 契约测试 → 见其 AGENTS.md
+│   │   ├── eval_harness/       # Agent 效果评测 → 见其 AGENTS.md
+│   │   ├── perf_harness/       # 性能与容量测试 → 见其 AGENTS.md
+│   │   ├── trace_harness/      # 调用链分析 → 见其 AGENTS.md
+│   │   ├── trajectory_harness/ # Agent 轨迹评估 → 见其 AGENTS.md
+│   │   ├── harness_common/    # 中立模型、Verdict、LLM 与报告能力
+│   │   └── harness_toolbox/   # 环境操作与观测 → 见其 AGENTS.md
+│   ├── go/              # e2e SDK + 平台工具箱 → 见 sdks/go/AGENTS.md
+│   └── typescript/      # perf / trace SDK → 见各包 AGENTS.md
 ├── examples/            # 接入示例：api-test / agent-test
 └── docs/                # 跨 SDK 设计文档
 ```
@@ -42,11 +46,11 @@ case-harness/
 ## 关键约定
 
 - **md 文档分工**：`AGENTS.md` 给 developer 看（代码地图、约定、扩展点），`README.md` 给 user 看（怎么接入、怎么跑）。两者会共用一部分项目定位/边界的内容，但侧重点不同——允许适度重复，不允许混淆受众。
-- **资产与执行分工遵循 Kernel**：稳定资产格式只有一个 canonical owner；case-harness 负责运行机制、领域 Harness、Run 产物与 Verdict。通用约束见 [`docs/kernel.md`](docs/kernel.md)，Playbook / Target 领域边界见 [`docs/e2e-harness.md`](docs/e2e-harness.md)。
+- **资产与执行分工遵循 Kernel**：稳定资产格式只有一个 canonical owner；quality-harness 负责运行机制、领域 Harness、Run 产物与 Verdict。通用约束见 [`docs/kernel.md`](docs/kernel.md)，Playbook / Target 领域边界见 [`docs/e2e-harness.md`](docs/e2e-harness.md)。
 - **同一 CaseSet，多种执行视角**：Eval / Perf 直接消费 spec-case CaseSet；Experiment 只能选择 Case、设置 weight 或其它运行参数，不能复制或覆盖资产字段。跨语言约束由 `conformance/case/` 证明。
-- **Case → Observation → Unit → Dataset → EvaluationRun / Worksheet → Report**：所有 Harness 都按这套顶层语义对齐。Dataset 固定可复用的 Unit facts；每次运行选择的 Detector、Evaluator、Measurer 与可选 Policy 直接表达评估侧重点，并在不重新执行 Case 的前提下为同一 Dataset 产生新的 Worksheet、Verdict 与 JSON / HTML Report。`detect / evaluate / measure` 是并列处理职责，输出 Finding、Evaluation 与 Measurement；Finding 不自动决定 Verdict。各 Harness 保留自己的 Unit grain、强类型 key、调度和聚合模型，详见 [`docs/kernel.md`](docs/kernel.md#dataset-与反复评估)。
+- **执行 / 采集 → Observation → Unit → Dataset → EvaluationRun / Worksheet → Report**：所有 Harness 都按这套顶层语义对齐。Dataset 固定可复用的 Unit facts；每次运行选择的 Detector、Evaluator、Measurer 与可选 Policy 直接表达评估侧重点，并在不重新执行 Case 的前提下为同一 Dataset 产生新的 Worksheet、Verdict 与 JSON / HTML Report。`detect / evaluate / measure` 是并列处理职责，输出 Finding、Evaluation 与 Measurement；Finding 不自动决定 Verdict。各 Harness 保留自己的 Unit grain、强类型 key、调度和聚合模型，详见 [`docs/kernel.md`](docs/kernel.md#dataset-与反复评估)。
 - **Trajectory 专门化**：trajectory_harness 直接使用业界 ATIF v1.7 `Trajectory`，不拥有另一套轨迹格式；Harness 拥有 `Measurements / Detector / Verifier`。Measurements 从 Trajectory 确定性派生，二者共同输入 Detector 与 Verifier；后两者均可面向 `cost / effect`，也均可声明 `hard / soft` 规则，不暴露 Evaluator 概念。
-- **可验证交付从开发期开始**：被测项目随需求、外部行为变更和缺陷修复维护 Spec / Case，再由 case-harness 在部署后针对指定版本与环境执行为 Verdict。项目拥有验证资产与判定标准，部署领域拥有环境、凭据、触发和发布策略；API、CLI、Pipeline、Job 只是可替换适配。
+- **可验证交付从开发期开始**：被测项目随需求、外部行为变更和缺陷修复维护 Spec / Case，再由 quality-harness 在部署后针对指定版本与环境执行为 Verdict。项目拥有验证资产与判定标准，部署领域拥有环境、凭据、触发和发布策略；API、CLI、Pipeline、Job 只是可替换适配。
 - 五个 Python SDK 共享同一个 uv 工程与 `spec/` 约定，**互不 import**；公共能力集中在 `common`（运行时身份、ExperimentRun/Execution/OperationRun/Outcome、Reducer/Artifact、verdict、llm + report_kit）这一中立共享层，而不是 SDK 之间互相复用。common 统一执行事实而不统一 runner/scheduler 等执行机制。各 SDK 仍自带协议原语（Outcome 具体形状、runner、SSEParser；perf 自带 httpx 发压栈、trace 自带薄 driver）——**先复制后收敛**，确属公共再收进 `common`。trace 的 parquet 持久化走可选 extra `[trace-corpus]`，不给其它 SDK 增重。
 - 新增能力先想清楚归哪类问题（对错 / 效果 / 容量 / 归因），落到对应 SDK；跨 SDK 的"公共抽象"冲动默认抑制，先复制后收敛，确属公共再进 `common`。
 - Go/Python e2e 共享 CaseRun 语义（prepare/execute/judge/cleanup、阶段 budget、Verdict），API 保持各自语言习惯；资产模型仍统一由 spec-case 持有。
@@ -62,25 +66,25 @@ case-harness/
 
 ```bash
 # 测试在各 SDK 包内（<pkg>/tests/），共用 uv 工程；pytest 无参=全量（testpaths）
-cd python && uv sync && uv run pytest -q
-cd python && uv run pytest perf_harness/tests/ -q   # 只跑某个 SDK
-cd python && make lint        # ruff
-cd python && make bump        # patch 版本号 + uv lock（case-harness 发布用）
+cd sdks/python && uv sync && uv run pytest -q
+cd sdks/python && uv run pytest perf_harness/tests/ -q   # 只跑某个 SDK
+cd sdks/python && make lint        # ruff
+cd sdks/python && make bump        # patch 版本号 + uv lock（quality-harness 发布用）
 
 # eval_harness 端到端（mock，无需 live server）
-cd python && uv run python -m eval_harness.cli eval_harness/materials/experiments/smoke.yaml --mock --fresh --runs-dir /tmp/eh
+cd sdks/python && uv run python -m eval_harness.cli eval_harness/materials/experiments/smoke.yaml --mock --fresh --runs-dir /tmp/eh
 
 # perf_harness 端到端（mock，无需 live server / 集群）
-cd python && uv run python -m perf_harness.cli run perf_harness/examples/mock.yaml --out /tmp/ph
+cd sdks/python && uv run python -m perf_harness.cli run perf_harness/examples/mock.yaml --out /tmp/ph
 
 # trace_harness 端到端（离线 jaeger 文件 → 调用栈 + 判读；批量 corpus 用 trace batch <exp.yaml>）
-cd python && uv run trace single ../conformance/trace/fixtures/genai-basic.jsonl --diagnose
+cd sdks/python && uv run trace single ../../conformance/trace/fixtures/genai-basic.jsonl --diagnose
 
 # Go（参考实现）
-cd go && go test ./...
+cd sdks/go && go test ./...
 
 # TypeScript trace-harness
-cd typescript/trace-harness && bun install --frozen-lockfile && bun test && bun run typecheck
+cd sdks/typescript/trace-harness && bun install --frozen-lockfile && bun test && bun run typecheck
 
 # TypeScript perf-harness
 cd ../perf-harness && bun install --frozen-lockfile && bun test && bun run typecheck
@@ -93,16 +97,16 @@ cd ../perf-harness && bun install --frozen-lockfile && bun test && bun run typec
 - 跨 Harness 环境操作与观测工具箱：[`docs/toolbox.md`](docs/toolbox.md)
 - e2e、Playbook 与 Target：[`docs/e2e-harness.md`](docs/e2e-harness.md)
 - Quality Harness 的定位、发现式评估与异步触发模型：[`docs/quality-harness.md`](docs/quality-harness.md)
-- e2e_harness（API 测试）：[`python/e2e_harness/AGENTS.md`](python/e2e_harness/AGENTS.md)
-- Python 平台工具箱：[`python/harness_toolbox/AGENTS.md`](python/harness_toolbox/AGENTS.md)
-- eval_harness（效果测试）：[`python/eval_harness/AGENTS.md`](python/eval_harness/AGENTS.md)，使用指南 [`python/eval_harness/README.md`](python/eval_harness/README.md)
-- perf_harness（压力测试）：[`python/perf_harness/AGENTS.md`](python/perf_harness/AGENTS.md)，使用指南 [`python/perf_harness/README.md`](python/perf_harness/README.md)
+- e2e_harness（API 测试）：[`sdks/python/e2e_harness/AGENTS.md`](sdks/python/e2e_harness/AGENTS.md)
+- Python 平台工具箱：[`sdks/python/harness_toolbox/AGENTS.md`](sdks/python/harness_toolbox/AGENTS.md)
+- eval_harness（效果测试）：[`sdks/python/eval_harness/AGENTS.md`](sdks/python/eval_harness/AGENTS.md)，使用指南 [`sdks/python/eval_harness/README.md`](sdks/python/eval_harness/README.md)
+- perf_harness（压力测试）：[`sdks/python/perf_harness/AGENTS.md`](sdks/python/perf_harness/AGENTS.md)，使用指南 [`sdks/python/perf_harness/README.md`](sdks/python/perf_harness/README.md)
 - Perf 跨语言契约：[`spec/perf-contract.md`](spec/perf-contract.md) + [`spec/perf-run-schema.yaml`](spec/perf-run-schema.yaml) + [`spec/perf-outcome-schema.yaml`](spec/perf-outcome-schema.yaml)
-- TypeScript perf-harness：[`typescript/perf-harness/AGENTS.md`](typescript/perf-harness/AGENTS.md)，使用指南 [`typescript/perf-harness/README.md`](typescript/perf-harness/README.md)
-- trace_harness（trace 分析）：[`python/trace_harness/AGENTS.md`](python/trace_harness/AGENTS.md)，设计文档 [`docs/trace-harness.md`](docs/trace-harness.md)
-- trajectory_harness（agent 轨迹评估）：[`python/trajectory_harness/AGENTS.md`](python/trajectory_harness/AGENTS.md)，设计文档 [`docs/trajectory-harness.md`](docs/trajectory-harness.md)
-- Go SDK：[`go/AGENTS.md`](go/AGENTS.md)
-- TypeScript trace-harness：[`typescript/trace-harness/AGENTS.md`](typescript/trace-harness/AGENTS.md)，使用指南 [`typescript/trace-harness/README.md`](typescript/trace-harness/README.md)
+- TypeScript perf-harness：[`sdks/typescript/perf-harness/AGENTS.md`](sdks/typescript/perf-harness/AGENTS.md)，使用指南 [`sdks/typescript/perf-harness/README.md`](sdks/typescript/perf-harness/README.md)
+- trace_harness（trace 分析）：[`sdks/python/trace_harness/AGENTS.md`](sdks/python/trace_harness/AGENTS.md)，设计文档 [`docs/trace-harness.md`](docs/trace-harness.md)
+- trajectory_harness（agent 轨迹评估）：[`sdks/python/trajectory_harness/AGENTS.md`](sdks/python/trajectory_harness/AGENTS.md)，设计文档 [`docs/trajectory-harness.md`](docs/trajectory-harness.md)
+- Go SDK：[`sdks/go/AGENTS.md`](sdks/go/AGENTS.md)
+- TypeScript trace-harness：[`sdks/typescript/trace-harness/AGENTS.md`](sdks/typescript/trace-harness/AGENTS.md)，使用指南 [`sdks/typescript/trace-harness/README.md`](sdks/typescript/trace-harness/README.md)
 - 顶层导览：[`README.md`](README.md)
 - 跨语言约定：[`spec/conventions.md`](spec/conventions.md)
 - 统一判定出口（run 目录 + verdict.json，五家共用，devloop 消费）：[`spec/verdict-schema.yaml`](spec/verdict-schema.yaml) + conventions.md「Run 产物与 verdict 出口」

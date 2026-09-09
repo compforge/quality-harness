@@ -27,7 +27,7 @@ span），回答"链路内部发生了什么、哪一层先反常"。它是另�
 案例"为什么错"、eval 坏 case"模型实际收到/吐了什么"、perf 慢"时间花在哪一层"，都由
 它回答——这是顶层 AGENTS.md 思想 #4"一次执行，多面观测"缺的最后一面。
 
-按 case-harness Kernel 语义，assemble 后的 Node 是 Observation，`trace_id + node_id` 定义 node-grain
+按 quality-harness Kernel 语义，assemble 后的 Node 是 Observation，`trace_id + node_id` 定义 node-grain
 Unit，nodes / corpus 构成可复评 Dataset；每次 EvaluationRun 记录所选 detector 与 gate，并生成带
 detect 输出 Finding 的 Worksheet。若分析粒度提升到 trace 或 cohort，应建立对应 grain 的 Worksheet，不能把
 不同含义的行混在一张表。更换 detector、gate 或报告侧重点时复用 Dataset，不重新抓取 trace。
@@ -293,7 +293,7 @@ in_tokens / out_tokens / http_status）固定成列，token/cost 明细走 map/l
 
 它只是"按 trace_id/时间窗查 jaeger 索引"的通用参数版（host/index/auth 全是入参），不含
 任何业务知识；放框架让任何 Jaeger-on-OpenSearch 用户开箱可用。依赖通过 extra 隔离
-（`case-harness[trace-opensearch]`），不给其它 harness 增重。**环境发现**（env
+（`quality-harness[trace-opensearch]`），不给其它 harness 增重。**环境发现**（env
 注册表、kubevpn、凭据解析）是 infra 知识，留在消费方（trace-as skill），它负责装配 Source。
 
 ### 3.5 判读知识的沉淀分界
@@ -376,7 +376,7 @@ case 集 → trace 语料 → 训练数据由此接通。形状等有真实训�
 ## 4. 代码地图（规划）
 
 ```
-python/trace_harness/
+sdks/python/trace_harness/
 ├── core/            # NormSpan / Node（一等）/ TraceContext / Finding / FullAttrsIndex
 │                    #   tree 是 core.viewtree 里的视图期惰性索引（按父子边现搭），不是中心类型
 ├── spec.py          # KindSpec 三 facet + SpecSet（显式注册，无模块级全局表）

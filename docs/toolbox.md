@@ -6,7 +6,7 @@
 ## 1. Kubernetes
 
 Kubernetes Driver 是面向 e2e、perf 等多个 Harness 的中立工具，不是独立的 Kube Harness。Go
-实现位于 `go/toolbox/kube`，Python async 实现位于 `python/harness_toolbox/kube`；两端使用语言惯用
+实现位于 `sdks/go/toolbox/kube`，Python async 实现位于 `sdks/python/harness_toolbox/kube`；两端使用语言惯用
 API，共享以下控制与观测语义：
 
 - 从显式 kubeconfig 或 Pod 内身份创建 client，并显式配置 request timeout 与语言对应的 client 容量
@@ -16,7 +16,7 @@ API，共享以下控制与观测语义：
 - 按正常终止流程或零宽限强制删除指定 Pod，等待替代实例、Ready 或 Unschedulable 状态；
 - 按 Pod UID 采集 Kubernetes Event，作为报告或失败分析证据。
 
-Python 使用者通过 `case-harness[kube]` 安装可选的 `kubernetes-asyncio` 依赖。两种实现都要求调用方
+Python 使用者通过 `quality-harness[kube]` 安装可选的 `kubernetes-asyncio` 依赖。两种实现都要求调用方
 显式提供 namespace、请求超时和客户端容量参数；Go 使用 context 控制等待期限，Python 使用 async
 方法的 `timeout_s` 控制等待期限。
 
@@ -34,7 +34,7 @@ Chaos Mesh、ChaosBlade、Toxiproxy、AgentChaos 等可以作为工具箱中的�
 和撤销受控故障、返回后端证据，不拥有故障意图、恢复标准或评估结论。
 
 LitmusChaos 已经包含 Workflow、Probe 和 Result 等平台模型。接入这类后端时，应把它们视为执行协议
-和证据来源，避免与 case-harness 的 Case、EvaluationRun 和 Verdict 重复建模。
+和证据来源，避免与 quality-harness 的 Case、EvaluationRun 和 Verdict 重复建模。
 
 只有至少两个真实消费方需要同一种能力时，才从具体 Driver 中收敛公共接口；单一 Harness 或单一
 产品专用的操作继续留在消费方，避免把工具箱演变成无边界的公共包。
@@ -43,6 +43,6 @@ LitmusChaos 已经包含 Workflow、Probe 和 Result 等平台模型。接入这
 
 - 跨 Harness 通用内核：[`kernel.md`](kernel.md)
 - e2e Target Driver 边界：[`e2e-harness.md`](e2e-harness.md)
-- Go Kubernetes 实现：[`../go/toolbox/kube`](../go/toolbox/kube)
-- Python Kubernetes 实现：[`../python/harness_toolbox/kube`](../python/harness_toolbox/kube)
+- Go Kubernetes 实现：[`../sdks/go/toolbox/kube`](../sdks/go/toolbox/kube)
+- Python Kubernetes 实现：[`../sdks/python/harness_toolbox/kube`](../sdks/python/harness_toolbox/kube)
 - Perf 跨语言契约：[`../spec/perf-contract.md`](../spec/perf-contract.md)

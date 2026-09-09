@@ -1,118 +1,70 @@
-# case-harness
+# quality-harness
 
-> **Cases in, verdicts out.** Reusable cases go in; e2e, eval, perf, trace, and trajectory runs produce one machine-readable Verdict. 中文版见 [README.zh-CN.md](./README.zh-CN.md).
+**Test software and agents. Turn execution evidence into quality assessments.**
 
-## What it is
+[中文](README.zh-CN.md)
 
-case-harness is a cross-language family of testing SDKs for projects whose quality can no longer be answered by one test command. It separates API correctness, agent quality, capacity, trace attribution, and agent trajectory into distinct judgment views while letting them reuse the same versioned Case assets.
+quality-harness provides SDKs for API testing, agent evaluation, performance testing, trace analysis, and agent trajectory analysis. Use them to run your project's tests or assess evidence from existing runs, then produce reports and machine-readable verdicts for developers, CI, and agent workflows.
 
-The repository provides harness SDKs and platform tools, not a test suite for your product. The system under test keeps its own cases, protocol adapters, credentials, resource lifecycle, and acceptance criteria.
+The repository currently provides domain SDKs, shared result contracts, and platform tools. A project-level Harness that discovers a project's quality capabilities, selects checks, and explains results and coverage gaps is a long-term plan. See the [Quality Harness design](docs/quality-harness.md).
 
-## What it assesses
+## What you can check
 
-| Question | View | Available SDKs |
+| Question | Capability | SDKs |
 |---|---|---|
-| Do public APIs still behave correctly? | e2e | Python / Go |
-| Is an agent's output good enough? | eval | Python |
-| What happens under declared load and resource constraints? | perf | Python / TypeScript |
-| Which layer in a physical call chain became abnormal first? | trace | Python / TypeScript |
-| Were an agent's decisions and actions reasonable? | trajectory | Python |
+| Do service APIs behave as expected? | **e2e** — run cases and check API contracts | [Python](docs/e2e-harness.md) / [Go](sdks/go/) |
+| How good are an agent's outputs? | **eval** — evaluate results and compare experiments | [Python](sdks/python/eval_harness/README.md) |
+| How does the system perform under load? | **perf** — measure latency, throughput, and resource use against declared targets | [Python](sdks/python/perf_harness/README.md) / [TypeScript](sdks/typescript/perf-harness/README.md) |
+| Where does a call chain show abnormal behavior? | **trace** — analyze spans, locate anomalies, and investigate causes | [Python](docs/trace-harness.md) / [TypeScript](sdks/typescript/trace-harness/README.md) |
+| Are an agent's decisions and actions effective and efficient? | **trajectory** — measure cost, detect patterns, and verify behavior | [Python](sdks/python/trajectory_harness/README.md) |
 
-The first three views judge the system from public behavior; trace and trajectory inspect execution evidence. “Black-box” describes the judgment boundary, not every setup action: preparing an environment, injecting a controlled failure, or observing resource pressure may still require deployment-level tools.
+Each SDK covers a distinct question. Current e2e support focuses on service APIs; trace and trajectory can analyze recorded evidence directly.
 
-Current e2e targets a single service's public boundary. Product-level Web, mobile, and multi-service functional testing remain a longer-term scope rather than being conflated with service API contracts.
+## How you use it
 
-## How it works
+Bring your test cases and acceptance criteria, or recordings you want to analyze. Choose the SDK for the question you need to answer:
 
 ```text
-canonical CaseSet owned by the project
-    + execution / collection
-    → Observation
-    → Unit (Case + Observation + Annotation)
-    → versioned Dataset
-
-Dataset + Detectors / Evaluators / Measurers / optional Policy
-    → EvaluationRun
-        detect   → Finding
-        evaluate → Evaluation
-        measure  → Measurement
-    → Worksheet (Unit + Finding + Evaluation + Measurement)
-    → Metric / Verdict / Report (JSON / HTML)
-
-Experiment
-    → ExperimentRun
-        → Execution × N (for example E2E CaseRun / perf Trial)
-            → OperationRun × N
-                → Outcome
-    → Reducer.reduce(recorded facts)
-    → Artifact × N
-        → Verdict
-        → Report
+Run cases or experiments → collect execution evidence
+Import existing recordings → reuse execution evidence
+                                      ↓
+                     Analyze, measure, and verify
+                                      ↓
+                         Reports and verdicts
 ```
 
-| Concept | Meaning |
-|---|---|
-| **Forge** | A system that hosts source-code repositories, such as GitHub, GitLab, or an internal code platform. |
-| **Repository** | A code repository identified by its Forge and path; one Repository may contain multiple Components. |
-| **Product** | A business product composed from Components. Product-to-Component membership is registry data and may be many-to-many. |
-| **Component** | A stable buildable or releasable unit within a code Repository. One Repository may contain one or many Components, and Components without runtime workloads have no Service. |
-| **Environment** | A named deployment and runtime environment that identifies where execution evidence was produced; access details and credentials remain deployment-owned. |
-| **Service** | One Component's named runtime presence in an Environment, identified by its service name, Component, and Environment rather than by a code repository or platform workload alone. |
-| **Operation** | A named capability exposed by a Service. |
-| **HttpOperation** | An Operation exposed through an HTTP method and path; its base URL remains part of the runtime Service. |
-| **Deployment** | One attempt to create or update a Service by deploying its Component into an Environment. |
-| **Deployer** | The protocol-neutral port implemented by Helm, Docker, or another deployment mechanism. |
-| **Experiment** | A named, reproducible verification intent. Each harness specializes it with its own cases, arms, workload, metrics, or policies. |
-| **ExperimentRun** | One real execution of an Experiment, identified by `run_id` and creation time. Domain harnesses may expose it simply as `Run`. |
-| **Execution** | A domain-defined unit of work within an ExperimentRun. E2E specializes it as CaseRun; perf specializes it as Trial. |
-| **OperationRun** | One execution of an Operation against a Service. It owns the raw Outcome produced by that call. |
-| **Outcome** | Raw domain evidence produced by an OperationRun. Protocol-specific fields stay on domain subclasses. |
-| **Reducer** | A domain projection from recorded ExperimentRun facts to Artifacts. It never calls the tested Service. |
-| **Artifact** | A named, durable output of an ExperimentRun. Its content and schema remain domain-owned; common code records only its logical name and relative path. |
-| **Case** | Stable, reusable test input and judgment data, identified by `case_id`; the canonical format is owned by [spec-case](https://github.com/compforge/spec-case). |
-| **Observation** | What actually happened when a Case ran: an outcome, response, performance sample, trace, or trajectory with source identity. |
-| **Unit** | A harness-defined evaluation unit sourced from a Case and one or more Observations; one Worksheet row represents one Unit. |
-| **Annotation** | Human, external-system, or model supervision that exists before the current evaluation, such as a label, reference, or review conclusion. |
-| **Dataset** | A versioned, reusable collection of Unit facts and existing Annotations. It does not contain results from one particular EvaluationRun. |
-| **EvaluationRun** | One configured application of Detectors, Evaluators, Measurers, and an optional Policy to a fixed Dataset version. |
-| **Finding** | A pattern or anomaly returned by `detect`, with evidence and hypotheses but no quality verdict. |
-| **Evaluation** | A Judge or Evaluator's contract-based quality conclusion about a Unit, such as a verdict, score, or explanation. |
-| **Measurement** | A factual value extracted from a Unit, such as tokens, latency, calls, or resource usage, without a quality verdict. |
-| **Worksheet** | One EvaluationRun's row-wise result over a Dataset, with Finding, Evaluation, and Measurement cells added to each Unit. |
-| **Report** | A human-facing rendering derived from one or more Artifacts; it never reruns the Experiment. |
-| **Verdict** | The common machine-readable result consumed by humans, CI, and agent development loops. |
+A **Case** describes reusable test inputs and expectations. A **Dataset** holds evidence and annotations for repeated assessment. A **Verdict** records the resulting quality conclusion in a machine-readable form. Keeping evidence separate from assessments lets you apply different checks to the same dataset without rerunning the target.
 
-A Case can be viewed from more than one angle. When one execution already produced responses, performance samples, traces, or a trajectory, those observations form a reusable Dataset. Selecting different Detectors, Evaluators, Measurers, or Policies then produces new EvaluationRuns, Worksheets, and reports without triggering duplicate execution.
+Your project owns its cases, test actions, and acceptance criteria. Your deployment workflow supplies the target environment and credentials. quality-harness provides execution, analysis, and reporting mechanisms; [spec-case](https://github.com/compforge/spec-case) defines the shared Case format.
 
-## Shared platform toolbox
-
-Some execution mechanics serve more than one harness. Recovery E2E and performance tests, for example, both need reliable Kubernetes workload discovery, state convergence, and Event evidence. The Go `toolbox/kube` package and Python async `harness_toolbox.kube` package provide equivalent namespace-scoped Kubernetes control and observation without owning any business Case, load profile, or Verdict. Python consumers install the optional `case-harness[kube]` dependency.
-
-The consuming project still decides which workload to target, when a disruption is allowed, and what proves recovery or acceptable performance. Additional fault-injection backends can join this toolbox without moving experiment intent out of the project. See the [Harness toolbox](docs/toolbox.md) for its boundary and current capabilities.
+For tests that need environment control, the [platform toolbox](docs/toolbox.md) provides Kubernetes workload operations and observation in Python and Go. Your project decides which resources to target and what constitutes recovery or acceptable performance.
 
 ## Get started
 
-Choose the example closest to your test:
+Choose an example for your scenario:
 
 | Example | Use it for |
 |---|---|
-| [`examples/api-test`](examples/api-test/README.md) | Small data-driven API cases |
-| [`examples/python-service`](examples/python-service/) | Python CaseRun with setup and cleanup |
-| [`examples/go-service`](examples/go-service/) | Go CaseRun, `go test` aggregation, and Verdict output |
-| [`examples/agent-test`](examples/agent-test/README.md) | Dataset-driven agent evaluation |
+| [API cases](examples/api-test/README.md) | Data-driven requests and assertions |
+| [Python service tests](examples/python-service/) | Tests with setup, multiple operations, and cleanup |
+| [Go service tests](examples/go-service/) | Case execution with `go test` and aggregated verdicts |
+| [Agent evaluation](examples/agent-test/README.md) | Dataset-driven quality assessment |
 
-Run the Python API example from a source checkout:
+To run the Python API example, start from a source checkout with Python 3.11+ and `uv` installed. Configure the example's cases and service URL for your target, then run:
 
 ```bash
-cd python
+cd sdks/python
 uv sync
+export WIDGET_BASE_URL=http://localhost:8080
 export WIDGET_TOKEN=...
-uv run e2e run ../examples/api-test/cases.yaml \
-  --config ../examples/api-test/config.yaml \
-  --runs-dir ../runs
+uv run e2e run ../../examples/api-test/cases.yaml \
+  --config ../../examples/api-test/config.yaml \
+  --runs-dir ../../runs
 ```
 
-Run the Go service example against a deployed service:
+The target service must be running and expose the endpoints used by the cases. Results are written to a run directory under `runs/`, including `verdict.json`. Skipped cases and execution errors remain visible in the result.
+
+For the Go example, configure a deployed service as described in the [example](examples/go-service/), then run from the repository root:
 
 ```bash
 cd examples/go-service
@@ -121,39 +73,11 @@ export EXAMPLE_TOKEN=...
 go test -tags=e2e -v ./...
 ```
 
-Both paths write a Run directory ending in `verdict.json`. Skipped or errored cases remain visible and are not interpreted as successful verification.
+## Further reading
 
-## Ownership
+- [Shared concepts and contracts](docs/kernel.md)
+- [Project-level Quality Harness design](docs/quality-harness.md)
+- [Platform toolbox](docs/toolbox.md)
+- [Development and testing](AGENTS.md#开发与测试)
 
-| Owner | Responsibility |
-|---|---|
-| Project under test | Versioned Case assets, test code, domain actions, acceptance criteria |
-| case-harness | Execution mechanisms, domain Harnesses, Run artifacts, reporting infrastructure, Verdict contracts, shared platform tools |
-| spec-case | Canonical Case model and code-to-Case intent markers |
-| Deployment workflow | Environment, credentials, target revision, trigger policy, and release gates |
-
-This split keeps test intent close to the product while allowing execution mechanics and output contracts to improve centrally. [case-code-review](https://github.com/compforge/case-code-review) consumes the same assets from a white-box review perspective.
-
-## SDK map
-
-| Path | Capability |
-|---|---|
-| `python/e2e_harness` / `go/e2e` | Deterministic CaseRun execution and API assertions |
-| `python/eval_harness` | Agent evaluation and comparative experiments |
-| `python/perf_harness` / `typescript/perf-harness` | Load generation, SLOs, and capacity evidence |
-| `python/trace_harness` / `typescript/trace-harness` | Trace normalization, attribution, and findings |
-| `python/trajectory_harness` | Trajectory normalization, derived measurements, detection, and verification |
-| `go/toolbox/kube` / `python/harness_toolbox/kube` | Kubernetes control and observation shared by e2e and perf |
-
-## Repository development
-
-```bash
-cd python && uv sync && uv run pytest -q
-cd ../go && go test ./...
-cd ../typescript/trace-harness && bun install --frozen-lockfile && bun test
-cd ../perf-harness && bun install --frozen-lockfile && bun test
-```
-
-## Status
-
-case-harness is an early public project. The canonical Case schema comes from spec-case; the Verdict and runtime contracts under `spec/` are its stable center. Language SDKs may cover different features while continuing to share those contracts.
+quality-harness is an early public project. SDK feature coverage varies by language; use the capability guides above to choose an implementation.
