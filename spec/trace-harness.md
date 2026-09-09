@@ -168,3 +168,31 @@ Implementations that expose AgentRun IR SHOULD also run the shared AgentRun conf
 compare its canonical JSON exactly.
 
 Numeric JSON equality follows JSON number semantics; `8000` and `8000.0` are equivalent.
+
+## Ordinary HTTP diagnostics
+
+The built-in `http_slow_request` and `http_serial_same_api` detectors operate on physical
+HTTP request observations without domain contributions. They emit warning findings and
+retain the source span IDs for inspection; a warning identifies an optimization candidate,
+not a proven root cause.
+
+- A single ordinary request warns above 200 ms (strictly greater). Direct client/server
+  pairs count once; the longest observed duration is checked, without adding descendants.
+- Consecutive non-overlapping calls by the same service under the same physical parent
+  warn from two calls onward when method, destination and route match. A different API,
+  streaming call or concurrent call interrupts the sequence. Query and body differences
+  do not split an API, except the RPC `Action` query parameter. Server route templates
+  take precedence when a paired server observation exists.
+- Sequence wall-clock, request total and gaps use the caller's timestamps throughout.
+  Server clock offsets cannot alter caller ordering or create artificial gaps.
+- Explicit SSE headers, request bodies with `stream=true`, recognized model-call ancestry
+  and model endpoints (`/chat/completions`, `/embeddings`, `/rerank`) exclude a request.
+  An enclosing business request remains eligible. Missing streaming metadata is not
+  evidence that a request is non-streaming; the warning requires contextual review.
+- Each detector retains its ten largest requests/sequences and reports truncation.
+  Findings contain route/destination and timing evidence, never request bodies or credentials.
+
+Protocol extraction accepts standard HTTP method/URL/route/address attributes and
+`http.request.body[.json]`, `http.request.headers`, `http.response.headers` when present.
+Vendor-specific telemetry must be mapped by the consuming integration. Both implementations
+consume `conformance/trace/cases/http-detectors.json`.
