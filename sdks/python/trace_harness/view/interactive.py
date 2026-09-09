@@ -165,6 +165,8 @@ nav.switch button.active{background:#2563eb;color:#fff}
 .pane{flex:1;overflow:auto;padding:16px}
 .row{white-space:nowrap;cursor:pointer;font-size:12px;padding:2px 8px;border-left:3px solid transparent;display:flex;align-items:baseline;gap:6px;position:relative}
 .row.agent-row::before{content:"";position:absolute;left:var(--node-indent,4px);top:3px;bottom:3px;width:3px;border-radius:2px;background:var(--node-color,#9ca3af)}
+.measurement-marker{border:0;background:transparent;padding:0;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;flex:none;cursor:pointer;border-radius:4px;align-self:center}
+.measurement-marker:hover{background:#fef3c7}.measurement-marker:focus-visible{outline:2px solid #ca8a04;outline-offset:1px}
 .row:hover{background:#f1f5f9}
 .row.sel{background:#e0edff;border-left-color:#3b82f6}
 .row.err{color:#b91c1c}
@@ -183,6 +185,19 @@ nav.switch button.active{background:#2563eb;color:#fff}
 .findings{margin:0 0 14px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:4px;background:#fff}
 .findings div{font-size:12px;margin:2px 0}
 .findings .f-error{color:#b91c1c}.findings .f-warn{color:#b45309}.findings .f-info{color:#6b7280}
+.measurement-section{background:#fff;border:1px solid #dbe2ea;border-radius:6px;padding:16px;margin:18px 0 24px}
+.measurement-section h3,.facts-section h3{font-size:14px;margin:0 0 14px}
+.measurement-group+.measurement-group{border-top:1px solid #e5e7eb;margin-top:18px;padding-top:18px}
+.measurement-group h4{font-size:13px;margin:0 0 6px;overflow-wrap:anywhere}
+.measurement-scope,.measurement-note{font-size:12px;color:#64748b;line-height:1.6;margin:0 0 12px}
+.measurement-note{margin:10px 0 0}.measurement-table-wrap{overflow-x:auto}
+.measurement-table{width:100%;border-collapse:collapse;font-size:12px;line-height:1.5}
+.measurement-table th,.measurement-table td{padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:left;white-space:nowrap}
+.measurement-table thead th{background:#f8fafc;color:#475569;font-weight:600}
+.measurement-table tbody th{font-weight:400}.measurement-table tbody tr:last-child>*{border-bottom:0}
+.measurement-table .numeric{text-align:right;font-variant-numeric:tabular-nums}
+.measurement-table .measurement-status{white-space:normal;min-width:100px}
+.facts-section{border-top:1px solid #dbe2ea;padding-top:16px;margin-top:20px}
 table.facts{border-collapse:collapse;margin-bottom:14px}
 table.facts td{border:1px solid #e5e7eb;padding:3px 10px;font-size:12px}
 table.facts td:first-child{background:#f9fafb;color:#374151}
@@ -236,6 +251,15 @@ function timeHeight(ms,maxMs){const ratio=Math.sqrt(Math.max(0,ms||0)/Math.max(1
 function agentNameLayout(depth,rowHeight){const treeWidth=treeEl.clientWidth||Math.min(760,window.innerWidth*.52);
   const width=Math.max(84,treeWidth-depth*16-210),lines=Math.max(1,Math.min(4,Math.floor(rowHeight/22)));
   return{width,lines,budget:Math.max(12,Math.floor(width/7))*lines};}
+// Use a fixed-color SVG: platform emoji fonts do not preserve the balloon color.
+function appendMeasurementMarker(row,n){
+  if(!(n.measurements||[]).length)return;
+  const marker=document.createElement('button');marker.type='button';marker.className='measurement-marker';
+  marker.title='查看 Measurements';marker.setAttribute('aria-label','查看 Measurements');
+  marker.innerHTML='<svg width="16" height="20" viewBox="0 0 16 20" aria-hidden="true" focusable="false"><path d="M8 14c-3 2 3 3 0 5" fill="none" stroke="#78716c" stroke-width="1"/><path d="m8 12-2 3h4z" fill="#facc15" stroke="#ca8a04" stroke-width=".7"/><ellipse cx="8" cy="6.5" rx="5.5" ry="6" fill="#facc15" stroke="#ca8a04" stroke-width=".8"/><path d="M5 3.5c-1 .7-1.4 1.6-1.4 2.5" fill="none" stroke="#fef9c3" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  marker.onclick=event=>{event.stopPropagation();select(n.node_id);const heading=paneEl.querySelector('#measurements');heading.scrollIntoView({block:'start'});heading.focus({preventScroll:true});};
+  row.appendChild(marker);
+}
 function renderInto(n,depth,parent){const box=document.createElement('div');
   renderRowInto(box,n,depth,parent);return box;}
 function renderRowInto(box,n,depth,parent){
@@ -257,6 +281,7 @@ function renderRowInto(box,n,depth,parent){
   if(nameLayout){nm.style.maxWidth=nameLayout.width+'px';nm.style.maxHeight=(nameLayout.lines*18)+'px';
     nm.style.lineHeight='18px';nm.style.whiteSpace='normal';nm.style.overflowWrap='anywhere';nm.style.overflow='hidden';}
   row.appendChild(nm);
+  appendMeasurementMarker(row,n);
   const d=document.createElement('span');d.className='dur';d.textContent=fmtMs(n.duration_ms);row.appendChild(d);
   if(n.brief){const be=document.createElement('span');be.className='brief';be.textContent='('+n.brief+')';row.appendChild(be);}
   if(n.has_error){const e=document.createElement('span');e.className='errdot';e.textContent='[ERROR]';row.appendChild(e);}
@@ -273,7 +298,7 @@ function renderRowInto(box,n,depth,parent){
 function factValue(v){const text=typeof v==='string'?v:JSON.stringify(v,null,2);return typeof v==='object'||text.length>160||text.includes('\\n')?'<details><summary>'+esc(text.slice(0,120))+'</summary><pre>'+esc(text)+'</pre></details>':esc(text);}
 function factsTable(n){const rows=Object.entries(n.facts||{});
   if(!rows.length)return'';
-  return '<table class="facts">'+rows.map(([k,v])=>'<tr><td>'+esc(k)+'</td><td>'+factValue(v)+'</td></tr>').join('')+'</table>';}
+  return '<section class="facts-section"><h3>Facts</h3><table class="facts">'+rows.map(([k,v])=>'<tr><td>'+esc(k)+'</td><td>'+factValue(v)+'</td></tr>').join('')+'</table></section>';}
 function detailsBlock(n){const fs=Object.entries(n.details||{});
   if(!fs.length)return'';
   return '<div class="meta">详情：</div>'+fs.map(([k,v])=>
@@ -292,7 +317,29 @@ function unfoldAncestors(id){let p=parentOf[id];
   while(p){const kb=boxOf[p];
     if(kb&&kb.style.display==='none'){kb.style.display='';const t=twOf[p];if(t)t.textContent='▾';}
     p=parentOf[p];}}
-function measurementBlock(n){const rows=n.measurements||[];if(!rows.length)return '';return '<h3>Measurements</h3><div class="meta">trace_prefix：请求开始 → 此节点结束（含进行中的调用）。各 kind 可重叠；累计耗时不等于 wall-clock 贡献。</div><table><tr><th>Measurement / Scope</th><th>Kind</th><th>Count</th><th>Duration sum</th><th>Covered</th><th>Value / Status</th></tr>'+rows.map(r=>'<tr><td>'+esc(r.id)+'<br>'+esc(r.scope)+'</td><td>'+esc(r.kind)+'</td><td>'+esc(r.values.count??'')+'</td><td>'+esc(r.values.duration_sum_ms==null?'':r.values.duration_sum_ms+' ms')+'</td><td>'+esc(r.values.covered_ms==null?'':r.values.covered_ms+' ms')+'</td><td>'+esc(r.status==='measured'?Object.entries(r.values).filter(([k])=>!['count','duration_sum_ms','covered_ms'].includes(k)).map(([k,v])=>k+'='+v+' '+(r.units[k]||'')).join(', '):r.status+': '+(r.error||''))+'</td></tr>').join('')+'</table>';}
+function measurementValue(value,unit){
+  if(value==null)return '—';
+  if(unit==='ms'&&typeof value==='number')return fmtMs(value);
+  const text=typeof value==='object'?JSON.stringify(value):String(value);
+  return esc(text)+(unit&&unit!=='call'?' '+esc(unit):'');
+}
+function measurementGroup(rows){
+  const first=rows[0],prefix=first.scope==='trace_prefix',calls=first.id==='calls_until_node_end';
+  const label=calls?'累计调用':first.id;
+  const scope=prefix?'请求开始 → 此节点结束（含进行中的调用）':first.scope==='node'?'此节点内部':first.scope;
+  const elapsed=prefix&&typeof first.evidence.start_ms==='number'&&typeof first.evidence.end_ms==='number'?fmtMs(first.evidence.end_ms-first.evidence.start_ms)+' wall-clock':'';
+  const keys=[...new Set(rows.flatMap(r=>Object.keys(r.values)))];
+  const names={count:'调用次数',duration_sum_ms:'累计耗时',covered_ms:'覆盖时间'};
+  const dimension=rows.some(r=>r.kind),status=rows.some(r=>r.status!=='measured');
+  const header=(dimension?'<th scope="col">Kind</th>':'')+keys.map(k=>'<th scope="col" class="numeric">'+esc(names[k]||k)+'</th>').join('')+(status?'<th scope="col">状态</th>':'');
+  const body=rows.map(r=>'<tr>'+(dimension?'<th scope="row">'+esc(r.kind||'—')+'</th>':'')+keys.map(k=>'<td class="numeric">'+(r.status==='measured'?measurementValue(r.values[k],r.units[k]):'—')+'</td>').join('')+(status?'<td class="measurement-status">'+esc(r.status==='measured'?'已测量':r.status==='not_applicable'?'不适用':'错误：'+(r.error||'未知错误'))+'</td>':'')+'</tr>').join('');
+  return '<div class="measurement-group"><h4>'+esc(label)+'</h4><p class="measurement-scope">'+esc(scope)+(elapsed?' · '+esc(elapsed):'')+'</p><div class="measurement-table-wrap"><table class="measurement-table"><thead><tr>'+header+'</tr></thead><tbody>'+body+'</tbody></table></div>'+(prefix?'<p class="measurement-note">累计耗时是各调用耗时之和；覆盖时间对重叠区间去重。各 kind 可重叠，不代表独占的 wall-clock 贡献。</p>':'')+'</div>';
+}
+function measurementBlock(n){
+  const rows=n.measurements||[];if(!rows.length)return '';
+  const groups=new Map();for(const row of rows){if(!groups.has(row.id))groups.set(row.id,[]);groups.get(row.id).push(row);}
+  return '<section class="measurement-section" aria-labelledby="measurements"><h3 id="measurements" tabindex="-1">Measurements</h3>'+[...groups.values()].map(measurementGroup).join('')+'</section>';
+}
 function select(id){
   document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));
   unfoldAncestors(id);
