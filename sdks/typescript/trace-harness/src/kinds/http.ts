@@ -14,7 +14,7 @@ function object(value: unknown): Record<string, unknown> {
     ? value as Record<string, unknown> : {};
 }
 
-function endpoint(span: NormSpan): Endpoint | undefined {
+export function httpEndpoint(span: NormSpan): Endpoint | undefined {
   if (span.attr("asgi.event.type")) return undefined;
   const match = HTTP_NAME.exec(span.name);
   const method = span.attr("http.request.method", "http.method") ?? match?.[1];
@@ -68,7 +68,7 @@ export interface HttpRequest {
 export function httpRequests(context: TraceContext): HttpRequest[] {
   const endpoints = new Map<string, Endpoint>();
   for (const span of context.spans.values()) {
-    const api = endpoint(span);
+    const api = httpEndpoint(span);
     if (api) endpoints.set(span.span_id, api);
   }
   const peers = new Map<string, NormSpan[]>();

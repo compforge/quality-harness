@@ -51,9 +51,10 @@ function displayPayload(
   display: DisplayNode,
   byId: Map<string, Node>,
   featureRegistry: FeatureRegistry,
+  path: string,
 ): Record<string, unknown> {
-  const children = display.children.map((child) => (
-    displayPayload(context, child, byId, featureRegistry)
+  const children = display.children.map((child, i) => (
+    displayPayload(context, child, byId, featureRegistry, `${path}.${i}`)
   ));
   const findings = display.findings.map((finding) => ({
     severity: finding.severity,
@@ -112,7 +113,8 @@ function displayPayload(
   const start = nodes.length ? Math.min(...nodes.map((item) => item.start_ms)) : 0;
   const end = nodes.length ? Math.max(...nodes.map((item) => item.end_ms)) : 0;
   return {
-    node_id: display.node_ids.length ? `fold:${display.node_ids.slice(0, 3).join("·")}` : `fold:${display.name}`,
+    // Nested service/API groups can reference identical members; use their unique display path.
+    node_id: `fold:${path}`,
     kind: "",
     name: display.name,
     name_variants: nameProjections(display),
@@ -248,7 +250,7 @@ export function renderInteractive(
   const trees: Record<string, { roots: Array<Record<string, unknown>> }> = {
     full: {
       roots: renderDisplay(context.view(), findings, facetRegistry, { perspective: "full" })
-        .map((root) => displayPayload(context, root, byId, featureRegistry)),
+        .map((root, i) => displayPayload(context, root, byId, featureRegistry, String(i))),
     },
   };
   if (options.agentRunIR?.runs.length) {

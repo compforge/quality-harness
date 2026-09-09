@@ -8,6 +8,7 @@ gen_ai.* 在此抽成命名 facts 列，下游只见 model/in_tokens/http_status
 from __future__ import annotations
 
 from trace_harness.kinds.base import _fmt_bytes, _fmt_ms, duration_metric
+from trace_harness.kinds.http import http_endpoint
 from trace_harness.model.node import Field, Finding, Node
 from trace_harness.model.span import NormSpan
 from trace_harness.model.spec import KindSpec, SpecSet
@@ -16,8 +17,7 @@ from trace_harness.model.spec import KindSpec, SpecSet
 _CHAT_OPS = {"chat", "text_completion", "generate_content", "completion"}
 _TOOL_OPS = {"execute_tool"}
 _AGENT_OPS = {"invoke_agent", "create_agent"}
-# 模型端点 URL 标记：只有打到这些端点的 http-client span 才是"模型调用的那次传输"，才成 http kind。
-# 其余 http（kb / control / 内部 RPC…）不成 node、照旧进残余 service 组——避免大 trace 上 http 爆炸。
+# HTTP 保留逐次调用节点；连续调用的压缩由 view Group 完成，以保留可展开的证据。
 _LLM_URL_MARKS = ("/chat/completions", "/embeddings", "/rerank")
 
 
@@ -210,7 +210,7 @@ def _agent_spec() -> KindSpec:
 
 
 def _match_http(s: NormSpan) -> bool:
-    return _is_llm_http(s)
+    return http_endpoint(s) is not None or _is_llm_http(s)
 
 
 def _build_http(primary: NormSpan, satellites: list[NormSpan]) -> dict:

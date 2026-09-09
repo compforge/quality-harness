@@ -2,6 +2,7 @@ import type { Finding, Node } from "../model/node";
 import { SpecSet, type KindSpec } from "../model/spec";
 import type { NormSpan } from "../model/span";
 import { durationMetric, formatBytes, formatMs } from "./base";
+import { httpEndpoint } from "./http";
 
 const CHAT_OPS = new Set(["chat", "text_completion", "generate_content", "completion"]);
 const TOOL_OPS = new Set(["execute_tool"]);
@@ -120,7 +121,8 @@ function httpSpec(): KindSpec {
     matches: (span) => {
       const isHttp = span.attr("http.request.method", "http.method", "url.full", "http.url") !== undefined;
       const url = String(span.attr("url.full", "http.url") ?? "");
-      return isHttp && LLM_URL_MARKS.some((mark) => url.includes(mark));
+      // Keep individual requests available for expandable view groups.
+      return httpEndpoint(span) !== undefined || (isHttp && LLM_URL_MARKS.some((mark) => url.includes(mark)));
     },
     build: (primary) => {
       const facts: Record<string, unknown> = {};

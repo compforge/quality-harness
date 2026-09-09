@@ -48,7 +48,11 @@ class Fold:
 
 @dataclass
 class Aggregate:
-    """把一组**同父兄弟**聚成一行 ×N（不展开各自子树）。"""
+    """把一组**同父兄弟**聚成固定格式的 ×N / sum 摘要，默认折叠。
+
+    成员及子树保留在 DisplayNode.children，交互层可展开；静态 Markdown 默认只出摘要，
+    达到 signal 阈值的成员仍会浮出。自定义摘要或默认展开使用 Group。
+    """
 
     nodes: list[Node]
     label: str = ""
@@ -87,6 +91,8 @@ class Group:
     label: str
     brief: list[Field] = field(default_factory=list)
     collapsed: bool = True
+    # 嵌套展示分组的布局；成员仍由 nodes 溯源，不改变 model 父子边。
+    children: list[ChildOp] | None = None
 
 
 ChildOp = Expand | Fold | Aggregate | Summarize | Hide | Group

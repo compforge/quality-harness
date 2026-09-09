@@ -4,6 +4,7 @@ import type { ViewTree } from "../model/viewtree";
 import type { DisplayNode } from "./display";
 import type { ChildOp, RenderConfig, RenderContext } from "./facet";
 import { builtinFacets } from "./facets";
+import { groupHttpCalls, groupHttpServices, httpCallGroups } from "./http";
 import { projectPerspective } from "./perspective";
 import { FacetRegistry } from "./registry";
 
@@ -58,12 +59,12 @@ export function renderDisplay(
   };
   const visible = new Map<string, DisplayNode>();
 
-  const renderNode = (node: Node): DisplayNode => {
-    const facet = activeRegistry.dispatch(node);
-    const children = view.children(node);
+  const httpGroups = httpCallGroups(view, findings);
+  const renderOps = (ops: ChildOp[], project = true): DisplayNode[] => {
+    if (project) ops = groupHttpServices(groupHttpCalls(ops, httpGroups));
     const output: DisplayNode[] = [];
     const folded: Node[] = [];
-    for (const operation of facet.layout(node, children, context)) {
+    for (const operation of ops) {
       switch (operation.type) {
         case "expand": output.push(renderNode(operation.node)); break;
         case "fold":
@@ -103,19 +104,24 @@ export function renderDisplay(
             : 0;
           const line = synthetic(operation.label, operation.nodes.map((item) => item.node_id), count);
           line.brief = operation.brief ?? [];
-          line.children = operation.nodes.map(renderNode);
+          line.children = operation.children ? renderOps(operation.children, false) : operation.nodes.map(renderNode);
           output.push(line);
           break;
         }
       }
     }
     if (folded.length) output.push(foldedLine(view, folded, config.prune_below_ms!));
+    return output;
+  };
+
+  const renderNode = (node: Node): DisplayNode => {
+    const facet = activeRegistry.dispatch(node);
     const display: DisplayNode = {
       kind: node.kind,
       name: node.name,
       brief: facet.brief(node),
       node_ids: [node.node_id],
-      children: output,
+      children: renderOps(facet.layout(node, view.children(node), context)),
       findings: [],
       folded: 0,
     };
@@ -123,7 +129,7 @@ export function renderDisplay(
     return display;
   };
 
-  const roots = view.roots.map(renderNode);
+  const roots = renderOps(view.roots.map((node) => ({ type: "expand", node })));
   for (const [nodeId, nodeFindings] of Object.entries(findings)) {
     if (!nodeFindings.length) continue;
     let target = visible.get(nodeId);

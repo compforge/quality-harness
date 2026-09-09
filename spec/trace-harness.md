@@ -196,3 +196,22 @@ Protocol extraction accepts standard HTTP method/URL/route/address attributes an
 `http.request.body[.json]`, `http.request.headers`, `http.response.headers` when present.
 Vendor-specific telemetry must be mapped by the consuming integration. Both implementations
 consume `conformance/trace/cases/http-detectors.json`.
+
+### HTTP sequence display
+
+Generic HTTP specs retain recognized requests as individual nodes so a sequence can be
+expanded to inspect each call. When supplied with `http_serial_same_api` findings, the
+standard display renderer projects their members into collapsed `Group` rows with a warning
+label, call count, wall-clock duration, HTTP total and gap. It reuses the finding's caller
+span IDs and timing values; rendering does not rerun HTTP detection or sum server timings.
+
+Only distinct, consecutive siblings (including roots) can form a group. Missing or fused
+members, different modeled parents, intervening nodes or explicit facet groups/hide/summary
+operations leave the existing layout intact. Original nodes, parent edges and findings
+remain available. Without findings, no HTTP sequence groups are inferred.
+
+Adjacent HTTP rows are then collected by caller service within the same modeled parent.
+The service `Group` is expanded by default, with collapsed same-API groups and individual
+calls inside it. Service changes or non-HTTP rows break the collection; separate physical
+callers never become one API sequence. Nested groups use `Group.children` layout operations,
+while `Group.nodes` keeps the original member identities for timing and inspection.
