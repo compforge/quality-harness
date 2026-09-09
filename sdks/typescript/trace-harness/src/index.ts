@@ -5,7 +5,7 @@ export * from "./transform";
 export * from "./model/measurement";
 export { AnalysisContext } from "./analyze/context";
 export { measure, type Measurer } from "./analyze/measure";
-export { measurementsMd } from "./view/measurements";
+export { measurementsMd, type MeasurementFilter } from "./view/measurements";
 export { TraceHarness, mergeTraceContributions, type TraceContributions } from "./harness";
 export { assemble } from "./ingest/assemble";
 export { normalizeJaegerSpan, normalizeJaegerSpans } from "./ingest/jaeger";

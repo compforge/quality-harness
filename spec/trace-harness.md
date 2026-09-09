@@ -197,6 +197,7 @@ these explicit extension slots:
 | `measurers` | whole-trace measurement | each runs once; spec IDs must be unique |
 | `detectors` | diagnose | declaration order within each post-order node |
 | `facets` | render | highest priority wins; declaration order breaks ties; an undefined perspective level falls through |
+| `measurement_filter` | report rows only | first contributed predicate wins; absent means show all |
 | `agent_run_extractor` | AgentRun IR extraction | first contributed extractor wins |
 
 Built-in contributions are copied into each harness before consumer contributions. A contribution
@@ -210,6 +211,12 @@ nodes are primary, context, detail, summarized, grouped, or hidden. Findings rem
 inputs, so generic and domain detectors can affect emphasis without implementing presentation
 code. The generic node-tree `agent` perspective remains a structure-preserving DisplayNode view;
 it is not AgentRun IR and MUST NOT substitute for framework turn semantics.
+
+A Measurement filter receives `(node, measurement, trace)` and selects already computed report
+rows. It MUST be pure and MUST NOT change analysis results, detector inputs, facts or topology.
+An omitted filter displays all prepared measurements; filtering every row hides Measurements.
+Selection applies to HTML and Markdown; persisted analysis retains complete measurements.
+`visible_measurements` / `visibleMeasurements` exposes the same projection for host-owned reports.
 
 Merging contributions preserves declaration order. It does not execute them.
 

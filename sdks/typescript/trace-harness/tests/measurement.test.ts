@@ -1,12 +1,13 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { type FactTransform, TransformContext, buildView, Node, NormSpan, TraceContext, TraceHarness, genAiSpecs, analysisSnapshot, loadAnalysis, type Measurer, type MeasurementSpec } from "../src/index";
+import { type FactTransform, TransformContext, buildView, Node, NormSpan, TraceContext, TraceHarness, genAiSpecs, analysisSnapshot, loadAnalysis, type Measurer, type MeasurementSpec, mergeTraceContributions, measurementsMd } from "../src/index";
 
 import { prefixValues } from "../src/analyze/measure";
 import type { CallSource } from "../src/model/measurement";
 
 interface Case {
   name: string;
+  presentation?: { anchor_span_ids: string[]; spec_ids: string[] };
   spans: Array<{ span_id: string; parent_span_id: string | null; name: string; start_ms: number; dur_ms: number; service: string; attrs: Record<string, unknown> }>;
   expected: Record<string, Record<string, { count: number; duration_sum_ms: number; covered_ms: number }>>;
 }
@@ -153,4 +154,38 @@ test("projection requests its facts without computing unrelated transforms", () 
   const other = harness.assemble(new Map([["n", span]]));
   expect(other.nodes[0]!.facts.curl).toBeUndefined();
   harness.transform(other.nodes[0]!, other, "curl"); expect(calls).toBe(2);
+});
+
+
+test("report selection preserves analysis and offline evidence", () => {
+  const selection = cases[0]!.presentation!;
+  const seen: boolean[] = [];
+  const harness = new TraceHarness(mergeTraceContributions({
+    specs: genAiSpecs(),
+    measurementFilter: (node, measurement, trace) => {
+      expect(trace.view().by_id.get(node.node_id)).toBe(node);
+      return selection.anchor_span_ids.includes(node.primary_span_id) && selection.spec_ids.includes(measurement.spec_id);
+    },
+    detectors: [(node, analysis) => { seen.push(!!analysis.measurements.get(node.node_id, "self_ms")); return []; }],
+  }, { measurementFilter: () => false }));
+  const trace = build(cases[0]!, harness);
+  const analysis = harness.analyze(trace);
+  expect(seen.length).toBe(trace.nodes.length); expect(seen.every(Boolean)).toBe(true);
+  const before = JSON.stringify(analysisSnapshot(analysis));
+  const visible = harness.visibleMeasurements(trace, analysis.measurements);
+  expect(Object.keys(visible.results)).toEqual([trace.view().by_span.get("b")!.node_id]);
+  expect(Object.values(visible.results).flat().map((m) => m.spec_id)).toEqual(["calls_until_node_end"]);
+  expect(visible.sources).toBe(analysis.measurements.sources);
+  const md = measurementsMd(trace, visible);
+  expect(md).toContain("| b | calls_until_node_end |"); expect(md).not.toContain("| a | calls_until_node_end |");
+  expect(md).not.toContain("self_ms");
+  const loaded = loadAnalysis(JSON.parse(before));
+  const html = harness.renderInteractive(loaded.trace, {}, { measurements: loaded.measurements });
+  expect(html).toContain('"duration_sum_ms":30'); expect(html).not.toContain('"id":"self_ms"');
+  expect(JSON.stringify(analysisSnapshot(analysis))).toBe(before);
+  expect(analysisSnapshot(loaded)).toEqual(analysisSnapshot(analysis));
+  const hidden = new TraceHarness({ measurementFilter: () => false });
+  expect(hidden.visibleMeasurements(trace, analysis.measurements).results).toEqual({});
+  expect(measurementsMd(trace, hidden.visibleMeasurements(trace, analysis.measurements))).toBe("");
+  expect(hidden.renderInteractive(trace, {}, { measurements: analysis.measurements })).toContain('"measurements":[]');
 });

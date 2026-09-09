@@ -18,6 +18,7 @@ import type { Facet, RenderConfig } from "./view/facet";
 import { builtinFacets } from "./view/facets";
 import { renderInteractive } from "./view/interactive";
 import { FacetRegistry } from "./view/registry";
+import { filterMeasurements, type MeasurementFilter } from "./view/measurements";
 
 export interface TraceContributions {
   specs?: Iterable<KindSpec>;
@@ -26,6 +27,7 @@ export interface TraceContributions {
   detectors?: Iterable<Detector>;
   facets?: Iterable<Facet>;
   agentRunExtractor?: NodeTreeExtractor<AgentRunIR>;
+  measurementFilter?: MeasurementFilter;
 }
 
 export function mergeTraceContributions(...items: TraceContributions[]): TraceContributions {
@@ -35,6 +37,7 @@ export function mergeTraceContributions(...items: TraceContributions[]): TraceCo
     measurers: items.flatMap((item) => [...(item.measurers ?? [])]),
     detectors: items.flatMap((item) => [...(item.detectors ?? [])]),
     facets: items.flatMap((item) => [...(item.facets ?? [])]),
+    measurementFilter: items.find((item) => item.measurementFilter)?.measurementFilter,
     agentRunExtractor: items.find((item) => item.agentRunExtractor)?.agentRunExtractor,
   };
 }
@@ -98,13 +101,18 @@ export class TraceHarness {
     return renderDisplay(context.view(), findings, this.facets, config);
   }
 
+  /** Report projection only: detectors and saved analysis retain all measurements. */
+  visibleMeasurements(context: TraceContext, measurements: Measurements): Measurements {
+    return filterMeasurements(context, measurements, this.contributions.measurementFilter);
+  }
+
   renderInteractive(
     context: TraceContext,
     findings: Readonly<Record<string, readonly Finding[]>> = {},
     options: { measurements?: Measurements } = {},
   ): string {
     return renderInteractive(context, findings, {
-      ...options,
+      measurements: options.measurements ? this.visibleMeasurements(context, options.measurements) : undefined,
       facetRegistry: this.facets,
       agentRunIR: this.extractAgentRuns(context),
     });

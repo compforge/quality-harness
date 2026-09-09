@@ -32,6 +32,7 @@ from trace_harness.view.engine import render_md as render_markdown
 from trace_harness.view.facet import Facet, RenderConfig
 from trace_harness.view.facets import builtin_facets
 from trace_harness.view.interactive import render_interactive as render_interactive_view
+from trace_harness.view.measurements import MeasurementFilter, filter_measurements
 from trace_harness.view.registry import FacetRegistry
 
 
@@ -45,6 +46,7 @@ class TraceContributions:
     detectors: tuple[Detector, ...] = field(default_factory=tuple)
     facets: tuple[Facet, ...] = field(default_factory=tuple)
     agent_run_extractor: NodeTreeExtractor[AgentRunIR] | None = None
+    measurement_filter: MeasurementFilter | None = None
 
 
 def merge_trace_contributions(*items: TraceContributions) -> TraceContributions:
@@ -55,6 +57,10 @@ def merge_trace_contributions(*items: TraceContributions) -> TraceContributions:
         measurers=tuple(m for item in items for m in item.measurers),
         detectors=tuple(detector for item in items for detector in item.detectors),
         facets=tuple(facet for item in items for facet in item.facets),
+        measurement_filter=next(
+            (item.measurement_filter for item in items if item.measurement_filter is not None),
+            None,
+        ),
         agent_run_extractor=next(
             (item.agent_run_extractor for item in items if item.agent_run_extractor is not None),
             None,
@@ -145,6 +151,12 @@ class TraceHarness:
             config=config,
         )
 
+    def visible_measurements(
+        self, context: TraceContext, measurements: Measurements
+    ) -> Measurements:
+        """Project prepared measurements for reports; analysis remains complete."""
+        return filter_measurements(context, measurements, self.contributions.measurement_filter)
+
     def render_interactive(
         self,
         context: TraceContext,
@@ -156,7 +168,11 @@ class TraceHarness:
             context,
             findings,
             facet_registry=self.facets,
-            measurements=measurements,
+            measurements=(
+                self.visible_measurements(context, measurements)
+                if measurements is not None
+                else None
+            ),
             agent_run_ir=self.extract_agent_runs(context),
         )
 
@@ -175,7 +191,10 @@ class TraceHarness:
             findings,
             prune_below_ms=prune_below_ms,
             registry=self.facets,
-        ) + measurements_md(context, measurements)
+        ) + measurements_md(
+            context,
+            self.visible_measurements(context, measurements) if measurements is not None else None,
+        )
 
     def render_callstack(
         self,
