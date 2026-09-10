@@ -1,3 +1,4 @@
+import { archiveContents, traceTrees } from "./archive-fixture";
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { type FactTransform, TransformContext, buildView, Node, NormSpan, TraceContext, TraceHarness, genAiSpecs, analysisSnapshot, loadAnalysis, type Measurer, type MeasurementSpec, mergeTraceContributions, measurementsMd } from "../src/index";
@@ -51,15 +52,15 @@ test("curl is an ordinary fact, materialized only on request", () => {
   const harness = new TraceHarness({ specs: genAiSpecs(), transforms: [transform] });
   const trace = build(cases[0]!, harness);
   const html = harness.renderInteractive(trace);
-  expect(calls).toBe(0); expect(html).not.toContain("curl -X");
+  expect(calls).toBe(0); expect(html + archiveContents(html)).not.toContain("curl -X");
   harness.transformAll(trace, "curl");
   expect(calls).toBe(trace.nodes.length);
-  expect(harness.renderInteractive(trace)).toContain("curl -X");
+  expect(archiveContents(harness.renderInteractive(trace))).toContain("curl -X");
   expect(trace.nodes.every((node) => Object.hasOwn(node.facts, "curl"))).toBe(true);
   harness.transformAll(trace, "curl");
   expect(calls).toBe(trace.nodes.length);
   const loaded = loadAnalysis(JSON.parse(JSON.stringify(analysisSnapshot(harness.analyze(trace, false)))));
-  expect(harness.renderInteractive(loaded.trace)).toContain("curl -X");
+  expect(archiveContents(harness.renderInteractive(loaded.trace))).toContain("curl -X");
 });
 test("measurers run once, detectors consume measurements and previous findings", () => {
   let calls = 0; const seen: boolean[] = [];
@@ -83,7 +84,7 @@ test("saved analysis renders offline without recomputation", () => {
   const harness = new TraceHarness({ specs: genAiSpecs() }); const trace = build(cases[1]!);
   const snapshot = analysisSnapshot(harness.analyze(trace, false)); const loaded = loadAnalysis(JSON.parse(JSON.stringify(snapshot)));
   expect(analysisSnapshot(loaded)).toEqual(snapshot); expect(loaded.trace.spans.size).toBe(0); expect(loaded.trace.span_count).toBe(trace.span_count);
-  expect(harness.renderInteractive(loaded.trace, {}, { measurements: loaded.measurements })).toContain('"duration_sum_ms":50');
+  expect(archiveContents(harness.renderInteractive(loaded.trace, {}, { measurements: loaded.measurements }))).toContain('"duration_sum_ms":50');
 });
 test("prefix sweep matches an independent naive interval oracle", () => {
   const sources: CallSource[] = Array.from({ length: 100 }, (_, i) => ({ id: String(i), kind: "http", node_id: String(i), span_ids: [String(i)], start_ms: i % 37, end_ms: i % 37 + i % 19 }));
@@ -181,11 +182,11 @@ test("report selection preserves analysis and offline evidence", () => {
   expect(md).not.toContain("self_ms");
   const loaded = loadAnalysis(JSON.parse(before));
   const html = harness.renderInteractive(loaded.trace, {}, { measurements: loaded.measurements });
-  expect(html).toContain('"duration_sum_ms":30'); expect(html).not.toContain('"id":"self_ms"');
+  expect(html + archiveContents(html)).toContain('"duration_sum_ms":30'); expect(html + archiveContents(html)).not.toContain('"id":"self_ms"');
   expect(JSON.stringify(analysisSnapshot(analysis))).toBe(before);
   expect(analysisSnapshot(loaded)).toEqual(analysisSnapshot(analysis));
   const hidden = new TraceHarness({ measurementFilter: () => false });
   expect(hidden.visibleMeasurements(trace, analysis.measurements).results).toEqual({});
   expect(measurementsMd(trace, hidden.visibleMeasurements(trace, analysis.measurements))).toBe("");
-  expect(hidden.renderInteractive(trace, {}, { measurements: analysis.measurements })).toContain('"measurements":[]');
+  expect(archiveContents(hidden.renderInteractive(trace, {}, { measurements: analysis.measurements }))).toContain('"measurements":[]');
 });

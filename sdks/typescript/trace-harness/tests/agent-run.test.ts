@@ -1,3 +1,4 @@
+import { archiveContents, traceTrees } from "./archive-fixture";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -201,28 +202,28 @@ describe("AgentRun IR", () => {
     const context = instance.assemble(normalizeJaegerSpans(fixtureDocuments()));
     const html = instance.renderInteractive(context, instance.diagnose(context));
 
-    expect(html).toContain('data-perspective="agent"');
-    expect(html).toContain("agent-run:run-main");
-    expect(html).toContain("run.initialize");
-    expect(html).toContain("context.load");
-    expect(html).toContain("context.compact");
-    expect(html).toContain("turn.wrap_up");
-    expect(html).toContain("framework.checkpoint");
-    expect(html).toContain("run.finalize");
-    expect(html).toContain("agent-run:run-worker");
-    expect(html).toContain("worker-model");
-    expect(html).toContain("nodeNameLayout(depth,rowHeight)");
-    expect(html).toContain("applyNameLayout(row,n,depth,rowHeight)");
-    expect(html).toContain("timeHeight(n.duration_ms,stackMaxDuration)");
-    expect(html).toContain("const timedLeaf=perspective==='agent'&&!n.children.length");
-    expect(html).toContain("maxLeafDuration(tree.roots)");
-    expect(html).toContain("const base=22,max=base*4");
-    expect(html).toContain(".row.agent-row::before");
-    expect(html).toContain("row.classList.add('agent-row')");
-    expect(html).toContain("row.style.setProperty('--node-color',KCOLOR[n.kind]||'#9ca3af')");
-    expect(html).toContain("row.style.setProperty('--node-indent',(depth*16+4)+'px')");
-    expect(html).not.toContain("call=call-search-1");
-    expect(html).toContain('"tool_call_id":"call-search-1"');
+    expect(html + archiveContents(html)).toContain('data-perspective="agent"');
+    expect(html + archiveContents(html)).toContain("agent-run:run-main");
+    expect(html + archiveContents(html)).toContain("run.initialize");
+    expect(html + archiveContents(html)).toContain("context.load");
+    expect(html + archiveContents(html)).toContain("context.compact");
+    expect(html + archiveContents(html)).toContain("turn.wrap_up");
+    expect(html + archiveContents(html)).toContain("framework.checkpoint");
+    expect(html + archiveContents(html)).toContain("run.finalize");
+    expect(html + archiveContents(html)).toContain("agent-run:run-worker");
+    expect(html + archiveContents(html)).toContain("worker-model");
+    expect(html + archiveContents(html)).toContain("nodeNameLayout(depth,rowHeight)");
+    expect(html + archiveContents(html)).toContain("applyNameLayout(row,n,depth,rowHeight)");
+    expect(html + archiveContents(html)).toContain("timeHeight(n.duration_ms,stackMaxDuration)");
+    expect(html + archiveContents(html)).toContain("const timedLeaf=perspective==='agent'&&!n.children.length");
+    expect(html + archiveContents(html)).toContain("maxLeafDuration(tree.roots)");
+    expect(html + archiveContents(html)).toContain("const base=22,max=base*4");
+    expect(html + archiveContents(html)).toContain(".row.agent-row::before");
+    expect(html + archiveContents(html)).toContain("row.classList.add('agent-row')");
+    expect(html + archiveContents(html)).toContain("row.style.setProperty('--node-color',KCOLOR[n.kind]||'#9ca3af')");
+    expect(html + archiveContents(html)).toContain("row.style.setProperty('--node-indent',(depth*16+4)+'px')");
+    expect(html + archiveContents(html)).not.toContain("call=call-search-1");
+    expect(html + archiveContents(html)).toContain('"tool_call_id":"call-search-1"');
   });
 
   test("uses file and command names instead of call IDs for tool display", () => {

@@ -1,3 +1,4 @@
+import { archiveContents, traceTrees } from "./archive-fixture";
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { NormSpan, TraceHarness, genAiSpecs } from "../src/index";
@@ -38,6 +39,6 @@ for (const fixture of cases) {
       expect(hit.note).not.toContain("secret");
     }
     const html = harness.renderInteractive(context, harness.diagnose(context));
-    for (const finding of findings) expect(html).toContain(finding.source);
+    for (const finding of findings) expect(html + archiveContents(html)).toContain(finding.source);
   });
 }
