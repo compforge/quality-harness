@@ -296,3 +296,41 @@ The service `Group` is expanded by default, with collapsed same-API groups and i
 calls inside it. Service changes or non-HTTP rows break the collection; separate physical
 callers never become one API sequence. Nested groups use `Group.children` layout operations,
 while `Group.nodes` keeps the original member identities for timing and inspection.
+
+
+## Detector dependencies
+
+An implementation supporting detector composition MUST accept definitions with an explicit
+`id`, direct dependency IDs (`requires`), and a plain `detect(input, context)` handler. Runtime
+function names and registration order MUST NOT define the identity or dependencies of explicit definitions.
+This capability does not change node detector grain or require a separate composite type.
+
+Before reading trace evidence, the executor MUST reject duplicate/empty IDs, unknown dependencies,
+unknown selected IDs, and dependency cycles. Selection MUST expand transitive dependencies. Each definition
+MUST execute at most once per execution unit: the same trace/node within one analysis, or the
+same Dataset within one Run. All direct dependencies MUST finish before its handler starts.
+One ID has one bound configuration in a Run. Re-evaluation MUST create independent results.
+
+`context.result(id)` MUST access only declared direct dependencies and MUST NOT schedule execution.
+It MUST expose execution success/failure, error details, and iterable structured Findings. Successful
+empty output MUST remain distinguishable from failure, including failure after partial output. Business
+coverage remains in the findings and MUST NOT be inferred from execution success alone. Consumers MAY
+produce partial conclusions from failed dependencies, but MUST identify missing or failed evidence.
+An ordinary detector failure MUST NOT prevent unrelated detectors from running.
+
+A Run MUST persist selected and resolved detector identities, dependencies, execution status, and output
+provenance. A detector's identity MUST be separate from a Finding's rule source. Failed execution MUST be
+visible in Run status and the report even when no Finding was produced. Output storage MAY be streamed;
+composition MUST NOT require all trees or findings to remain resident. Evidence caching and Run-local
+execution deduplication have independent lifetimes.
+
+Planning cases are in `conformance/trace/detector-dependencies.json`. Python implements this capability;
+TypeScript does not yet implement this detector composition contract. The shared contract is independent of
+Python decorators, TS function syntax, and either implementation's storage paths.
+
+Node and Dataset execution MUST share the definition and dependency semantics; type aliases MAY name
+specific input/context pairs. Dependencies MUST resolve in the same grain's registry and current unit;
+cross-grain references MUST be rejected. Node execution MUST preserve post-order between nodes and
+use dependency order within each node. Full single-trace analysis and explicit detector selection MUST
+use the same invocation semantics. Failure status MUST survive analysis snapshots and Dataset reports.
+Result access MUST be independent of whether output is in memory or persisted in files.

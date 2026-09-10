@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from trace_harness.loading.model import EvidenceRef
 from trace_harness.model.span import NormSpan
@@ -28,6 +28,9 @@ class SpanQuery:
     since_ms: float | None = None
     until_ms: float | None = None
     limit: int = 1000
+    order: Literal["trace_id", "latest"] = "trace_id"
+    operation_names: list[str] | None = None
+    # latest orders unique traces by their newest matching span start, ties by trace ID.
 
 
 @runtime_checkable

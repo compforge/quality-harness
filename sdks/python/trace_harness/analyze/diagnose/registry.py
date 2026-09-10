@@ -13,23 +13,28 @@ Domain 通过 ``TraceContributions.detectors`` 显式组合。
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Iterable
 
 from trace_harness.analyze.context import AnalysisContext
-from trace_harness.model.node import Finding, Node
+from trace_harness.detectors import Detect, Detector, plan_detectors
+from trace_harness.model.node import Node
 
-Detector = Callable[[Node, AnalysisContext], list[Finding] | Awaitable[list[Finding]]]
+NodeDetector = Detector[Node, AnalysisContext]
+NodeDetect = Detect[Node, AnalysisContext]
 
 
 class DetectorRegistry:
     """一次 trace 分析使用的全局/整树 detector 集。"""
 
-    def __init__(self, detectors: Iterable[Detector] = ()) -> None:
+    def __init__(self, detectors: Iterable[NodeDetector | NodeDetect] = ()) -> None:
         self._detectors = list(detectors)
 
-    def register(self, detector: Detector) -> Detector:
+    def register(self, detector: NodeDetector | NodeDetect) -> NodeDetector | NodeDetect:
         self._detectors.append(detector)
         return detector
 
-    def registered(self) -> list[Detector]:
+    def registered(self) -> list[NodeDetector | NodeDetect]:
         return list(self._detectors)
+
+    def plan(self, selected: list[str] | None = None) -> list[NodeDetector]:
+        return plan_detectors(self._detectors, selected)

@@ -13,9 +13,14 @@
 from __future__ import annotations
 
 from trace_harness.analyze.context import AnalysisContext as AnalysisContext
+from trace_harness.analyze.diagnose.registry import NodeDetector as NodeDetector
 from trace_harness.analyze.measure import Measurer as Measurer
 from trace_harness.analyze.measure import measure as measure
+from trace_harness.batch_detectors import BatchDetector as BatchDetector
+from trace_harness.batch_detectors import BatchDetectorResult as BatchDetectorResult
 from trace_harness.dataset import Dataset as Dataset
+from trace_harness.detectors import Detector as Detector
+from trace_harness.detectors import DetectorResult as DetectorResult
 from trace_harness.harness import TraceContributions as TraceContributions
 from trace_harness.harness import TraceHarness as TraceHarness
 from trace_harness.harness import contributions_from_specs as contributions_from_specs

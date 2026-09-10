@@ -6,7 +6,7 @@ import json
 import math
 import sqlite3
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING
 
@@ -14,19 +14,23 @@ if TYPE_CHECKING:
     from trace_harness.runtime import TraceSession
 
 from dataclasses import asdict, dataclass, replace
+from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
-from harness_common.report_kit import Report, Section, Table, render_html
+from harness_common.report_kit import Prose, Report, Section, Table, render_html
 
 from trace_harness.analyze.context import AnalysisContext
+from trace_harness.batch_detectors import BatchDetector
 from trace_harness.corpus.tables import _fact_rows, _trace_row
 from trace_harness.dataset import Dataset
+from trace_harness.detectors import (
+    DetectorResult,
+    dependency_result,
+    execute_detector,
+    plan_detectors,
+)
 from trace_harness.model.node import Finding
-
-BatchDetector = Callable[
-    [Dataset, "BatchContext"], Iterable[Finding] | Awaitable[Iterable[Finding]]
-]
 
 
 def _numbers(value, prefix=""):
@@ -42,7 +46,7 @@ class BatchResult:
     path: Path
 
     def rows(self, name: str) -> Iterator[dict]:
-        if name not in {"facts", "traces", "findings", "measurements", "failures"}:
+        if name not in {"facts", "traces", "findings", "measurements", "failures", "detector_runs"}:
             raise ValueError(f"unknown result table: {name}")
         with (self.path / f"{name}.jsonl").open() as stream:
             for line in stream:
@@ -71,8 +75,22 @@ class BatchResult:
 class BatchContext:
     """A detector may revisit trees or query the persisted measurements of this run."""
 
-    def __init__(self, session: TraceSession, dataset: Dataset, result: BatchResult):
-        self.session, self.dataset, self.result = session, dataset, result
+    def __init__(
+        self,
+        session: TraceSession,
+        dataset: Dataset,
+        result: BatchResult,
+        *,
+        detector: BatchDetector,
+        completed: dict[str, DetectorResult],
+        output: Path,
+    ):
+        self.session, self.dataset, self.run_result = session, dataset, result
+        self._detector, self._completed, self._output = detector, completed, output
+
+    def result(self, detector_id: str) -> DetectorResult:
+        """Read a declared direct dependency; this method never schedules work."""
+        return dependency_result(self._detector, self._completed, detector_id)
 
     def trees(self, dataset: Dataset) -> AsyncIterator[AnalysisContext]:
         return self.session.trees(dataset)
@@ -81,11 +99,14 @@ class BatchContext:
         return self.session.tree(dataset, trace_id)
 
     def rows(self, name: str) -> Iterator[dict]:
-        return self.result.rows(name)
+        return self.run_result.rows(name)
 
     def emit(self, finding: Finding) -> None:
-        with (self.result.path / "findings.jsonl").open("a") as stream:
-            stream.write(json.dumps(asdict(finding), ensure_ascii=False) + "\n")
+        row = {**asdict(finding), "detector_id": self._detector.id}
+        encoded = json.dumps(row, ensure_ascii=False) + "\n"
+        for path in (self._output, self.run_result.path / "findings.jsonl"):
+            with path.open("a") as stream:
+                stream.write(encoded)
 
 
 def _summary(db, coverage):
@@ -147,6 +168,57 @@ def write_batch_report(result: BatchResult, *, comparison: list[dict] | None = N
             ],
         ),
     ]
+    if summary.get("detector_failures"):
+        sections.append(
+            Section(
+                "Detector 执行失败",
+                [
+                    Table(
+                        ["scope", "trace", "node", "detector", "error"],
+                        [
+                            [
+                                r.get("scope"),
+                                r.get("trace_id"),
+                                r.get("node_id"),
+                                r["id"],
+                                json.dumps(r["error"], ensure_ascii=False),
+                            ]
+                            for r in result.rows("detector_runs")
+                            if r["status"] == "failed"
+                        ],
+                    )
+                ],
+            )
+        )
+    observations = []
+    for finding in result.rows("findings"):
+        if finding.get("scope") not in {"batch", "dataset", "cohort"}:
+            continue
+        observations.append(Prose(f"[{finding['severity']}] {finding.get('note', '')}"))
+        data = finding.get("data", {})
+        # Render neutral structured evidence without AS-specific columns or raw HTML.
+        for name, value in data.items():
+            if isinstance(value, list) and value and all(isinstance(row, dict) for row in value):
+                columns = list(dict.fromkeys(key for row in value for key in row))
+                observations.append(Prose(name))
+                observations.append(
+                    Table(
+                        columns,
+                        [
+                            [
+                                json.dumps(row.get(key), ensure_ascii=False)
+                                if isinstance(row.get(key), dict | list)
+                                else str(row.get(key, ""))
+                                for key in columns
+                            ]
+                            for row in value
+                        ],
+                    )
+                )
+            else:
+                observations.append(Prose(f"{name}: {json.dumps(value, ensure_ascii=False)}"))
+    if observations:
+        sections.insert(0, Section("批量观察与证据", observations))
     if comparison is not None:
         sections.append(
             Section(
@@ -184,14 +256,8 @@ async def run_batch(
     metrics: list[str] | None = None,
     batch_detectors: list[str] | None = None,
 ) -> BatchResult:
-    available = session.harness.contributions.batch_detectors
-    selections = (
-        ("detectors", detectors, session.harness.detectors.registered()),
-        ("batch detectors", batch_detectors, available),
-    )
-    for label, selected, registered in selections:
-        if selected is not None and (unknown := set(selected) - {d.__name__ for d in registered}):
-            raise KeyError(f"unknown {label}: {sorted(unknown)}")
+    plan = plan_detectors(session.harness.contributions.batch_detectors, batch_detectors)
+    node_plan = session.harness.detectors.plan(detectors)
     if metrics is not None and (
         unknown := set(metrics) - {m.spec.id for m in session.harness.measurers}
     ):
@@ -201,13 +267,14 @@ async def run_batch(
     result = BatchResult(path)
     handles = {
         name: (path / f"{name}.jsonl").open("w")
-        for name in ("facts", "traces", "findings", "measurements", "failures")
+        for name in ("facts", "traces", "findings", "measurements", "failures", "detector_runs")
     }
     db = sqlite3.connect(path / "results.sqlite")
     db.execute("CREATE TABLE values_(kind TEXT,name TEXT,metric TEXT,value REAL)")
     db.execute("CREATE INDEX grouped_values ON values_(kind,name,metric,value)")
     coverage = {"selected": dataset.count, "succeeded": 0, "failed": 0}
     metric_statuses = {}
+    node_detector_failures = 0
     started = time.monotonic()
     before_loading = dict(session._loader(dataset).stats)
     manifest = {
@@ -217,6 +284,10 @@ async def run_batch(
         "detectors": detectors,
         "metrics": metrics,
         "batch_detectors": batch_detectors,
+        "resolved_detectors": [d.id for d in node_plan],
+        "node_dependencies": {d.id: list(d.requires) for d in node_plan},
+        "resolved_batch_detectors": [d.id for d in plan],
+        "batch_dependencies": {d.id: list(d.requires) for d in plan},
         "load": asdict(session.config),
         "status": "running",
     }
@@ -232,6 +303,9 @@ async def run_batch(
                     analysis = await session.analyze(
                         replace(initial, finding_limit=None), detectors=detectors, metrics=metrics
                     )
+                    for execution in analysis.detector_runs:
+                        write("detector_runs", {"trace_id": tid, **execution})
+                        node_detector_failures += execution["status"] == "failed"
                     trace = analysis.trace
                     write("traces", _trace_row(trace, analysis.findings))
                     for row in _fact_rows(trace):
@@ -282,15 +356,40 @@ async def run_batch(
         summary["wall_clock_s"] = time.monotonic() - started
         summary["measurement_statuses"] = metric_statuses
         (path / "summary.json").write_text(json.dumps(summary, indent=2))
-        context = BatchContext(session, dataset, result)
-        for detector in available:
-            if batch_detectors is not None and detector.__name__ not in batch_detectors:
-                continue
-            findings = detector(dataset, context)
-            if isinstance(findings, Awaitable):
-                findings = await findings
-            for finding in findings or ():
-                context.emit(finding)
+        completed = {}
+        outputs = path / "detectors"
+        outputs.mkdir()
+        for detector in plan:
+            output = outputs / f"{sha256(detector.id.encode()).hexdigest()}.jsonl"
+            output.touch()
+            context = BatchContext(
+                session, dataset, result, detector=detector, completed=completed, output=output
+            )
+
+            def read(output=output):
+                with output.open() as stream:
+                    for line in stream:
+                        yield json.loads(line)
+
+            execution = await execute_detector(
+                detector, dataset, context, emit=context.emit, read=read
+            )
+            completed[detector.id] = execution
+            write(
+                "detector_runs",
+                {
+                    "id": detector.id,
+                    "scope": "dataset",
+                    "status": execution.status,
+                    "error": execution.error,
+                    "findings_path": str(output.relative_to(path)),
+                    "requires": list(detector.requires),
+                },
+            )
+        handles["detector_runs"].flush()
+        summary["detector_failures"] = node_detector_failures + sum(
+            r.status == "failed" for r in completed.values()
+        )
         summary["wall_clock_s"] = time.monotonic() - started
         summary["loading"] = {
             key: value - before_loading[key]
@@ -305,7 +404,11 @@ async def run_batch(
                 }
             )
         )
-        manifest["status"] = "complete" if coverage["failed"] == 0 else "partial"
+        manifest["status"] = (
+            "complete"
+            if coverage["failed"] == 0 and not summary["detector_failures"]
+            else "partial"
+        )
     except BaseException:
         manifest["status"] = "failed"
         raise
