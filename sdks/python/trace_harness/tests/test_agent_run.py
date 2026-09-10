@@ -201,11 +201,11 @@ def test_agent_run_ir_matches_shared_conformance_case():
     assert agent_run_snapshot(actual) == json.loads(EXPECTED.read_text(encoding="utf-8"))
 
 
-def test_interactive_agent_view_is_owned_by_agent_run_renderer():
+async def test_interactive_agent_view_is_owned_by_agent_run_renderer():
     harness = _harness(_FixtureAgentRunExtractor())
     context = harness.assemble(load_jaeger_file(RAW))
 
-    html = harness.render_interactive(context, harness.diagnose(context))
+    html = harness.render_interactive(context, (await harness.diagnose(context)))
 
     assert 'data-perspective="agent"' in html
     assert "agent-run:run-main" in html

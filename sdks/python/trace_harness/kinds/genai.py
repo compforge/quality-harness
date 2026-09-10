@@ -111,6 +111,8 @@ def _rule_empty_output(n: Node, ctx) -> list[Finding]:
 def _model_spec() -> KindSpec:
     return KindSpec(
         kind="model-call",
+        detail_fields=("gen_ai.prompt", "gen_ai.input.messages"),
+        detail_facts=("io_span",),
         matches=_match_model,
         build=_build_model,
         metrics={
@@ -166,6 +168,9 @@ def _project_tool(n: Node) -> list[Field]:
 def _tool_spec() -> KindSpec:
     return KindSpec(
         kind="tool-call",
+        detail_fields=("gen_ai.tool.call.result", "gen_ai.tool.call.arguments"),
+        detail_facts=("result_bytes", "io_span"),
+        project_requires=("result_bytes",),
         matches=_match_tool,
         build=_build_tool,
         metrics={**duration_metric(), "result_bytes": lambda n: n.facts.get("result_bytes")},

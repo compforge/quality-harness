@@ -8,8 +8,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import httpx
+
+from trace_harness import TraceContributions, TraceHarness
 from trace_harness.analyze.diagnose import diagnose
-from trace_harness.corpus.cohort import Cohort
 from trace_harness.corpus.operators import contrast
 from trace_harness.corpus.tables import CorpusTables, build_tables
 from trace_harness.ingest.assemble import assemble
@@ -60,51 +62,55 @@ def test_finding_scope_backcompat():
 # —— Source 协议（离线）——
 
 
-def test_jaeger_file_source_select_and_fetch():
+async def test_jaeger_file_source_select_and_fetch():
     src = JaegerFileSource(FIXTURE)
-    err = src.select(SpanQuery(error_only=True))
-    assert err and all(s.has_error for s in err)
-    tid = next(iter(src._by_trace))
-    assert len(src.fetch(tid)) == 6
+    try:
+        ids = [tid async for tid in src.select(SpanQuery(error_only=True))]
+        assert len(ids) == 1
+        assert len(await src.fetch(ids[0], ())) == 6
+    finally:
+        await src.aclose()
 
 
-# —— Cohort：single = of ——
+async def test_dataset_single_callstack(tmp_path):
+    h = TraceHarness(TraceContributions(specs=tuple(genai.specs())))
+    async with h.open(JaegerFileSource(FIXTURE), work_dir=tmp_path) as session:
+        dataset = await session.select()
+        async with session.tree(dataset, next(dataset.members())) as analysis:
+            assert sorted(n.kind for n in analysis.trace.nodes) == [
+                "agent",
+                "http",
+                "http",
+                "model-call",
+                "model-call",
+                "tool-call",
+            ]
 
 
-def test_cohort_of_file_single_callstack():
-    c = Cohort.of_file(FIXTURE)
-    ctx = c.the_context()
-    assert sorted(n.kind for n in ctx.nodes) == [
-        "agent",
-        "http",
-        "http",
-        "model-call",
-        "model-call",
-        "tool-call",
-    ]
+async def test_selection_builds_complete_skeleton(tmp_path):
+    h = TraceHarness(TraceContributions(specs=tuple(genai.specs())))
+    async with h.open(JaegerFileSource(FIXTURE), work_dir=tmp_path) as session:
+        errors = await session.select(SpanQuery(error_only=True))
+        all_traces = await session.select()
+        async with (
+            session.tree(errors, next(errors.members())) as one,
+            session.tree(all_traces, next(all_traces.members())) as two,
+        ):
+            assert len(one.trace.nodes) == len(two.trace.nodes) == 6
 
 
-# —— Cohort：cross = select，Tier-1 vs Tier-2 ——
-
-
-def test_cohort_select_tier1_lighter_than_tier2():
-    src = JaegerFileSource(FIXTURE)
-    t1 = Cohort.select(SpanQuery(error_only=True), src, tier=1).tables()
-    t2 = Cohort.select(SpanQuery(), src, tier=2).tables()
-    # Tier-1 只建命中 span → node 数远少于 Tier-2 全量
-    assert 0 < len(t1.facts) < len(t2.facts)
-
-
-def test_cohort_where_filters_kind():
-    src = JaegerFileSource(FIXTURE)
-    mc = Cohort.select(SpanQuery(), src, tier=2).where(kind="model-call").tables()
-    assert mc.facts and all(r["kind"] == "model-call" for r in mc.facts)
+async def test_batch_rows_allow_kind_filter(tmp_path):
+    h = TraceHarness(TraceContributions(specs=tuple(genai.specs())))
+    async with h.open(JaegerFileSource(FIXTURE), work_dir=tmp_path) as session:
+        result = await session.detect(await session.select())
+        rows = [row for row in result.rows("facts") if row["kind"] == "model-call"]
+        assert len(rows) == 2
 
 
 # —— 源头 vs 传播去重（合成链：agent 与其 model-call 同错误签名）——
 
 
-def test_error_propagation_marks_ancestor_not_origin():
+async def test_error_propagation_marks_ancestor_not_origin():
     spans = {
         "a": _span(
             "a",
@@ -117,7 +123,7 @@ def test_error_propagation_marks_ancestor_not_origin():
         "m": _model("m", "a", err=True, etype="ModelTotalTimeoutError"),
     }
     ctx = assemble(spans, genai.specs())
-    findings = [f for fs in diagnose(ctx).values() for f in fs]
+    findings = [f for fs in (await diagnose(ctx)).values() for f in fs]
     prop = [f for f in findings if f.source == "propagated"]
     # 祖先 agent 被标传播副本，源头 model-call 不被标
     assert {f.ref for f in prop} == {"a"}
@@ -153,77 +159,60 @@ def test_contrast_needs_two_buckets():
 # —— OpenSearchSource：注入 transport，验证 nested 查询拼装 ——
 
 
-class _Resp:
-    def __init__(self, payload):
-        self._p = payload
-
-    def read(self):
-        return json.dumps(self._p).encode()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-
-def test_opensearch_select_builds_nested_error_query():
+async def test_opensearch_select_builds_nested_error_query():
     captured = {}
 
-    def fake_urlopen(req, timeout):
-        captured["body"] = json.loads(req.data.decode())
-        return _Resp(
-            {
-                "hits": {
-                    "hits": [
-                        {
-                            "_source": {
-                                "traceID": "t",
-                                "spanID": "s",
-                                "operationName": "x",
-                                "startTime": 0,
-                                "duration": 1000,
-                                "tags": [{"key": "error.type", "value": "Foo"}],
-                            }
-                        }
-                    ]
-                }
-            }
+    async def handle(request):
+        captured.update(json.loads(request.content))
+        return httpx.Response(
+            200, json={"aggregations": {"members": {"buckets": [{"key": {"trace": "t"}}]}}}
         )
 
-    src = OpenSearchSource("http://h:9200", "jaeger-span-*", urlopen=fake_urlopen)
-    spans = src.select(SpanQuery(attr_eq={"error.type": "Foo"}, error_only=True))
-    assert len(spans) == 1 and spans[0].span_id == "s"
-    bool_q = captured["body"]["query"]["bool"]
-    assert any("nested" in m for m in bool_q["must"])  # attr_eq → nested
-    assert bool_q["minimum_should_match"] == 1  # error_only → should + min_should
+    src = OpenSearchSource("http://h:9200", "jaeger-span-*", transport=httpx.MockTransport(handle))
+    try:
+        assert [
+            tid
+            async for tid in src.select(SpanQuery(attr_eq={"error.type": "Foo"}, error_only=True))
+        ] == ["t"]
+        filters = captured["query"]["bool"]["filter"]
+        assert any("nested" in f for f in filters)
+        assert filters[-1]["bool"]["minimum_should_match"] == 1
+    finally:
+        await src.aclose()
 
 
-def test_opensearch_fetch_by_trace_id():
-    def fake_urlopen(req, timeout):
-        body = json.loads(req.data.decode())
-        assert body["query"] == {"term": {"traceID": "t1"}}
-        return _Resp(
-            {
+async def test_opensearch_fetch_by_trace_id():
+    async def handle(request):
+        payload = json.loads(request.content)
+        assert payload["query"]["bool"]["filter"] == [{"term": {"traceID": "t1"}}]
+        assert "tags" not in payload["_source"]
+        return httpx.Response(
+            200,
+            json={
                 "hits": {
                     "hits": [
                         {
+                            "_id": "doc",
+                            "_index": "i",
                             "_source": {
                                 "traceID": "t1",
                                 "spanID": "a",
                                 "operationName": "op",
                                 "startTime": 0,
                                 "duration": 2000,
-                                "tags": [],
-                            }
+                            },
                         }
                     ]
                 }
-            }
+            },
         )
 
-    src = OpenSearchSource("http://h", "i", urlopen=fake_urlopen)
-    assert "a" in src.fetch("t1")
+    src = OpenSearchSource("http://h", "i", transport=httpx.MockTransport(handle))
+    try:
+        span = (await src.fetch("t1", ()))["a"]
+        assert span.storage_id == "doc" and span.storage_index == "i"
+    finally:
+        await src.aclose()
 
 
 # —— render：tree-always + 剪枝（上收自 trace-as 的 render_show）——
@@ -255,7 +244,7 @@ def test_render_md_prunes_cheap_subtrees():
     assert "heavy" in full and "cheap" in full
 
 
-def test_render_callstack_keeps_tree_shape_and_findings():
+async def test_render_callstack_keeps_tree_shape_and_findings():
     from trace_harness.view.engine import render_callstack
 
     ctx = assemble(
@@ -271,7 +260,7 @@ def test_render_callstack_keeps_tree_shape_and_findings():
         },
         genai.specs(),
     )
-    out = render_callstack(ctx, diagnose(ctx))
+    out = render_callstack(ctx, (await diagnose(ctx)))
     assert out.startswith("trace_id:")  # 多分辨率头
     assert "- agent `root.agent`" in out  # tree 形状（缩进 + backtick）
     assert "🔴" in out  # 错误节点上色

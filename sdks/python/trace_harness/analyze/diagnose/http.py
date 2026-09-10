@@ -34,7 +34,7 @@ def _serial_runs(requests: list[HttpRequest]) -> list[list[HttpRequest]]:
     return runs
 
 
-def http_request_patterns(node: Node, analysis: AnalysisContext) -> list[Finding]:
+async def http_request_patterns(node: Node, analysis: AnalysisContext) -> list[Finding]:
     ctx = analysis.trace
     """同一 HTTP 调用 client/server 去重；两个独立 warn 各保留耗时最高的 10 条。"""
     if (
@@ -42,6 +42,7 @@ def http_request_patterns(node: Node, analysis: AnalysisContext) -> list[Finding
         or node.node_id != min(ctx.nodes, key=lambda item: (item.start_ms, item.node_id)).node_id
     ):
         return []
+    await analysis.fact(node, "http_evidence")
     requests = http_requests(ctx)
     view = ctx.view()
     findings = []
@@ -49,7 +50,7 @@ def http_request_patterns(node: Node, analysis: AnalysisContext) -> list[Finding
         (item for item in requests if item.ordinary and item.duration_ms > _SLOW_HTTP_MS),
         key=lambda item: (-item.duration_ms, item.span.span_id),
     )
-    for request in slow[:_MAX_FINDINGS]:
+    for request in slow[: analysis.finding_limit]:
         owner = next(
             (view.by_span[item.span_id] for item in request.spans if item.span_id in view.by_span),
             node,
@@ -76,7 +77,7 @@ def http_request_patterns(node: Node, analysis: AnalysisContext) -> list[Finding
             )
         )
     runs = sorted(_serial_runs(requests), key=lambda run: -(run[-1].end_ms - run[0].start_ms))
-    for run in runs[:_MAX_FINDINGS]:
+    for run in runs[: analysis.finding_limit]:
         first, last = run[0], run[-1]
         wall_ms = last.end_ms - first.start_ms
         gap_ms = sum(

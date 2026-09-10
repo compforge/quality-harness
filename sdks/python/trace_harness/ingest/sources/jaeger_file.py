@@ -144,51 +144,139 @@ def load_jaeger_file(path: str | Path) -> dict[str, NormSpan]:
 
 
 class JaegerFileSource:
-    """离线文件 Source：一个 .jsonl（一条 trace）在内存里做 select/fetch。
+    """Disk-indexed file source. Import once, then read only requested traces/fields.
 
-    select 在已加载的 span 上做内存过滤（attr_eq / error_only / service / 时间窗），
-    fetch 直接返回该 trace 全部 span。多文件场景：传 dir，按 traceID 索引。
+    JSONL import is streaming. UI exports are parsed one file at a time; the parsed
+    document is released after indexing, never retained for the dataset lifetime.
     """
 
-    def __init__(self, path):
-        from pathlib import Path
+    def __init__(self, path, *, index_dir: str | Path | None = None):
+        import asyncio
+        import hashlib
+        import tempfile
 
-        p = Path(path)
-        files = sorted(p.glob("*.jsonl")) if p.is_dir() else [p]
-        self._by_trace: dict[str, dict[str, NormSpan]] = {}
-        for f in files:
-            spans = load_jaeger_file(f)
-            for s in spans.values():
-                tid = str(s.raw.get("traceID", "?"))
-                self._by_trace.setdefault(tid, {})[s.span_id] = s
+        self.path = Path(path[0] if isinstance(path, list) else path).resolve()
+        self.files = (
+            [Path(p).resolve() for p in path]
+            if isinstance(path, list)
+            else (sorted(self.path.glob("*.json*")) if self.path.is_dir() else [self.path])
+        )
+        identity = [(str(f), f.stat().st_size, f.stat().st_mtime_ns) for f in self.files]
+        self.namespace = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+        self._temp = (
+            tempfile.TemporaryDirectory(prefix="trace-source-") if index_dir is None else None
+        )
+        self.index_dir = Path(self._temp.name if self._temp else index_dir)
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+        self._db = None
+        self._lock = asyncio.Lock()
 
-    def _all(self):
-        for spans in self._by_trace.values():
-            yield from spans.values()
+    async def _ensure_index(self):
+        import asyncio
 
-    def select(self, query) -> list[NormSpan]:
-        hits = []
-        for s in self._all():
-            if query.trace_ids and str(s.raw.get("traceID")) not in query.trace_ids:
+        async with self._lock:
+            if self._db is None:
+                await asyncio.to_thread(self._index)
+
+    def _index(self):
+        import sqlite3
+
+        self._db = sqlite3.connect(
+            self.index_dir / f"{self.namespace}.sqlite", check_same_thread=False
+        )
+        self._db.execute(
+            "CREATE TABLE IF NOT EXISTS spans(trace TEXT, span TEXT, doc TEXT, "
+            "PRIMARY KEY(trace,span))"
+        )
+        self._db.execute("CREATE TABLE IF NOT EXISTS imported(path TEXT PRIMARY KEY)")
+        for path in self.files:
+            if self._db.execute("SELECT 1 FROM imported WHERE path=?", (str(path),)).fetchone():
                 continue
-            if query.error_only and not s.has_error:
+            with self._db:
+                for doc in self._documents(path):
+                    if doc.get("spanID"):
+                        self._db.execute(
+                            "INSERT OR REPLACE INTO spans VALUES(?,?,?)",
+                            (str(doc.get("traceID", "?")), doc["spanID"], json.dumps(doc)),
+                        )
+                self._db.execute("INSERT INTO imported VALUES(?)", (str(path),))
+
+    @staticmethod
+    def _documents(path):
+        # Probe one line, not read_text(): a JSONL corpus can exceed available memory.
+        with path.open(encoding="utf-8") as stream:
+            first = next((line for line in stream if line.strip()), "")
+            try:
+                doc = json.loads(first)
+            except ValueError:
+                doc = None
+            if isinstance(doc, dict) and doc.get("spanID"):
+                yield doc
+                for line in stream:
+                    if line.strip():
+                        yield json.loads(line)
+                return
+        yield from (span.raw for span in load_jaeger_file(path).values())
+
+    async def select(self, query):
+        await self._ensure_index()
+        count = 0
+        for (tid,) in self._db.execute("SELECT DISTINCT trace FROM spans ORDER BY trace"):
+            if query.trace_ids is not None and tid not in query.trace_ids:
                 continue
-            if query.service and s.service != query.service:
-                continue
-            if query.since_ms and s.start_ms < query.since_ms:
-                continue
-            if query.until_ms and s.start_ms > query.until_ms:
-                continue
-            if any(str(s.attrs.get(k)) != v for k, v in query.attr_eq.items()):
-                continue
-            hits.append(s)
-            if len(hits) >= query.limit:
+            matched = False
+            for (raw,) in self._db.execute("SELECT doc FROM spans WHERE trace=?", (tid,)):
+                span = normalize_es_doc(json.loads(raw))
+                if query.error_only and not span.has_error:
+                    continue
+                if query.service and span.service != query.service:
+                    continue
+                if query.since_ms is not None and span.start_ms < query.since_ms:
+                    continue
+                if query.until_ms is not None and span.start_ms > query.until_ms:
+                    continue
+                if any(str(span.attrs.get(k)) != v for k, v in query.attr_eq.items()):
+                    continue
+                matched = True
                 break
-        return hits
+            if matched:
+                if count >= query.limit:
+                    return
+                yield tid
+                count += 1
 
-    def fetch(self, trace_id: str, fidelity=None) -> dict[str, NormSpan]:
-        return dict(self._by_trace.get(trace_id, {}))
+    @staticmethod
+    def _project(raw, fields):
+        doc = json.loads(raw)
+        if fields is not None:
+            doc["tags"] = [t for t in doc.get("tags", []) if t.get("key") in fields]
+        span = normalize_es_doc(doc)
+        span.loaded_fields = fields
+        return span
 
-    def raw_attrs(self, trace_id: str, span_id: str) -> dict:
-        s = self._by_trace.get(trace_id, {}).get(span_id)
-        return s.attrs if s else {}
+    async def fetch(self, trace_id: str, fields: tuple[str, ...]) -> dict[str, NormSpan]:
+        await self._ensure_index()
+        return {
+            sid: self._project(raw, fields)
+            for sid, raw in self._db.execute(
+                "SELECT span,doc FROM spans WHERE trace=? ORDER BY span", (trace_id,)
+            )
+        }
+
+    async def read(self, refs, fields):
+        await self._ensure_index()
+        out = {}
+        for ref in refs:
+            row = self._db.execute(
+                "SELECT doc FROM spans WHERE trace=? AND span=?", (ref.trace_id, ref.span_id)
+            ).fetchone()
+            if row:
+                out[ref.span_id] = self._project(row[0], fields)
+        return out
+
+    async def aclose(self):
+        if self._db is not None:
+            self._db.close()
+            self._db = None
+        if self._temp:
+            self._temp.cleanup()

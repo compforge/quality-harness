@@ -94,7 +94,7 @@ def test_failed_batch_can_retry_without_cached_partial_dependencies():
     assert calls == ["n", "n"] and n.facts == {"a": 1, "b": 2}
 
 
-def test_request_to_curl_is_a_fact_and_projection_requests_only_its_inputs(tmp_path):
+async def test_request_to_curl_is_a_fact_and_projection_requests_only_its_inputs(tmp_path):
     calls = []
 
     def curl(n, ctx):
@@ -134,7 +134,7 @@ def test_request_to_curl_is_a_fact_and_projection_requests_only_its_inputs(tmp_p
     trace = harness.assemble({"n": span})
     n = trace.nodes[0]
     assert n.brief[0].value == "POST" and calls == []
-    harness.analyze(trace)
+    (await harness.analyze(trace))
     assert "curl -X" not in harness.render_interactive(trace)
     assert calls == []
     result = harness.transform(n, trace, "repro")
@@ -143,7 +143,7 @@ def test_request_to_curl_is_a_fact_and_projection_requests_only_its_inputs(tmp_p
     harness.transform_all(trace, "curl", "repro")
     assert calls == ["n"]
     assert "curl -X POST" in harness.render_interactive(trace)
-    path = dump_analysis(harness.analyze(trace), tmp_path / "analysis.json")
+    path = dump_analysis((await harness.analyze(trace)), tmp_path / "analysis.json")
     loaded = load_analysis(path)
     assert loaded.trace.nodes[0].facts == n.facts
     assert "curl -X POST" in harness.render_interactive(loaded.trace)

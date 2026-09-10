@@ -38,6 +38,21 @@ class NormSpan:
     # 全部 span event：[{name, timestamp_ms, attrs}]；error_events 是其中异常子集
     events: list = field(default_factory=list)
 
+    storage_index: str = ""
+    storage_id: str = ""
+
+    loaded_fields: tuple[str, ...] | None = None
+    field_errors: dict[str, str] = field(default_factory=dict)
+
+    def field_state(self, name: str) -> str:
+        if self.loaded_fields is None or name in self.loaded_fields:
+            if name not in self.attrs:
+                return "missing"
+            return "loaded_empty" if self.attrs[name] in (None, "", [], {}) else "loaded"
+        if name in self.field_errors or "*" in self.field_errors:
+            return "failed"
+        return "unloaded"
+
     @property
     def end_ms(self) -> float:
         return self.start_ms + self.dur_ms

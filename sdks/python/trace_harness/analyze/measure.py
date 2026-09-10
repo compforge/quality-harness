@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from math import floor, isfinite
 
 from trace_harness.kinds.http import http_requests
+from trace_harness.loading.facts import EvidenceDependency, FactDependency
 from trace_harness.model.context import TraceContext
 from trace_harness.model.intervals import interval_union
 from trace_harness.model.measurement import CallSource, Measurement, Measurements, MeasurementSpec
@@ -17,6 +18,9 @@ from trace_harness.model.measurement import CallSource, Measurement, Measurement
 class Measurer:
     spec: MeasurementSpec
     compute: Callable[[TraceContext, list[CallSource]], Iterable[Measurement]]
+    requires: Callable[[TraceContext], tuple[EvidenceDependency | FactDependency, ...]] = (
+        lambda t: ()
+    )
 
 
 CALLS = MeasurementSpec(

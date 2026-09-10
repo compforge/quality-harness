@@ -17,7 +17,7 @@ aigw/sandbox）不进本包，随域包留在消费方（如 trace-as skill）�
 ## 代码地图与核心模块
 
 目录即数据流主链：**ingest 把 raw 变成 model；kinds 是唯一领域代码；analyze/view/corpus
-都从 model 扇出**。assemble 是整条链唯一的领域边界，nodes.json(model/ir) 是 assemble(域感知)
+都从 model 扇出**。KindSpec 与业务贡献构成领域边界，nodes.json(model/ir) 是 assemble(域感知)
 与 view/explore(通用) 之间的契约。
 
 ```
@@ -25,10 +25,10 @@ trace_harness/
 ├── harness.py        # TraceHarness 作用域 + TraceContributions 显式组合
 ├── model/            # 分析枢纽（零域知识）：所有消费者围绕它扇出
 │   ├── span.py       #   NormSpan：归一物理 span，刻意不带语义 kind 字段
-│   ├── node.py       #   Node 分析本体(不内嵌 children，只带 parent 边；brief/error_text assemble 烤)/Field/Finding
+│   ├── node.py       #   Node 分析本体(不内嵌 children，只带 parent 边；brief/error_text 在展示前准备)/Field/Finding
 │   ├── spec.py       #   KindSpec(matches/claims/build + metrics/rules/obs_hole + project) + SpecSet + merge
 │   ├── context.py    #   TraceContext：单 trace 建模单元(内存事实源)，dispatch 挂这；view() 惰性建树
-│   ├── viewtree.py   #   视图期惰性索引(仅渲染/火焰/最近祖先用，分析侧从不持树)
+│   ├── viewtree.py   #   按需关系索引(分析与渲染共用)
 │   ├── agent.py      #   AgentRun IR + 递归校验/序列化；Operation/AgentRun 均可递归嵌套
 │   ├── measurement.py # MeasurementSpec / Measurement / Measurements：独立量化结果及共享证据
 │   ├── analysis.py   # analysis@2 snapshot/dump/load；离线渲染不重算
@@ -37,9 +37,9 @@ trace_harness/
 │   ├── base.py       #   generic 残余 spec + duration 基线度量
 │   └── genai.py      #   OTel GenAI 通用 spec：model-call / tool-call / agent / http(识别出的 HTTP 请求自成 node，分组在 view 层完成)
 ├── ingest/           # raw → model（主链入口 + 唯一领域边界）
-│   ├── sources/      #   采集协议(唯一知道后端的层)：base(Source/SpanQuery/Fidelity) / jaeger_file / opensearch
+│   ├── sources/      #   采集协议(唯一知道后端的层)：base(Source/SpanQuery) / jaeger_file / opensearch
 │   ├── load.py       #   build_context_from_spans(Source 无关) / build_context(文件)
-│   └── assemble.py   # fusion + 投影所需 facts + brief 投影；唯一父子结构写入方
+│   └── assemble.py   # 纯逻辑组装；运行时 prepare=False 将展示准备推迟
 ├── transform.py      # FactTransform / TransformContext：fact → fact，按需依赖解析、缓存与原子物化
 ├── analyze/          # model → Measurements → findings/gates（__init__：node-scope+table-scope 统一注册表）
 │   ├── context.py    # AnalysisContext：原 trace + 本次 Measurements + 已产 Finding
@@ -62,7 +62,7 @@ trace_harness/
 │   └── series.py     #   (kind,metric) 跨迭代 sparkline 文本
 ├── corpus/           # many-model → 三表 + 算子：error_signature/fleet_outlier/contrast/diff/pattern_rates；
 │   │                 #   store(parquet→jsonl) / report / experiment(yaml runner)
-│   └── cohort.py     #   Cohort：跨 trace 分析单元；single=of(trace_id)、cross=select(query)，N=1 即 single
+│   └── experiment.py #   Dataset 批量入口；不常驻全部 TraceContext
 └── cli.py            # single<jaeger> | batch<exp.yaml> | cohort<jaeger> | treecli<nodes.json|jaeger> [verb handle]
 ```
 
@@ -76,7 +76,7 @@ source ─ingest───→ NormSpan 集
        ─diagnose→ findings（可选；按 node_id 挂 node）
        ─render──→ facet 分派 → DisplayNode → text / html / treecli
        ─extract─→ NodeTreeExtractor<AgentRunIR> → AgentRun renderer
-跨 trace：corpus 把多个 node 树拍成三表 + 算子（contrast / signature / fleet）。
+跨 trace：select 固定 Dataset，batch 逐条执行并落盘，corpus 保留显式表算子。
 ```
 
 corpus parquet 走可选 extra `quality-harness[trace-corpus]`（pyarrow），缺则 store 回退 jsonl。
@@ -89,9 +89,9 @@ corpus parquet 走可选 extra `quality-harness[trace-corpus]`（pyarrow），�
 - **输出责任独立**：transform 由消费方请求并写 facts，measure 写 Measurement，diagnose 写 Finding，
   render 写 DisplayNode。各阶段只读父子关系，永不 re-parent。
   renderer 只消费准备好的结果，不能调用 FactTransform、Measurer 或 detector。
-- **业务知识只在 classify + build**：span 是哪种逻辑事件由 `spec.matches` 在 assemble 判（语义 kind
+- **业务知识通过贡献接口进入**：span 是哪种逻辑事件由 `spec.matches` 在 assemble 判（语义 kind
   不在采集层，NormSpan 无 kind 字段）；raw 的 `gen_ai.*` 等抽成命名 facts 锁死在 `KindSpec.build`——
-  下游 transform/analyze/view/corpus 只见列名、零域知识。域专属 kind 随域包 `spec.merge` 叠加。
+  复杂跨 span 映射由 FactProducer 声明，通用 analyze/view/corpus 消费命名事实。域专属 kind 随域包 `spec.merge` 叠加。
 - **可机判的判读知识一律沉 detector（case as code）**：通用/整树判读通过
   `TraceContributions.detectors` 进入 scoped 注册表（统一 `(node, analysis_context)` 签名、
   后序逐 node 跑、可读 Measurements 与已产 findings 归因），kind 专属走
@@ -122,3 +122,9 @@ Python 与 TypeScript 的分析结果共同遵守仓库根目录 `conformance/tr
 - 设计文档（理念/流程/决策记录）：[`../../../docs/trace-harness.md`](../../../docs/trace-harness.md)
 - 语言中立规范：[`../../../spec/trace-harness.md`](../../../spec/trace-harness.md)
 - 跨语言测试 fixture：`../../../conformance/trace/fixtures/genai-basic.jsonl`（真实 ES jaeger-span 形状）
+
+## 数据加载与批量执行
+
+- `runtime.py` / `dataset.py`：共享资源作用域、固定成员与 tree lease；`batch.py`：流式执行与落盘统计。
+- `loading/`：证据加载、依赖准备、SQLite 缓存；biz 通过逻辑依赖贡献，不操作 HTTP 或缓存。
+- 设计入口：[kernel](docs/kernel.md)、[load](docs/load.md)、[single](docs/single.md)、[batch](docs/batch.md)。

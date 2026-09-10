@@ -30,15 +30,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
-from spec_case.model import (
-    Face,
-)  # the judgment-face enum, shared with the case model (input↔output)
+if TYPE_CHECKING:
+    from spec_case.model import Face
 
-# Trajectory evaluates recorded execution evidence rather than ``case.judge`` criteria,
-# so it is a verdict-producing harness without becoming a canonical Case judgment face.
-HarnessFace = Face | Literal["trajectory"]
+# The model package is a typing dependency here. Passive trace analysis should not
+# import the case-authoring stack just to serialize a verdict.
+HarnessFace: TypeAlias = "Face | Literal['trajectory']"
 
 SCHEMA_VERSION = 1
 

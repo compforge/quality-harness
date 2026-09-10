@@ -1,52 +1,31 @@
-"""OpenSearchSource —— 按 trace_id / 条件查 Jaeger-on-OpenSearch 索引的通用 Source。
-
-纯通用参数版（base_url / index / 认证全是入参），**零业务知识**——env 注册表、kubevpn、
-凭据解析是 infra 知识，留消费方（trace-as）装配后注入。任何 Jaeger-on-OpenSearch 用户
-开箱可用。
-
-实现要点（对齐 jaeger ES 存储特例）：
-- tags 是 **nested** 类型，attr 等值/error 过滤必须用 `nested` query，普通 term 命不中。
-- `_search` 默认只回 10 条，拿全量靠 search_after 翻页（按 startTimeMillis+spanID 排序）。
-- select 投影后在 source 层 post-strip 巨型 attr（jaeger ES 无法按单个 nested tag key
-  做 _source 裁剪，故传输边界靠 limit + CPU 侧剥离；真正的 body 走 raw_attrs 懒拉）。
-"""
+"""Async Jaeger-on-OpenSearch adapter with projected tags and a shared HTTP pool."""
 
 from __future__ import annotations
 
-import json
-import urllib.request
-from collections.abc import Callable
+import hashlib
+import ssl
+from collections.abc import AsyncIterator
 
-from trace_harness.ingest.sources.base import Fidelity, SpanQuery, strip_attrs
+import httpx
+
+from trace_harness.ingest.sources.base import SpanQuery
 from trace_harness.ingest.sources.jaeger_file import normalize_es_doc
+from trace_harness.loading.model import EvidenceRef
 from trace_harness.model.span import NormSpan
 
-# 误差容忍：error 信号在 jaeger ES 里的两种存法
-_ERROR_OR = [
-    {
-        "nested": {
-            "path": "tags",
-            "query": {
-                "bool": {
-                    "must": [
-                        {"term": {"tags.key": "otel.status_code"}},
-                        {"term": {"tags.value": "ERROR"}},
-                    ]
-                }
-            },
-        }
-    },
-    {
-        "nested": {
-            "path": "tags",
-            "query": {
-                "bool": {
-                    "must": [{"term": {"tags.key": "error"}}, {"term": {"tags.value": "true"}}]
-                }
-            },
-        }
-    },
-]
+BASE_FIELDS = (
+    "traceID",
+    "spanID",
+    "operationName",
+    "references",
+    "startTime",
+    "startTimeMillis",
+    "duration",
+    "process",
+    "processID",
+    "flags",
+    "logs",
+)
 
 
 def _nested_eq(key: str, value: str) -> dict:
@@ -54,26 +33,41 @@ def _nested_eq(key: str, value: str) -> dict:
         "nested": {
             "path": "tags",
             "query": {
-                "bool": {"must": [{"term": {"tags.key": key}}, {"term": {"tags.value": value}}]}
+                "bool": {"filter": [{"term": {"tags.key": key}}, {"term": {"tags.value": value}}]}
             },
         }
     }
 
 
-def _default_urlopen(req, timeout):
-    return urllib.request.urlopen(req, timeout=timeout)
+def selection_query(query: SpanQuery) -> dict:
+    filters = [_nested_eq(k, v) for k, v in query.attr_eq.items()]
+    if query.trace_ids is not None:
+        filters.append({"terms": {"traceID": query.trace_ids}})
+    if query.service:
+        filters.append({"term": {"process.serviceName": query.service}})
+    bounds = {}
+    if query.since_ms is not None:
+        bounds["gte"] = query.since_ms
+    if query.until_ms is not None:
+        bounds["lte"] = query.until_ms
+    if bounds:
+        filters.append({"range": {"startTimeMillis": bounds}})
+    if query.error_only:
+        filters.append(
+            {
+                "bool": {
+                    "should": [
+                        _nested_eq("error", "true"),
+                        _nested_eq("otel.status_code", "ERROR"),
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        )
+    return {"bool": {"filter": filters}}
 
 
 class OpenSearchSource:
-    """Jaeger-on-OpenSearch Source。
-
-    Args:
-        base_url: 如 ``http://10.255.3.164:9200``。
-        index: 索引表达式，如 ``jaeger-span-*``。
-        headers: 完整请求头（含 Authorization）；或给 username/password 走 basic-auth。
-        urlopen: 可注入的 ``(request, timeout) -> response``，便于消费方挂 SSL skip-verify。
-    """
-
     def __init__(
         self,
         base_url: str,
@@ -82,89 +76,145 @@ class OpenSearchSource:
         headers: dict[str, str] | None = None,
         username: str | None = None,
         password: str | None = None,
-        urlopen: Callable | None = None,
-        timeout: float = 60.0,
-        page_size: int = 1000,
+        timeout: float = 60,
+        page_size: int = 500,
+        concurrency: int = 8,
+        verify: bool | ssl.SSLContext = True,
+        transport: httpx.AsyncBaseTransport | None = None,
+        namespace: str = "",
     ):
-        self.base_url = base_url.rstrip("/")
-        self.index = index
-        self.timeout = timeout
+        self.base_url, self.index = base_url.rstrip("/"), index
         self.page_size = page_size
-        self._urlopen = urlopen or _default_urlopen
-        self.headers = dict(headers or {})
-        self.headers.setdefault("Content-Type", "application/json")
-        if username and password and "Authorization" not in self.headers:
-            import base64
-
-            tok = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
-            self.headers["Authorization"] = f"Basic {tok}"
-
-    # —— HTTP ——
-    def _search(self, payload: dict) -> dict:
-        url = f"{self.base_url}/{self.index}/_search"
-        req = urllib.request.Request(
-            url, data=json.dumps(payload).encode(), headers=self.headers, method="GET"
+        self.namespace = hashlib.sha256(f"{namespace}|{self.base_url}|{index}".encode()).hexdigest()
+        self.client = httpx.AsyncClient(
+            headers=headers,
+            auth=(username, password or "") if username else None,
+            timeout=timeout,
+            verify=verify,
+            transport=transport,
+            limits=httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency),
         )
-        with self._urlopen(req, self.timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        self.requests = self.bytes_read = 0
 
-    def _paginate(self, query: dict, limit: int) -> list[dict]:
-        out: list[dict] = []
+    async def _search(self, payload: dict) -> dict:
+        response = await self.client.post(f"{self.base_url}/{self.index}/_search", json=payload)
+        response.raise_for_status()
+        self.requests += 1
+        self.bytes_read += len(response.content)
+        result = response.json()
+        if result.get("timed_out") or result.get("_shards", {}).get("failed", 0):
+            raise RuntimeError("OpenSearch returned incomplete search results")
+        return result
+
+    async def select(self, query: SpanQuery) -> AsyncIterator[str]:
+        # Composite aggregation paginates distinct traces, so a large trace cannot consume
+        # the selection limit and silently hide all the other members.
         after = None
-        while len(out) < limit:
-            payload = {
-                "size": min(self.page_size, limit - len(out)),
-                "sort": [{"startTimeMillis": {"order": "asc"}}, {"spanID": {"order": "asc"}}],
-                "query": query,
+        count = 0
+        while count < query.limit:
+            composite = {
+                "size": min(self.page_size, query.limit - count),
+                "sources": [{"trace": {"terms": {"field": "traceID"}}}],
             }
             if after is not None:
+                composite["after"] = after
+            result = await self._search(
+                {
+                    "size": 0,
+                    "query": selection_query(query),
+                    "aggs": {"members": {"composite": composite}},
+                }
+            )
+            group = result["aggregations"]["members"]
+            for bucket in group["buckets"]:
+                yield str(bucket["key"]["trace"])
+                count += 1
+            next_after = group.get("after_key")
+            if not group["buckets"] or next_after is None:
+                return
+            if next_after == after:
+                raise RuntimeError("OpenSearch selection cursor did not advance")
+            after = next_after
+
+    async def _documents(self, query: dict, fields: tuple[str, ...] | None) -> dict[str, NormSpan]:
+        out = {}
+        after = None
+        while True:
+            q = {"bool": {"filter": [query]}}
+            payload = {
+                "size": self.page_size,
+                "sort": [{"startTimeMillis": "asc"}, {"spanID": "asc"}],
+                "query": q,
+            }
+            if fields is not None:
+                payload["_source"] = list(BASE_FIELDS)
+                if fields:
+                    q["bool"].update(
+                        should=[
+                            {
+                                "nested": {
+                                    "path": "tags",
+                                    "score_mode": "none",
+                                    "query": {"terms": {"tags.key": list(fields)}},
+                                    "inner_hits": {"name": "fields", "size": 100, "_source": True},
+                                }
+                            }
+                        ],
+                        minimum_should_match=0,
+                    )
+            if after is not None:
                 payload["search_after"] = after
-            hits = self._search(payload).get("hits", {}).get("hits", [])
-            if not hits:
-                break
-            out.extend(h.get("_source", {}) for h in hits)
-            after = hits[-1].get("sort")
-            if len(hits) < payload["size"]:
-                break
-        return out
+            result = await self._search(payload)
+            hits = result.get("hits", {}).get("hits", [])
+            for hit in hits:
+                doc = hit["_source"]
+                if fields is not None:
+                    inner = hit.get("inner_hits", {}).get("fields", {}).get("hits", {})
+                    nested = inner.get("hits", [])
+                    total = inner.get("total", 0)
+                    if isinstance(total, dict):
+                        total = total["value"]
+                    if total > len(nested):
+                        raise RuntimeError(
+                            "OpenSearch tag projection truncated; narrow the field request"
+                        )
+                    doc = {**doc, "tags": [item["_source"] for item in nested]}
+                span = normalize_es_doc(doc)
+                if span:
+                    span.loaded_fields = fields
+                    span.storage_index = hit.get("_index", "")
+                    span.storage_id = hit.get("_id", "")
+                    if span.span_id in out:
+                        raise ValueError(f"duplicate physical span identity: {span.span_id}")
+                    out[span.span_id] = span
+            if len(hits) < self.page_size:
+                return out
+            cursor = hits[-1].get("sort")
+            if cursor is None or cursor == after:
+                raise RuntimeError("OpenSearch span cursor did not advance")
+            after = cursor
 
-    # —— Source 协议 ——
-    def select(self, query: SpanQuery) -> list[NormSpan]:
-        must: list[dict] = []
-        for k, v in query.attr_eq.items():
-            must.append(_nested_eq(k, v))
-        if query.trace_ids:
-            must.append({"terms": {"traceID": query.trace_ids}})
-        if query.service:
-            must.append({"term": {"process.serviceName": query.service}})
-        rng: dict = {}
-        if query.since_ms:
-            rng["gte"] = query.since_ms
-        if query.until_ms:
-            rng["lte"] = query.until_ms
-        if rng:
-            must.append({"range": {"startTimeMillis": rng}})
-        bool_q: dict = {"must": must}
-        if query.error_only:
-            bool_q["should"] = _ERROR_OR
-            bool_q["minimum_should_match"] = 1
-        docs = self._paginate(
-            {"bool": bool_q} if (must or query.error_only) else {"match_all": {}}, query.limit
+    async def fetch(self, trace_id: str, fields: tuple[str, ...]) -> dict[str, NormSpan]:
+        return await self._documents({"term": {"traceID": trace_id}}, fields)
+
+    async def read(
+        self, refs: tuple[EvidenceRef, ...], fields: tuple[str, ...] | None
+    ) -> dict[str, NormSpan]:
+        if not refs:
+            return {}
+        if len({r.trace_id for r in refs}) != 1:
+            raise ValueError("one read batch must belong to one trace")
+        alternatives = []
+        for ref in refs:
+            terms = [{"term": {"traceID": ref.trace_id}}, {"term": {"spanID": ref.span_id}}]
+            if ref.document_id:
+                terms.extend(
+                    ({"term": {"_index": ref.index}}, {"ids": {"values": [ref.document_id]}})
+                )
+            alternatives.append({"bool": {"filter": terms}})
+        return await self._documents(
+            {"bool": {"should": alternatives, "minimum_should_match": 1}}, fields
         )
-        spans = [normalize_es_doc(d) for d in docs]
-        return [strip_attrs(s, query.drop_attrs) for s in spans if s]
 
-    def fetch(self, trace_id: str, fidelity: Fidelity = Fidelity.LIGHT) -> dict[str, NormSpan]:
-        docs = self._paginate({"term": {"traceID": trace_id}}, limit=100000)
-        drop = () if fidelity == Fidelity.FULL else SpanQuery().drop_attrs
-        out: dict[str, NormSpan] = {}
-        for d in docs:
-            s = normalize_es_doc(d)
-            if s:
-                out[s.span_id] = strip_attrs(s, drop) if drop else s
-        return out
-
-    def raw_attrs(self, trace_id: str, span_id: str) -> dict:
-        docs = self._paginate({"term": {"spanID": span_id}}, limit=1)
-        s = normalize_es_doc(docs[0]) if docs else None
-        return s.attrs if s else {}
+    async def aclose(self) -> None:
+        await self.client.aclose()

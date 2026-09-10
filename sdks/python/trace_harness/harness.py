@@ -7,9 +7,18 @@ package's ``TraceContributions`` when it creates the harness.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from trace_harness.ingest.sources.base import Source
+from trace_harness.loading.facts import FactProducer
+from trace_harness.loading.model import LoadConfig
+
+if TYPE_CHECKING:
+    from trace_harness.batch import BatchDetector
+    from trace_harness.runtime import TraceSession
 
 from trace_harness.analyze.context import AnalysisContext
 from trace_harness.analyze.diagnose import diagnose as diagnose_context
@@ -40,6 +49,12 @@ from trace_harness.view.registry import FacetRegistry
 class TraceContributions:
     """A domain or Plugin's explicit, deterministic Trace Harness extensions."""
 
+    structure_fields: tuple[str, ...] = ()
+    field_aliases: dict[str, str] = field(default_factory=dict)
+    normalize_span: Callable[[NormSpan], NormSpan] | None = None
+    prepare_spans: Callable[[dict[str, NormSpan]], dict[str, NormSpan]] | None = None
+    fact_producers: tuple[FactProducer, ...] = ()
+    batch_detectors: tuple[BatchDetector, ...] = ()
     specs: tuple[KindSpec, ...] = field(default_factory=tuple)
     transforms: tuple[FactTransform, ...] = ()
     measurers: tuple[Measurer, ...] = ()
@@ -52,6 +67,16 @@ class TraceContributions:
 def merge_trace_contributions(*items: TraceContributions) -> TraceContributions:
     """Compose contributions in declaration order; earlier matches keep their priority."""
     return TraceContributions(
+        field_aliases={k: v for item in reversed(items) for k, v in item.field_aliases.items()},
+        normalize_span=next(
+            (item.normalize_span for item in items if item.normalize_span is not None), None
+        ),
+        structure_fields=tuple(dict.fromkeys(f for item in items for f in item.structure_fields)),
+        prepare_spans=next(
+            (item.prepare_spans for item in items if item.prepare_spans is not None), None
+        ),
+        fact_producers=tuple(p for item in items for p in item.fact_producers),
+        batch_detectors=tuple(d for item in items for d in item.batch_detectors),
         specs=tuple(spec for item in items for spec in item.specs),
         transforms=tuple(t for item in items for t in item.transforms),
         measurers=tuple(m for item in items for m in item.measurers),
@@ -83,6 +108,18 @@ class TraceHarness:
         self.detectors = DetectorRegistry((*BUILTIN_DETECTORS, *contributions.detectors))
         self.facets = FacetRegistry((*builtin_facets(), *contributions.facets))
 
+    def open(
+        self,
+        source: Source,
+        *,
+        work_dir: str | Path | None = None,
+        config: LoadConfig | None = None,
+    ) -> TraceSession:
+        """Open managed loading resources; use as an async context manager."""
+        from trace_harness.runtime import TraceSession
+
+        return TraceSession(self, source, work_dir=work_dir, config=config)
+
     def assemble(self, spans: dict[str, NormSpan]) -> TraceContext:
         return assemble_spans(spans, self.specs, transforms=self.transforms)
 
@@ -92,14 +129,14 @@ class TraceHarness:
         context.evidence_dir = path.parent / context.trace_id
         return context
 
-    def diagnose(
+    async def diagnose(
         self,
         context: TraceContext,
         *,
         probes: bool = False,
         measurements: Measurements | None = None,
     ) -> dict[str, list[Finding]]:
-        return diagnose_context(
+        return await diagnose_context(
             context,
             probes=probes,
             detector_registry=self.detectors,
@@ -109,12 +146,14 @@ class TraceHarness:
     def measure(self, context: TraceContext) -> Measurements:
         return measure(context, self.measurers)
 
-    def analyze(
+    async def analyze(
         self, context: TraceContext, *, diagnosis: bool = True, probes: bool = False
     ) -> AnalysisContext:
         measurements = self.measure(context)
         findings = (
-            self.diagnose(context, measurements=measurements, probes=probes) if diagnosis else {}
+            await self.diagnose(context, measurements=measurements, probes=probes)
+            if diagnosis
+            else {}
         )
         return AnalysisContext(
             context, measurements, {key: tuple(value) for key, value in findings.items()}

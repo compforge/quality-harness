@@ -30,6 +30,7 @@ def assemble(
     specset: SpecSet,
     *,
     transforms: tuple[FactTransform, ...] = BUILTIN_TRANSFORMS,
+    prepare: bool = True,
 ) -> TraceContext:
     # 1 route：span → 命中的 spec（None = 未分类）
     kind_of: dict[str, KindSpec | None] = {sid: specset.classify(s) for sid, s in spans.items()}
@@ -144,6 +145,8 @@ def assemble(
     context = TraceContext(trace_id=trace_id, spans=spans, nodes=nodes, specs=realized)
     transform_context = TransformContext(context.view(), transforms)
     context.transforms = transform_context
+    if not prepare:
+        return context
     transform_context.materialize(
         (node, name) for node in nodes for name in realized[node.kind].project_requires
     )

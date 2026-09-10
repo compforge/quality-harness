@@ -20,7 +20,7 @@ def test_finding_symptoms_causes_default_empty():
     assert f2.symptoms == ("慢",) and f2.causes == ("c1", "c2")
 
 
-def test_registered_detector_runs_with_found_accumulator():
+async def test_registered_detector_runs_with_found_accumulator():
     saw_base = {"yes": False}
 
     def det(node, ctx):
@@ -43,7 +43,7 @@ def test_registered_detector_runs_with_found_accumulator():
 
     registry = DetectorRegistry((*BUILTIN_DETECTORS, det))
     ctx = build_context(FIXTURE)
-    grouped = diagnose(ctx, detector_registry=registry)
+    grouped = await diagnose(ctx, detector_registry=registry)
     agent = next(n for n in ctx.nodes if n.kind == "agent")
     mine = [x for x in grouped.get(agent.node_id, []) if x.source == "test:symptom"]
     assert mine, "scoped detector 没产出 finding"

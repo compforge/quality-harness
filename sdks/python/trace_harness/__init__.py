@@ -15,6 +15,7 @@ from __future__ import annotations
 from trace_harness.analyze.context import AnalysisContext as AnalysisContext
 from trace_harness.analyze.measure import Measurer as Measurer
 from trace_harness.analyze.measure import measure as measure
+from trace_harness.dataset import Dataset as Dataset
 from trace_harness.harness import TraceContributions as TraceContributions
 from trace_harness.harness import TraceHarness as TraceHarness
 from trace_harness.harness import contributions_from_specs as contributions_from_specs
@@ -22,6 +23,10 @@ from trace_harness.harness import merge_trace_contributions as merge_trace_contr
 from trace_harness.ingest.assemble import assemble as assemble
 from trace_harness.ingest.load import build_context as build_context
 from trace_harness.ingest.sources.jaeger_file import load_jaeger_file as load_jaeger_file
+from trace_harness.loading.facts import EvidenceDependency as EvidenceDependency
+from trace_harness.loading.facts import FactDependency as FactDependency
+from trace_harness.loading.facts import FactProducer as FactProducer
+from trace_harness.loading.model import LoadConfig as LoadConfig
 from trace_harness.model.agent import AGENT_RUN_SCHEMA as AGENT_RUN_SCHEMA
 from trace_harness.model.agent import AgentRun as AgentRun
 from trace_harness.model.agent import AgentRunIR as AgentRunIR
