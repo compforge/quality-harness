@@ -37,7 +37,7 @@ def walk(nodes):
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case["name"])
-def test_http_group_conformance(case, tmp_path):
+async def test_http_group_conformance(case, tmp_path):
     harness = TraceHarness(TraceContributions(specs=tuple(genai.specs())))
     context = harness.assemble(
         {
@@ -45,7 +45,7 @@ def test_http_group_conformance(case, tmp_path):
             for item in case["spans"]
         }
     )
-    findings = harness.diagnose(context) if case.get("diagnose", True) else {}
+    findings = (await harness.diagnose(context)) if case.get("diagnose", True) else {}
     before = [asdict(node) for node in context.nodes]
     display = harness.render_display(context, findings)
     assert [outline(node) for node in display] == case["expected"]

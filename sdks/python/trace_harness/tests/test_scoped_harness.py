@@ -39,7 +39,7 @@ def _displayed_node_ids(roots) -> set[str]:
     return ids
 
 
-def test_contributions_do_not_leak_between_harnesses():
+async def test_contributions_do_not_leak_between_harnesses():
     alpha = TraceHarness(
         TraceContributions(
             specs=tuple(genai.specs()),
@@ -73,8 +73,8 @@ def test_contributions_do_not_leak_between_harnesses():
         "scope_action": "alpha-action"
     }
     assert plain.transform(plain_agent, plain_context, "scope_action") == {}
-    alpha_findings = alpha.diagnose(alpha_context)
-    plain_findings = plain.diagnose(plain_context)
+    alpha_findings = await alpha.diagnose(alpha_context)
+    plain_findings = await plain.diagnose(plain_context)
     assert any(finding.source == "scope:alpha" for finding in alpha_findings[alpha_agent.node_id])
     assert not any(
         finding.source == "scope:alpha"
@@ -96,13 +96,13 @@ def test_contributions_do_not_leak_between_harnesses():
     assert "alpha-action" not in plain.render_interactive(plain_context, plain_findings)
 
 
-def test_probe_side_effect_remains_explicit(tmp_path: Path):
+async def test_probe_side_effect_remains_explicit(tmp_path: Path):
     harness = TraceHarness(TraceContributions(specs=tuple(genai.specs())))
     context = harness.assemble(load_jaeger_file(FIXTURE))
     context.evidence_dir = tmp_path / "evidence"
 
-    harness.diagnose(context)
+    (await harness.diagnose(context))
     assert not context.evidence_dir.exists()
 
-    harness.diagnose(context, probes=True)
+    (await harness.diagnose(context, probes=True))
     assert context.evidence_dir.exists()

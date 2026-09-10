@@ -39,9 +39,9 @@ def build(case, contributions=None):
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case["name"])
-def test_shared_measurement_semantics(case):
+async def test_shared_measurement_semantics(case):
     harness, trace = build(case)
-    result = harness.analyze(trace, diagnosis=False)
+    result = await harness.analyze(trace, diagnosis=False)
     assert result.findings == {}
     for span_id, expected in case["expected"].items():
         node = trace.view().by_span[span_id]
@@ -67,7 +67,7 @@ def test_self_clips_children_to_parent_and_leaf_has_full_duration():
     assert result.get("c", "self_ms").values == {"self_ms": 15}
 
 
-def test_measurers_run_once_and_detectors_read_results_and_previous_findings():
+async def test_measurers_run_once_and_detectors_read_results_and_previous_findings():
     calls, seen = [], []
     spec = MeasurementSpec("custom", "node", {"size": "item"}, "Custom measured value")
 
@@ -94,8 +94,8 @@ def test_measurers_run_once_and_detectors_read_results_and_previous_findings():
             detectors=(first, second),
         ),
     )
-    a = harness.analyze(trace)
-    b = harness.analyze(trace, diagnosis=False)
+    a = await harness.analyze(trace)
+    b = await harness.analyze(trace, diagnosis=False)
     assert len(calls) == 2 and all(seen)
     assert a.measurements is not b.measurements and b.findings == {}
     assert all("custom" not in node.facts for node in trace.nodes)
@@ -133,9 +133,9 @@ def test_failed_and_inapplicable_measurements_are_not_zero():
         ).measure(trace)
 
 
-def test_roundtrip_renders_saved_measurements_without_execution(tmp_path):
+async def test_roundtrip_renders_saved_measurements_without_execution(tmp_path):
     harness, trace = build(CASES[1])
-    analysis = harness.analyze(trace, diagnosis=False)
+    analysis = await harness.analyze(trace, diagnosis=False)
     path = dump_analysis(analysis, tmp_path / "analysis.json")
     loaded = load_analysis(path)
     assert analysis_snapshot(loaded) == analysis_snapshot(analysis)
@@ -208,7 +208,7 @@ def test_failed_result_cannot_carry_numeric_values():
     assert all(result.get(n.node_id, "invalid").values == {} for n in trace.nodes)
 
 
-def test_report_selection_preserves_analysis_and_offline_evidence(tmp_path):
+async def test_report_selection_preserves_analysis_and_offline_evidence(tmp_path):
     from trace_harness import merge_trace_contributions
 
     case = CASES[0]
@@ -233,7 +233,7 @@ def test_report_selection_preserves_analysis_and_offline_evidence(tmp_path):
         TraceContributions(measurement_filter=lambda node, measurement, trace: False),
     )
     harness, trace = build(case, contributions)
-    analysis = harness.analyze(trace)
+    analysis = await harness.analyze(trace)
     assert all(seen) and len(seen) == len(trace.nodes)
     before = analysis_snapshot(analysis)
     visible = harness.visible_measurements(trace, analysis.measurements)

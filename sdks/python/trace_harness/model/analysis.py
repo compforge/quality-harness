@@ -84,6 +84,12 @@ def dump_analysis(analysis: AnalysisContext, path: str | Path) -> Path:
         json.dumps(analysis_snapshot(analysis), ensure_ascii=False, allow_nan=False),
         encoding="utf-8",
     )
+    if analysis.trace.spans:
+        coverage = {
+            sid: {"fields": span.loaded_fields, "failed": span.field_errors}
+            for sid, span in analysis.trace.spans.items()
+        }
+        path.with_suffix(".evidence.json").write_text(json.dumps(coverage, ensure_ascii=False))
     return path
 
 

@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Awaitable
 from types import MappingProxyType
 
 from trace_harness.analyze.context import AnalysisContext
@@ -37,7 +38,7 @@ def _error_findings(ctx: TraceContext) -> list[Finding]:
     ]
 
 
-def _rule_findings(analysis: AnalysisContext) -> list[Finding]:
+async def _rule_findings(analysis: AnalysisContext) -> list[Finding]:
     """per-kind rules：每个节点过其 kind 的 spec.rules（kind 绑定的便捷判读）。"""
     out: list[Finding] = []
     for n in analysis.trace.nodes:
@@ -45,7 +46,8 @@ def _rule_findings(analysis: AnalysisContext) -> list[Finding]:
         if spec is None:
             continue
         for rule in spec.rules:
-            out.extend(rule(n, analysis) or [])
+            result = rule(n, analysis)
+            out.extend((await result if isinstance(result, Awaitable) else result) or [])
     return out
 
 
@@ -68,18 +70,21 @@ def _post_order(ctx: TraceContext) -> list[Node]:
     return out
 
 
-def diagnose(
+async def diagnose(
     ctx: TraceContext,
     probes: bool = False,
     *,
     detector_registry: DetectorRegistry | None = None,
     measurements: Measurements | None = None,
+    analysis: AnalysisContext | None = None,
 ) -> dict[str, list[Finding]]:
     """跑 base 判读 + 注册的全局 detector（含内置拓扑），返回 {node_id: [Finding]}。"""
-    analysis = AnalysisContext(ctx, measurements if measurements is not None else measure(ctx))
+    analysis = analysis or AnalysisContext(
+        ctx, measurements if measurements is not None else measure(ctx)
+    )
     base = (
         _error_findings(ctx)
-        + _rule_findings(analysis)
+        + await _rule_findings(analysis)
         + find_outliers(ctx)
         + find_trends(ctx)
         + find_patterns(ctx)
@@ -89,10 +94,17 @@ def diagnose(
     found: dict[str, tuple[Finding, ...]] = defaultdict(tuple)
     for finding in base:
         found[finding.node_id] += (finding,)
-    analysis = AnalysisContext(ctx, analysis.measurements, MappingProxyType(found))
+    analysis = AnalysisContext(
+        ctx,
+        analysis.measurements,
+        MappingProxyType(found),
+        analysis.runtime,
+        analysis.finding_limit,
+    )
     detector_registry = detector_registry or DetectorRegistry(BUILTIN_DETECTORS)
     for node in _post_order(ctx):
         for detector in detector_registry.registered():
-            for finding in detector(node, analysis) or []:
+            result = detector(node, analysis)
+            for finding in (await result if isinstance(result, Awaitable) else result) or []:
                 found[finding.node_id] += (finding,)
     return {key: list(value) for key, value in found.items()}

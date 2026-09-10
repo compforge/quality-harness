@@ -266,83 +266,83 @@ def _span(sid, parent, name, start_ms, dur_ms, attrs, *, service="svc", error=Fa
 _MODEL_ATTRS = {"gen_ai.operation.name": "chat", "gen_ai.request.model": "m"}
 
 
-def test_error_finding_flows_through_diagnose(ctx):
-    findings = diagnose(ctx)
+async def test_error_finding_flows_through_diagnose(ctx):
+    findings = await diagnose(ctx)
     synth = next(n for n in ctx.nodes if n.name == "chat synth")
     srcs = {m.source for m in findings.get(synth.node_id, [])}
     assert "error" in srcs
 
 
-def test_fixture_no_false_positive_findings(ctx):
+async def test_fixture_no_false_positive_findings(ctx):
     # fixture：2 个 model-call（不足 min_peers）、父子齐全、agent 空隙 <1s → 只该有 error
-    findings = diagnose(ctx)
+    findings = await diagnose(ctx)
     all_srcs = {m.source for ms in findings.values() for m in ms}
     assert all_srcs == {"error"}
 
 
-def test_detached_detector():
+async def test_detached_detector():
     spans = {"a": _span("a", "deadbeefdeadbeef", "chat", 0, 1_000, _MODEL_ATTRS)}
-    findings = diagnose(assemble(spans, genai.specs()))
+    findings = await diagnose(assemble(spans, genai.specs()))
     assert any(m.source == "detached" for m in findings.get("a", []))
 
 
-def test_obs_hole_detector():
+async def test_obs_hole_detector():
     # 父 0–10s，唯一子 0–2s → 8s 空洞
     spans = {
         "p": _span("p", None, "invoke_agent x", 0, 10_000, {"gen_ai.agent.name": "x"}),
         "c": _span("c", "p", "chat", 0, 2_000, _MODEL_ATTRS),
     }
-    findings = diagnose(assemble(spans, genai.specs()))
+    findings = await diagnose(assemble(spans, genai.specs()))
     assert any(m.source == "obs_hole" for m in findings.get("p", []))
 
 
-def test_outlier_detector():
+async def test_outlier_detector():
     # 4 个同类 model-call，一个 5× 慢 → duration_ms 离群
     spans = {}
     for i, dur in enumerate([1_000, 1_000, 1_000, 5_000]):
         spans[f"m{i}"] = _span(f"m{i}", None, "chat", i * 20_000, dur, _MODEL_ATTRS)
-    findings = diagnose(assemble(spans, genai.specs()))
+    findings = await diagnose(assemble(spans, genai.specs()))
     assert any(m.source == "outlier:duration_ms" for m in findings.get("m3", []))
 
 
-def test_empty_output_rule():
+async def test_empty_output_rule():
     attrs = {**_MODEL_ATTRS, "gen_ai.usage.output_tokens": 0}
     spans = {"m": _span("m", None, "chat", 0, 1_000, attrs)}
-    findings = diagnose(assemble(spans, genai.specs()))
+    findings = await diagnose(assemble(spans, genai.specs()))
     assert any(m.source == "empty_output" for m in findings.get("m", []))
 
 
-def test_probes_side_effect_gated(tmp_path, ctx):
+async def test_probes_side_effect_gated(tmp_path, ctx):
     # 立场：probe 是唯一副作用环节，默认关——不开则 evidence_dir 不落地
     ctx.evidence_dir = tmp_path / "ev"
-    diagnose(ctx, probes=False)
+    (await diagnose(ctx, probes=False))
     assert not (tmp_path / "ev").exists()
     # 开启则落盘 + 产 probe:* Finding（synth 有 error → probe:error 原文）
-    findings = diagnose(ctx, probes=True)
+    findings = await diagnose(ctx, probes=True)
     assert (tmp_path / "ev").exists()
     synth = next(n for n in ctx.nodes if n.name == "chat synth")
     assert any(m.source.startswith("probe:") for m in findings.get(synth.node_id, []))
 
 
-def test_render_text_shows_findings(ctx):
+async def test_render_text_shows_findings(ctx):
     spans = {
         "p": _span("p", None, "invoke_agent x", 0, 10_000, {"gen_ai.agent.name": "x"}),
         "c": _span("c", "p", "chat", 0, 2_000, _MODEL_ATTRS),
     }
     ctx2 = assemble(spans, genai.specs())
-    out = render_text(ctx2, diagnose(ctx2))
+    out = render_text(ctx2, (await diagnose(ctx2)))
     assert "obs_hole" in out
 
 
 # —— 1b-2：时序判读 + html/series 视图 ——
 
 
-def test_trend_detector_catches_gradual_drift():
+async def test_trend_detector_catches_gradual_drift():
     # 6 次 planner，每步都不离群（无单点 ≥3× 全局中位），但整体后段 ×3.5 于前段 → trend
     spans = {}
     for i, dur in enumerate([1000, 1100, 1200, 3000, 3500, 4000]):
         spans[f"m{i}"] = _span(f"m{i}", None, "chat", i * 20_000, dur, _MODEL_ATTRS)
-    findings = diagnose(assemble(spans, genai.specs()))
+    findings = await diagnose(assemble(spans, genai.specs()))
     all_findings = [m for ms in findings.values() for m in ms]
     assert any(m.source == "trend:duration_ms" for m in all_findings)
     assert not any(m.source.startswith("outlier") for m in all_findings)  # outlier 抓不到渐变
@@ -357,10 +357,10 @@ def test_render_series_sparkline():
     assert any(bar in out for bar in "▁▂▃▄▅▆▇█")
 
 
-def test_render_interactive_single_file_page(ctx):
+async def test_render_interactive_single_file_page(ctx):
     from trace_harness.view.interactive import render_interactive
 
-    page = render_interactive(ctx, diagnose(ctx))
+    page = render_interactive(ctx, (await diagnose(ctx)))
     assert "chat planner" in page  # 节点名进左树 payload
     assert "ModelTPOTTimeoutError" in page  # diagnose Finding 进右栏判读区
     assert "primary_span_id" in page  # span chips 下钻数据
@@ -386,8 +386,8 @@ def _mk_ctx(tid, name, dur_ms, *, err=None, extra=None):
     return ctx
 
 
-def test_build_tables_shapes(ctx):
-    tables = build_tables([(ctx, diagnose(ctx))])
+async def test_build_tables_shapes(ctx):
+    tables = build_tables([(ctx, (await diagnose(ctx)))])
     assert len(tables.traces) == 1
     assert tables.traces[0]["n_nodes"] == 6
     assert len(tables.facts) == 6  # 一行一 node（1:1：2 个 http 自成 node，不再熔进 model-call）
@@ -395,28 +395,30 @@ def test_build_tables_shapes(ctx):
     assert any(r["source"] == "error" for r in tables.findings)
 
 
-def test_error_signatures_cluster():
+async def test_error_signatures_cluster():
     # 504 / 503 归一到同一签名——散落两 trace 的同类错误收成一条
     a = _mk_ctx("t1", "chat", 1000, err="aigw 504 gateway timeout")
     b = _mk_ctx("t2", "chat", 1000, err="aigw 503 gateway timeout")
-    tables = build_tables([(c, diagnose(c)) for c in (a, b)])
+    tables = build_tables([(c, (await diagnose(c))) for c in (a, b)])
     sigs = error_signatures(tables)
     assert len(sigs) == 1
     assert sigs[0]["count"] == 2
     assert sigs[0]["n_traces"] == 2
 
 
-def test_fleet_outlier_cross_trace():
+async def test_fleet_outlier_cross_trace():
     # 单 trace 内每条只有一个 planner（无同类可比）；跨 6 条才看出那条 5× 慢
     ctxs = [_mk_ctx(f"t{i}", "chat", 1000) for i in range(5)] + [_mk_ctx("tbig", "chat", 5000)]
-    tables = build_tables([(c, diagnose(c)) for c in ctxs])
+    tables = build_tables([(c, (await diagnose(c))) for c in ctxs])
     fo = fleet_outliers(tables, min_peers=5)
     assert any(o["metric"] == "duration_ms" and o["trace_id"] == "tbig" for o in fo)
 
 
-def test_diff_runs_signature_and_metric_shift():
-    a = build_tables([(c, diagnose(c)) for c in [_mk_ctx("a1", "chat", 1000, err="boom 7")]])
-    b = build_tables([(c, diagnose(c)) for c in [_mk_ctx("b1", "chat", 2000)]])
+async def test_diff_runs_signature_and_metric_shift():
+    a = build_tables(
+        [(c, (await diagnose(c))) for c in [_mk_ctx("a1", "chat", 1000, err="boom 7")]]
+    )
+    b = build_tables([(c, (await diagnose(c))) for c in [_mk_ctx("b1", "chat", 2000)]])
     d = diff_runs(a, b)
     assert any("boom" in s["signature"] for s in d["sig_removed"])  # 错误在 A 有、B 没了
     assert any(s["metric"] == "duration_ms" and s["ratio"] == 2.0 for s in d["metric_shifts"])
@@ -439,30 +441,30 @@ def _churn_spans(n_calls, *, tool_attrs=None, interleave=False):
     return spans
 
 
-def test_tool_churn_consecutive():
+async def test_tool_churn_consecutive():
     # 同父下同 tool 背靠背 ×3 → pattern:tool_churn（标在 run 的最后一个节点）
     ctx = assemble(_churn_spans(3), genai.specs())
-    findings = diagnose(ctx)
+    findings = await diagnose(ctx)
     churn = [f for fs in findings.values() for f in fs if f.source == "pattern:tool_churn"]
     assert len(churn) == 1
     assert "web_search 连续调用 3 次" in churn[0].note
     assert churn[0].node_id == "t2"  # run 末节点
 
 
-def test_tool_churn_interleaved_is_normal():
+async def test_tool_churn_interleaved_is_normal():
     # think→call→think→call 是正常 agent 循环：背靠背 run 被打断 → 不报
     ctx = assemble(_churn_spans(4, interleave=True), genai.specs())
-    findings = diagnose(ctx)
+    findings = await diagnose(ctx)
     assert not any(f.source == "pattern:tool_churn" for fs in findings.values() for f in fs)
 
 
-def test_tool_churn_below_threshold():
+async def test_tool_churn_below_threshold():
     ctx = assemble(_churn_spans(2), genai.specs())
-    findings = diagnose(ctx)
+    findings = await diagnose(ctx)
     assert not any(f.source == "pattern:tool_churn" for fs in findings.values() for f in fs)
 
 
-def test_pattern_rates_cross_trace():
+async def test_pattern_rates_cross_trace():
     # 3 条 trace，2 条命中 churn → 出现率 66.7%；对象名来自 facts.tool
     from trace_harness.corpus import pattern_rates
 
@@ -470,7 +472,7 @@ def test_pattern_rates_cross_trace():
     for tid, n in (("t1", 3), ("t2", 4), ("t3", 1)):
         ctx = assemble(_churn_spans(n), genai.specs())
         ctx.trace_id = tid
-        items.append((ctx, diagnose(ctx)))
+        items.append((ctx, (await diagnose(ctx))))
     tables = build_tables(items)
     rates = pattern_rates(tables)
     assert len(rates) == 1
@@ -481,13 +483,13 @@ def test_pattern_rates_cross_trace():
     assert r["trace_pct"] == 66.7
 
 
-def test_report_has_pattern_section():
+async def test_report_has_pattern_section():
     from harness_common.report_kit import render_html as _render
 
     from trace_harness.corpus.report import build_report
 
     ctx = assemble(_churn_spans(3), genai.specs())
-    tables = build_tables([(ctx, diagnose(ctx))])
+    tables = build_tables([(ctx, (await diagnose(ctx)))])
     html = _render(build_report("x", tables))
     assert "行为模式" in html
     assert "web_search" in html
@@ -496,9 +498,9 @@ def test_report_has_pattern_section():
 # —— step 2b：持久化 + 报告 + experiment runner ——
 
 
-def test_store_roundtrip_jsonl(tmp_path, ctx):
+async def test_store_roundtrip_jsonl(tmp_path, ctx):
     # 环境无 pyarrow → 回退 jsonl；read 回来行数 + metric_cols 一致
-    tables = build_tables([(ctx, diagnose(ctx))])
+    tables = build_tables([(ctx, (await diagnose(ctx)))])
     fmt = write_tables(tables, tmp_path / "run")
     assert fmt == "jsonl"
     assert (tmp_path / "run" / "facts.jsonl").exists()
@@ -508,22 +510,22 @@ def test_store_roundtrip_jsonl(tmp_path, ctx):
     assert back.metric_cols == tables.metric_cols
 
 
-def test_store_parquet_when_available(tmp_path, ctx):
+async def test_store_parquet_when_available(tmp_path, ctx):
     pytest.importorskip("pyarrow")  # 装了 [trace-corpus] extra 才跑
-    tables = build_tables([(ctx, diagnose(ctx))])
+    tables = build_tables([(ctx, (await diagnose(ctx)))])
     assert write_tables(tables, tmp_path / "run") == "parquet"
     assert (tmp_path / "run" / "facts.parquet").exists()
     assert len(read_tables(tmp_path / "run").facts) == len(tables.facts)
 
 
-def test_run_experiment_end_to_end(tmp_path):
+async def test_run_experiment_end_to_end(tmp_path):
     # 离线 jaeger_dir → 三表 + 报告
     jdir = tmp_path / "traces"
     jdir.mkdir()
     (jdir / "t1.jsonl").write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
     exp = tmp_path / "exp.yaml"
     exp.write_text("name: smoke\nsource:\n  jaeger_dir: traces\n", encoding="utf-8")
-    rd = run_experiment(exp, runs_dir=tmp_path / "runs")
+    rd = await run_experiment(exp, runs_dir=tmp_path / "runs")
     assert (rd / "facts.jsonl").exists()
     assert (rd / "meta.json").exists()
     html = (rd / "report.html").read_text(encoding="utf-8")
@@ -539,7 +541,7 @@ def test_run_experiment_end_to_end(tmp_path):
 # —— verdict：gates → checks[]（Finding 是发现不是判定，判定只来自显式 gates）——
 
 
-def test_gates_fail_on_error_findings(tmp_path):
+async def test_gates_fail_on_error_findings(tmp_path):
     # synth：model-call span 与其 http(504) span 都 error → 1:1 后各自成 error node，共 2 个
     # error Finding（融合时曾是 1 个）→ max_error_findings: 0 的 gate 仍 fail
     jdir = tmp_path / "traces"
@@ -550,7 +552,7 @@ def test_gates_fail_on_error_findings(tmp_path):
         "name: gated\nsource:\n  jaeger_dir: traces\ngates:\n  max_error_findings: 0\n",
         encoding="utf-8",
     )
-    rd = run_experiment(exp, runs_dir=tmp_path / "runs")
+    rd = await run_experiment(exp, runs_dir=tmp_path / "runs")
     v = json.loads((rd / "verdict.json").read_text(encoding="utf-8"))
     assert v["status"] == "fail"
     (check,) = v["checks"]
@@ -559,9 +561,9 @@ def test_gates_fail_on_error_findings(tmp_path):
     assert "error_findings <= 0" in v["reason"]
 
 
-def test_gates_pass_and_skip_mix(ctx):
+async def test_gates_pass_and_skip_mix(ctx):
     # 宽松 error 门 pass；no_new_signatures 声明了却无 diff 基线 → 该 check skipped 而非 pass
-    tables = build_tables([(ctx, diagnose(ctx))])
+    tables = build_tables([(ctx, (await diagnose(ctx)))])
     checks = evaluate_gates(
         tables, {"max_error_findings": 5, "no_new_signatures": True}, diff_result=None
     )
@@ -625,7 +627,7 @@ def test_residue_aggregates_into_service_groups():
     assert set(g.span_ids) == {"r1", "r2"}
 
 
-def test_obs_hole_opt_out_per_kind():
+async def test_obs_hole_opt_out_per_kind():
     # 聚合容器 kind 声明 obs_hole=False → 同样的空洞不再报（误报教训）
     from trace_harness.model.spec import KindSpec, SpecSet
 
@@ -643,11 +645,11 @@ def test_obs_hole_opt_out_per_kind():
         "p": _span("p", None, "invoke_agent x", 0, 10_000, {"gen_ai.agent.name": "x"}),
         "c": _span("c", "p", "chat", 0, 2_000, _MODEL_ATTRS),
     }
-    findings = diagnose(assemble(spans, SpecSet([agent_like, chat])))
+    findings = await diagnose(assemble(spans, SpecSet([agent_like, chat])))
     assert not any(f.source == "obs_hole" for fs in findings.values() for f in fs)
 
 
-def test_outlier_topn_strategy():
+async def test_outlier_topn_strategy():
     # topn 策略：长尾分布上 ratio 标不出来（最大值 < 3× 中位），topn 永远标最大的 N 个
     from trace_harness.model.spec import KindSpec, SpecSet
 
@@ -670,7 +672,7 @@ def test_outlier_topn_strategy():
         for i, v in enumerate([100, 110, 120, 130, 250])  # 250 < 3×120：ratio 抓不到
     }
     ctx = assemble(spans, SpecSet([spec]))
-    findings = diagnose(ctx)
+    findings = await diagnose(ctx)
     tops = [f for fs in findings.values() for f in fs if f.source == "outlier:out_bytes"]
     assert len(tops) == 3  # top_n=3
     assert tops[0].rank == 0  # 最大者 rank 0
@@ -678,17 +680,17 @@ def test_outlier_topn_strategy():
     assert by_rank0.node_id == "m4"
 
 
-def test_ratio_min_abs_floor_suppresses_ms_noise():
+async def test_ratio_min_abs_floor_suppresses_ms_noise():
     # 5ms 是 1ms 的 5×，但低于 duration_ms 绝对下限（3s）→ 不报
     spans = {
         f"m{i}": _span(f"m{i}", None, "chat", i * 100, dur, _MODEL_ATTRS)
         for i, dur in enumerate([1, 1, 1, 5])
     }
-    findings = diagnose(assemble(spans, genai.specs()))
+    findings = await diagnose(assemble(spans, genai.specs()))
     assert not any(f.source == "outlier:duration_ms" for fs in findings.values() for f in fs)
 
 
-def test_gates_unknown_key_fails_fast(ctx):
-    tables = build_tables([(ctx, diagnose(ctx))])
+async def test_gates_unknown_key_fails_fast(ctx):
+    tables = build_tables([(ctx, (await diagnose(ctx)))])
     with pytest.raises(ValueError, match="unknown gate"):
         evaluate_gates(tables, {"max_eror_findings": 0})  # 拼错的 gate 不能静默不判

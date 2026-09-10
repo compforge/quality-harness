@@ -10,6 +10,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from trace_harness.loading.facts import EvidenceDependency, FactDependency
+from trace_harness.model.context import TraceContext
 from trace_harness.model.node import Node
 from trace_harness.model.viewtree import ViewTree
 
@@ -19,6 +21,9 @@ class FactTransform:
     produces: tuple[str, ...]
     applies: Callable[[Node], bool]
     compute: Callable[[Node, TransformContext], dict]
+    requires: Callable[[Node, TraceContext], tuple[FactDependency | EvidenceDependency, ...]] = (
+        lambda n, t: ()
+    )
 
 
 class TransformContext:

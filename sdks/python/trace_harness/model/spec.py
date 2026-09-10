@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -30,7 +30,7 @@ Claimer = Callable[[NormSpan, list[NormSpan]], set]
 # build：吃 primary + 已认领卫星，产 facts 列（业务字段到此为止）
 Builder = Callable[[NormSpan, list[NormSpan]], dict]
 # rule：吃 node + ctx，产 Finding 列表（per-kind 域判读）
-Rule = Callable[["Node", "AnalysisContext"], list]
+Rule = Callable[["Node", "AnalysisContext"], list | Awaitable[list]]
 
 
 @dataclass
@@ -40,6 +40,10 @@ class KindSpec:
     matches: Matcher
     claims: Claimer | None = None
     build: Builder | None = None
+    # Structural metadata is fetched before mapping. Detail fields never decide identity.
+    structure_fields: tuple[str, ...] = ()
+    detail_fields: tuple[str, ...] = ()
+    detail_facts: tuple[str, ...] = ()
     # —— Detection contract ——
     metrics: dict[str, Callable[[Node], float | None]] = field(default_factory=dict)
     # per-metric 离群策略："ratio"（≥N× 同类中位，默认）| "topn"（永远标最大的 N 个——

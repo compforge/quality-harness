@@ -13,12 +13,12 @@ Domain 通过 ``TraceContributions.detectors`` 显式组合。
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 
 from trace_harness.analyze.context import AnalysisContext
 from trace_harness.model.node import Finding, Node
 
-Detector = Callable[[Node, AnalysisContext], list[Finding]]
+Detector = Callable[[Node, AnalysisContext], list[Finding] | Awaitable[list[Finding]]]
 
 
 class DetectorRegistry:

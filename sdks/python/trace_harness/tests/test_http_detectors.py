@@ -15,7 +15,7 @@ CASES = json.loads(
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case["name"])
-def test_http_detector_conformance(case):
+async def test_http_detector_conformance(case):
     harness = TraceHarness(TraceContributions(specs=tuple(genai.specs())))
     spans = {
         item["span_id"]: NormSpan(**item, has_error=False, raw={"traceID": case["name"]})
@@ -24,7 +24,7 @@ def test_http_detector_conformance(case):
     context = harness.assemble(spans)
     findings = [
         finding
-        for group in harness.diagnose(context).values()
+        for group in (await harness.diagnose(context)).values()
         for finding in group
         if finding.source.startswith("http_")
     ]
@@ -50,6 +50,6 @@ def test_http_detector_conformance(case):
         if hit.source == "http_serial_same_api":
             assert hit.data["http_total_ms"] + hit.data["gap_ms"] == hit.data["wall_ms"]
         assert "secret" not in hit.note
-    html = harness.render_interactive(context, harness.diagnose(context))
+    html = harness.render_interactive(context, (await harness.diagnose(context)))
     for finding in findings:
         assert finding.source in html

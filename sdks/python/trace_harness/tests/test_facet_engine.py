@@ -58,9 +58,9 @@ def test_facet_dispatch_by_kind():
     assert type(registry.dispatch(plain[0])) is DefaultFacet
 
 
-def test_engine_renders_findings():
+async def test_engine_renders_findings():
     ctx = _ctx()
-    out = engine.render_callstack(ctx, diagnose(ctx))
+    out = engine.render_callstack(ctx, (await diagnose(ctx)))
     assert out.startswith("trace_id:") and "findings:" in out
 
 
