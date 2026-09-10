@@ -76,3 +76,7 @@ class PodSpec:
 class Container:
     name: str
     restart_count: int
+
+
+class ResourceNotFoundError(RuntimeError):
+    """A named Kubernetes resource is absent; authorization/network failures differ."""

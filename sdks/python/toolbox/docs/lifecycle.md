@@ -74,3 +74,29 @@ Capture paths are borrowed and cease to exist after root disposal: copy evidence
 The capacities on a shared source apply to every user of that source. Use one configured log source
 for all child commands rather than creating sources with conflicting limits. Defaults are bounded;
 products should choose limits appropriate to their clusters.
+
+## Common runtime identities
+
+`Service` remains a platform-independent logical service. Deployment configuration can map it to
+multiple workloads or none; no Kubernetes resource name is inferred from its name.
+
+```python
+from harness_common.toolbox import ServiceDataSource, kubernetes_source
+from harness_toolbox.kube import Options
+from harness_toolbox.transport import PortForwardTransport
+
+async def observe(clients, service, environment, workload_names):
+    source = kubernetes_source(environment, Options("runtime", 15, 4))
+    access = ServiceDataSource(service, source)
+    kube = await clients.get(access.source)
+    pods = []
+    for name in workload_names:  # explicit deployment configuration
+        pods.extend(await kube.list_deployment_pods(name))
+    route = PortForwardTransport(kube.access, "service/shared-storage", 9200)
+    return pods, route
+```
+
+A Service may have multiple typed DataSource associations, and multiple Services may share one
+source. The association supplies logical context without changing the underlying source key.
+The route can be supplied to a protocol's ConnectionSource within the same root execution;
+protocol initialization opens the tunnel and protocol disposal closes it.

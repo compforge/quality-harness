@@ -29,6 +29,25 @@ PodLogClient 以物理 Pod/container 身份及绝对时间窗口共享采集源�
 相对窗口或缺少实例身份的请求不能复用。消费者保有独立过滤与原始文件；根并发池和字节预算只约束真实
 网络采集，不约束本地回放。容量、预算和访问期限显式传入，不将某个产品的现场默认值作为通用策略。
 
+### 与 Environment / Service 的关联
+
+Environment 包含逻辑 Service；Service 是某个 Component 在环境里的运行服务，不对应唯一的
+Kubernetes Service 或 Workload。一个逻辑 Service 可以由多个 Deployment、Pod 或其它平台实例
+共同承载，具体映射由部署配置表达。
+
+common 拥有运行目标语义，toolbox 拥有访问机制。Python 的 `harness_common.toolbox` 将
+`KubernetesEnvironment` 转为 KubernetesDataSource；`ServiceDataSource` 记录逻辑 Service 与
+一个 DataSource 的访问关联，不继承 Service，不拥有 client，也不推导 Kubernetes 资源名。
+一个 Service 可以关联多个 DataSource，多个 Service 可以共享同一个 DataSource。
+
+连接 key 使用实际访问配置与容量，不使用逻辑环境名或服务名代替。同名环境指向不同集群、context
+或 namespace 时不能复用；不同逻辑 Service 的相同访问配置可以复用。Transport 从 client 的访问配置
+派生，最终由使用它的协议 client 持有连接和释放职责。ClientManager 的生命周期属于根执行，
+不属于 Environment 或 Service。
+
+依赖方向是 common 适配依赖 toolbox；独立 toolbox 不 import common，不要求 Doctor 或 Skill
+构造 Repository / Component 才能操作基础设施。部署台账到 common 对象及平台资源的转换仍由消费方负责。
+
 ## 2. Kubernetes
 
 Kubernetes Driver 是面向 e2e、perf 等多个 Harness 的中立工具，不是独立的 Kube Harness。Go
@@ -37,7 +56,7 @@ API，共享以下控制与观测语义：
 
 - 从显式 kubeconfig 或 Pod 内身份创建 client，并显式配置 request timeout 与语言对应的 client 容量
   （Go QPS / burst，Python connection pool）；
-- 按 label selector 获取确定顺序的 Pod 快照；
+- 按 label selector 获取确定顺序的 Pod 快照；Python 也可从 Service / Deployment 的完整 selector 查询，缺失资源、无 selector 与权限错误分别处理；
 - 以 Pod name + UID 锁定物理实例，避免延迟动作误操作同名替代 Pod；
 - 按正常终止流程或零宽限强制删除指定 Pod，等待替代实例、Ready 或 Unschedulable 状态；
 - 按 Pod UID 采集 Kubernetes Event，作为报告或失败分析证据。
