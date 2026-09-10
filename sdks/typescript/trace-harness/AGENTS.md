@@ -36,4 +36,4 @@ bun run build
 ## References
 
 - `../../../spec/trace-harness.md` — 语言中立规范
-- `../../../docs/trace-harness-single.md` — trace-harness 设计文档
+- `../../../docs/trace-harness.md` — trace-harness 设计文档

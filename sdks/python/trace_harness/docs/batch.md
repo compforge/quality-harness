@@ -1,8 +1,9 @@
 # Trace Harness：Batch 分析
 
-本文设计多条 trace 的统计与对比，回答“一类问题有多普遍”和“改动后是否改善”。
-单条建模、度量和判读沿用 [单条分析设计](trace-harness-single.md)，共同语义遵守
-[Kernel](kernel.md#dataset-与反复评估)。未来 trajectory 批量分析复用适用的执行机制，
+本文设计 Python Trace Harness 的多条 trace 统计与对比，回答“一类问题有多普遍”和“改动后是否改善”。
+通用概念和职责边界见 [Trace Harness](../../../../docs/trace-harness.md)。
+单条建模、度量和判读沿用 [单条分析设计](single.md)，共同语义遵守
+[Kernel](../../../../docs/kernel.md#dataset-与反复评估)。未来 trajectory 批量分析复用适用的执行机制，
 保留各自的领域模型。
 
 **状态：现有 corpus 已有离线批量分析和表上算子；本文的数据集冻结、有界执行、Measurement
@@ -204,7 +205,7 @@ Trajectory 继续拥有 turn / action / observation 和评估规则。
 - 倍增 trace 总量时，在途数据与峰值内存保持受预算约束；超大单 trace 和高基数聚合有明确处理结果。
 - 分页、重试、续跑没有丢失或重复 Unit；缺失数据、截断和输出上限不会制造零告警或虚假的改善。
 
-代码入口见 [`corpus/`](../sdks/python/trace_harness/corpus/)；单条语义复用
-[`harness.py`](../sdks/python/trace_harness/harness.py)、
-[`ingest/`](../sdks/python/trace_harness/ingest/) 与
-[`analyze/`](../sdks/python/trace_harness/analyze/)。本文仅完成设计拆分，未实施上述执行改造或性能验证。
+代码入口见 [`corpus/`](../corpus/)；单条语义复用
+[`harness.py`](../harness.py)、
+[`ingest/`](../ingest/) 与
+[`analyze/`](../analyze/)。本文仅完成设计拆分，未实施上述执行改造或性能验证。
