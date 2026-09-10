@@ -5,12 +5,13 @@
 
 ## 1. Client、DataSource 与 Transport
 
-TypeScript 平台工具箱位于 `sdks/typescript/toolbox`，独立发布为 `@compforge/harness-toolbox`。
+TypeScript 平台工具箱位于 `sdks/typescript/toolbox`，独立发布为 `@compforge/harness-toolbox`；
+Python 位于 `sdks/python/toolbox`，独立分发为 `harness-toolbox`。
 它可供诊断宿主、业务适配与测试执行方复用，不要求调用方创建 Case 或依赖某个 Harness。
 
 - **Client**：拥有协议资源和操作，负责初始化与幂等销毁，包括初始化失败后的部分资源清理。
 - **DataSource**：以稳定 key 标识客户端配置，并构造 Client；构造阶段不执行外部访问。
-- **ClientManager**：在一次根执行中按 DataSource key 复用初始化中的 Promise 和成功的 Client。
+- **ClientManager**：在一次根执行中按 DataSource key 复用初始化中的异步任务 和成功的 Client。
   初始化失败完成清理后允许重试；结束时取消并等待进行中的初始化，再按依赖顺序逆序销毁。
 - **ClientProvider**：只提供借用入口，子调用方无权关闭根调用方的共享资源。
 - **ConnectionSource**：解析协议连接信息，并声明适用的 Transport；环境配置语义由调用方提供。
@@ -31,7 +32,7 @@ PodLogClient 以物理 Pod/container 身份及绝对时间窗口共享采集源�
 ## 2. Kubernetes
 
 Kubernetes Driver 是面向 e2e、perf 等多个 Harness 的中立工具，不是独立的 Kube Harness。Go
-实现位于 `sdks/go/toolbox/kube`，Python async 实现位于 `sdks/python/harness_toolbox/kube`；两端使用语言惯用
+实现位于 `sdks/go/toolbox/kube`，Python async 实现位于 `sdks/python/toolbox/harness_toolbox/kube`；两端使用语言惯用
 API，共享以下控制与观测语义：
 
 - 从显式 kubeconfig 或 Pod 内身份创建 client，并显式配置 request timeout 与语言对应的 client 容量
@@ -41,7 +42,7 @@ API，共享以下控制与观测语义：
 - 按正常终止流程或零宽限强制删除指定 Pod，等待替代实例、Ready 或 Unschedulable 状态；
 - 按 Pod UID 采集 Kubernetes Event，作为报告或失败分析证据。
 
-Python 使用者通过 `quality-harness[kube]` 安装可选的 `kubernetes-asyncio` 依赖。两种实现都要求调用方
+Python 使用者通过 `harness-toolbox[kube]` 安装可选的 `kubernetes-asyncio` 依赖。两种实现都要求调用方
 显式提供 namespace、请求超时和客户端容量参数；Go 使用 context 控制等待期限，Python 使用 async
 方法的 `timeout_s` 控制等待期限。
 
@@ -53,8 +54,8 @@ Pod、等待 replacement 和业务请求验证；perf 可以在发压期间采�
 环境、凭据、目标 revision、操作窗口和授权由部署领域持有。工具箱提供 API 或 Job 可调用的原语，
 不意味着调用方可以绕过这些约束。
 
-TypeScript 当前提供 exec、port-forward、Pod/Service 投影与日志采集；Python/Go 当前提供上述
-控制和等待能力。各语言的能力覆盖可以不同，共有的 namespace、实例身份、取消及资源容量语义应保持
+Python 同时提供 Pod 创建、exec、port-forward、日志采集及上述控制和等待能力；
+TypeScript 提供 exec、port-forward、Pod/Service 投影与日志采集；Go 提供上述控制和等待能力。各语言的能力覆盖可以不同，共有的 namespace、实例身份、取消及资源容量语义应保持
 一致。原始执行通道不替代宿主授权，不自动将低层 kubectl 命令升级为具有 UID 保护的语义操作。
 
 ## 3. 故障注入后端
@@ -73,5 +74,5 @@ LitmusChaos 已经包含 Workflow、Probe 和 Result 等平台模型。接入这
 - 跨 Harness 通用内核：[`kernel.md`](kernel.md)
 - e2e Target Driver 边界：[`e2e-harness.md`](e2e-harness.md)
 - Go Kubernetes 实现：[`../sdks/go/toolbox/kube`](../sdks/go/toolbox/kube)
-- Python Kubernetes 实现：[`../sdks/python/harness_toolbox/kube`](../sdks/python/harness_toolbox/kube)
+- Python Kubernetes 实现：[`../sdks/python/toolbox/harness_toolbox/kube`](../sdks/python/toolbox/harness_toolbox/kube)
 - Perf 跨语言契约：[`../spec/perf-contract.md`](../spec/perf-contract.md)

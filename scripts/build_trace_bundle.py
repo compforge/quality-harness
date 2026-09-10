@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the two pure-Python trace skill wheels from this checkout.
+"""Build the pure-Python trace skill and infrastructure wheels from this checkout.
 
 Usage: python3 scripts/build_trace_bundle.py --out /tmp/trace-wheels
 Third-party runtime wheels are locked separately by the consuming skill.
@@ -50,6 +50,18 @@ def main():
         path = args.out / f"{package}-{version}-py3-none-any.whl"
         wheels.append({"distribution": package.replace("_", "-"), "filename": path.name,
                        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "imports": [package]})
+    toolbox = sdk / "toolbox"
+    toolbox_version = tomllib.loads((toolbox / "pyproject.toml").read_text())["project"]["version"]
+    subprocess.run(["uv", "build", "--wheel", "--out-dir", str(args.out.resolve()), str(toolbox)],
+                   check=True, env={**os.environ, "SOURCE_DATE_EPOCH": "315532800"})
+    toolbox_wheel = args.out / f"harness_toolbox-{toolbox_version}-py3-none-any.whl"
+    wheels.append({"distribution": "harness-toolbox", "filename": toolbox_wheel.name,
+                   "sha256": hashlib.sha256(toolbox_wheel.read_bytes()).hexdigest(),
+                   "imports": ["harness_toolbox"]})
+    for path in sorted(toolbox.rglob("*.py")):
+        if "tests" not in path.parts and "__pycache__" not in path.parts:
+            source_hash.update(str(path.relative_to(sdk)).encode())
+            source_hash.update(path.read_bytes())
     (args.out / "dependencies.lock").write_text(json.dumps({
         "schemaVersion": 1, "pythonRequires": ">=3.11",
         "source": {"repository": "quality-harness", "commit": commit, "version": version,
