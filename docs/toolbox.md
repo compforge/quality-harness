@@ -3,7 +3,32 @@
 > 本文描述可被多个 Harness 复用的环境操作与观测能力。工具箱回答“如何可靠地操作和观察”，
 > 不拥有 Case、Dataset、EvaluationRun 或 Verdict，也不决定业务目标、执行时机和通过条件。
 
-## 1. Kubernetes
+## 1. Client、DataSource 与 Transport
+
+TypeScript 平台工具箱位于 `sdks/typescript/toolbox`，独立发布为 `@compforge/harness-toolbox`。
+它可供诊断宿主、业务适配与测试执行方复用，不要求调用方创建 Case 或依赖某个 Harness。
+
+- **Client**：拥有协议资源和操作，负责初始化与幂等销毁，包括初始化失败后的部分资源清理。
+- **DataSource**：以稳定 key 标识客户端配置，并构造 Client；构造阶段不执行外部访问。
+- **ClientManager**：在一次根执行中按 DataSource key 复用初始化中的 Promise 和成功的 Client。
+  初始化失败完成清理后允许重试；结束时取消并等待进行中的初始化，再按依赖顺序逆序销毁。
+- **ClientProvider**：只提供借用入口，子调用方无权关闭根调用方的共享资源。
+- **ConnectionSource**：解析协议连接信息，并声明适用的 Transport；环境配置语义由调用方提供。
+- **Transport**：提供直连、端口转发或 Pod Python 等访问路径，不改变目标身份和协议语义。
+
+调用方创建根 ClientManager，将 ClientProvider 传给嵌套或并发工作，并在根执行结束时统一 dispose。
+DataSource key 必须覆盖影响复用的协议、目标、配置与凭据；可用摘要避免凭据出现在可观察 key 中。
+共享容量和策略在一个根执行中保持一致，不能用同一个 key 请求相互冲突的策略。
+
+MySQL、Redis、OpenSearch 和 Kubernetes 客户端实现这些原语。连接、排队、取消、资源释放属于工具箱；
+授权、业务 SQL、Redis key、索引规则、采集时机和结果解释仍属于消费方。MySQL 只在建连网络错误时切换
+Transport，认证错误或已开始执行的 SQL 错误不得触发重放。
+
+PodLogClient 以物理 Pod/container 身份及绝对时间窗口共享采集源，向并发和晚到的消费者回放原始日志。
+相对窗口或缺少实例身份的请求不能复用。消费者保有独立过滤与原始文件；根并发池和字节预算只约束真实
+网络采集，不约束本地回放。容量、预算和访问期限显式传入，不将某个产品的现场默认值作为通用策略。
+
+## 2. Kubernetes
 
 Kubernetes Driver 是面向 e2e、perf 等多个 Harness 的中立工具，不是独立的 Kube Harness。Go
 实现位于 `sdks/go/toolbox/kube`，Python async 实现位于 `sdks/python/harness_toolbox/kube`；两端使用语言惯用
@@ -28,7 +53,11 @@ Pod、等待 replacement 和业务请求验证；perf 可以在发压期间采�
 环境、凭据、目标 revision、操作窗口和授权由部署领域持有。工具箱提供 API 或 Job 可调用的原语，
 不意味着调用方可以绕过这些约束。
 
-## 2. 故障注入后端
+TypeScript 当前提供 exec、port-forward、Pod/Service 投影与日志采集；Python/Go 当前提供上述
+控制和等待能力。各语言的能力覆盖可以不同，共有的 namespace、实例身份、取消及资源容量语义应保持
+一致。原始执行通道不替代宿主授权，不自动将低层 kubectl 命令升级为具有 UID 保护的语义操作。
+
+## 3. 故障注入后端
 
 Chaos Mesh、ChaosBlade、Toxiproxy、AgentChaos 等可以作为工具箱中的具体故障注入后端；它们负责执行
 和撤销受控故障、返回后端证据，不拥有故障意图、恢复标准或评估结论。
