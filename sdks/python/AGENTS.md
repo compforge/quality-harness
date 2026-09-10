@@ -2,8 +2,8 @@
 
 ## 项目定位与边界
 
-一个 uv 工程交付五类领域 SDK，以及 `harness_common` 和 `harness_toolbox` 两个中立共享包。
-分发包名为 `quality-harness`；各领域保留独立的模型、执行和判定机制。
+一个 uv workspace 管理 `quality-harness` 与独立分发的 `harness-toolbox`。
+前者交付五类领域 SDK 和 `harness_common`，依赖后者但不重复打包其命名空间；各领域保留独立的模型、执行和判定机制。
 
 ## 代码地图与核心模块
 
@@ -15,7 +15,7 @@ python/
 ├── trace_harness/      # 调用链分析
 ├── trajectory_harness/ # Agent 决策与行动序列评估
 ├── harness_common/    # 运行身份、执行事实、Verdict、LLM 与报告公共能力
-├── harness_toolbox/   # 跨领域的环境操作与观测
+├── toolbox/           # 独立 harness-toolbox 包，含 harness_toolbox/ 与 pyproject.toml
 ├── pyproject.toml     # 包、依赖、CLI 与测试发现
 └── Makefile           # 测试、lint、格式化、构建与版本入口
 ```
@@ -39,5 +39,6 @@ uv run pytest -q
 make build
 ```
 
-局部验证使用 `uv run pytest <package>/tests -q`。`make fix` 会修改源码，完成后再运行 lint 和测试。
+局部验证使用 `make test TEST_FILES=<package>/tests`；toolbox 路径为 `toolbox/harness_toolbox/tests`。
+局部格式化使用 `make fix CHECK_PATHS=toolbox/harness_toolbox`，完整门禁仍运行 `make lint`。`make fix` 会修改源码，完成后再运行 lint 和测试。
 构建产物写入仓库根目录 `dist/`。领域 smoke 命令与 fixture 使用方式归对应 Harness。

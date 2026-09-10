@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from kubernetes_asyncio import client as kubernetes
 from kubernetes_asyncio.client.exceptions import ApiException
 
-from harness_toolbox.kube import Client, Options, PodRef
+from harness_toolbox.kube import KubernetesClient, KubernetesDataSource, Options, PodRef
 
 TEST_NAMESPACE = "quality"
 TEST_OPTIONS = Options(
@@ -29,9 +29,14 @@ class FakeCoreV1API:
         self.delete_calls: list[tuple[str, str, dict[str, Any]]] = []
         self.list_pod_calls: list[tuple[str, dict[str, Any]]] = []
 
-    async def list_namespaced_pod(
-        self, namespace: str, **kwargs: Any
-    ) -> kubernetes.V1PodList:
+    async def create_namespaced_pod(self, namespace: str, **kwargs: Any) -> kubernetes.V1Pod:
+        body = kwargs["body"]
+        assert body.metadata.namespace == namespace
+        body.metadata.uid = "created-uid"
+        self.pods.append(body)
+        return body
+
+    async def list_namespaced_pod(self, namespace: str, **kwargs: Any) -> kubernetes.V1PodList:
         self.list_pod_calls.append((namespace, kwargs))
         return kubernetes.V1PodList(items=self.pods)
 
@@ -44,9 +49,7 @@ class FakeCoreV1API:
                 return pod
         raise ApiException(status=404, reason="Not Found")
 
-    async def delete_namespaced_pod(
-        self, name: str, namespace: str, **kwargs: Any
-    ) -> None:
+    async def delete_namespaced_pod(self, name: str, namespace: str, **kwargs: Any) -> None:
         self.delete_calls.append((name, namespace, kwargs))
 
     async def list_namespaced_event(
@@ -72,7 +75,7 @@ async def test_list_pods_projects_stable_state_and_sorts() -> None:
             pod("worker-a", "uid-a", unschedulable=True),
         ]
     )
-    client = Client(api, TEST_OPTIONS)
+    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS), api=api)
 
     pods = await client.list_pods("app=worker")
 
@@ -96,7 +99,7 @@ async def test_delete_pod_uses_uid_precondition(
     force: bool, expected_grace_period: int | None
 ) -> None:
     api = FakeCoreV1API([pod("worker", "uid-worker")])
-    client = Client(api, TEST_OPTIONS)
+    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS), api=api)
     ref = PodRef(name="worker", uid="uid-worker")
 
     if force:
@@ -120,7 +123,7 @@ async def test_wait_replacement_then_ready() -> None:
             pod("worker-new", "uid-new", ready=True),
         ]
     )
-    client = Client(api, TEST_OPTIONS)
+    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS), api=api)
     previous = await client.get_pod("worker-old")
 
     replacement = await client.wait_replacement(
@@ -133,7 +136,10 @@ async def test_wait_replacement_then_ready() -> None:
 
 
 async def test_wait_ready_rejects_reused_name() -> None:
-    client = Client(FakeCoreV1API([pod("worker", "uid-new", ready=True)]), TEST_OPTIONS)
+    client = KubernetesClient(
+        KubernetesDataSource(TEST_OPTIONS),
+        api=FakeCoreV1API([pod("worker", "uid-new", ready=True)]),
+    )
 
     with pytest.raises(RuntimeError, match="identity changed"):
         await client.wait_ready(
@@ -144,7 +150,7 @@ async def test_wait_ready_rejects_reused_name() -> None:
 
 
 async def test_wait_ready_bounds_inflight_kubernetes_request() -> None:
-    client = Client(SlowReadCoreV1API(), TEST_OPTIONS)
+    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS), api=SlowReadCoreV1API())
 
     with pytest.raises(TimeoutError, match="timed out waiting"):
         await client.wait_ready(
@@ -155,9 +161,9 @@ async def test_wait_ready_bounds_inflight_kubernetes_request() -> None:
 
 
 async def test_wait_unschedulable() -> None:
-    client = Client(
-        FakeCoreV1API([pod("worker", "uid-worker", unschedulable=True)]),
-        TEST_OPTIONS,
+    client = KubernetesClient(
+        KubernetesDataSource(TEST_OPTIONS),
+        api=FakeCoreV1API([pod("worker", "uid-worker", unschedulable=True)]),
     )
 
     observed = await client.wait_unschedulable(
@@ -171,7 +177,7 @@ async def test_wait_unschedulable() -> None:
 
 
 async def test_list_events_scopes_by_uid_and_sorts() -> None:
-    first = datetime(2026, 8, 21, 10, tzinfo=timezone.utc)
+    first = datetime(2026, 8, 21, 10, tzinfo=UTC)
     api = FakeCoreV1API(
         events=[
             event("late", "uid-worker", "Pulled", first + timedelta(seconds=1)),
@@ -179,7 +185,7 @@ async def test_list_events_scopes_by_uid_and_sorts() -> None:
             event("other", "uid-other", "Ignored", first),
         ]
     )
-    client = Client(api, TEST_OPTIONS)
+    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS), api=api)
 
     events = await client.list_events(PodRef(name="worker", uid="uid-worker"))
 
@@ -196,7 +202,7 @@ async def test_list_events_scopes_by_uid_and_sorts() -> None:
 )
 def test_client_rejects_missing_scope_or_limits(options: Options) -> None:
     with pytest.raises(ValueError):
-        Client(FakeCoreV1API(), options)
+        KubernetesClient(KubernetesDataSource(options), api=FakeCoreV1API())
 
 
 def pod(
@@ -246,3 +252,93 @@ def event(
         count=1,
         last_timestamp=observed_at,
     )
+
+
+async def test_create_inspect_delete_and_wait_for_exact_instance():
+    from harness_toolbox.kube import PodSpec
+
+    api = FakeCoreV1API()
+    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS), api=api)
+    created = await client.create_pod(
+        PodSpec("worker", "example/worker:1", requests={"cpu": "100m"})
+    )
+    assert created.uid == "created-uid"
+    assert api.pods[0].spec.containers[0].resources.requests == {"cpu": "100m"}
+    await client.delete_pod(created.ref())
+    api.pods = [pod("worker", "replacement")]
+    await client.wait_deleted(created.ref(), timeout_s=1, interval_s=0.01)
+    assert api.delete_calls[0][2]["body"].preconditions.uid == "created-uid"
+    await client.dispose()
+    with pytest.raises(RuntimeError, match="not initialized"):
+        await client.get_pod("worker")
+
+
+async def test_exec_stdin_exit_status_and_uid_check(tmp_path):
+    script = tmp_path / "kubectl"
+    script.write_text(
+        "#!/usr/bin/env python3\nimport sys\nsys.stdout.buffer.write(sys.stdin.buffer.read())\nsys.stderr.write('diagnostic')\nsys.exit(7)\n"
+    )
+    script.chmod(0o755)
+    api = FakeCoreV1API([pod("worker", "uid")])
+    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS, kubectl=str(script)), api=api)
+    result = await client.execute(PodRef("worker", "uid"), ["cat"], stdin=b"private payload")
+    assert (result.stdout, result.stderr, result.exit_code) == (
+        b"private payload",
+        b"diagnostic",
+        7,
+    )
+    with pytest.raises(RuntimeError, match="identity changed"):
+        await client.execute(PodRef("worker", "old-uid"), ["cat"])
+    await client.dispose()
+
+
+async def test_root_disposal_drains_exec(tmp_path):
+    script = tmp_path / "kubectl"
+    script.write_text("#!/usr/bin/env python3\nimport time\ntime.sleep(60)\n")
+    script.chmod(0o755)
+    client = KubernetesClient(
+        KubernetesDataSource(TEST_OPTIONS, kubectl=str(script)),
+        api=FakeCoreV1API([pod("worker", "uid")]),
+    )
+    task = asyncio.create_task(client.execute(PodRef("worker", "uid"), ["sleep", "60"]))
+    await asyncio.sleep(0.1)
+    await asyncio.wait_for(client.dispose(), 3)
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_port_forward_is_owned_by_client(tmp_path):
+    script = tmp_path / "kubectl"
+    script.write_text(
+        "#!/usr/bin/env python3\nimport time\nprint('Forwarding from 127.0.0.1:12345 -> 3306', flush=True)\ntime.sleep(60)\n"
+    )
+    script.chmod(0o755)
+    client = KubernetesClient(
+        KubernetesDataSource(TEST_OPTIONS, kubectl=str(script)),
+        api=FakeCoreV1API([pod("worker", "uid")]),
+    )
+    endpoint = await client.port_forward(PodRef("worker", "uid"), 3306)
+    assert endpoint.host == "127.0.0.1" and endpoint.port == 12345
+    await asyncio.wait_for(client.dispose(), 3)
+
+
+async def test_in_cluster_api_and_exec_pin_the_same_identity(monkeypatch):
+    import json
+    from pathlib import Path
+
+    from certifi import where
+
+    def load(*, client_configuration):
+        client_configuration.host = "https://cluster.example:443"
+        client_configuration.ssl_ca_cert = where()
+
+    monkeypatch.setattr("harness_toolbox.kube.client.config.load_incluster_config", load)
+    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS))
+    await client.initialize()
+    path = Path(client.access.kubeconfig)
+    config = json.loads(path.read_text())
+    assert config["clusters"][0]["cluster"]["server"] == "https://cluster.example:443"
+    assert "tokenFile" in config["users"][0]["user"]
+    assert str(path) in client.access.command("get", "pods")
+    await client.dispose()
+    assert not path.exists()

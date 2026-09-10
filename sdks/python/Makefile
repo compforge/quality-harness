@@ -1,17 +1,21 @@
+CHECK_PATHS ?= harness_common/ toolbox/harness_toolbox/ e2e_harness/ eval_harness/ perf_harness/ trace_harness/ trajectory_harness/
+
+FIX_PATHS ?= $(CHECK_PATHS)
+
 .PHONY: test lint fix build clean bump
 
 test:
 	uv run pytest -v $(TEST_FILES)
 
 lint:
-	uv run ruff check harness_common/ harness_toolbox/ e2e_harness/ eval_harness/ perf_harness/ trace_harness/ trajectory_harness/
+	uv run ruff check $(CHECK_PATHS)
 
 fix:
-	uv run ruff check --fix harness_common/ harness_toolbox/ e2e_harness/ eval_harness/ perf_harness/ trace_harness/ trajectory_harness/
-	uv run ruff format harness_common/ harness_toolbox/ e2e_harness/ eval_harness/ perf_harness/ trace_harness/ trajectory_harness/
+	uv run ruff check --fix $(FIX_PATHS)
+	uv run ruff format $(FIX_PATHS)
 
 build:
-	uv build --out-dir ../../dist
+	uv build --all-packages --out-dir ../../dist
 
 clean:
 	rm -rf dist build *.egg-info
