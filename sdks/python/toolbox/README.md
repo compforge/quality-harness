@@ -52,3 +52,6 @@ kubeconfig/context. Pod Python access additionally requires Python and the proto
 
 See [lifecycle and connection examples](docs/lifecycle.md) for shared clients, database routes, TLS,
 log budgets, and cancellation behavior.
+
+`list_workload_pods` resolves Deployment, StatefulSet, DaemonSet or an explicit Pod.
+Kubernetes Service endpoints retain their separate `list_service_pods` operation.

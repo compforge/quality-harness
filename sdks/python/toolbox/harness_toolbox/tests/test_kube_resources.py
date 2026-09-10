@@ -92,3 +92,62 @@ async def test_empty_selector_never_lists_all_pods(kind):
         await method("target")
     core.list_namespaced_pod.assert_not_awaited()
     await kube.dispose()
+
+
+@pytest.mark.parametrize("kind", ["StatefulSet", "DaemonSet"])
+async def test_workload_controller_uses_full_selector(kind):
+    kube, core, apps = client()
+    selector = api.V1LabelSelector(
+        match_expressions=[
+            api.V1LabelSelectorRequirement(key="tier", operator="In", values=["worker"])
+        ]
+    )
+    if kind == "StatefulSet":
+        read = AsyncMock(
+            return_value=api.V1StatefulSet(
+                spec=api.V1StatefulSetSpec(
+                    selector=selector, service_name="headless", template=api.V1PodTemplateSpec()
+                )
+            )
+        )
+        apps.read_namespaced_stateful_set = read
+    else:
+        read = AsyncMock(
+            return_value=api.V1DaemonSet(
+                spec=api.V1DaemonSetSpec(selector=selector, template=api.V1PodTemplateSpec())
+            )
+        )
+        apps.read_namespaced_daemon_set = read
+    assert (await kube.list_workload_pods(kind, "physical"))[0].name == "unrelated-prefix"
+    read.assert_awaited_once_with("physical", "ns", _request_timeout=7)
+    core.list_namespaced_pod.assert_awaited_once_with(
+        "ns", label_selector="tier in (worker)", _request_timeout=7
+    )
+    await kube.dispose()
+
+
+async def test_explicit_pod_workload_preserves_instance_identity():
+    kube, core, _ = client()
+    core.read_namespaced_pod = AsyncMock(
+        return_value=api.V1Pod(metadata=api.V1ObjectMeta(name="exact-pod", uid="physical-uid"))
+    )
+    assert (await kube.list_workload_pods("Pod", "exact-pod"))[0].ref().uid == "physical-uid"
+    core.list_namespaced_pod.assert_not_awaited()
+    await kube.dispose()
+
+
+@pytest.mark.parametrize("kind", ["StatefulSet", "DaemonSet", "Pod"])
+@pytest.mark.parametrize("status", [404, 403])
+async def test_workload_errors_keep_missing_distinct_from_forbidden(kind, status):
+    kube, core, apps = client()
+    read = AsyncMock(side_effect=ApiException(status=status))
+    if kind == "Pod":
+        core.read_namespaced_pod = read
+    elif kind == "StatefulSet":
+        apps.read_namespaced_stateful_set = read
+    else:
+        apps.read_namespaced_daemon_set = read
+    with pytest.raises(ResourceNotFoundError if status == 404 else ApiException):
+        await kube.list_workload_pods(kind, "target")
+    core.list_namespaced_pod.assert_not_awaited()
+    await kube.dispose()
