@@ -52,3 +52,10 @@ export { builtinFacets } from "./view/facets";
 export { renderDisplay } from "./view/engine";
 export { renderInteractive } from "./view/interactive";
 export { FacetRegistry } from "./view/registry";
+
+export { TraceSession, TraceLease, type SessionOptions } from "./runtime";
+export { Dataset } from "./dataset";
+export { type Source, type SpanQuery } from "./ingest/sources/base";
+export { type LoadConfig, type EvidenceRef, EvidenceMissing, EvidenceTooLarge } from "./loading/model";
+export { EvidenceDependency, FactDependency, type Dependency, type FactProducer } from "./loading/facts";
+export { JaegerFileSource } from "./ingest/sources/jaeger-file";

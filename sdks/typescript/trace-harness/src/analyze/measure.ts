@@ -1,3 +1,4 @@
+import type { Dependency } from "../loading/facts";
 import { httpRequests } from "../kinds/http";
 import type { TraceContext } from "../model/context";
 import { intervalUnion } from "../model/intervals";
@@ -5,6 +6,7 @@ import { Measurements, type Measurement, type MeasurementSpec, type CallSource }
 
 export interface Measurer {
   spec: MeasurementSpec;
+  requires?(trace: TraceContext): readonly Dependency[];
   compute(trace: TraceContext, sources: readonly CallSource[]): Iterable<Measurement>;
 }
 export const CALLS: MeasurementSpec = {

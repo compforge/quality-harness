@@ -16,10 +16,10 @@ const cases: Case[] = JSON.parse(readFileSync(new URL("../../../../conformance/t
 function build(fixture: Case, harness = new TraceHarness({ specs: genAiSpecs() })): TraceContext {
   return harness.assemble(new Map(fixture.spans.map((item) => [item.span_id, new NormSpan(item.span_id, item.parent_span_id ?? undefined, item.name, item.start_ms, item.dur_ms, item.service, false, item.attrs, { traceID: fixture.name })])));
 }
-for (const fixture of cases) test(`Measurement conformance: ${fixture.name}`, () => {
+for (const fixture of cases) test(`Measurement conformance: ${fixture.name}`, async () => {
   const harness = new TraceHarness({ specs: genAiSpecs() });
   const trace = build(fixture, harness);
-  const analysis = harness.analyze(trace, false);
+  const analysis = await harness.analyze(trace, false);
   expect(analysis.findings).toEqual({});
   for (const [id, expected] of Object.entries(fixture.expected)) {
     const node = trace.view().by_span.get(id)!;
@@ -46,7 +46,7 @@ for (const failure of ["duplicate", "base", "cycle", "undeclared"]) test(`invali
   const before = { ...n.facts };
   expect(() => new TransformContext(buildView([n]), items).materialize([[n, "a"]])).toThrow(); expect(n.facts).toEqual(before);
 });
-test("curl is an ordinary fact, materialized only on request", () => {
+test("curl is an ordinary fact, materialized only on request", async () => {
   let calls = 0;
   const transform: FactTransform = { produces: ["curl"], applies: () => true, compute: (node, ctx) => { calls++; return { curl: `curl -X ${ctx.get(node, "method") ?? "GET"} example.test` }; } };
   const harness = new TraceHarness({ specs: genAiSpecs(), transforms: [transform] });
@@ -59,10 +59,10 @@ test("curl is an ordinary fact, materialized only on request", () => {
   expect(trace.nodes.every((node) => Object.hasOwn(node.facts, "curl"))).toBe(true);
   harness.transformAll(trace, "curl");
   expect(calls).toBe(trace.nodes.length);
-  const loaded = loadAnalysis(JSON.parse(JSON.stringify(analysisSnapshot(harness.analyze(trace, false)))));
+  const loaded = loadAnalysis(JSON.parse(JSON.stringify(analysisSnapshot(await harness.analyze(trace, false)))));
   expect(archiveContents(harness.renderInteractive(loaded.trace))).toContain("curl -X");
 });
-test("measurers run once, detectors consume measurements and previous findings", () => {
+test("measurers run once, detectors consume measurements and previous findings", async () => {
   let calls = 0; const seen: boolean[] = [];
   const custom: Measurer = { spec: { id: "custom", scope: "node", units: { size: "item" }, description: "Size", dimensions: [] }, compute: (trace) => {
     calls++; return trace.nodes.map((node) => ({ spec_id: "custom", anchor_node_id: node.node_id, status: "measured", values: { size: 7 }, evidence: {}, error: null }));
@@ -71,7 +71,7 @@ test("measurers run once, detectors consume measurements and previous findings",
     expect(analysis.measurements.get(node.node_id, "custom")!.values).toEqual({ size: 7 });
     return [{ ref: node.node_id, source: "custom", severity: "info" }];
   }, (node, analysis) => { seen.push(analysis.findings[node.node_id]!.some((f) => f.source === "custom")); return []; }] });
-  const trace = build(cases[0]!, harness); const a = harness.analyze(trace); const b = harness.analyze(trace, false);
+  const trace = build(cases[0]!, harness); const a = await harness.analyze(trace); const b = await harness.analyze(trace, false);
   expect(calls).toBe(2); expect(seen.every(Boolean)).toBe(true); expect(b.findings).toEqual({}); expect(a.measurements).not.toBe(b.measurements);
 });
 test("errors and not applicable never become zero", () => {
@@ -80,9 +80,9 @@ test("errors and not applicable never become zero", () => {
   const trace = build(cases[0]!, harness), result = harness.measure(trace);
   for (const node of trace.nodes) { expect(result.get(node.node_id, "broken")!.status).toBe("error"); expect(result.get(node.node_id, "broken")!.values).toEqual({}); expect(result.get(node.node_id, "skip")!.status).toBe("not_applicable"); }
 });
-test("saved analysis renders offline without recomputation", () => {
+test("saved analysis renders offline without recomputation", async () => {
   const harness = new TraceHarness({ specs: genAiSpecs() }); const trace = build(cases[1]!);
-  const snapshot = analysisSnapshot(harness.analyze(trace, false)); const loaded = loadAnalysis(JSON.parse(JSON.stringify(snapshot)));
+  const snapshot = analysisSnapshot(await harness.analyze(trace, false)); const loaded = loadAnalysis(JSON.parse(JSON.stringify(snapshot)));
   expect(analysisSnapshot(loaded)).toEqual(snapshot); expect(loaded.trace.spans.size).toBe(0); expect(loaded.trace.span_count).toBe(trace.span_count);
   expect(archiveContents(harness.renderInteractive(loaded.trace, {}, { measurements: loaded.measurements }))).toContain('"duration_sum_ms":50');
 });
@@ -136,7 +136,7 @@ test("missing outputs cache once and unknown nodes are rejected", () => {
   expect(calls).toBe(1); expect(n.facts).toEqual({});
   expect(() => ctx.materialize([[node(), "optional"]])).toThrow("does not belong");
 });
-test("projection requests its facts without computing unrelated transforms", () => {
+test("projection requests its facts without computing unrelated transforms", async () => {
   let calls = 0;
   const harness = new TraceHarness({
     specs: [{ kind: "test", matches: () => true, build: () => ({ method: "POST" }), project_requires: ["label"], project: (node) => [{ label: "label", value: String(node.facts.label) }] }],
@@ -149,7 +149,7 @@ test("projection requests its facts without computing unrelated transforms", () 
   const span = new NormSpan("n", undefined, "request", 0, 10, undefined, false, {}, { traceID: "t" });
   const trace = harness.assemble(new Map([["n", span]]));
   expect(trace.nodes[0]!.brief[0]!.value).toBe("POST"); expect(calls).toBe(0);
-  harness.analyze(trace); harness.renderInteractive(trace); expect(calls).toBe(0);
+  await harness.analyze(trace); harness.renderInteractive(trace); expect(calls).toBe(0);
   expect(harness.transform(trace.nodes[0]!, trace, "repro")).toEqual({ repro: { command: "curl -X POST example.test" } });
   harness.transformAll(trace, "curl", "repro"); expect(calls).toBe(1);
   const other = harness.assemble(new Map([["n", span]]));
@@ -158,7 +158,7 @@ test("projection requests its facts without computing unrelated transforms", () 
 });
 
 
-test("report selection preserves analysis and offline evidence", () => {
+test("report selection preserves analysis and offline evidence", async () => {
   const selection = cases[0]!.presentation!;
   const seen: boolean[] = [];
   const harness = new TraceHarness(mergeTraceContributions({
@@ -170,7 +170,7 @@ test("report selection preserves analysis and offline evidence", () => {
     detectors: [(node, analysis) => { seen.push(!!analysis.measurements.get(node.node_id, "self_ms")); return []; }],
   }, { measurementFilter: () => false }));
   const trace = build(cases[0]!, harness);
-  const analysis = harness.analyze(trace);
+  const analysis = await harness.analyze(trace);
   expect(seen.length).toBe(trace.nodes.length); expect(seen.every(Boolean)).toBe(true);
   const before = JSON.stringify(analysisSnapshot(analysis));
   const visible = harness.visibleMeasurements(trace, analysis.measurements);

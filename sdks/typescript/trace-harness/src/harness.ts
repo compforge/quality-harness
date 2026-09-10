@@ -1,3 +1,6 @@
+import { TraceSession, type SessionOptions } from "./runtime";
+import type { Source } from "./ingest/sources/base";
+import type { FactProducer } from "./loading/facts";
 import { builtinDetectors } from "./analyze/detectors";
 import { diagnose, type Findings } from "./analyze/diagnose";
 import { DetectorRegistry, type Detector } from "./analyze/registry";
@@ -21,6 +24,11 @@ import { FacetRegistry } from "./view/registry";
 import { filterMeasurements, type MeasurementFilter } from "./view/measurements";
 
 export interface TraceContributions {
+  structureFields?: readonly string[];
+  fieldAliases?: Readonly<Record<string, string>>;
+  normalizeSpan?(span: NormSpan): NormSpan;
+  prepareSpans?(spans: Map<string, NormSpan>): Map<string, NormSpan>;
+  factProducers?: readonly FactProducer[];
   specs?: Iterable<KindSpec>;
   transforms?: Iterable<FactTransform>;
   measurers?: Iterable<Measurer>;
@@ -32,6 +40,11 @@ export interface TraceContributions {
 
 export function mergeTraceContributions(...items: TraceContributions[]): TraceContributions {
   return {
+    structureFields: [...new Set(items.flatMap(item => item.structureFields ?? []))],
+    fieldAliases: Object.assign({}, ...[...items].reverse().map(item => item.fieldAliases ?? {})),
+    normalizeSpan: items.find(item => item.normalizeSpan)?.normalizeSpan,
+    prepareSpans: items.find(item => item.prepareSpans)?.prepareSpans,
+    factProducers: items.flatMap(item => item.factProducers ?? []),
     specs: items.flatMap((item) => [...(item.specs ?? [])]),
     transforms: items.flatMap((item) => [...(item.transforms ?? [])]),
     measurers: items.flatMap((item) => [...(item.measurers ?? [])]),
@@ -64,19 +77,23 @@ export class TraceHarness {
     ]);
   }
 
+  open(source: Source, options: SessionOptions = {}): TraceSession {
+    return new TraceSession(this, source, options);
+  }
+
   assemble(spans: Map<string, NormSpan>): TraceContext {
     return assemble(spans, this.specs, this.transforms);
   }
 
   measure(context: TraceContext): Measurements { return measure(context, this.measurers); }
 
-  diagnose(context: TraceContext, measurements: Measurements = this.measure(context)): Findings {
+  async diagnose(context: TraceContext, measurements: Measurements = this.measure(context)): Promise<Findings> {
     return diagnose(context, this.detectors, measurements);
   }
 
-  analyze(context: TraceContext, diagnosis = true): AnalysisContext {
+  async analyze(context: TraceContext, diagnosis = true): Promise<AnalysisContext> {
     const measurements = this.measure(context);
-    return new AnalysisContext(context, measurements, diagnosis ? this.diagnose(context, measurements) : {});
+    return new AnalysisContext(context, measurements, diagnosis ? await this.diagnose(context, measurements) : {});
   }
 
   transform(node: Node, context: TraceContext, ...names: string[]): Record<string, unknown> {

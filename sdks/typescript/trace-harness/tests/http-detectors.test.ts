@@ -11,11 +11,11 @@ interface Case {
 }
 const cases: Case[] = JSON.parse(readFileSync(new URL("../../../../conformance/trace/cases/http-detectors.json", import.meta.url), "utf8"));
 for (const fixture of cases) {
-  test(`HTTP detector conformance: ${fixture.name}`, () => {
+  test(`HTTP detector conformance: ${fixture.name}`, async () => {
     const harness = new TraceHarness({ specs: genAiSpecs() });
     const spans = fixture.spans.map((item) => new NormSpan(item.span_id, item.parent_span_id ?? undefined, item.name, item.start_ms, item.dur_ms, item.service, false, item.attrs, { traceID: fixture.name }));
     const context = harness.assemble(new Map(spans.map((span) => [span.span_id, span])));
-    const findings = Object.values(harness.diagnose(context)).flat().filter((finding) => finding.source.startsWith("http_"));
+    const findings = Object.values(await harness.diagnose(context)).flat().filter((finding) => finding.source.startsWith("http_"));
     if (fixture.limits) {
       for (const [source, limit] of Object.entries(fixture.limits)) {
         const hits = findings.filter((finding) => finding.source === source);
@@ -38,7 +38,7 @@ for (const fixture of cases) {
       }
       expect(hit.note).not.toContain("secret");
     }
-    const html = harness.renderInteractive(context, harness.diagnose(context));
+    const html = harness.renderInteractive(context, await harness.diagnose(context));
     for (const finding of findings) expect(html + archiveContents(html)).toContain(finding.source);
   });
 }

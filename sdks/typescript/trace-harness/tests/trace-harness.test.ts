@@ -49,9 +49,9 @@ describe("Python trace_harness parity fixture", () => {
     });
   });
 
-  test("renders the Python interactive view contract as one HTML file", () => {
+  test("renders the Python interactive view contract as one HTML file", async () => {
     const context = assemble(normalizeJaegerSpans(fixtureDocuments()), genAiSpecs());
-    const html = renderInteractive(context, diagnose(context));
+    const html = renderInteractive(context, await diagnose(context));
     expect(html + archiveContents(html)).toStartWith("<!doctype html>");
     expect(html + archiveContents(html)).toContain("调用栈");
     expect(html + archiveContents(html)).toContain("火焰图");
@@ -201,12 +201,12 @@ describe("shared conformance", () => {
     const harness = new TraceHarness({ specs: genAiSpecs() });
     const context = harness.assemble(normalizeJaegerSpans(fixtureDocuments()));
 
-    expect(analysisSnapshot(harness.analyze(context))).toEqual(expected);
+    expect(analysisSnapshot(await harness.analyze(context))).toEqual(expected);
   });
 });
 
 describe("scoped TraceHarness", () => {
-  test("does not leak Plugin contributions between harnesses", () => {
+  test("does not leak Plugin contributions between harnesses", async () => {
     class AlphaModelFacet extends DefaultFacet {
       override priority = 100;
       match(node: Node): boolean {
@@ -244,8 +244,8 @@ describe("scoped TraceHarness", () => {
     expect(plainAgent.facts.scope_marker).toBeUndefined();
     expect(alpha.transform(alphaAgent, alphaContext, "scope_action")).toEqual({ scope_action: "alpha-action" });
     expect(plain.transform(plainAgent, plainContext, "scope_action")).toEqual({});
-    const alphaFindings = alpha.diagnose(alphaContext);
-    const plainFindings = plain.diagnose(plainContext);
+    const alphaFindings = await alpha.diagnose(alphaContext);
+    const plainFindings = await plain.diagnose(plainContext);
     expect(alphaFindings[alphaAgent.node_id]?.map((finding) => finding.source))
       .toContain("scope:alpha");
     expect(Object.values(plainFindings).flat().map((finding) => finding.source))

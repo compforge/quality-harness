@@ -1,7 +1,7 @@
 import type { AnalysisContext } from "./context";
 import type { Finding, Node } from "../model/node";
 
-export type Detector = (node: Node, context: AnalysisContext) => Finding[];
+export type Detector = (node: Node, context: AnalysisContext) => Finding[] | Promise<Finding[]>;
 
 export class DetectorRegistry {
   readonly #detectors: Detector[];

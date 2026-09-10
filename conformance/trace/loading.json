@@ -1,0 +1,84 @@
+{
+  "docs": [
+    {
+      "traceID": "t0",
+      "spanID": "s",
+      "operationName": "chat",
+      "startTime": 1000,
+      "duration": 500000,
+      "tags": [
+        {
+          "key": "gen_ai.operation.name",
+          "value": "chat"
+        },
+        {
+          "key": "payload",
+          "value": "hello"
+        },
+        {
+          "key": "empty",
+          "value": ""
+        },
+        {
+          "key": "null_value",
+          "value": null
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "lazy",
+      "lazy": true,
+      "fields": null,
+      "initial": "unloaded",
+      "initial_reads": 0,
+      "final_reads": 1
+    },
+    {
+      "name": "eager-full",
+      "lazy": false,
+      "fields": null,
+      "initial": "loaded",
+      "initial_reads": 1,
+      "final_reads": 1
+    },
+    {
+      "name": "eager-selected",
+      "lazy": false,
+      "fields": [
+        "payload"
+      ],
+      "initial": "loaded",
+      "initial_reads": 1,
+      "final_reads": 1
+    },
+    {
+      "name": "eager-other",
+      "lazy": false,
+      "fields": [
+        "empty"
+      ],
+      "initial": "unloaded",
+      "initial_reads": 1,
+      "final_reads": 2
+    },
+    {
+      "name": "eager-none",
+      "lazy": false,
+      "fields": [],
+      "initial": "unloaded",
+      "initial_reads": 0,
+      "final_reads": 1
+    }
+  ],
+  "expected": {
+    "size": 5,
+    "self_ms": 500,
+    "field_states": {
+      "empty": "loaded_empty",
+      "null_value": "loaded_empty",
+      "absent": "missing"
+    }
+  }
+}

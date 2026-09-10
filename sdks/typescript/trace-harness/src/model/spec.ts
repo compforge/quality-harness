@@ -4,12 +4,15 @@ import type { NormSpan } from "./span";
 
 export interface KindSpec {
   kind: string;
+  structure_fields?: readonly string[];
+  detail_fields?: readonly string[];
+  detail_facts?: readonly string[];
   matches(span: NormSpan): boolean;
   claims?(primary: NormSpan, candidates: NormSpan[]): Set<string>;
   build?(primary: NormSpan, satellites: NormSpan[]): Record<string, unknown>;
   metrics?: Record<string, (node: Node) => number | undefined>;
   strategy?: Record<string, "ratio" | "topn">;
-  rules?: Array<(node: Node, context: AnalysisContext) => Finding[]>;
+  rules?: Array<(node: Node, context: AnalysisContext) => Finding[] | Promise<Finding[]>>;
   obs_hole?: boolean;
   project?(node: Node): Field[];
   project_requires?: readonly string[];

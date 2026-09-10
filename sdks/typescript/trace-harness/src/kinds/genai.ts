@@ -16,6 +16,8 @@ function operation(span: NormSpan): string {
 function modelSpec(): KindSpec {
   return {
     kind: "model-call",
+    detail_fields: ["gen_ai.prompt", "gen_ai.input.messages"],
+    detail_facts: ["io_span"],
     matches: (span) => {
       const op = operation(span);
       if (CHAT_OPS.has(op)) return true;
@@ -77,6 +79,9 @@ function modelSpec(): KindSpec {
 function toolSpec(): KindSpec {
   return {
     kind: "tool-call",
+    detail_fields: ["gen_ai.tool.call.result", "gen_ai.tool.call.arguments"],
+    detail_facts: ["result_bytes", "io_span"],
+    project_requires: ["result_bytes"],
     matches: (span) => TOOL_OPS.has(operation(span)) || span.attr("gen_ai.tool.name") !== undefined,
     build: (primary) => {
       const facts: Record<string, unknown> = {};

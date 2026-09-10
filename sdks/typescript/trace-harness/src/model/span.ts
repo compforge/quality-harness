@@ -13,6 +13,20 @@ export interface ErrorEvent {
 }
 
 export class NormSpan {
+  storage_index = "";
+  storage_id = "";
+  loaded_fields: readonly string[] | null = null;
+  field_errors: Record<string, string> = {};
+  fieldState(name: string): "unloaded" | "loaded" | "loaded_empty" | "missing" | "failed" {
+    if (this.loaded_fields === null || this.loaded_fields.includes(name)) {
+      if (!Object.hasOwn(this.attrs, name)) return "missing";
+      const value = this.attrs[name];
+      return value === null || value === "" || (typeof value === "object" && Object.keys(value as object).length === 0)
+        ? "loaded_empty" : "loaded";
+    }
+    return this.field_errors[name] || this.field_errors["*"] ? "failed" : "unloaded";
+  }
+
   constructor(
     readonly span_id: string,
     readonly parent_span_id: string | undefined,
@@ -22,9 +36,9 @@ export class NormSpan {
     readonly service: string | undefined,
     readonly has_error: boolean,
     readonly attrs: SpanAttributes,
-    readonly raw: Record<string, unknown>,
-    readonly error_events: ErrorEvent[] = [],
-    readonly events: SpanEvent[] = [],
+    public raw: Record<string, unknown>,
+    public error_events: ErrorEvent[] = [],
+    public events: SpanEvent[] = [],
   ) {}
 
   get end_ms(): number {

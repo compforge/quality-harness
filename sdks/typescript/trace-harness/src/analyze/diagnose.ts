@@ -27,12 +27,17 @@ function postOrder(context: TraceContext): Node[] {
 }
 
 /** Deterministic node findings: physical errors, per-kind rules, then post-order detectors. */
-export function diagnose(
+export async function diagnose(
   context: TraceContext,
   detectorRegistry?: DetectorRegistry,
   measurements: Measurements = measure(context),
-): Findings {
-  const analysis = new AnalysisContext(context, measurements);
+): Promise<Findings> {
+  return (await diagnoseAnalysis(new AnalysisContext(context, measurements), detectorRegistry)).findings as Findings;
+}
+
+export async function diagnoseAnalysis(analysis: AnalysisContext, detectorRegistry?: DetectorRegistry): Promise<AnalysisContext> {
+  analysis.runtime?.check();
+  const context = analysis.trace;
   const activeRegistry = detectorRegistry ?? new DetectorRegistry(builtinDetectors());
   const findings: Findings = {};
   for (const node of context.nodes) {
@@ -45,13 +50,14 @@ export function diagnose(
       });
     }
     for (const rule of context.specs.get(node.kind)?.rules ?? []) {
-      for (const finding of rule(node, analysis)) append(findings, finding);
+      for (const finding of await rule(node, analysis)) append(findings, finding);
     }
   }
   for (const node of postOrder(context)) {
     for (const detector of activeRegistry.registered()) {
-      for (const finding of detector(node, new AnalysisContext(context, analysis.measurements, findings))) append(findings, finding);
+      for (const finding of await detector(node, new AnalysisContext(context, analysis.measurements, findings, analysis.runtime))) append(findings, finding);
     }
   }
-  return findings;
+  analysis.runtime?.check();
+  return new AnalysisContext(context, analysis.measurements, findings, analysis.runtime);
 }

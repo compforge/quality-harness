@@ -16,7 +16,7 @@ import {
 const spans = normalizeJaegerSpans(rawJaegerDocuments);
 const harness = new TraceHarness({ specs: genAiSpecs() });
 const context = harness.assemble(spans);
-const analysis = harness.analyze(context);
+const analysis = await harness.analyze(context);
 const html = harness.renderInteractive(context, analysis.findings, {
   measurements: analysis.measurements,
 });
@@ -42,3 +42,32 @@ transform declares `produces`, `applies` and `compute`; a curl representation an
 status use the same contract. Request output names with `harness.transform(node, context, "curl")`
 or `harness.transformAll(context, "curl")` before rendering. Outputs become `node.facts` and are
 cached within that trace. The renderer never runs transformations.
+
+
+For large or remotely accessed evidence, use a managed Session. It keeps a fixed Dataset, loads only
+needed fields by default, and shares evidence reads across analyses. Choose preloading with
+`config: { lazy: false }`; this prepares the active trace, not the whole Dataset.
+
+```ts
+import { JaegerFileSource, TraceHarness, genAiSpecs } from "@compforge/trace-harness";
+
+const harness = new TraceHarness({ specs: genAiSpecs() });
+await using session = harness.open(new JaegerFileSource("traces.jsonl"), {
+  workDir: "./trace-workspace",
+  config: { lazy: true, concurrency: 8, activeTraces: 4 },
+});
+const dataset = await session.select({ limit: 100 });
+for await (const input of session.trees(dataset)) {
+  const result = await session.analyze(input);
+  await session.prepareView(result, { full: true });
+  const html = harness.renderInteractive(result.trace, result.findings, {
+    measurements: result.measurements,
+  });
+  // Write each HTML string to its destination before requesting the next trace.
+}
+```
+
+A Session owns its Source; close it with `await using` or `try/finally`. Remote consumers implement
+`Source` using their existing clients. See the [loading guide](docs/loading.md) for dependency declarations,
+individual trace leases, persisted evidence reuse, and import/resource limits. `analyze` and `diagnose`
+are asynchronous; pure `assemble`, `measure`, fact transformation and rendering remain synchronous.

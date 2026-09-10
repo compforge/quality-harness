@@ -92,3 +92,11 @@ select 圈定固定成员，detect 执行选定的判读；measure 作为可选�
 - [Batch 分析](../sdks/python/trace_harness/docs/batch.md)：Dataset、有限内存执行、统计与版本对比。
 - [Python SDK](../sdks/python/trace_harness/AGENTS.md)：代码地图和开发约定。
 - [TypeScript SDK](../sdks/typescript/trace-harness/README.md)：接入与支持范围。
+
+## 跨语言加载能力
+
+Python 与 TypeScript 共享 [加载契约](../spec/trace-loading.md)。Source 提供证据，Session 管理读取与
+活动 trace，Dataset 固定成员；按需和预加载共享缓存与资源边界。业务声明字段／fact 依赖，框架
+在纯计算前准备证据。两端存储布局独立，跨语言对齐行为与 Analysis IR，不直接互读私有缓存目录。
+
+TypeScript 的接入步骤与资源限制见 [加载指南](../sdks/typescript/trace-harness/docs/loading.md)。
