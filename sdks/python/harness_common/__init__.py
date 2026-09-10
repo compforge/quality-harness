@@ -11,6 +11,7 @@ and this repo is one of its runners. Import those names from `spec_case` directl
 `Forge` and `Repository` identify where source lives; `Product` names a business product;
 `Component` identifies a buildable unit within a Repository. `Environment` identifies where
 execution happens. `Service` identifies a Component's runtime presence in one Environment.
+`Workload` locates a declared runtime carrier; a Service can reference multiple workloads.
 `Operation` identifies a capability exposed by a Service; `HttpOperation` adds its HTTP
 transport contract. An `Execution` groups domain-defined work such as an e2e CaseRun or
 a perf Trial; each `OperationRun` owns one raw `Outcome`. Domain engines own scheduling
@@ -41,3 +42,5 @@ from harness_common.product import Product as Product
 from harness_common.repository import Repository as Repository
 from harness_common.reducer import Reducer as Reducer
 from harness_common.service import Service as Service
+from harness_common.workload import KubernetesWorkload as KubernetesWorkload
+from harness_common.workload import Workload as Workload

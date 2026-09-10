@@ -77,29 +77,30 @@ products should choose limits appropriate to their clusters.
 
 ## Common runtime identities
 
-`Service` remains a platform-independent logical service. Deployment configuration can map it to
-multiple workloads or none; no Kubernetes resource name is inferred from its name.
+A logical Service declares its `workloads`; deployment configuration supplies the mapping. Workloads
+are stable references, while Pod snapshots and UIDs are obtained during execution. The mapping can
+change without changing the logical Service identity. Kubernetes Service endpoints are separate
+from workload controllers and Pods.
 
 ```python
-from harness_common.toolbox import ServiceDataSource, kubernetes_source
+from harness_common import KubernetesWorkload
+from harness_common.toolbox import kubernetes_source
 from harness_toolbox.kube import Options
-from harness_toolbox.transport import PortForwardTransport
 
-async def observe(clients, service, environment, workload_names):
-    source = kubernetes_source(environment, Options("runtime", 15, 4))
-    access = ServiceDataSource(service, source)
-    kube = await clients.get(access.source)
+async def observe(clients, service):
     pods = []
-    for name in workload_names:  # explicit deployment configuration
-        pods.extend(await kube.list_deployment_pods(name))
-    route = PortForwardTransport(kube.access, "service/shared-storage", 9200)
-    return pods, route
+    for workload in service.workloads:
+        if not isinstance(workload, KubernetesWorkload):
+            raise TypeError("This observer requires Kubernetes workloads")
+        source = kubernetes_source(service.environment, Options(workload.namespace, 15, 4))
+        kube = await clients.get(source)
+        pods.extend(await kube.list_workload_pods(workload.kind, workload.name))
+    return pods
 ```
 
-A Service may have multiple typed DataSource associations, and multiple Services may share one
-source. The association supplies logical context without changing the underlying source key.
-The route can be supplied to a protocol's ConnectionSource within the same root execution;
-protocol initialization opens the tunnel and protocol disposal closes it.
+Workload operations are one toolbox capability, alongside database, OpenSearch, process and transport
+operations. Those capabilities do not require Service or Workload objects. ServiceDataSource can
+associate logical context with independently configured sources without changing source keys.
 
 PodPythonTransport accepts an explicit `container` for multi-container Pods. It is part of the
 transport identity so clients using different containers cannot share a route. Credentials and

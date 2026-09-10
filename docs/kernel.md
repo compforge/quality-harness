@@ -23,6 +23,7 @@ e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共
 | **Component** | 代码 Repository 内一个可独立构建或发布的稳定组件；一个 Repository 可以包含一个或多个 Component，不会运行为 Workload 的 Component 不产生 Service。 |
 | **Environment** | 一组部署与运行所共享的命名环境；它识别证据产生在哪里，具体访问方式、凭据和发布策略仍归部署领域。 |
 | **Service** | 一个 Component 在某个 Environment 中具名的运行体现；由 service name、Component 与 Environment 共同确定，不等同于代码 Repository 或具体平台 Workload。 |
+| **Workload** | Service 在运行平台上的具名承载单元；Service 声明零个或多个 Workload 引用，具体实例及当前状态在执行期查询。它不是一次 Deployment 发布记录，也不是 perf 领域的请求负载模型。 |
 | **Operation** | Service 对外提供的一项具名能力，也是 Case 所绑定的服务能力；不包含特定传输协议的访问细节。 |
 | **HttpOperation** | `Operation` 的 HTTP 子类，以 method 与 path 表达协议契约；base URL 仍属于运行态 Service。 |
 | **Deployment** | 把某个 Component 发布到 Environment、从而创建或更新 Service 的一次部署记录；同一 Service 可以经历多次 Deployment。 |
@@ -47,8 +48,9 @@ e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共
 | **Report** | 一个或多个 Artifact 的面向人渲染，不重新执行 Experiment，也不重新生成源事实。 |
 | **Verdict** | 对一次 Run 的可机器消费判定。人、CI 和 agent 开发循环都通过它判断是否通过、为何失败，以及下一步应读哪些证据。 |
 
-Service 是逻辑运行服务，不与 Kubernetes Service 或其它平台资源一一对应。common 将运行目标
-与 DataSource 通过独立访问配置关联；资源映射归部署配置，见 [toolbox](toolbox.md)。
+Service 是逻辑运行服务，不与 Kubernetes Service 或其它平台资源一一对应。Service.workloads 声明由哪些
+Workload 承载，部署配置为这一关系提供事实；映射变化不改变逻辑 Service 身份。DataSource 与
+Transport 描述各类基础设施的访问方式，ClientManager 管理执行期客户端；见 [toolbox](toolbox.md)。
 
 这些名字定义共同语义。Python Harness 共享 `harness_common` 中的身份基类；不同语言保持惯用 API，
 但遵守相同关系和落盘契约。

@@ -58,6 +58,14 @@ class _AppsV1API(Protocol):
         self, name: str, namespace: str, **kwargs: Any
     ) -> kubernetes.V1Deployment: ...
 
+    async def read_namespaced_stateful_set(
+        self, name: str, namespace: str, **kwargs: Any
+    ) -> kubernetes.V1StatefulSet: ...
+
+    async def read_namespaced_daemon_set(
+        self, name: str, namespace: str, **kwargs: Any
+    ) -> kubernetes.V1DaemonSet: ...
+
 
 @dataclass(frozen=True)
 class KubernetesDataSource:
@@ -325,24 +333,41 @@ class KubernetesClient:
         )
 
     async def list_deployment_pods(self, name: str) -> list[Pod]:
-        """List Pods matching a Deployment's complete label selector.
+        """List Pods matching a Deployment's complete selector."""
+        return await self.list_workload_pods("Deployment", name)
 
-        This reports selector membership, not an ownerReference ownership claim.
-        The caller decides readiness, termination and sample-selection policy.
+    async def list_workload_pods(self, kind: str, name: str) -> list[Pod]:
+        """Resolve a declared workload to a live Pod snapshot.
+
+        Controller results reflect selector membership, not ownerReference ownership.
+        Missing resources raise ResourceNotFoundError; other API errors propagate.
+        Kubernetes Service endpoints have their separate list_service_pods operation.
         """
+        if kind not in ("Deployment", "StatefulSet", "DaemonSet", "Pod"):
+            raise ValueError(f"Unsupported Kubernetes workload kind: {kind}")
         if not name.strip():
-            raise ValueError("Deployment name is required")
+            raise ValueError(f"{kind} name is required")
         _ = self._api
-        if self._apps is None:
-            raise RuntimeError("Kubernetes Apps API is not initialized")
         try:
-            resource = await self._apps.read_namespaced_deployment(
+            if kind == "Pod":
+                pod = await self._api.read_namespaced_pod(
+                    name, self._options.namespace, _request_timeout=self._options.request_timeout_s
+                )
+                return [_pod_from(pod)]
+            if self._apps is None:
+                raise RuntimeError("Kubernetes Apps API is not initialized")
+            readers = {
+                "Deployment": self._apps.read_namespaced_deployment,
+                "StatefulSet": self._apps.read_namespaced_stateful_set,
+                "DaemonSet": self._apps.read_namespaced_daemon_set,
+            }
+            resource = await readers[kind](
                 name, self._options.namespace, _request_timeout=self._options.request_timeout_s
             )
         except ApiException as exc:
             if exc.status == 404:
                 raise ResourceNotFoundError(
-                    f"Deployment {name!r} in namespace {self._options.namespace!r} not found"
+                    f"{kind} {name!r} in namespace {self._options.namespace!r} not found"
                 ) from exc
             raise
         selector = resource.spec.selector if resource.spec is not None else None
