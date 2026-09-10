@@ -1,6 +1,6 @@
 [project]
 name = "quality-harness"
-version = "0.2.6"
+version = "0.2.7"
 description = "Quality testing and evidence analysis SDKs for software and agents"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"

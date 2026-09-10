@@ -17,15 +17,17 @@ from trace_harness.loading.facts import FactProducer
 from trace_harness.loading.model import LoadConfig
 
 if TYPE_CHECKING:
-    from trace_harness.batch_detectors import BatchDetect, BatchDetector
+    from trace_harness.batch import BatchContext
+    from trace_harness.dataset import Dataset
     from trace_harness.runtime import TraceSession
 
 from trace_harness.analyze.context import AnalysisContext
 from trace_harness.analyze.diagnose import diagnose as diagnose_context
 from trace_harness.analyze.diagnose import diagnose_analysis
 from trace_harness.analyze.diagnose.detectors import BUILTIN_DETECTORS
-from trace_harness.analyze.diagnose.registry import DetectorRegistry, NodeDetect, NodeDetector
+from trace_harness.analyze.diagnose.registry import DetectorRegistry
 from trace_harness.analyze.measure import BUILTIN_MEASURERS, Measurer, measure
+from trace_harness.detectors import Detect, Detector
 from trace_harness.ingest.assemble import assemble as assemble_spans
 from trace_harness.ingest.sources.jaeger_file import load_jaeger_file
 from trace_harness.model.agent import AgentRunIR, validate_agent_run_ir
@@ -55,11 +57,15 @@ class TraceContributions:
     normalize_span: Callable[[NormSpan], NormSpan] | None = None
     prepare_spans: Callable[[dict[str, NormSpan]], dict[str, NormSpan]] | None = None
     fact_producers: tuple[FactProducer, ...] = ()
-    batch_detectors: tuple[BatchDetector | BatchDetect, ...] = ()
+    batch_detectors: tuple[
+        Detector[Dataset, BatchContext] | Detect[Dataset, BatchContext], ...
+    ] = ()
     specs: tuple[KindSpec, ...] = field(default_factory=tuple)
     transforms: tuple[FactTransform, ...] = ()
     measurers: tuple[Measurer, ...] = ()
-    detectors: tuple[NodeDetector | NodeDetect, ...] = field(default_factory=tuple)
+    detectors: tuple[Detector[Node, AnalysisContext] | Detect[Node, AnalysisContext], ...] = field(
+        default_factory=tuple
+    )
     facets: tuple[Facet, ...] = field(default_factory=tuple)
     agent_run_extractor: NodeTreeExtractor[AgentRunIR] | None = None
     measurement_filter: MeasurementFilter | None = None

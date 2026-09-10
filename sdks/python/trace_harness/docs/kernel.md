@@ -61,8 +61,8 @@ tree lease 关闭后，context 的异步访问失效；需要再次访问时从 
 ## Detector 定义与依赖
 
 Node 和 Dataset 分析共用 `Detector<Input, Context>`：显式 `id` 标识规则，`requires` 声明
-直接依赖，普通 `detect(input, context)` 函数贡献观察。`NodeDetector` / `BatchDetector` 仅为
-输入类型别名，不拥有独立的依赖机制。Python decorator 或 TS 函数名均不定义该公共契约。
+直接依赖，普通 `detect(input, context)` 函数贡献观察。输入约束直接用泛型表达，不另设按粒度
+命名的类型。Python decorator 或 TS 函数名均不定义该公共契约。
 
 ```typescript
 interface Detector<Input, Context> {
@@ -70,8 +70,8 @@ interface Detector<Input, Context> {
   requires?: readonly string[];
   detect(input: Input, context: Context): Findings | Promise<Findings>;
 }
-type NodeDetector = Detector<Node, AnalysisContext>;
-type BatchDetector = Detector<Dataset, BatchContext>;
+const nodeRule: Detector<Node, AnalysisContext> = { id: "node_rule", detect: inspectNode };
+const datasetRule: Detector<Dataset, BatchContext> = { id: "dataset_rule", detect: inspectDataset };
 ```
 
 Python 提供 `Detector(id="summary", requires=("detail",), detect=summarize)`，支持同步与

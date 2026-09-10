@@ -21,10 +21,10 @@ from uuid import uuid4
 from harness_common.report_kit import Prose, Report, Section, Table, render_html
 
 from trace_harness.analyze.context import AnalysisContext
-from trace_harness.batch_detectors import BatchDetector
 from trace_harness.corpus.tables import _fact_rows, _trace_row
 from trace_harness.dataset import Dataset
 from trace_harness.detectors import (
+    Detector,
     DetectorResult,
     dependency_result,
     execute_detector,
@@ -81,7 +81,7 @@ class BatchContext:
         dataset: Dataset,
         result: BatchResult,
         *,
-        detector: BatchDetector,
+        detector: Detector[Dataset, BatchContext],
         completed: dict[str, DetectorResult],
         output: Path,
     ):

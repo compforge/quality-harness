@@ -328,8 +328,8 @@ Planning cases are in `conformance/trace/detector-dependencies.json`. Python imp
 TypeScript does not yet implement this detector composition contract. The shared contract is independent of
 Python decorators, TS function syntax, and either implementation's storage paths.
 
-Node and Dataset execution MUST share the definition and dependency semantics; type aliases MAY name
-specific input/context pairs. Dependencies MUST resolve in the same grain's registry and current unit;
+Node and Dataset execution MUST share the definition and dependency semantics; input/context pairs
+are expressed through the generic Detector type. Dependencies MUST resolve in the same grain's registry and current unit;
 cross-grain references MUST be rejected. Node execution MUST preserve post-order between nodes and
 use dependency order within each node. Full single-trace analysis and explicit detector selection MUST
 use the same invocation semantics. Failure status MUST survive analysis snapshots and Dataset reports.

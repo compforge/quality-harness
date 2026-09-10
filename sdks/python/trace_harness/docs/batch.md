@@ -55,7 +55,7 @@ Detector 用定义对象表达稳定身份、依赖和执行逻辑。`id` 是显
 Python 已实现定义对象与依赖执行；下面以 TS 写法说明跨语言契约，TS 尚未实现该能力：
 
 ```typescript
-const intentionStages: BatchDetector = {
+const intentionStages: Detector<Dataset, BatchContext> = {
   id: "intention_stages_analysis",
   requires: [
     "intention_latency_analysis",
@@ -77,8 +77,8 @@ async function summarizeIntentionStages(dataset, context) {
 ```
 
 Python 从 `trace_harness` 导入 `Detector`，使用
-`Detector(id="...", requires=(...), detect=summarize_intention_stages)`；`BatchDetector` 是其
-Dataset 输入类型别名。
+`Detector(id="...", requires=(...), detect=summarize_intention_stages)`；需要类型约束时使用
+`Detector[Dataset, BatchContext]`。
 `context.result(id)` 返回共用的 `DetectorResult`，通过 `status` / `error` 检查执行，
 `findings()` 逐行读取结构化输出。持久化路径由 Run 的执行记录提供，不属于公共结果接口。
 定义对象在 `TraceContributions` 中显式注册。依赖是静态数据，框架能够在读取 trace 前验证并规划；

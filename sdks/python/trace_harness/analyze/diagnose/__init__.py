@@ -23,10 +23,10 @@ from trace_harness.analyze.diagnose.detectors import BUILTIN_DETECTORS
 from trace_harness.analyze.diagnose.outliers import find_outliers
 from trace_harness.analyze.diagnose.patterns import find_patterns
 from trace_harness.analyze.diagnose.probes import probe
-from trace_harness.analyze.diagnose.registry import DetectorRegistry, NodeDetector
+from trace_harness.analyze.diagnose.registry import DetectorRegistry
 from trace_harness.analyze.diagnose.series import find_trends
 from trace_harness.analyze.measure import measure
-from trace_harness.detectors import execute_detector
+from trace_harness.detectors import Detector, execute_detector
 from trace_harness.model.context import TraceContext
 from trace_harness.model.measurement import Measurements
 from trace_harness.model.node import Finding, Node
@@ -100,7 +100,7 @@ async def diagnose_analysis(
 
 async def run_node_detectors(
     analysis: AnalysisContext,
-    plan: list[NodeDetector],
+    plan: list[Detector[Node, AnalysisContext]],
     base: Iterable[Finding] = (),
 ) -> AnalysisContext:
     """Post-order across nodes, dependency order within each node.

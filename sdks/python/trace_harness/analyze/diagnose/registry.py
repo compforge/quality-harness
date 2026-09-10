@@ -19,22 +19,25 @@ from trace_harness.analyze.context import AnalysisContext
 from trace_harness.detectors import Detect, Detector, plan_detectors
 from trace_harness.model.node import Node
 
-NodeDetector = Detector[Node, AnalysisContext]
-NodeDetect = Detect[Node, AnalysisContext]
-
 
 class DetectorRegistry:
     """一次 trace 分析使用的全局/整树 detector 集。"""
 
-    def __init__(self, detectors: Iterable[NodeDetector | NodeDetect] = ()) -> None:
+    def __init__(
+        self,
+        detectors: Iterable[Detector[Node, AnalysisContext] | Detect[Node, AnalysisContext]] = (),
+    ) -> None:
         self._detectors = list(detectors)
 
-    def register(self, detector: NodeDetector | NodeDetect) -> NodeDetector | NodeDetect:
+    def register(
+        self,
+        detector: Detector[Node, AnalysisContext] | Detect[Node, AnalysisContext],
+    ) -> Detector[Node, AnalysisContext] | Detect[Node, AnalysisContext]:
         self._detectors.append(detector)
         return detector
 
-    def registered(self) -> list[NodeDetector | NodeDetect]:
+    def registered(self) -> list[Detector[Node, AnalysisContext] | Detect[Node, AnalysisContext]]:
         return list(self._detectors)
 
-    def plan(self, selected: list[str] | None = None) -> list[NodeDetector]:
+    def plan(self, selected: list[str] | None = None) -> list[Detector[Node, AnalysisContext]]:
         return plan_detectors(self._detectors, selected)

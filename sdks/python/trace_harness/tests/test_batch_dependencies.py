@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from trace_harness import BatchDetector, Finding
-from trace_harness.batch_detectors import plan_detectors
+from trace_harness import Detector, Finding
+from trace_harness.detectors import plan_detectors
 from trace_harness.tests.test_loading import MemorySource, harness
 
 CONTRACT = Path(__file__).resolve().parents[4] / "conformance/trace/detector-dependencies.json"
@@ -15,8 +15,7 @@ CONTRACT = Path(__file__).resolve().parents[4] / "conformance/trace/detector-dep
 @pytest.mark.parametrize("case", json.loads(CONTRACT.read_text()))
 def test_plan_contract(case):
     definitions = [
-        BatchDetector(d["id"], lambda d, c: [], tuple(d.get("requires", [])))
-        for d in case["detectors"]
+        Detector(d["id"], lambda d, c: [], tuple(d.get("requires", []))) for d in case["detectors"]
     ]
     if "error" in case:
         with pytest.raises((ValueError, KeyError), match=case["error"]):
@@ -49,9 +48,9 @@ async def test_shared_dependency_results_and_new_run(tmp_path):
         return [Finding(None, "summary", "info", scope="dataset")]
 
     definitions = (
-        BatchDetector("aggregate", aggregate, ("branch", "leaf")),
-        BatchDetector("branch", branch, ("leaf",)),
-        BatchDetector("leaf", leaf),
+        Detector("aggregate", aggregate, ("branch", "leaf")),
+        Detector("branch", branch, ("leaf",)),
+        Detector("leaf", leaf),
     )
     source = MemorySource()
     async with harness(batch_detectors=definitions).open(source, work_dir=tmp_path) as session:
@@ -94,10 +93,10 @@ async def test_failure_partial_empty_and_undeclared_dependency(tmp_path):
         ctx.result("empty")
 
     definitions = (
-        BatchDetector("summary", aggregate, ("broken", "empty")),
-        BatchDetector("broken", broken),
-        BatchDetector("empty", empty),
-        BatchDetector("unauthorized", unauthorized),
+        Detector("summary", aggregate, ("broken", "empty")),
+        Detector("broken", broken),
+        Detector("empty", empty),
+        Detector("unauthorized", unauthorized),
     )
     async with harness(batch_detectors=definitions).open(
         MemorySource(), work_dir=tmp_path
@@ -114,7 +113,7 @@ async def test_failure_partial_empty_and_undeclared_dependency(tmp_path):
 
 async def test_invalid_plan_before_source_fetch(tmp_path):
     source = MemorySource()
-    configured = harness(batch_detectors=(BatchDetector("a", lambda d, c: [], ("missing",)),))
+    configured = harness(batch_detectors=(Detector("a", lambda d, c: [], ("missing",)),))
     async with configured.open(source, work_dir=tmp_path) as session:
         ds = await session.select()
         with pytest.raises(KeyError):

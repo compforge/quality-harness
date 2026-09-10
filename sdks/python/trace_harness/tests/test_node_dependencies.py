@@ -7,10 +7,8 @@ from pathlib import Path
 import pytest
 
 from trace_harness import (
-    BatchDetector,
     Detector,
     Finding,
-    NodeDetector,
     dump_analysis,
     load_analysis,
 )
@@ -24,8 +22,7 @@ CONTRACT = Path(__file__).resolve().parents[4] / "conformance/trace/detector-dep
 @pytest.mark.parametrize("case", json.loads(CONTRACT.read_text()))
 def test_shared_planning_contract(case):
     definitions = [
-        NodeDetector(d["id"], lambda n, c: [], tuple(d.get("requires", [])))
-        for d in case["detectors"]
+        Detector(d["id"], lambda n, c: [], tuple(d.get("requires", []))) for d in case["detectors"]
     ]
     registry = DetectorRegistry(definitions)
     if "error" in case:
@@ -33,14 +30,6 @@ def test_shared_planning_contract(case):
             registry.plan(case["selected"])
     else:
         assert [d.id for d in registry.plan(case["selected"])] == case["order"]
-
-
-def test_aliases_use_one_definition():
-    def handler(n, c):
-        return []
-
-    assert isinstance(NodeDetector("n", handler), Detector)
-    assert isinstance(BatchDetector("d", handler), Detector)
 
 
 async def test_node_result_scope_postorder_and_repeat_analysis(tmp_path):
