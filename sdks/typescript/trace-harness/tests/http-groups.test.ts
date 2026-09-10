@@ -1,3 +1,4 @@
+import { archiveContents, traceTrees } from "./archive-fixture";
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { NormSpan, TraceHarness, genAiSpecs } from "../src/index";
@@ -37,7 +38,7 @@ for (const fixture of cases) {
     expect(harness.renderDisplay(context, findings).map(outline)).toEqual(fixture.expected);
     expect(JSON.stringify(context.nodes)).toBe(before);
     const html = harness.renderInteractive(context, findings);
-    const payload: { full: { roots: PayloadNode[] } } = JSON.parse(html.split("const TREES=")[1]!.split(",SPANS=")[0]!);
+    const payload: { full: { roots: PayloadNode[] } } = traceTrees(html);
     const nodes = [...walk(payload.full.roots)];
     const ids = nodes.map((node) => node.node_id);
     expect(new Set(ids).size).toBe(ids.length);

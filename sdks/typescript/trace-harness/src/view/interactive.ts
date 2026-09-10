@@ -1,3 +1,4 @@
+import { TraceArchive, ARCHIVE_SCRIPT } from "./archive";
 import renderJsonSource from "renderjson/renderjson.js" with { type: "text" };
 
 import { Measurements } from "../model/measurement";
@@ -12,7 +13,6 @@ import { builtinFacets } from "./facets";
 import { FacetRegistry } from "./registry";
 import { toolNameDetail } from "./tool-name";
 
-const ATTR_TRUNCATE = 4000;
 const JSON_DECODE_LIMIT = 4;
 
 function htmlEscape(value: unknown): string {
@@ -39,9 +39,6 @@ function attrPayload(value: unknown): Record<string, unknown> {
   const json = structuredJson(value);
   if (json !== undefined) return { kind: "json", value: json };
   let text = typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
-  if (text.length > ATTR_TRUNCATE) {
-    text = `${text.slice(0, ATTR_TRUNCATE)}\n…[已截断，共 ${text.length} 字符；完整原文按 span_id 下钻]`;
-  }
   return { kind: "text", value: text };
 }
 
@@ -185,11 +182,12 @@ dl.attrs{margin:0}dl.attrs dt{font-size:11px;color:#6b7280;margin-top:10px}dl.at
 // The report must remain a single offline HTML file, so embed the dependency's
 // browser source at build time instead of loading it from a CDN at view time.
 const SCRIPT = `${renderJsonSource}\n${String.raw`
-const TREES=__TREES__,SPANS=__SPANS__,KCOLOR={agent:'#7c3aed','agent-run':'#7c3aed','agent-turn':'#4f46e5',framework:'#2563eb',node:'#2563eb','model-call':'#059669','tool-call':'#d97706',action:'#0891b2',operation:'#0891b2',service:'#6b7280'};
+const {trees:TREES,spans:SPANS}=readTraceEntry('index.json');
+const KCOLOR={agent:'#7c3aed','agent-run':'#7c3aed','agent-turn':'#4f46e5',framework:'#2563eb',node:'#2563eb','model-call':'#059669','tool-call':'#d97706',action:'#0891b2',operation:'#0891b2',service:'#6b7280'};
 const stackEl=document.getElementById('view-stack'),treeEl=document.getElementById('tree'),splitterEl=document.getElementById('splitter'),paneEl=document.getElementById('pane');
 let perspective='full',layout='tree',tree=TREES.full,selectedId=location.hash.slice(1);
 let byId={},parentOf={},boxOf={},twOf={},flameBuilt=false,stackMaxDuration=1;
-renderjson.set_icons('▸','▾').set_show_to_level(1);
+renderjson.set_icons('▸','▾').set_show_to_level(1).set_max_string_length(256);
 function esc(s){return String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));}
 function fmtMs(ms){if(ms<1)return(ms*1000).toFixed(0)+'µs';if(ms<1000)return ms.toFixed(0)+'ms';const s=ms/1000;return s<60?s.toFixed(2)+'s':Math.floor(s/60)+'m'+(s%60).toFixed(1)+'s';}
 function nameLength(value){return Array.from(String(value||'')).reduce((length,character)=>length+(character.codePointAt(0)>255?2:1),0);}
@@ -207,7 +205,7 @@ function applyNameLayout(row,n,depth,rowHeight){const name=row.querySelector('.n
 function refreshTreeNames(){treeEl.querySelectorAll('.row[data-id]').forEach(row=>{const n=byId[row.dataset.id];if(n)applyNameLayout(row,n,Number(row.dataset.depth),Number(row.dataset.rowHeight));});}
 // Use a fixed-color SVG: platform emoji fonts do not preserve the balloon color.
 function appendMeasurementMarker(row,n){
-  if(!(n.measurements||[]).length)return;
+  if(!n.has_measurements)return;
   const marker=document.createElement('button');marker.type='button';marker.className='measurement-marker';
   marker.title='查看 Measurements';marker.setAttribute('aria-label','查看 Measurements');
   marker.innerHTML='<svg width="16" height="20" viewBox="0 0 16 20" aria-hidden="true" focusable="false"><path d="M8 14c-3 2 3 3 0 5" fill="none" stroke="#78716c" stroke-width="1"/><path d="m8 12-2 3h4z" fill="#facc15" stroke="#ca8a04" stroke-width=".7"/><ellipse cx="8" cy="6.5" rx="5.5" ry="6" fill="#facc15" stroke="#ca8a04" stroke-width=".8"/><path d="M5 3.5c-1 .7-1.4 1.6-1.4 2.5" fill="none" stroke="#fef9c3" stroke-width="1.5" stroke-linecap="round"/></svg>';
@@ -217,13 +215,15 @@ function appendMeasurementMarker(row,n){
 function renderInto(n,depth,parent){byId[n.node_id]=n;parentOf[n.node_id]=parent&&parent.node_id;const box=document.createElement('div'),row=document.createElement('div');row.className='row'+(n.has_error?' err':'');row.dataset.id=n.node_id;row.dataset.depth=String(depth);row.style.paddingLeft=(depth*16+8)+'px';const timedLeaf=perspective==='agent'&&!n.children.length,rowHeight=timedLeaf?timeHeight(n.duration_ms,stackMaxDuration):22;row.dataset.rowHeight=String(rowHeight);
 // 竖条跟随 node 的缩进而非整行边框，避免选中态覆盖，也让 leaf 的时间高度直接可见。
 if(perspective==='agent'){row.classList.add('agent-row');row.style.setProperty('--node-color',KCOLOR[n.kind]||'#9ca3af');row.style.setProperty('--node-indent',(depth*16+4)+'px');row.style.minHeight=rowHeight+'px';row.style.alignItems='center';}
-const tw=document.createElement('span');tw.className='tw';tw.textContent=n.children.length?'▾':'·';row.appendChild(tw);if(n.kind){const k=document.createElement('span');k.className='kind '+n.kind;k.textContent=n.kind;row.appendChild(k);}const nm=document.createElement('span');nm.className='node-name';row.appendChild(nm);appendMeasurementMarker(row,n);applyNameLayout(row,n,depth,rowHeight);const dur=document.createElement('span');dur.className='dur';dur.textContent=fmtMs(n.duration_ms);row.appendChild(dur);if(n.brief){const b=document.createElement('span');b.className='brief';b.textContent='('+n.brief+')';row.appendChild(b);}if(n.has_error){const e=document.createElement('span');e.className='errdot';e.textContent='[ERROR]';row.appendChild(e);}box.appendChild(row);const kids=document.createElement('div');box.appendChild(kids);boxOf[n.node_id]=kids;twOf[n.node_id]=tw;n.children.forEach(c=>kids.appendChild(renderInto(c,depth+1,n)));if((n.folded||n.collapsed)&&n.children.length){kids.style.display='none';tw.textContent='▸';}tw.onclick=ev=>{ev.stopPropagation();const open=kids.style.display!=='none';kids.style.display=open?'none':'';tw.textContent=n.children.length?(open?'▸':'▾'):'·';};row.onclick=()=>select(n.node_id);return box;}
-function factValue(v){const text=typeof v==='string'?v:JSON.stringify(v,null,2);return typeof v==='object'||text.length>160||text.includes('\n')?'<details><summary>'+esc(text.slice(0,120))+'</summary><pre>'+esc(text)+'</pre></details>':esc(text);}
+const tw=document.createElement('span');tw.className='tw';tw.textContent=n.children.length?'▾':'·';row.appendChild(tw);if(n.kind){const k=document.createElement('span');k.className='kind '+n.kind;k.textContent=n.kind;row.appendChild(k);}const nm=document.createElement('span');nm.className='node-name';row.appendChild(nm);appendMeasurementMarker(row,n);applyNameLayout(row,n,depth,rowHeight);const dur=document.createElement('span');dur.className='dur';dur.textContent=fmtMs(n.duration_ms);row.appendChild(dur);if(n.brief){const b=document.createElement('span');b.className='brief';b.textContent='('+n.brief+')';row.appendChild(b);}if(n.has_error){const e=document.createElement('span');e.className='errdot';e.textContent='[ERROR]';row.appendChild(e);}box.appendChild(row);const kids=document.createElement('div');box.appendChild(kids);boxOf[n.node_id]=kids;twOf[n.node_id]=tw;const mount=()=>{if(kids.dataset.mounted)return;kids.dataset.mounted='true';n.children.forEach(c=>kids.appendChild(renderInto(c,depth+1,n)));};kids.mount=mount;if(!(n.folded||n.collapsed))mount();if((n.folded||n.collapsed)&&n.children.length){kids.style.display='none';tw.textContent='▸';}tw.onclick=ev=>{ev.stopPropagation();const open=kids.style.display!=='none';if(!open)mount();kids.style.display=open?'none':'';tw.textContent=n.children.length?(open?'▸':'▾'):'·';};row.onclick=()=>select(n.node_id);return box;}
+function previewText(text){return text.length>16384?text.slice(0,16384)+'\n…（预览已截断，可下载完整内容）':text;}
+function factValue(v){const text=typeof v==='string'?v:JSON.stringify(v,null,2);return typeof v==='object'||text.length>160||text.includes('\n')?'<details><summary>'+esc(text.slice(0,120))+'</summary><pre>'+esc(previewText(text))+'</pre></details>':esc(text);}
 function facts(n){const rows=Object.entries(n.facts||{});return rows.length?'<section class="facts-section"><h3>Facts</h3><table class="facts">'+rows.map(([k,v])=>'<tr><td>'+esc(k)+'</td><td>'+factValue(v)+'</td></tr>').join('')+'</table></section>':'';}
 function findings(n){const marks={error:'✗',warn:'▲',info:'·'};return(n.findings||[]).length?'<div class="findings">'+n.findings.map(f=>'<div class="f-'+esc(f.severity)+'">'+(marks[f.severity]||'·')+' ['+esc(f.source)+'] '+esc(f.note)+'</div>').join('')+'</div>':'';}
-function details(n){const rows=Object.entries(n.details||{});return rows.length?'<div class="meta">详情：</div>'+rows.map(([k,v])=>'<div class="feat"><div class="feat-h">'+esc(k)+'</div><pre class="feat-body">'+esc(typeof v==='string'?v:JSON.stringify(v,null,2))+'</pre></div>').join(''):'';}
-function attrValue(payload){const dd=document.createElement('dd');if(payload&&payload.kind==='json'){dd.className='json';dd.appendChild(renderjson(payload.value));}else{dd.textContent=payload&&payload.kind==='text'?payload.value:String(payload??'');}return dd;}
-function unfold(id){let p=parentOf[id];while(p){const b=boxOf[p];if(b&&b.style.display==='none'){b.style.display='';twOf[p].textContent='▾';}p=parentOf[p];}}
+function details(n){const rows=Object.entries(n.details||{});return rows.length?'<div class="meta">详情：</div>'+rows.map(([k,v])=>'<div class="feat"><div class="feat-h">'+esc(k)+'</div><pre class="feat-body">'+esc(previewText(typeof v==='string'?v:JSON.stringify(v,null,2)))+'</pre></div>').join(''):'';}
+function downloadValue(name,value){const blob=new Blob([typeof value==='string'?value:JSON.stringify(value,null,2)],{type:'text/plain;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function attrValue(payload){const dd=document.createElement('dd');if(payload&&payload.kind==='json'){dd.className='json';dd.appendChild(renderjson(payload.value));}else{const text=payload&&payload.kind==='text'?payload.value:String(payload??'');dd.textContent=previewText(text);if(text.length>16384){const button=document.createElement('button');button.textContent='下载完整内容';button.onclick=()=>downloadValue('attribute.txt',text);dd.appendChild(button);}}return dd;}
+function unfold(id){const parents=[];for(let p=parentOf[id];p;p=parentOf[p])parents.unshift(p);for(const p of parents){const b=boxOf[p];if(b){b.mount?.();b.style.display='';twOf[p].textContent='▾';}}}
 function measurementValue(value,unit){
   if(value==null)return '—';
   if(unit==='ms'&&typeof value==='number')return fmtMs(value);
@@ -247,11 +247,11 @@ function measurementBlock(n){
   const groups=new Map();for(const row of rows){if(!groups.has(row.id))groups.set(row.id,[]);groups.get(row.id).push(row);}
   return '<section class="measurement-section" aria-labelledby="measurements"><h3 id="measurements" tabindex="-1">Measurements</h3>'+[...groups.values()].map(measurementGroup).join('')+'</section>';
 }
-function select(id){document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));unfold(id);const row=document.querySelector('.row[data-id="'+CSS.escape(id)+'"]');if(row){row.classList.add('sel');row.scrollIntoView({block:'nearest'});}const n=byId[id];if(!n)return;selectedId=id;location.hash=id;paneEl.innerHTML='<h2>'+esc(n.name)+'</h2><div class="meta">'+esc(n.kind)+' · '+fmtMs(n.duration_ms)+(n.service?' · '+esc(n.service):'')+(n.has_error?' · <b style="color:#dc2626">ERROR：'+esc(n.error)+'</b>':'')+'</div>'+findings(n)+measurementBlock(n)+facts(n)+details(n)+'<div class="meta">溯源 span（'+n.span_ids.length+'）：</div><div class="chips">'+n.span_ids.map(sid=>'<span class="chip'+((n.error_span_ids||[]).includes(sid)?' errc':'')+'" data-sid="'+esc(sid)+'">'+(sid===n.primary_span_id?'primary':'卫星')+' · '+esc((SPANS[sid]||{}).operation||sid)+'</span>').join('')+'</div><div id="attrs"></div>';paneEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>showSpan(c.dataset.sid));paneEl.querySelectorAll('.feat-h').forEach(h=>h.onclick=()=>h.parentElement.classList.toggle('open'));const sid=(n.error_span_ids||[])[0]||n.primary_span_id;if(sid)showSpan(sid);else document.getElementById('attrs').innerHTML='<div class="meta">视图压缩节点，无独立 span</div>';}
-function showSpan(sid){paneEl.querySelectorAll('.chip').forEach(c=>c.classList.toggle('sel',c.dataset.sid===sid));const sp=SPANS[sid],box=document.getElementById('attrs');box.replaceChildren();if(!sp){const missing=document.createElement('div');missing.className='meta';missing.textContent='span 不在快照内';box.appendChild(missing);return;}const meta=document.createElement('div');meta.className='meta';meta.textContent='span '+sid+' · '+sp.operation+' · '+fmtMs(sp.duration_ms);box.appendChild(meta);const attrs=document.createElement('dl');attrs.className='attrs';for(const [key,value] of Object.entries(sp.attrs)){const name=document.createElement('dt');name.textContent=key;attrs.append(name,attrValue(value));}box.appendChild(attrs);}
+function select(id){document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));unfold(id);const row=document.querySelector('.row[data-id="'+CSS.escape(id)+'"]');if(row){row.classList.add('sel');row.scrollIntoView({block:'nearest'});}const summary=byId[id];if(!summary)return;const n=loadNode(summary);selectedId=id;location.hash=id;paneEl.innerHTML='<h2>'+esc(n.name)+'</h2><div class="meta">'+esc(n.kind)+' · '+fmtMs(n.duration_ms)+(n.service?' · '+esc(n.service):'')+(n.has_error?' · <b style="color:#dc2626">ERROR：'+esc(n.error)+'</b>':'')+'</div>'+findings(n)+measurementBlock(n)+facts(n)+details(n)+'<div class="meta">溯源 span（'+n.span_ids.length+'）：</div><div class="chips">'+n.span_ids.map(sid=>'<span class="chip'+((n.error_span_ids||[]).includes(sid)?' errc':'')+'" data-sid="'+esc(sid)+'">'+(sid===n.primary_span_id?'primary':'卫星')+' · '+esc((SPANS[sid]||{}).operation||sid)+'</span>').join('')+'</div><div id="attrs"></div>';paneEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>showSpan(c.dataset.sid));paneEl.querySelectorAll('.feat-h').forEach(h=>h.onclick=()=>h.parentElement.classList.toggle('open'));const download=document.createElement('button');download.textContent='下载节点完整详情';download.onclick=()=>downloadValue('node.json',n);paneEl.appendChild(download);const sid=(n.error_span_ids||[])[0]||n.primary_span_id;if(sid)showSpan(sid);else document.getElementById('attrs').innerHTML='<div class="meta">视图压缩节点，无独立 span</div>';}
+function showSpan(sid){paneEl.querySelectorAll('.chip').forEach(c=>c.classList.toggle('sel',c.dataset.sid===sid));const sp=loadSpan(sid),box=document.getElementById('attrs');box.replaceChildren();if(!sp){const missing=document.createElement('div');missing.className='meta';missing.textContent='span 不在快照内';box.appendChild(missing);return;}const meta=document.createElement('div');meta.className='meta';meta.textContent='span '+sid+' · '+sp.operation+' · '+fmtMs(sp.duration_ms);box.appendChild(meta);const attrs=document.createElement('dl');attrs.className='attrs';for(const [key,value] of Object.entries(sp.attrs)){const name=document.createElement('dt');name.textContent=key;attrs.append(name,attrValue(value));}box.appendChild(attrs);}
 function firstError(ns){for(const n of ns){if(n.has_error&&n.kind)return n.node_id;const child=firstError(n.children);if(child)return child;}return null;}
 function firstReal(ns){for(const n of ns){if(n.kind)return n.node_id;const child=firstReal(n.children);if(child)return child;}return null;}
-function renderTree(){tree=TREES[perspective]||{roots:[]};treeEl.replaceChildren();stackMaxDuration=perspective==='agent'?maxLeafDuration(tree.roots):1;byId={};parentOf={};boxOf={};twOf={};flameBuilt=false;tree.roots.forEach(r=>treeEl.appendChild(renderInto(r,0,null)));refreshTreeNames();if(!tree.roots.length){treeEl.innerHTML='<div class="empty">当前侧重点没有可展示节点</div>';paneEl.innerHTML='<div class="empty">切换到“完整”查看全部节点</div>';if(layout==='flame')buildFlame();return;}const wanted=selectedId&&byId[selectedId]?selectedId:null;select(wanted||firstError(tree.roots)||firstReal(tree.roots)||tree.roots[0].node_id);if(layout==='flame')buildFlame();}
+function renderTree(){tree=TREES[perspective]||{roots:[]};treeEl.replaceChildren();stackMaxDuration=perspective==='agent'?maxLeafDuration(tree.roots):1;byId={};parentOf={};boxOf={};twOf={};flameBuilt=false;(function index(ns,parent){for(const n of ns){byId[n.node_id]=n;parentOf[n.node_id]=parent;index(n.children,n.node_id);}})(tree.roots,null);tree.roots.forEach(r=>treeEl.appendChild(renderInto(r,0,null)));refreshTreeNames();if(!tree.roots.length){treeEl.innerHTML='<div class="empty">当前侧重点没有可展示节点</div>';paneEl.innerHTML='<div class="empty">切换到“完整”查看全部节点</div>';if(layout==='flame')buildFlame();return;}const wanted=selectedId&&byId[selectedId]?selectedId:null;select(wanted||firstError(tree.roots)||firstReal(tree.roots)||tree.roots[0].node_id);if(layout==='flame')buildFlame();}
 function splitBounds(){const available=Math.max(0,stackEl.clientWidth-splitterEl.offsetWidth),minTree=Math.min(220,Math.max(120,available*.35)),minPane=Math.min(280,Math.max(160,available*.35));return{min:minTree,max:Math.max(minTree,available-minPane)};}
 let pendingTreeWidth=null,splitFrame=0;
 function applyTreeWidth(){splitFrame=0;if(pendingTreeWidth===null)return;const bounds=splitBounds(),width=Math.max(bounds.min,Math.min(bounds.max,pendingTreeWidth));pendingTreeWidth=null;stackEl.style.setProperty('--tree-width',width+'px');splitterEl.setAttribute('aria-valuemin',String(Math.round(bounds.min)));splitterEl.setAttribute('aria-valuemax',String(Math.round(bounds.max)));splitterEl.setAttribute('aria-valuenow',String(Math.round(width)));refreshTreeNames();}
@@ -263,7 +263,7 @@ splitterEl.onpointermove=event=>{if(splitterEl.hasPointerCapture(event.pointerId
 splitterEl.onpointerup=finishSplit;splitterEl.onpointercancel=finishSplit;
 splitterEl.onkeydown=event=>{if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight')return;event.preventDefault();const direction=event.key==='ArrowLeft'?-1:1;scheduleTreeWidth(treeEl.getBoundingClientRect().width+direction*(event.shiftKey?60:20));};
 window.addEventListener('resize',()=>{if(layout==='tree')scheduleTreeWidth(treeEl.getBoundingClientRect().width);});
-document.getElementById('expand').onclick=()=>treeEl.querySelectorAll('.tw').forEach(t=>{if(t.textContent==='▸')t.click();});document.getElementById('fold').onclick=()=>treeEl.querySelectorAll('.tw').forEach(t=>{if(t.textContent==='▾')t.click();});
+document.getElementById('expand').onclick=()=>{for(const id of Object.keys(byId))unfold(id);};document.getElementById('fold').onclick=()=>treeEl.querySelectorAll('.tw').forEach(t=>{if(t.textContent==='▾')t.click();});
 const views={tree:document.getElementById('view-stack'),flame:document.getElementById('view-flame')};
 function showLayout(next){layout=next;Object.entries(views).forEach(([key,element])=>element.style.display=key===next?(key==='tree'?'flex':'block'):'none');document.querySelectorAll('[data-layout]').forEach(button=>button.classList.toggle('active',button.dataset.layout===next));document.getElementById('expand').style.display=next==='tree'?'':'none';document.getElementById('fold').style.display=next==='tree'?'':'none';if(next==='tree')requestAnimationFrame(()=>scheduleTreeWidth(treeEl.getBoundingClientRect().width));if(next==='flame'&&!flameBuilt)buildFlame();}
 function showPerspective(next){perspective=next;document.querySelectorAll('[data-perspective]').forEach(button=>button.classList.toggle('active',button.dataset.perspective===next));renderTree();}
@@ -294,11 +294,24 @@ export function renderInteractive(
     trees.agent = { roots: agentRunRoots(context, options.agentRunIR, findings) };
   }
   const referenced = new Set(context.nodes.flatMap((node) => node.span_ids));
-  const spans = Object.fromEntries(
-    [...referenced].filter((spanId) => context.spans.has(spanId)).map((spanId) => [spanId, spanPayload(context, spanId)]),
-  );
-  const embed = (value: unknown) => JSON.stringify(value).replaceAll("</", "<\\/");
-  const script = SCRIPT.replace("__TREES__", embed(trees)).replace("__SPANS__", embed(spans));
+  const archive = new TraceArchive();
+  let sequence = 0;
+  const splitNode = (node: Record<string, unknown>): Record<string, unknown> => {
+    const { children, facts, details, findings, measurements, error, name, ...skeleton } = node;
+    const payload = archive.add(`nodes/${sequence++}.json`, { facts, details, findings, measurements, error, name });
+    return { ...skeleton, name: String(name ?? "").slice(0, 256),
+      name_variants: [...new Set((node.name_variants as string[] ?? []).map(value => value.slice(0, 256)))],
+      brief: String(node.brief ?? "").slice(0, 256),
+      payload, has_measurements: Array.isArray(measurements) && measurements.length > 0,
+      children: (children as Record<string, unknown>[]).map(splitNode) };
+  };
+  const skeletons = Object.fromEntries(Object.entries(trees).map(([key, tree]) => [key, { roots: tree.roots.map(splitNode) }]));
+  const spans = Object.fromEntries([...referenced].filter(id => context.spans.has(id)).map((id, i) => [id, {
+    operation: context.spans.get(id)!.name.slice(0, 256),
+    payload: archive.add(`spans/${i}.json`, spanPayload(context, id)),
+  }]));
+  archive.add("index.json", { trees: skeletons, spans });
+  const script = ARCHIVE_SCRIPT + SCRIPT;
   const title = htmlEscape(context.trace_id);
   const errorCount = context.nodes.filter((node) => node.has_error).length;
   const agentButton = trees.agent ? '<button data-perspective="agent">Agent</button>' : "";
@@ -307,5 +320,5 @@ export function renderInteractive(
 <nav class="switch"><span>侧重点</span><button data-perspective="full" class="active">完整</button>${agentButton}</nav>
 <nav class="switch"><span>形态</span><button data-layout="tree" class="active">调用栈</button><button data-layout="flame">火焰图</button></nav><button id="expand">全部展开</button><button id="fold">全部折叠</button></header>
 <div class="wrap" id="view-stack"><div class="tree" id="tree"></div><div class="splitter" id="splitter" role="separator" aria-label="调整调用栈与节点详情宽度" aria-orientation="vertical" tabindex="0"></div><div class="pane" id="pane"></div></div>
-<div id="view-flame"><div class="faxis" id="faxis"></div><div class="flame" id="flame"></div></div><script>${script}</script></body></html>\n`;
+<div id="view-flame"><div class="faxis" id="faxis"></div><div class="flame" id="flame"></div></div>${archive.embed()}<script>${script}</script></body></html>\n`;
 }

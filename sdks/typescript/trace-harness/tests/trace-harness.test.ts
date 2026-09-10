@@ -1,3 +1,4 @@
+import { archiveContents, traceTrees } from "./archive-fixture";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -51,19 +52,19 @@ describe("Python trace_harness parity fixture", () => {
   test("renders the Python interactive view contract as one HTML file", () => {
     const context = assemble(normalizeJaegerSpans(fixtureDocuments()), genAiSpecs());
     const html = renderInteractive(context, diagnose(context));
-    expect(html).toStartWith("<!doctype html>");
-    expect(html).toContain("调用栈");
-    expect(html).toContain("火焰图");
-    expect(html).toContain('data-perspective="full"');
-    expect(html).not.toContain('data-perspective="agent"');
-    expect(html).toContain('data-layout="tree"');
-    expect(html).toContain('data-layout="flame"');
-    expect(html).toContain("chat planner");
-    expect(html).toContain("http_status");
-    expect(html).toContain("errors 2");
-    expect(html).toContain('role="separator"');
-    expect(html).toContain("requestAnimationFrame(applyTreeWidth)");
-    expect(html).toContain("refreshTreeNames()");
+    expect(html + archiveContents(html)).toStartWith("<!doctype html>");
+    expect(html + archiveContents(html)).toContain("调用栈");
+    expect(html + archiveContents(html)).toContain("火焰图");
+    expect(html + archiveContents(html)).toContain('data-perspective="full"');
+    expect(html + archiveContents(html)).not.toContain('data-perspective="agent"');
+    expect(html + archiveContents(html)).toContain('data-layout="tree"');
+    expect(html + archiveContents(html)).toContain('data-layout="flame"');
+    expect(html + archiveContents(html)).toContain("chat planner");
+    expect(html + archiveContents(html)).toContain("http_status");
+    expect(html + archiveContents(html)).toContain("errors 2");
+    expect(html + archiveContents(html)).toContain('role="separator"');
+    expect(html + archiveContents(html)).toContain("requestAnimationFrame(applyTreeWidth)");
+    expect(html + archiveContents(html)).toContain("refreshTreeNames()");
     const browserScript = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
     expect(browserScript).toBeDefined();
     expect(() => new Function(browserScript!)).not.toThrow();
@@ -82,13 +83,13 @@ describe("Python trace_harness parity fixture", () => {
     const context = assemble(normalizeJaegerSpans(documents), genAiSpecs());
     const html = renderInteractive(context);
 
-    expect(html).toContain('"json.object":{"kind":"json","value":{"nested":[1,true,null]}}');
-    expect(html).toContain('"json.encoded":{"kind":"json","value":{"answer":"ok"}}');
-    expect(html).toContain('"json.double_encoded":{"kind":"json","value":{"answer":"ok"}}');
-    expect(html).toContain('"text.plain":{"kind":"text","value":"not json"}');
-    expect(html).toContain("var module, window, define, renderjson=");
-    expect(html).toContain("dd.appendChild(renderjson(payload.value))");
-    expect(html).not.toContain("function jsonTree(value,label,depth)");
+    expect(html + archiveContents(html)).toContain('"json.object":{"kind":"json","value":{"nested":[1,true,null]}}');
+    expect(html + archiveContents(html)).toContain('"json.encoded":{"kind":"json","value":{"answer":"ok"}}');
+    expect(html + archiveContents(html)).toContain('"json.double_encoded":{"kind":"json","value":{"answer":"ok"}}');
+    expect(html + archiveContents(html)).toContain('"text.plain":{"kind":"text","value":"not json"}');
+    expect(html + archiveContents(html)).toContain("var module, window, define, renderjson=");
+    expect(html + archiveContents(html)).toContain("dd.appendChild(renderjson(payload.value))");
+    expect(html + archiveContents(html)).not.toContain("function jsonTree(value,label,depth)");
   });
 
   test("uses shared budget compaction for Node Tree and flame graph tool names", () => {
@@ -101,10 +102,10 @@ describe("Python trace_harness parity fixture", () => {
 
     const html = renderInteractive(context);
 
-    expect(html).toContain('"name_variants":["shell · stream_query.py","stream_query.py","shell"]');
-    expect(html).toContain("applyNameLayout(row,n,depth,rowHeight)");
-    expect(html).toContain("nameForBudget(n,Math.max");
-    expect(html).toContain("actual-1/rawLength");
+    expect(html + archiveContents(html)).toContain('"name_variants":["shell · stream_query.py","stream_query.py","shell"]');
+    expect(html + archiveContents(html)).toContain("applyNameLayout(row,n,depth,rowHeight)");
+    expect(html + archiveContents(html)).toContain("nameForBudget(n,Math.max");
+    expect(html + archiveContents(html)).toContain("actual-1/rawLength");
   });
 
   test("treats the name ratio as a target without requiring an exact output ratio", () => {
@@ -264,7 +265,7 @@ describe("scoped TraceHarness", () => {
     ))!;
     expect(displayedIds(alpha.renderDisplay(alphaContext, alphaFindings))).toContain(successHttp.node_id);
     expect(displayedIds(plain.renderDisplay(plainContext, plainFindings))).not.toContain(successHttp.node_id);
-    expect(alpha.renderInteractive(alphaContext, alphaFindings)).toContain("alpha-action");
-    expect(plain.renderInteractive(plainContext, plainFindings)).not.toContain("alpha-action");
+    expect(archiveContents(alpha.renderInteractive(alphaContext, alphaFindings))).toContain("alpha-action");
+    expect(archiveContents(plain.renderInteractive(plainContext, plainFindings))).not.toContain("alpha-action");
   });
 });

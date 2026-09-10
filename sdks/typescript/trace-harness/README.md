@@ -22,6 +22,12 @@ const html = harness.renderInteractive(context, analysis.findings, {
 });
 ```
 
+The report is one offline HTML file: open it directly in a browser, without a server or extraction.
+Its embedded ZIP stores a lightweight tree index separately from node and span details. Selecting a
+node inflates only that node's details and the selected span; folded branches mount when expanded.
+Large text has a bounded preview with a complete-content download. Compressed data still resides in
+browser memory, so this format does not remove the browser's overall memory limit.
+
 Domain-specific behavior stays in the consumer and is passed explicitly as scoped
 `TraceContributions` (`specs`, `transforms`, `measurers`, `detectors`, declarative `facets`, and an optional
 `agentRunExtractor`). The extractor implements `NodeTreeExtractor<AgentRunIR>` and owns the
