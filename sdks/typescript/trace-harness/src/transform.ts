@@ -1,9 +1,12 @@
+import type { TraceContext } from "./model/context";
+import type { Dependency } from "./loading/facts";
 import type { Node } from "./model/node";
 import type { ViewTree } from "./model/viewtree";
 
 /** Named fact outputs; scheduling and presentation belong to consumers. */
 export interface FactTransform {
   produces: readonly string[];
+  requires?(node: Node, trace: TraceContext): readonly Dependency[];
   applies(node: Node): boolean;
   compute(node: Node, context: TransformContext): Record<string, unknown>;
 }

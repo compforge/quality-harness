@@ -29,11 +29,11 @@ function* walk(nodes: PayloadNode[]): Generator<PayloadNode> {
   for (const node of nodes) { yield node; yield* walk(node.children); }
 }
 for (const fixture of cases) {
-  test(`HTTP group conformance: ${fixture.name}`, () => {
+  test(`HTTP group conformance: ${fixture.name}`, async () => {
     const harness = new TraceHarness({ specs: genAiSpecs() });
     const spans = fixture.spans.map((item) => new NormSpan(item.span_id, item.parent_span_id ?? undefined, item.name, item.start_ms, item.dur_ms, item.service, false, item.attrs, { traceID: fixture.name }));
     const context = harness.assemble(new Map(spans.map((span: NormSpan) => [span.span_id, span])));
-    const findings = fixture.diagnose === false ? {} : harness.diagnose(context);
+    const findings = fixture.diagnose === false ? {} : await harness.diagnose(context);
     const before = JSON.stringify(context.nodes);
     expect(harness.renderDisplay(context, findings).map(outline)).toEqual(fixture.expected);
     expect(JSON.stringify(context.nodes)).toBe(before);

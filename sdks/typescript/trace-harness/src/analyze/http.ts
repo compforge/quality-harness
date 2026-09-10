@@ -38,13 +38,14 @@ function serialRuns(requests: HttpRequest[]): HttpRequest[][] {
 }
 
 /** Run once per trace; use caller spans for sequence timing to avoid cross-host clock skew. */
-export const httpRequestPatterns: Detector = (node, analysis) => {
+export const httpRequestPatterns: Detector = async (node, analysis) => {
   const context = analysis.trace;
   const anchor = context.nodes.reduce((earliest, candidate) =>
     !earliest || candidate.start_ms < earliest.start_ms
       || (candidate.start_ms === earliest.start_ms && candidate.node_id < earliest.node_id)
       ? candidate : earliest, context.nodes[0]);
   if (!anchor || node.node_id !== anchor.node_id) return [];
+  await analysis.fact(node, "http_evidence");
   const requests = httpRequests(context);
   const view = context.view();
   const findings: Finding[] = [];

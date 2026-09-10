@@ -9,8 +9,10 @@ implementations of this specification. Neither implementation is the specificati
 The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** describe normative
 requirements.
 
-Collection, environment discovery, credentials, ID resolution, and delivery of evidence bundles
-belong to the host. A Trace Harness starts from raw span documents or normalized spans.
+Environment discovery, credentials, business ID resolution, and delivery of evidence bundles belong
+to the host. A Trace Harness starts from raw span documents, normalized spans, or a host-configured
+Source through the optional [managed loading contract](trace-loading.md). Source adapters own backend
+reads; the loading runtime owns scheduling, cache reuse and resource bounds.
 
 In the quality-harness kernel vocabulary, an assembled `Node` is an Observation and
 `trace_id + node_id` identifies a node-grain Unit. A nodes/corpus collection is the reusable
@@ -95,8 +97,8 @@ registering a transform MUST NOT run it. Renderers MUST NOT initiate transformat
 
 One assembled trace owns its `TransformContext`. Dependencies are memoized across requests in
 that trace, including all outputs of one producer and omitted outputs. Contexts MUST NOT share
-node caches between traces. Base facts and topology are immutable inputs after construction;
-only explicit materialization adds facts. Cycles, undeclared outputs, multiple applicable
+node caches between traces. Topology and structural facts are immutable after construction. Managed loading may prepare declared
+detail facts before explicit transformation; unrelated base facts remain immutable. Cycles, undeclared outputs, multiple applicable
 producers of a name and collisions with base facts MUST fail explicitly. A materialization
 batch commits all dependency outputs atomically; failure MUST leave neither partial facts nor
 cached partial computations, so a later request can retry.

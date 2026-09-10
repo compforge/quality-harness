@@ -197,10 +197,10 @@ describe("AgentRun IR", () => {
     expect(agentRunSnapshot(instance.extractAgentRuns(context)!)).toEqual(expected);
   });
 
-  test("renders the extracted turns, calls, and operations", () => {
+  test("renders the extracted turns, calls, and operations", async () => {
     const instance = harness();
     const context = instance.assemble(normalizeJaegerSpans(fixtureDocuments()));
-    const html = instance.renderInteractive(context, instance.diagnose(context));
+    const html = instance.renderInteractive(context, await instance.diagnose(context));
 
     expect(html + archiveContents(html)).toContain('data-perspective="agent"');
     expect(html + archiveContents(html)).toContain("agent-run:run-main");

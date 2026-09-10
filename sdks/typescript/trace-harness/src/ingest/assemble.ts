@@ -15,6 +15,8 @@ export function assemble(
   spans: Map<string, NormSpan>,
   specset: SpecSet,
   transforms: Iterable<FactTransform> = builtinTransforms(),
+  prepare = true,
+  traceId?: string,
 ): TraceContext {
   const kindOf = new Map<string, KindSpec | undefined>();
   for (const [spanId, span] of spans) kindOf.set(spanId, specset.classify(span));
@@ -133,14 +135,14 @@ export function assemble(
   const realized = new Map<string, KindSpec>([[SERVICE_KIND, serviceSpec()]]);
   for (const spec of specset) if (!realized.has(spec.kind)) realized.set(spec.kind, spec);
 
-  const traceId = String(spans.values().next().value?.raw.traceID ?? "?");
+  traceId ??= String(spans.values().next().value?.raw.traceID ?? "?");
   const context = new TraceContext(traceId, spans, nodes, realized);
   const transformContext = new TransformContext(context.view(), transforms);
-  transformContext.materialize(nodes.flatMap((node) =>
+  if (prepare) transformContext.materialize(nodes.flatMap((node) =>
     (realized.get(node.kind)?.project_requires ?? []).map((name) => [node, name] as const)
   ));
   for (const node of nodes) {
-    node.brief = realized.get(node.kind)?.project?.(node) ?? [];
+    if (prepare) node.brief = realized.get(node.kind)?.project?.(node) ?? [];
     if (node.has_error) node.error_text = spanErrorText(spans.get(node.error_anchor));
   }
   context.transforms = transformContext;
