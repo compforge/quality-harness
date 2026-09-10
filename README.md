@@ -13,7 +13,7 @@ quality-harness provides SDKs for API testing, agent evaluation, performance tes
 | Do service APIs behave as expected? | **e2e** — run cases and check API contracts | [Python](docs/e2e-harness.md) / [Go](examples/README.md#go-service) |
 | How good are an agent's outputs? | **eval** — evaluate results and compare experiments | [Python](sdks/python/eval_harness/README.md) |
 | How does the system perform under load? | **perf** — measure latency, throughput, and resource use against declared targets | [Python](sdks/python/perf_harness/README.md) / [TypeScript](sdks/typescript/perf-harness/README.md) |
-| Where does a call chain show abnormal behavior? | **trace** — analyze spans, locate anomalies, and investigate causes | [Python](docs/trace-harness.md) / [TypeScript](sdks/typescript/trace-harness/README.md) |
+| Where does a call chain show abnormal behavior? | **trace** — analyze spans, locate anomalies, and investigate causes | [Python](docs/trace-harness-single.md) / [TypeScript](sdks/typescript/trace-harness/README.md) |
 | Are an agent's decisions and actions effective and efficient? | **trajectory** — measure cost, detect patterns, and verify behavior | [Python](sdks/python/trajectory_harness/README.md) |
 
 ## Get started

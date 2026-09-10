@@ -13,7 +13,7 @@ quality-harness 提供 API 测试、Agent 效果评测、性能测试、调用�
 | 服务 API 是否符合预期？ | **e2e** — 执行用例，验证 API 契约 | [Python](docs/e2e-harness.md) / [Go](examples/README.md#go-service) |
 | Agent 产出质量如何？ | **eval** — 评估结果，比较实验效果 | [Python](sdks/python/eval_harness/README.md) |
 | 系统在压力下表现如何？ | **perf** — 按声明的目标衡量延迟、吞吐和资源用量 | [Python](sdks/python/perf_harness/README.md) / [TypeScript](sdks/typescript/perf-harness/README.md) |
-| 调用链在哪里出现异常？ | **trace** — 分析 span，定位异常并辅助归因 | [Python](docs/trace-harness.md) / [TypeScript](sdks/typescript/trace-harness/README.md) |
+| 调用链在哪里出现异常？ | **trace** — 分析 span，定位异常并辅助归因 | [Python](docs/trace-harness-single.md) / [TypeScript](sdks/typescript/trace-harness/README.md) |
 | Agent 的决策与行动是否有效、高效？ | **trajectory** — 测量成本、发现模式、验证行为 | [Python](sdks/python/trajectory_harness/README.md) |
 
 ## 快速开始

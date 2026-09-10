@@ -9,7 +9,7 @@ e2e-harness 的第四个 SDK：trace/span 分析框架。前三个 harness 把�
 （ingest→transform→measure→diagnose→render）咬合成一个可生长的系统，靠**持续新增规则**（detector，case as
 code）辅助分析、排查 trace 里的问题——排查中每定位一类新坏模式就沉成一条，框架越用越懂、越会自己说话。
 
-设计理念、流程、决策记录见 [`../../../docs/trace-harness.md`](../../../docs/trace-harness.md)，本文件只给代码地图与改动入口。
+设计理念、流程、决策记录见 [`../../../docs/trace-harness-single.md`](../../../docs/trace-harness-single.md)，本文件只给代码地图与改动入口。
 
 与姐妹 harness 互不 import；`common`/`report_kit` 是唯一共享。域专属 kind（AS 的
 aigw/sandbox）不进本包，随域包留在消费方（如 trace-as skill），用 `spec.merge` 叠加。
@@ -119,6 +119,6 @@ Python 与 TypeScript 的分析结果共同遵守仓库根目录 `conformance/tr
 
 ## References
 
-- 设计文档（理念/流程/决策记录）：[`../../../docs/trace-harness.md`](../../../docs/trace-harness.md)
+- 设计文档（理念/流程/决策记录）：[`../../../docs/trace-harness-single.md`](../../../docs/trace-harness-single.md)
 - 语言中立规范：[`../../../spec/trace-harness.md`](../../../spec/trace-harness.md)
 - 跨语言测试 fixture：`../../../conformance/trace/fixtures/genai-basic.jsonl`（真实 ES jaeger-span 形状）
