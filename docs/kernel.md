@@ -47,6 +47,9 @@ e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共
 | **Report** | 一个或多个 Artifact 的面向人渲染，不重新执行 Experiment，也不重新生成源事实。 |
 | **Verdict** | 对一次 Run 的可机器消费判定。人、CI 和 agent 开发循环都通过它判断是否通过、为何失败，以及下一步应读哪些证据。 |
 
+Service 是逻辑运行服务，不与 Kubernetes Service 或其它平台资源一一对应。common 将运行目标
+与 DataSource 通过独立访问配置关联；资源映射归部署配置，见 [toolbox](toolbox.md)。
+
 这些名字定义共同语义。Python Harness 共享 `harness_common` 中的身份基类；不同语言保持惯用 API，
 但遵守相同关系和落盘契约。
 

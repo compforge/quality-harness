@@ -39,6 +39,12 @@ async def main():
 asyncio.run(main())
 ```
 
+Existing workloads can be observed with `kube.list_service_pods(name)` or
+`kube.list_deployment_pods(name)`. Both use the resource's label selector, return stable Pod
+observations, and leave readiness/sample selection to the caller. Missing resources raise
+`ResourceNotFoundError`; permission and network errors remain failures. Selectorless resources
+cannot be used to enumerate all Pods accidentally.
+
 The caller chooses cluster, namespace, credentials, SQL, indexes, collection windows, and authorization.
 The package does not read product-specific environment variables or registries. Kubernetes control uses
 `kubernetes-asyncio`; exec, port-forward and log streams require `kubectl` on the host and use the same

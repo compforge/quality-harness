@@ -7,4 +7,5 @@ from harness_toolbox.kube.model import Options as Options
 from harness_toolbox.kube.model import Pod as Pod
 from harness_toolbox.kube.model import PodRef as PodRef
 from harness_toolbox.kube.model import PodSpec as PodSpec
+from harness_toolbox.kube.model import ResourceNotFoundError as ResourceNotFoundError
 from harness_toolbox.process import ExecResult as ExecResult

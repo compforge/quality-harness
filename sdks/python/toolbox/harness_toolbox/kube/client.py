@@ -17,7 +17,16 @@ from kubernetes_asyncio import config
 from kubernetes_asyncio.client.exceptions import ApiException
 
 from harness_toolbox.client import ClientProvider, data_source_key
-from harness_toolbox.kube.model import Container, Event, Options, Pod, PodRef, PodSpec
+from harness_toolbox.kube.model import (
+    Container,
+    Event,
+    Options,
+    Pod,
+    PodRef,
+    PodSpec,
+    ResourceNotFoundError,
+)
+from harness_toolbox.kube.selector import label_selector
 from harness_toolbox.process import ExecResult, execute
 from harness_toolbox.transport import Endpoint, KubernetesAccess, PortForwardTransport
 
@@ -25,6 +34,10 @@ T = TypeVar("T")
 
 
 class _CoreV1API(Protocol):
+    async def read_namespaced_service(
+        self, name: str, namespace: str, **kwargs: Any
+    ) -> kubernetes.V1Service: ...
+
     async def create_namespaced_pod(self, namespace: str, **kwargs: Any) -> kubernetes.V1Pod: ...
 
     async def list_namespaced_pod(self, namespace: str, **kwargs: Any) -> kubernetes.V1PodList: ...
@@ -38,6 +51,12 @@ class _CoreV1API(Protocol):
     async def list_namespaced_event(
         self, namespace: str, **kwargs: Any
     ) -> kubernetes.CoreV1EventList: ...
+
+
+class _AppsV1API(Protocol):
+    async def read_namespaced_deployment(
+        self, name: str, namespace: str, **kwargs: Any
+    ) -> kubernetes.V1Deployment: ...
 
 
 @dataclass(frozen=True)
@@ -60,12 +79,19 @@ class KubernetesDataSource:
 class KubernetesClient:
     """Namespace-scoped operations; DataSource + ClientManager own initialization."""
 
-    def __init__(self, source: KubernetesDataSource, *, api: _CoreV1API | None = None) -> None:
+    def __init__(
+        self,
+        source: KubernetesDataSource,
+        *,
+        api: _CoreV1API | None = None,
+        apps_api: _AppsV1API | None = None,
+    ) -> None:
         _validate_options(source.options)
         self._source = source
         self._runtime_kubeconfig = source.kubeconfig
         self._options = source.options
         self._core = api
+        self._apps = apps_api
         self._api_client: kubernetes.ApiClient | None = None
         self._disposed = False
         self._stack = AsyncExitStack()
@@ -129,6 +155,7 @@ class KubernetesClient:
         configuration.connection_pool_maxsize = self._options.connection_pool_maxsize
         self._api_client = kubernetes.ApiClient(configuration)
         self._core = kubernetes.CoreV1Api(self._api_client)
+        self._apps = kubernetes.AppsV1Api(self._api_client)
 
     @property
     def access(self) -> KubernetesAccess:
@@ -272,6 +299,55 @@ class KubernetesClient:
             ) from exc
         return sorted((_pod_from(item) for item in result.items), key=lambda pod: pod.name)
 
+    async def list_service_pods(self, name: str) -> list[Pod]:
+        """List Pods selected by a Kubernetes Service, not by name prefix.
+
+        A missing Service raises ResourceNotFoundError. A selectorless Service
+        cannot identify Pods and raises ValueError instead of listing the namespace.
+        """
+        if not name.strip():
+            raise ValueError("Service name is required")
+        try:
+            resource = await self._api.read_namespaced_service(
+                name, self._options.namespace, _request_timeout=self._options.request_timeout_s
+            )
+        except ApiException as exc:
+            if exc.status == 404:
+                raise ResourceNotFoundError(
+                    f"Service {name!r} in namespace {self._options.namespace!r} not found"
+                ) from exc
+            raise
+        selector = resource.spec.selector if resource.spec is not None else None
+        if not selector:
+            raise ValueError(f"Service {name!r} has no Pod selector")
+        return await self.list_pods(
+            label_selector(kubernetes.V1LabelSelector(match_labels=selector))
+        )
+
+    async def list_deployment_pods(self, name: str) -> list[Pod]:
+        """List Pods matching a Deployment's complete label selector.
+
+        This reports selector membership, not an ownerReference ownership claim.
+        The caller decides readiness, termination and sample-selection policy.
+        """
+        if not name.strip():
+            raise ValueError("Deployment name is required")
+        _ = self._api
+        if self._apps is None:
+            raise RuntimeError("Kubernetes Apps API is not initialized")
+        try:
+            resource = await self._apps.read_namespaced_deployment(
+                name, self._options.namespace, _request_timeout=self._options.request_timeout_s
+            )
+        except ApiException as exc:
+            if exc.status == 404:
+                raise ResourceNotFoundError(
+                    f"Deployment {name!r} in namespace {self._options.namespace!r} not found"
+                ) from exc
+            raise
+        selector = resource.spec.selector if resource.spec is not None else None
+        return await self.list_pods(label_selector(selector))
+
     async def get_pod(self, name: str) -> Pod:
         """Read one Pod's stable observation."""
         if not name.strip():
@@ -390,6 +466,7 @@ class KubernetesClient:
                 await self._api_client.close()
                 self._api_client = None
             self._core = None
+            self._apps = None
 
     async def _delete_pod(
         self,

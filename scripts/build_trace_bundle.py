@@ -32,13 +32,14 @@ def main():
             if path.is_file() and "tests" not in path.parts and "__pycache__" not in path.parts:
                 source_hash.update(str(path.relative_to(sdk)).encode())
                 source_hash.update(path.read_bytes())
+    toolbox_version = tomllib.loads((sdk / "toolbox/pyproject.toml").read_text())["project"]["version"]
     wheels = []
     for package in ("harness_common", "trace_harness"):
         with tempfile.TemporaryDirectory(prefix="trace-wheel-") as temporary:
             root = Path(temporary)
             shutil.copytree(sdk / package, root / package,
                             ignore=shutil.ignore_patterns("tests", "__pycache__", "*.pyc"))
-            dependencies = [] if package == "harness_common" else [f"harness-common=={version}", "httpx>=0.27,<1", "pyyaml>=6,<7"]
+            dependencies = [f"harness-toolbox=={toolbox_version}"] if package == "harness_common" else [f"harness-common=={version}", "httpx>=0.27,<1", "pyyaml>=6,<7"]
             (root / "pyproject.toml").write_text(
                 '[build-system]\nrequires = ["hatchling==1.27.0"]\nbuild-backend = "hatchling.build"\n'
                 f'[project]\nname = "{package.replace("_", "-")}"\nversion = "{version}"\n'
@@ -51,7 +52,6 @@ def main():
         wheels.append({"distribution": package.replace("_", "-"), "filename": path.name,
                        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "imports": [package]})
     toolbox = sdk / "toolbox"
-    toolbox_version = tomllib.loads((toolbox / "pyproject.toml").read_text())["project"]["version"]
     subprocess.run(["uv", "build", "--wheel", "--out-dir", str(args.out.resolve()), str(toolbox)],
                    check=True, env={**os.environ, "SOURCE_DATE_EPOCH": "315532800"})
     toolbox_wheel = args.out / f"harness_toolbox-{toolbox_version}-py3-none-any.whl"
