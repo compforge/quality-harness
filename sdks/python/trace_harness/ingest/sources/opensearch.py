@@ -43,6 +43,8 @@ def selection_query(query: SpanQuery) -> dict:
     filters = [_nested_eq(k, v) for k, v in query.attr_eq.items()]
     if query.trace_ids is not None:
         filters.append({"terms": {"traceID": query.trace_ids}})
+    if query.operation_names is not None:
+        filters.append({"terms": {"operationName": query.operation_names}})
     if query.service:
         filters.append({"term": {"process.serviceName": query.service}})
     bounds = {}
@@ -107,6 +109,10 @@ class OpenSearchSource:
         return result
 
     async def select(self, query: SpanQuery) -> AsyncIterator[str]:
+        if query.order == "latest":
+            async for tid in self._latest(query):
+                yield tid
+            return
         # Composite aggregation paginates distinct traces, so a large trace cannot consume
         # the selection limit and silently hide all the other members.
         after = None
@@ -135,6 +141,40 @@ class OpenSearchSource:
             if next_after == after:
                 raise RuntimeError("OpenSearch selection cursor did not advance")
             after = next_after
+
+    async def _latest(self, query: SpanQuery) -> AsyncIterator[str]:
+        # Page sorted lightweight hits until enough distinct traces are found. A span
+        # limit or a terms aggregation ordered by doc_count would bias the sample.
+        seen: set[str] = set()
+        after = None
+        while len(seen) < query.limit:
+            payload = {
+                "size": self.page_size,
+                "_source": ["traceID"],
+                "query": selection_query(query),
+                "sort": [
+                    {"startTimeMillis": "desc"},
+                    {"traceID": "asc"},
+                    {"spanID": "asc"},
+                    {"_index": "asc"},
+                ],
+            }
+            if after is not None:
+                payload["search_after"] = after
+            hits = (await self._search(payload))["hits"]["hits"]
+            if not hits:
+                return
+            for hit in hits:
+                tid = str(hit["_source"]["traceID"])
+                if tid not in seen:
+                    seen.add(tid)
+                    yield tid
+                    if len(seen) == query.limit:
+                        return
+            cursor = hits[-1].get("sort")
+            if cursor is None or cursor == after:
+                raise RuntimeError("OpenSearch latest selection cursor did not advance")
+            after = cursor
 
     async def _documents(self, query: dict, fields: tuple[str, ...] | None) -> dict[str, NormSpan]:
         out = {}

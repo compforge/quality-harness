@@ -80,8 +80,11 @@ def analysis_snapshot(
 
 def dump_analysis(analysis: AnalysisContext, path: str | Path) -> Path:
     path = Path(path)
+    # Execution metadata belongs to saved analysis, not the language-neutral
+    # semantic snapshot used to compare findings/measurements across runtimes.
+    payload = {**analysis_snapshot(analysis), "detector_runs": list(analysis.detector_runs)}
     path.write_text(
-        json.dumps(analysis_snapshot(analysis), ensure_ascii=False, allow_nan=False),
+        json.dumps(payload, ensure_ascii=False, allow_nan=False),
         encoding="utf-8",
     )
     if analysis.trace.spans:
@@ -125,5 +128,8 @@ def load_analysis(path: str | Path) -> AnalysisContext:
         )
         findings.setdefault(finding.node_id, []).append(finding)
     return AnalysisContext(
-        trace, measurements, {key: tuple(value) for key, value in findings.items()}
+        trace,
+        measurements,
+        {key: tuple(value) for key, value in findings.items()},
+        detector_runs=tuple(data.get("detector_runs", ())),
     )

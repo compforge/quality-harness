@@ -45,3 +45,15 @@ trace single trace.jsonl --no-lazy
 
 trace-as 的 show、tree、diagnose、render-md 与 render-html 复用同一加载链，保留 AS 的解析、
 结构修正、业务规则和展示贡献。HTML 及显式 probe 导出位置独立于临时缓存清理。
+
+
+## Node detector 依赖
+
+Node 与 Dataset 共用 [Detector 定义与依赖](kernel.md#detector-定义与依赖)。
+`Detector(id="summary", requires=("detail",), detect=summarize)` 可以注册到
+`TraceContributions.detectors`；`context.result("detail")` 读取同一 node 的依赖执行结果。
+只选择 summary 会自动运行 detail。单条全量与指定规则共用执行器，前者额外运行 base/kind rules。
+
+依赖结果按当前 node 隔离，节点之间保持后序；父节点通过 `context.findings` 消费子树观察，
+不能通过 requires 假定另一 node 已有同名结果。失败可见于 findings 和 `analysis.detector_runs`，
+保存分析快照后离线展示仍保留这些状态。重复分析重新执行规则，证据缓存与结果生命周期独立。

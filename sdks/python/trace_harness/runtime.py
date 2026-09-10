@@ -7,7 +7,7 @@ import json
 import shutil
 import sqlite3
 import tempfile
-from collections.abc import AsyncIterator, Awaitable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -21,8 +21,7 @@ if TYPE_CHECKING:
     from trace_harness.harness import TraceHarness
 
 from trace_harness.analyze.context import AnalysisContext
-from trace_harness.analyze.diagnose import diagnose
-from trace_harness.analyze.diagnose.registry import DetectorRegistry
+from trace_harness.analyze.diagnose import diagnose_analysis, run_node_detectors
 from trace_harness.dataset import Dataset
 from trace_harness.ingest.assemble import assemble
 from trace_harness.ingest.sources.base import SpanQuery
@@ -222,28 +221,15 @@ class TraceSession:
         metrics: list[str] | None = None,
         probes: bool = False,
     ) -> AnalysisContext:
+        plan = self.harness.detectors.plan(detectors)
         metric_ids = [m.spec.id for m in self.harness.measurers] if metrics is None else metrics
         if analysis.trace.nodes:
             await asyncio.gather(
                 *(analysis.measure(analysis.trace.nodes[0], name) for name in metric_ids)
             )
         if detectors is not None:
-            registered = self.harness.detectors.registered()
-            chosen = [d for d in registered if d.__name__ in detectors]
-            unknown = set(detectors) - {d.__name__ for d in chosen}
-            if unknown:
-                raise KeyError(f"unknown detectors: {sorted(unknown)}")
-            # An explicit detector selection does not run unrelated baseline rules.
-            found = {}
-            from trace_harness.analyze.diagnose import _post_order
-
-            for node in _post_order(analysis.trace):
-                for detector in chosen:
-                    result = detector(node, analysis)
-                    for finding in (
-                        await result if isinstance(result, Awaitable) else result
-                    ) or []:
-                        found.setdefault(finding.node_id, []).append(finding)
+            # Explicit selection runs the same executor without unrelated base rules.
+            return await run_node_detectors(analysis, plan)
         else:
             # Kind metrics may themselves depend on evidence (e.g. tool result size).
             await asyncio.gather(
@@ -253,13 +239,12 @@ class TraceSession:
                     for name in analysis.trace.specs[n.kind].metrics
                 )
             )
-            found = await diagnose(
+            return await diagnose_analysis(
                 analysis.trace,
                 probes=probes,
-                detector_registry=DetectorRegistry(self.harness.detectors.registered()),
+                detector_registry=self.harness.detectors,
                 analysis=analysis,
             )
-        return AnalysisContext(analysis.trace, analysis.measurements, found, analysis.runtime)
 
     async def prepare_view(
         self, analysis: AnalysisContext, *, full: bool = False

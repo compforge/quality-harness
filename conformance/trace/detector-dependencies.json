@@ -1,0 +1,9 @@
+[
+  {"detectors":[{"id":"summary","requires":["left","right"]},{"id":"right","requires":["shared"]},{"id":"left","requires":["shared"]},{"id":"shared"}],"selected":["summary","shared","summary"],"order":["shared","left","right","summary"]},
+  {"detectors":[{"id":"a"}],"selected":[],"order":[]},
+  {"detectors":[{"id":"a","requires":["b"]},{"id":"b"}],"selected":null,"order":["b","a"]},
+  {"detectors":[{"id":"a"},{"id":"a"}],"selected":["a"],"error":"duplicate"},
+  {"detectors":[{"id":"a","requires":["b"]}],"selected":["a"],"error":"unknown"},
+  {"detectors":[{"id":"a","requires":["b"]},{"id":"b","requires":["a"]}],"selected":["a"],"error":"cycle"},
+  {"detectors":[{"id":"a"}],"selected":["missing"],"error":"unknown"}
+]

@@ -220,30 +220,40 @@ class JaegerFileSource:
 
     async def select(self, query):
         await self._ensure_index()
-        count = 0
-        for (tid,) in self._db.execute("SELECT DISTINCT trace FROM spans ORDER BY trace"):
-            if query.trace_ids is not None and tid not in query.trace_ids:
-                continue
-            matched = False
-            for (raw,) in self._db.execute("SELECT doc FROM spans WHERE trace=?", (tid,)):
-                span = normalize_es_doc(json.loads(raw))
-                if query.error_only and not span.has_error:
+
+        def matches():
+            for (tid,) in self._db.execute("SELECT DISTINCT trace FROM spans ORDER BY trace"):
+                if query.trace_ids is not None and tid not in query.trace_ids:
                     continue
-                if query.service and span.service != query.service:
-                    continue
-                if query.since_ms is not None and span.start_ms < query.since_ms:
-                    continue
-                if query.until_ms is not None and span.start_ms > query.until_ms:
-                    continue
-                if any(str(span.attrs.get(k)) != v for k, v in query.attr_eq.items()):
-                    continue
-                matched = True
-                break
-            if matched:
-                if count >= query.limit:
-                    return
-                yield tid
-                count += 1
+                latest = None
+                for (raw,) in self._db.execute("SELECT doc FROM spans WHERE trace=?", (tid,)):
+                    span = normalize_es_doc(json.loads(raw))
+                    if query.operation_names is not None and span.name not in query.operation_names:
+                        continue
+                    if query.error_only and not span.has_error:
+                        continue
+                    if query.service and span.service != query.service:
+                        continue
+                    if query.since_ms is not None and span.start_ms < query.since_ms:
+                        continue
+                    if query.until_ms is not None and span.start_ms > query.until_ms:
+                        continue
+                    if any(str(span.attrs.get(k)) != v for k, v in query.attr_eq.items()):
+                        continue
+                    latest = max(latest, span.start_ms) if latest is not None else span.start_ms
+                if latest is not None:
+                    yield tid, latest
+
+        if query.order == "latest":
+            from heapq import nsmallest
+
+            selected = nsmallest(query.limit, matches(), key=lambda item: (-item[1], item[0]))
+        else:
+            from itertools import islice
+
+            selected = islice(matches(), query.limit)
+        for tid, _ in selected:
+            yield tid
 
     @staticmethod
     def _project(raw, fields):

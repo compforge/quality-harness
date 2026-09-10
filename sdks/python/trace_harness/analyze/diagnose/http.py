@@ -4,10 +4,10 @@ from collections import defaultdict
 
 from trace_harness.analyze.context import AnalysisContext
 from trace_harness.kinds.http import HttpRequest, http_requests
+from trace_harness.model.context import TraceContext
 from trace_harness.model.node import Finding, Node
 
 _SLOW_HTTP_MS = 200
-_MAX_FINDINGS = 10
 
 
 def _serial_runs(requests: list[HttpRequest]) -> list[list[HttpRequest]]:
@@ -44,13 +44,20 @@ async def http_request_patterns(node: Node, analysis: AnalysisContext) -> list[F
         return []
     await analysis.fact(node, "http_evidence")
     requests = http_requests(ctx)
+    return request_pattern_findings(node, ctx, requests, limit=analysis.finding_limit)
+
+
+def request_pattern_findings(
+    node: Node, ctx: TraceContext, requests: list[HttpRequest], *, limit: int | None = None
+) -> list[Finding]:
+    """Interpret prepared canonical requests; callers own scope and evidence loading."""
     view = ctx.view()
     findings = []
     slow = sorted(
         (item for item in requests if item.ordinary and item.duration_ms > _SLOW_HTTP_MS),
         key=lambda item: (-item.duration_ms, item.span.span_id),
     )
-    for request in slow[: analysis.finding_limit]:
+    for request in slow[:limit]:
         owner = next(
             (view.by_span[item.span_id] for item in request.spans if item.span_id in view.by_span),
             node,
@@ -77,7 +84,7 @@ async def http_request_patterns(node: Node, analysis: AnalysisContext) -> list[F
             )
         )
     runs = sorted(_serial_runs(requests), key=lambda run: -(run[-1].end_ms - run[0].start_ms))
-    for run in runs[: analysis.finding_limit]:
+    for run in runs[:limit]:
         first, last = run[0], run[-1]
         wall_ms = last.end_ms - first.start_ms
         gap_ms = sum(
@@ -119,7 +126,7 @@ async def http_request_patterns(node: Node, analysis: AnalysisContext) -> list[F
         ("http_slow_request", len(slow)),
         ("http_serial_same_api", len(runs)),
     ):
-        if total > _MAX_FINDINGS:
+        if limit is not None and limit > 0 and total > limit:
             first = next(item for item in findings if item.source == source)
-            first.note += f"（共 {total} 条，仅展示耗时最高的 {_MAX_FINDINGS} 条）"
+            first.note += f"（共 {total} 条，仅展示耗时最高的 {limit} 条）"
     return findings

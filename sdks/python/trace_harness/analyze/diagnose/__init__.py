@@ -14,7 +14,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Iterable
+from dataclasses import asdict, replace
 from types import MappingProxyType
 
 from trace_harness.analyze.context import AnalysisContext
@@ -25,6 +26,7 @@ from trace_harness.analyze.diagnose.probes import probe
 from trace_harness.analyze.diagnose.registry import DetectorRegistry
 from trace_harness.analyze.diagnose.series import find_trends
 from trace_harness.analyze.measure import measure
+from trace_harness.detectors import Detector, execute_detector
 from trace_harness.model.context import TraceContext
 from trace_harness.model.measurement import Measurements
 from trace_harness.model.node import Finding, Node
@@ -70,18 +72,20 @@ def _post_order(ctx: TraceContext) -> list[Node]:
     return out
 
 
-async def diagnose(
+async def diagnose_analysis(
     ctx: TraceContext,
     probes: bool = False,
     *,
     detector_registry: DetectorRegistry | None = None,
     measurements: Measurements | None = None,
     analysis: AnalysisContext | None = None,
-) -> dict[str, list[Finding]]:
-    """跑 base 判读 + 注册的全局 detector（含内置拓扑），返回 {node_id: [Finding]}。"""
+) -> AnalysisContext:
+    """执行 base 与注册 detector，返回观察和本次执行记录。"""
     analysis = analysis or AnalysisContext(
         ctx, measurements if measurements is not None else measure(ctx)
     )
+    detector_registry = detector_registry or DetectorRegistry(BUILTIN_DETECTORS)
+    plan = detector_registry.plan()
     base = (
         _error_findings(ctx)
         + await _rule_findings(analysis)
@@ -91,20 +95,83 @@ async def diagnose(
     )
     if probes:
         base += probe(ctx)
+    return await run_node_detectors(analysis, plan, base)
+
+
+async def run_node_detectors(
+    analysis: AnalysisContext,
+    plan: list[Detector[Node, AnalysisContext]],
+    base: Iterable[Finding] = (),
+) -> AnalysisContext:
+    """Post-order across nodes, dependency order within each node.
+
+    Each node has a fresh completion map. A parent may read child findings through
+    the accumulated view, but requires never imports a child's execution result.
+    """
     found: dict[str, tuple[Finding, ...]] = defaultdict(tuple)
     for finding in base:
         found[finding.node_id] += (finding,)
-    analysis = AnalysisContext(
-        ctx,
-        analysis.measurements,
-        MappingProxyType(found),
-        analysis.runtime,
-        analysis.finding_limit,
-    )
-    detector_registry = detector_registry or DetectorRegistry(BUILTIN_DETECTORS)
-    for node in _post_order(ctx):
-        for detector in detector_registry.registered():
-            result = detector(node, analysis)
-            for finding in (await result if isinstance(result, Awaitable) else result) or []:
+    records = []
+    for node in _post_order(analysis.trace):
+        completed = {}
+        for detector in plan:
+            rows = []
+            scoped = replace(
+                analysis,
+                findings=MappingProxyType(found),
+                _detector=detector,
+                _results=MappingProxyType(completed),
+            )
+
+            def emit(finding, rows=rows, detector=detector):
+                rows.append({**asdict(finding), "detector_id": detector.id})
                 found[finding.node_id] += (finding,)
-    return {key: list(value) for key, value in found.items()}
+
+            result = await execute_detector(
+                detector, node, scoped, emit=emit, read=lambda rows=rows: iter(rows)
+            )
+            completed[detector.id] = result
+            records.append(
+                {
+                    "id": detector.id,
+                    "scope": "node",
+                    "node_id": node.node_id,
+                    "status": result.status,
+                    "error": result.error,
+                    "requires": list(detector.requires),
+                }
+            )
+            if result.status == "failed":
+                failure = Finding(
+                    node.node_id,
+                    "detector_execution_failed",
+                    "warn",
+                    note=f"Detector {detector.id}: {result.error['message']}",
+                    data={"detector_id": detector.id, "error": result.error},
+                )
+                found[node.node_id] += (failure,)
+    return replace(
+        analysis,
+        findings=MappingProxyType(found),
+        detector_runs=tuple(records),
+        _detector=None,
+        _results={},
+    )
+
+
+async def diagnose(
+    ctx: TraceContext,
+    probes: bool = False,
+    *,
+    detector_registry: DetectorRegistry | None = None,
+    measurements: Measurements | None = None,
+    analysis: AnalysisContext | None = None,
+) -> dict[str, list[Finding]]:
+    result = await diagnose_analysis(
+        ctx,
+        probes,
+        detector_registry=detector_registry,
+        measurements=measurements,
+        analysis=analysis,
+    )
+    return {key: list(value) for key, value in result.findings.items()}
