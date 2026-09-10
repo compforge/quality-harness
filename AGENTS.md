@@ -17,7 +17,7 @@ quality-harness/
 ├── sdks/                # 按语言组织的独立工程
 │   ├── python/          # 五类领域 SDK 与中立共享包
 │   ├── go/              # e2e SDK 与平台工具箱
-│   └── typescript/      # perf / trace SDK
+│   └── typescript/      # perf / trace SDK 与平台工具箱
 ├── spec/                # 跨语言运行与结果契约
 ├── schema/              # 语言中立的数据 schema
 ├── conformance/         # 各语言共同消费的行为 fixture
