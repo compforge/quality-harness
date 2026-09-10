@@ -57,11 +57,15 @@ class KubernetesAccess:
         command: Sequence[str],
         *,
         stdin: bytes = b"",
+        container: str | None = None,
         timeout_s: float = 60,
         max_bytes: int = 64 * 1024 * 1024,
     ) -> bytes:
+        args = ["exec", "-i", pod]
+        if container:
+            args += ["-c", container]
         return await run(
-            self.command("exec", "-i", pod, "--", *command),
+            self.command(*args, "--", *command),
             stdin=stdin,
             timeout_s=timeout_s,
             max_bytes=max_bytes,
@@ -118,6 +122,7 @@ class PodPythonTransport:
     access: KubernetesAccess
     pod: str
     python: str = "python3"
+    container: str | None = None
 
     @property
     def key(self) -> str:
@@ -136,6 +141,7 @@ class PodPythonTransport:
             self.pod,
             [self.python, "-c", script],
             stdin=json.dumps(payload).encode(),
+            container=self.container,
             timeout_s=timeout_s,
             max_bytes=max_bytes,
         )

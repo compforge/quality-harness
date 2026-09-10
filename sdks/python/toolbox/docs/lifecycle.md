@@ -100,3 +100,7 @@ A Service may have multiple typed DataSource associations, and multiple Services
 source. The association supplies logical context without changing the underlying source key.
 The route can be supplied to a protocol's ConnectionSource within the same root execution;
 protocol initialization opens the tunnel and protocol disposal closes it.
+
+PodPythonTransport accepts an explicit `container` for multi-container Pods. It is part of the
+transport identity so clients using different containers cannot share a route. Credentials and
+query parameters continue to travel over stdin.
