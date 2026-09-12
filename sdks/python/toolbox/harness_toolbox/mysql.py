@@ -9,8 +9,10 @@ import math
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
+from importlib.resources import files
 from typing import TYPE_CHECKING
 
+from harness_toolbox._mysql_values import decode_value, encode_value
 from harness_toolbox.client import ClientProvider, data_source_key
 from harness_toolbox.transport import ConnectionSource, Endpoint, PodPythonTransport
 
@@ -30,6 +32,12 @@ class MySQLTarget:
 
 @dataclass(frozen=True)
 class QueryResult:
+    """Native DBAPI values on every route; affected_rows is -1 for row-returning SQL.
+
+    Use len(rows) for the number of collected records. JSON output formatting belongs
+    to the caller, not to the choice of database transport.
+    """
+
     columns: tuple[str, ...]
     rows: tuple[tuple[object, ...], ...]
     affected_rows: int
@@ -65,7 +73,9 @@ class MySQLDataSource:
 
 
 # The Pod supplies PyMySQL; configuration and statements are stdin data, not Pod env conventions.
-_POD_QUERY = r"""
+_POD_QUERY = (
+    files("harness_toolbox").joinpath("_mysql_values.py").read_text(encoding="utf-8")
+    + r"""
 import json, sys
 import pymysql
 p = json.load(sys.stdin)
@@ -75,15 +85,23 @@ try:
         print("{}")
     else:
         with c.cursor() as cursor:
-            cursor.execute(p["sql"], p["params"])
+            params = p["params"]
+            if params is not None:
+                params = {key: decode_value(value) for key, value in params.items()}
+            cursor.execute(p["sql"], params)
             columns = [d[0] for d in cursor.description] if cursor.description else []
             rows = cursor.fetchmany(p["max_rows"] + 1) if columns else []
             if len(rows) > p["max_rows"]:
                 raise ValueError("query exceeds row limit")
-            print(json.dumps({"columns": columns, "rows": rows, "affected_rows": cursor.rowcount}, default=str))
+            print(json.dumps({
+                "columns": columns,
+                "rows": [[encode_value(value) for value in row] for row in rows],
+                "affected_rows": -1 if columns else cursor.rowcount,
+            }))
 finally:
     c.close()
 """
+)
 
 
 def _connection_network_error(error: BaseException) -> bool:
@@ -174,7 +192,12 @@ class MySQLClient:
                     raise
 
     async def query(self, sql: str, params: Mapping[str, object] | None = None) -> QueryResult:
-        """Execute once, using DBAPI %(name)s parameters on both routes; no automatic retry."""
+        """Execute once with DBAPI %(name)s bindings; no automatic retry.
+
+        With params=None, SQL is passed literally, including percent signs. With a
+        mapping (even an empty one), literal percent signs must be escaped as %%.
+        Native decimal, temporal and binary values survive Pod transport unchanged.
+        """
         if self._disposed or (self._engine is None and self._pod is None):
             raise RuntimeError("MySQL client is not initialized")
         async with asyncio.timeout(self._source.timeout_s), self._slots:
@@ -184,17 +207,20 @@ class MySQLClient:
             async with self._engine.connect() as connection:
 
                 def execute(sync_connection: Connection) -> QueryResult:
-                    result = sync_connection.execution_options(stream_results=True).exec_driver_sql(
-                        sql, params
-                    )
+                    # SQLAlchemy otherwise turns None into (), enabling DBAPI %-formatting.
+                    result = sync_connection.execution_options(
+                        stream_results=True, no_parameters=params is None
+                    ).exec_driver_sql(sql, params)
                     try:
                         if not result.returns_rows:
                             return QueryResult((), (), result.rowcount)
                         rows = result.fetchmany(self._source.max_rows + 1)
                         if len(rows) > self._source.max_rows:
                             raise ValueError("query exceeds row limit")
+                        # Fetching through EOF can close asyncmy's cursor; SELECT rowcount
+                        # is unspecified anyway and must not be read from that cursor.
                         return QueryResult(
-                            tuple(result.keys()), tuple(tuple(row) for row in rows), result.rowcount
+                            tuple(result.keys()), tuple(tuple(row) for row in rows), -1
                         )
                     finally:
                         result.close()
@@ -218,7 +244,9 @@ class MySQLClient:
                 "write_timeout": math.ceil(self._source.timeout_s),
             },
             "sql": sql,
-            "params": params,
+            "params": None
+            if params is None
+            else {key: encode_value(value) for key, value in params.items()},
             "max_rows": self._source.max_rows,
         }
         data = json.loads(
@@ -226,7 +254,7 @@ class MySQLClient:
         )
         return QueryResult(
             tuple(data.get("columns", [])),
-            tuple(tuple(row) for row in data.get("rows", [])),
+            tuple(tuple(decode_value(value) for value in row) for row in data.get("rows", [])),
             data.get("affected_rows", 0),
         )
 
