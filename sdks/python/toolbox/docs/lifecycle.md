@@ -45,6 +45,17 @@ Statements use DBAPI `%(name)s` parameters on both paths. Queries are bounded by
 and row limit. A statement timeout does not prove the server rolled back; callers decide transaction
 and retry semantics.
 
+With `params=None`, SQL is passed literally, so `DATE_FORMAT(ts, '%Y-%m-%d')` needs no escaping.
+Supplying a parameter mapping, including `{}`, enables DBAPI interpolation: bind values with
+`%(name)s` and write literal percent signs as `%%`. Do not interpolate values in the caller.
+
+`QueryResult.rows` and `mappings()` preserve native Python values on both paths, including
+`Decimal`, `datetime`, `date`, `time`, `timedelta` and `bytes`. The Pod wire format preserves
+types and precision for parameters and results; it does not require toolbox installed in the Pod.
+Consumers choose their own JSON presentation rather than relying on transport-specific string conversion.
+For row-returning statements, `affected_rows` is `-1` (not a record count); use `len(result.rows)`.
+Empty results retain their columns. Non-row statements retain the driver's affected-row count.
+
 OpenSearchDataSource uses an HTTP pool and bounded response decoding. TLS verification is enabled;
 private CAs use `ca_file`, and an intentional insecure environment must explicitly set
 `insecure_skip_verify`. Forwarded connections preserve the original TLS server name. `scroll` yields
