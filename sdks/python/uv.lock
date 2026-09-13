@@ -458,7 +458,7 @@ wheels = [
 
 [[package]]
 name = "harness-toolbox"
-version = "0.1.4"
+version = "0.1.5"
 source = { editable = "toolbox" }
 
 [package.optional-dependencies]
@@ -1056,7 +1056,7 @@ wheels = [
 
 [[package]]
 name = "quality-harness"
-version = "0.2.11"
+version = "0.2.12"
 source = { editable = "." }
 dependencies = [
     { name = "atif" },

@@ -62,6 +62,39 @@ private CAs use `ca_file`, and an intentional insecure environment must explicit
 pages; use `contextlib.aclosing` when stopping early so the cursor is cleared before the client closes.
 Consumers own index names, queries, and output files.
 
+### Access diagnostics
+
+MySQL and OpenSearch clients expose a detached `client.diagnostics` snapshot: protocol,
+resolved target, ordered connection attempts and selected transport (`direct`, `port-forward`
+or `pod-python`). This is execution evidence, not a prediction from configuration. A resolved
+target without a selected transport does not mean the connection succeeded. MySQL targets also
+expose `target.diagnostics` for safe configuration inspection before connecting.
+
+```python
+from harness_toolbox.diagnostics import error_details
+
+try:
+    database = await clients.get(source)
+    result = await database.query("SELECT 1")
+except Exception as error:
+    report = error_details(error)
+else:
+    report = {"connection": database.diagnostics, "rows": len(result.rows)}
+```
+
+`error_details` preserves exception types and numeric DB/HTTP codes across wrappers, including
+SQLAlchemy's driver cause. Access failures add `access` with stage (`resolve`, `connect`,
+`query` or `request`) and a connection snapshot. Classification distinguishes TLS verification,
+authentication/permission, missing database/table, timeout and connection failures; unknown
+failures remain `query_error`. Cause traversal is bounded and reports truncation.
+
+Native exception types, cancellation, cleanup and retry rules are unchanged. Pod Python MySQL
+driver failures cross the process boundary as `RemoteMySQLError` with only the numeric code.
+Neither snapshots nor error summaries include raw exception messages, SQL/parameters, credentials,
+full URLs or connection/transport keys. Native exception text is **not** a safe report format.
+Consumers still control access to target host/database names and decide business meaning:
+an empty result, unavailable evidence and a failed business run are distinct states.
+
 ## Kubernetes and logs
 
 KubernetesDataSource owns namespace, API capacity, exec capacity and timeouts. KubernetesClient offers

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from harness_toolbox._mysql_values import decode_value, encode_value
 from harness_toolbox.client import ClientProvider, data_source_key
+from harness_toolbox.diagnostics import _AccessRecorder, _transport_name
 from harness_toolbox.transport import ConnectionSource, Endpoint, PodPythonTransport
 
 if TYPE_CHECKING:
@@ -28,6 +29,11 @@ class MySQLTarget:
     password: str = field(repr=False)
     database: str = ""
     port: int = 3306
+
+    @property
+    def diagnostics(self) -> dict:
+        """Target identity without credentials; does not imply a connection succeeded."""
+        return {"host": self.host, "port": self.port, "database": self.database}
 
 
 @dataclass(frozen=True)
@@ -79,8 +85,9 @@ _POD_QUERY = (
 import json, sys
 import pymysql
 p = json.load(sys.stdin)
-c = pymysql.connect(**p["connection"], cursorclass=pymysql.cursors.SSCursor, autocommit=True)
+c = None
 try:
+    c = pymysql.connect(**p["connection"], cursorclass=pymysql.cursors.SSCursor, autocommit=True)
     if p["sql"] is None:
         print("{}")
     else:
@@ -98,10 +105,19 @@ try:
                 "rows": [[encode_value(value) for value in row] for row in rows],
                 "affected_rows": -1 if columns else cursor.rowcount,
             }))
+except pymysql.MySQLError as error:
+    # Driver messages can contain SQL or credentials. Return only a numeric code.
+    code = error.args[0] if error.args and type(error.args[0]) is int else None
+    print(json.dumps({"error": {"code": code}}))
 finally:
-    c.close()
+    if c is not None:
+        c.close()
 """
 )
+
+
+class RemoteMySQLError(RuntimeError):
+    """A Pod's MySQL driver failed; args contain only its numeric code."""
 
 
 def _connection_network_error(error: BaseException) -> bool:
@@ -128,6 +144,7 @@ class MySQLClient:
         ):
             raise ValueError("MySQL limits must be positive")
         self._source = source
+        self._access = _AccessRecorder("mysql")
         self._target: MySQLTarget | None = None
         self._engine: AsyncEngine | None = None
         self._pod: PodPythonTransport | None = None
@@ -136,13 +153,21 @@ class MySQLClient:
         self._disposed = False
         self._disposal: asyncio.Task[None] | None = None
 
+    @property
+    def diagnostics(self) -> dict:
+        """Resolved target and attempted/selected transports, without credentials."""
+        return self._access.snapshot()
+
     async def initialize(self) -> None:
         if self._disposed:
             raise RuntimeError("MySQL client is disposed")
         if self._engine is not None or self._pod is not None:
             return
-        self._target = await self._source.connection.resolve()
+        self._access = _AccessRecorder("mysql")
+        with self._access.operation("resolve"):
+            self._target = await self._source.connection.resolve()
         target = self._target
+        self._access.target = target.diagnostics
         if not self._source.connection.transports:
             raise ValueError("MySQL requires a transport")
         for index, transport in enumerate(self._source.connection.transports):
@@ -151,6 +176,7 @@ class MySQLClient:
                 if isinstance(transport, PodPythonTransport):
                     await self._pod_query(transport, None, None)
                     self._pod = transport
+                    self._access.connected(_transport_name(transport))
                     return
                 from sqlalchemy import URL
                 from sqlalchemy.ext.asyncio import create_async_engine
@@ -179,8 +205,11 @@ class MySQLClient:
                     pass
                 self._engine = engine
                 self._stack = stack
+                self._access.connected(_transport_name(transport))
                 return
             except BaseException as error:
+                if isinstance(error, Exception):
+                    self._access.failed(_transport_name(transport), error)
                 await stack.aclose()
                 if isinstance(error, asyncio.CancelledError):
                     raise
@@ -200,6 +229,10 @@ class MySQLClient:
         """
         if self._disposed or (self._engine is None and self._pod is None):
             raise RuntimeError("MySQL client is not initialized")
+        with self._access.operation("query"):
+            return await self._query(sql, params)
+
+    async def _query(self, sql: str, params: Mapping[str, object] | None) -> QueryResult:
         async with asyncio.timeout(self._source.timeout_s), self._slots:
             if self._pod is not None:
                 return await self._pod_query(self._pod, sql, params)
@@ -252,6 +285,8 @@ class MySQLClient:
         data = json.loads(
             await transport.run(_POD_QUERY, payload, timeout_s=self._source.timeout_s)
         )
+        if "error" in data:
+            raise RemoteMySQLError(data["error"]["code"])
         return QueryResult(
             tuple(data.get("columns", [])),
             tuple(tuple(decode_value(value) for value in row) for row in data.get("rows", [])),

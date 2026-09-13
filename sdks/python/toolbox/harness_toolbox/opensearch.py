@@ -13,6 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from harness_toolbox.client import ClientProvider, data_source_key
+from harness_toolbox.diagnostics import _AccessRecorder, _transport_name
 from harness_toolbox.transport import ConnectionSource, Endpoint, PodPythonTransport
 
 
@@ -55,6 +56,7 @@ class OpenSearchClient:
         if source.concurrency < 1 or source.timeout_s <= 0 or source.max_response_bytes < 1:
             raise ValueError("OpenSearch limits must be positive")
         self._source = source
+        self._access = _AccessRecorder("opensearch")
         self._stack = AsyncExitStack()
         self._http: httpx.AsyncClient | None = None
         self._servername: str | None = None
@@ -62,18 +64,30 @@ class OpenSearchClient:
         self._disposed = False
         self._disposal: asyncio.Task[None] | None = None
 
+    @property
+    def diagnostics(self) -> dict:
+        """Resolved target and attempted/selected transports, without URL payloads."""
+        return self._access.snapshot()
+
     async def initialize(self) -> None:
         if self._disposed:
             raise RuntimeError("OpenSearch client is disposed")
         if self._http is not None:
             return
-        target = await self._source.connection.resolve()
+        self._access = _AccessRecorder("opensearch")
+        with self._access.operation("resolve"):
+            target = await self._source.connection.resolve()
         url = urlsplit(target.url)
         if url.scheme not in ("http", "https") or not url.hostname or url.username:
             raise ValueError("OpenSearch URL requires http(s), a host, and separate credentials")
         endpoint = Endpoint(
             url.hostname, url.port or (443 if url.scheme == "https" else 80), target.servername
         )
+        self._access.target = {
+            "host": endpoint.host,
+            "port": endpoint.port,
+            "servername": endpoint.servername or endpoint.host,
+        }
         if not self._source.connection.transports:
             raise ValueError("OpenSearch requires a transport")
         for index, transport in enumerate(self._source.connection.transports):
@@ -106,12 +120,16 @@ class OpenSearchClient:
                 response.raise_for_status()
                 self._http = http
                 self._stack = stack
+                self._access.connected(_transport_name(transport))
                 return
-            except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionError):
+            except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionError) as error:
+                self._access.failed(_transport_name(transport), error)
                 await stack.aclose()
                 if index + 1 == len(self._source.connection.transports):
                     raise
-            except BaseException:
+            except BaseException as error:
+                if isinstance(error, Exception):
+                    self._access.failed(_transport_name(transport), error)
                 await stack.aclose()
                 raise
 
@@ -122,6 +140,10 @@ class OpenSearchClient:
             raise RuntimeError("OpenSearch client is not initialized")
         if not path.startswith("/") or path.startswith("//"):
             raise ValueError("request path must be relative to the configured OpenSearch host")
+        with self._access.operation("request"):
+            return await self._request(method, path, payload)
+
+    async def _request(self, method: str, path: str, payload: Mapping[str, object] | None) -> dict:
         async with (
             asyncio.timeout(self._source.timeout_s),
             self._slots,

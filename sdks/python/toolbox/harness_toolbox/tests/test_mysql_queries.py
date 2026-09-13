@@ -151,6 +151,7 @@ async def query_client(request, monkeypatch):
             "pymysql",
             SimpleNamespace(
                 connect=lambda **kwargs: pod_connection,
+                MySQLError=type("MySQLError", (Exception,), {}),
                 cursors=SimpleNamespace(SSCursor=object),
             ),
         )

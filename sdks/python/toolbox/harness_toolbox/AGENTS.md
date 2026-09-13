@@ -10,6 +10,7 @@
 ```text
 harness_toolbox/
 ├── client.py       # Client / DataSource / ClientProvider / ClientManager
+├── diagnostics.py  # 安全错误摘要与实际连接路径快照，不改变原生异常/重试语义
 ├── transport.py    # 连接解析、直连、port-forward、Pod Python 路径
 ├── process.py      # 有界子进程 I/O、退出结果与取消清理
 ├── kube/           # Pod 增删、状态等待、Event、exec 与隧道
