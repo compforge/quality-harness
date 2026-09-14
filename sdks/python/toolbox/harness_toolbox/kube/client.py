@@ -34,6 +34,10 @@ T = TypeVar("T")
 
 
 class _CoreV1API(Protocol):
+    async def read_namespaced_endpoints(
+        self, name: str, namespace: str, **kwargs: Any
+    ) -> kubernetes.V1Endpoints: ...
+
     async def read_namespaced_service(
         self, name: str, namespace: str, **kwargs: Any
     ) -> kubernetes.V1Service: ...
@@ -310,6 +314,51 @@ class KubernetesClient:
                 f"with selector {selector!r}: {exc}"
             ) from exc
         return sorted((_pod_from(item) for item in result.items), key=lambda pod: pod.name)
+
+    async def service_addresses(self, name: str) -> tuple[str, ...]:
+        """Read Service IPs (or ready headless endpoints) in this client's cluster.
+
+        ExternalName points to an external DNS identity and is resolved by the
+        caller; ClusterIP and headless Services never consult local Service DNS.
+        """
+        from harness_toolbox.address import AddressResolutionError, _dns
+        from harness_toolbox.errors import ErrorKind
+
+        try:
+            resource = await self._api.read_namespaced_service(
+                name, self._options.namespace, _request_timeout=self._options.request_timeout_s
+            )
+            spec = resource.spec
+            if spec is None:
+                return ()
+            if spec.type == "ExternalName" and spec.external_name:
+                return await _dns(spec.external_name, 0, self._options.request_timeout_s)
+            addresses = tuple(
+                ip for ip in (spec.cluster_ips or [spec.cluster_ip]) if ip and ip != "None"
+            )
+            if addresses:
+                return addresses
+            endpoints = await self._api.read_namespaced_endpoints(
+                name, self._options.namespace, _request_timeout=self._options.request_timeout_s
+            )
+            return tuple(
+                dict.fromkeys(
+                    address.ip
+                    for subset in (endpoints.subsets or [])
+                    for address in (subset.addresses or [])
+                )
+            )
+        except ApiException as error:
+            kind = {
+                404: ErrorKind.RESOURCE_NOT_FOUND,
+                401: ErrorKind.AUTHENTICATION_FAILED,
+                403: ErrorKind.PERMISSION_DENIED,
+            }.get(error.status, ErrorKind.OPERATION_FAILED)
+            raise AddressResolutionError(
+                f"Resolve Service {name!r} in namespace {self._options.namespace!r}: {kind.value}",
+                kind=kind,
+                code=error.status,
+            ) from error
 
     async def list_service_pods(self, name: str) -> list[Pod]:
         """List Pods selected by a Kubernetes Service, not by name prefix.

@@ -3,13 +3,15 @@
 ## 项目定位与边界
 
 独立分发包 `harness-toolbox` 提供异步基础设施客户端。测试环境操作与诊断采集共享机制；
-环境解析、凭据来源、业务查询、动作授权和结果判定由消费方拥有。
+环境台账、凭据来源、业务查询、动作授权和结果判定由消费方拥有；环境内的网络地址解析由 toolbox 拥有。
 
 ## 代码地图与核心模块
 
 ```text
 harness_toolbox/
-├── client.py       # Client / DataSource / ClientProvider / ClientManager
+├── client.py       # common 生命周期类型的兼容导出
+├── environment.py  # KubernetesEnvironment → KubernetesDataSource
+├── address.py      # IP/DNS/环境内 Service 地址候选与解析失败
 ├── errors.py       # ToolboxError 契约与协议子类；适配器负责转换原生异常
 ├── diagnostics.py  # 客户端连接路径快照，与异常独立
 ├── transport.py    # 连接解析、直连、port-forward、Pod Python 路径
@@ -25,8 +27,9 @@ harness_toolbox/
 
 - 根调用方通过 `async with ClientManager()` 管理执行期，子调用方只接收 ClientProvider。
 - DataSource 创建不做外部 I/O；initialize 完成依赖获取后才发布成功，dispose 必须幂等。
+- Service 名称必须用对应 Environment 的 kubeconfig/context 解析，不回退本机短名 DNS；仅初始化阶段切换地址，业务请求不重放。
 - 同 key 的配置、凭据和容量必须一致；失败资源清理完成才允许重试。禁止日志输出凭据和查询内容。
-- 协议依赖仅通过 extras 引入；基础生命周期包只使用标准库。Skill 必须显式安装所用协议 extra。
+- 协议依赖仅通过 extras 引入；通用生命周期归 harness-common，只使用标准库。Skill 必须显式安装所用协议 extra。
 - Pod 删除通过 UID precondition 保证实例身份；exec/log API 没有原子 UID 条件，只能前后核验。
 - ClientManager 释放连接、临时采集文件和子进程，不隐式删除消费方创建的远端 Pod。
 

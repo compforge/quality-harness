@@ -1,10 +1,10 @@
 [project]
 name = "harness-toolbox"
-version = "0.1.7"
+version = "0.2.0"
 description = "Async infrastructure clients and execution-scoped resource sharing"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-dependencies = []
+dependencies = ["harness-common>=0.3,<0.4"]
 
 [project.optional-dependencies]
 kube = ["kubernetes-asyncio>=36.1,<37"]
@@ -18,3 +18,6 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["harness_toolbox"]
 exclude = ["**/tests"]
+
+[tool.uv.sources]
+harness-common = { workspace = true }

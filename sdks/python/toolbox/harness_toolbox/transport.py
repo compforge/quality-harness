@@ -9,9 +9,12 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
 
 from harness_toolbox.process import process_scope, read_bounded, run
+
+if TYPE_CHECKING:
+    from harness_toolbox.address import AddressPolicy
 
 
 @dataclass(frozen=True)
@@ -156,8 +159,9 @@ T = TypeVar("T")
 
 @dataclass(frozen=True)
 class ConnectionSource(Generic[T]):
-    """The consumer owns environment resolution and a stable, complete identity."""
+    """Caller-owned configuration; toolbox resolves addresses in the supplied environment."""
 
     key: str
     resolve: Callable[[], Awaitable[T]]
     transports: tuple[Transport | PodPythonTransport, ...] = (DirectTransport(),)
+    addresses: AddressPolicy | None = None

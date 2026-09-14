@@ -3,11 +3,13 @@ from dataclasses import dataclass
 
 import pytest
 
-from harness_toolbox import ClientManager, data_source_key
+from harness_common import ClientManager, data_source_key
 
 
 class Probe:
-    def __init__(self, events, *, gate=None, fail=False, dependency=None, provider=None):
+    def __init__(
+        self, events, *, gate=None, fail=False, dependency=None, provider=None
+    ):
         self.events, self.gate, self.fail = events, gate, fail
         self.dependency, self.provider = dependency, provider
         self.closed = False
@@ -75,7 +77,9 @@ async def test_failed_initialization_is_cleaned_before_retry():
 async def test_root_disposal_cancels_initialization_and_is_idempotent():
     events, gate = [], asyncio.Event()
     manager = ClientManager()
-    waiter = asyncio.create_task(manager.get(Source("db", lambda _: Probe(events, gate=gate))))
+    waiter = asyncio.create_task(
+        manager.get(Source("db", lambda _: Probe(events, gate=gate)))
+    )
     while not events:
         await asyncio.sleep(0)
     await asyncio.gather(manager.dispose(), manager.dispose())
@@ -102,7 +106,9 @@ async def test_dependencies_close_after_consumers_even_on_cleanup_error():
     dependency = Source("dependency", lambda _: NamedProbe("dependency"))
     consumer = Source(
         "consumer",
-        lambda provider: NamedProbe("consumer", dependency=dependency, provider=provider),
+        lambda provider: NamedProbe(
+            "consumer", dependency=dependency, provider=provider
+        ),
     )
     manager = ClientManager()
     await manager.get(consumer)
@@ -112,8 +118,10 @@ async def test_dependencies_close_after_consumers_even_on_cleanup_error():
 
 
 def test_key_canonicalizes_configuration_and_hides_credentials():
-    assert data_source_key("db", {"host": "a", "password": "secret"}) == data_source_key(
-        "db", {"password": "secret", "host": "a"}
-    )
+    assert data_source_key(
+        "db", {"host": "a", "password": "secret"}
+    ) == data_source_key("db", {"password": "secret", "host": "a"})
     assert "secret" not in data_source_key("db", {"password": "secret"})
-    assert data_source_key("db", {"password": "a"}) != data_source_key("db", {"password": "b"})
+    assert data_source_key("db", {"password": "a"}) != data_source_key(
+        "db", {"password": "b"}
+    )

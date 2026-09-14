@@ -2,8 +2,8 @@
 
 ## 项目定位与边界
 
-一个 uv workspace 管理 `quality-harness` 与独立分发的 `harness-toolbox`。
-前者交付五类领域 SDK 和 `harness_common`，依赖后者但不重复打包其命名空间；各领域保留独立的模型、执行和判定机制。
+一个 uv workspace 管理 `quality-harness`、`harness-common` 与 `harness-toolbox` 三个独立分发包。
+领域 SDK 依赖 common/toolbox；toolbox 依赖 common，common 不反向依赖 toolbox。每个包只打包自己的命名空间。
 
 ## 代码地图与核心模块
 
@@ -14,7 +14,7 @@ python/
 ├── perf_harness/       # 性能、容量与资源画像
 ├── trace_harness/      # 调用链分析
 ├── trajectory_harness/ # Agent 决策与行动序列评估
-├── harness_common/    # 运行身份、执行事实、Verdict、LLM 与报告公共能力
+├── common/            # 独立 harness-common：公共模型、Client/DataSource 生命周期、Verdict/LLM
 ├── toolbox/           # 独立 harness-toolbox 包，含 harness_toolbox/ 与 pyproject.toml
 ├── pyproject.toml     # 包、依赖、CLI 与测试发现
 └── Makefile           # 测试、lint、格式化、构建与版本入口

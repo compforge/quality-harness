@@ -12,6 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from harness_toolbox.address import address_candidates
 from harness_toolbox.client import ClientProvider, data_source_key
 from harness_toolbox.diagnostics import _AccessRecorder, _transport_name
 from harness_toolbox.errors import (
@@ -47,6 +48,7 @@ class OpenSearchDataSource:
             "opensearch",
             [
                 self.connection.key,
+                self.connection.addresses.key if self.connection.addresses else None,
                 [t.key for t in self.connection.transports],
                 self.timeout_s,
                 self.concurrency,
@@ -55,7 +57,7 @@ class OpenSearchDataSource:
         )
 
     def create_client(self, clients: ClientProvider) -> OpenSearchClient:
-        return OpenSearchClient(self)
+        return OpenSearchClient(self, clients)
 
 
 def _tls_verification_failed(error: BaseException) -> bool:
@@ -120,10 +122,11 @@ def _opensearch_error(
 
 
 class OpenSearchClient:
-    def __init__(self, source: OpenSearchDataSource) -> None:
+    def __init__(self, source: OpenSearchDataSource, clients: ClientProvider | None = None) -> None:
         if source.concurrency < 1 or source.timeout_s <= 0 or source.max_response_bytes < 1:
             raise ValueError("OpenSearch limits must be positive")
         self._source = source
+        self._clients = clients
         self._access = _AccessRecorder("opensearch")
         self._stack = AsyncExitStack()
         self._http: httpx.AsyncClient | None = None
@@ -159,59 +162,86 @@ class OpenSearchClient:
         }
         if not self._source.connection.transports:
             raise ValueError("OpenSearch requires a transport")
-        for index, transport in enumerate(self._source.connection.transports):
-            if isinstance(transport, PodPythonTransport):
-                raise ValueError("OpenSearch requires a TCP transport")
-            stack = AsyncExitStack()
-            try:
+        last_error: ToolboxError | None = None
+        last_cause: BaseException | None = None
+        async for candidate in address_candidates(
+            endpoint, self._source.connection.addresses, self._clients
+        ):
+            if candidate.error is not None:
+                self._access.failed(
+                    "resolution", candidate.error, candidate.endpoint, candidate.source
+                )
+                last_error, last_cause = candidate.error, None
+                continue
+            for transport in self._source.connection.transports:
+                if isinstance(transport, PodPythonTransport):
+                    raise ValueError("OpenSearch requires a TCP transport")
+                stack = AsyncExitStack()
+                mapped = candidate.endpoint
                 try:
-                    mapped = await stack.enter_async_context(transport.connect(endpoint))
-                except RuntimeError as error:
-                    raise _failure(
-                        endpoint, OpenSearchConnectionError, ErrorKind.OPERATION_FAILED
-                    ) from error
-                host = f"[{mapped.host}]" if ":" in mapped.host else mapped.host
-                base_url = urlunsplit((url.scheme, f"{host}:{mapped.port}", url.path, "", ""))
-                verify: ssl.SSLContext | bool = ssl.create_default_context(cafile=target.ca_file)
-                if target.insecure_skip_verify:
-                    verify = False
-                http = await stack.enter_async_context(
-                    httpx.AsyncClient(
-                        base_url=base_url,
-                        auth=(target.username, target.password) if target.username else None,
-                        verify=verify,
-                        timeout=self._source.timeout_s,
-                        trust_env=False,
-                        limits=httpx.Limits(
-                            max_connections=self._source.concurrency,
-                            max_keepalive_connections=self._source.concurrency,
-                        ),
+                    try:
+                        mapped = await stack.enter_async_context(
+                            transport.connect(candidate.endpoint)
+                        )
+                    except RuntimeError as error:
+                        raise _failure(
+                            endpoint, OpenSearchConnectionError, ErrorKind.OPERATION_FAILED
+                        ) from error
+                    host = f"[{mapped.host}]" if ":" in mapped.host else mapped.host
+                    base_url = urlunsplit((url.scheme, f"{host}:{mapped.port}", url.path, "", ""))
+                    verify: ssl.SSLContext | bool = ssl.create_default_context(
+                        cafile=target.ca_file
                     )
-                )
-                self._servername = mapped.servername or endpoint.host
-                # Probe connection only: authentication and protocol errors must not replay requests.
-                response = await http.head("/", extensions={"sni_hostname": self._servername})
-                response.raise_for_status()
-                self._http = http
-                self._stack = stack
-                self._access.connected(_transport_name(transport))
-                return
-            except BaseException as error:
-                failure = (
-                    _opensearch_error(error, endpoint, OpenSearchConnectionError)
-                    if isinstance(error, Exception)
-                    else None
-                )
-                if failure is not None:
-                    self._access.failed(_transport_name(transport), failure)
-                await stack.aclose()
-                if failure is None or failure is error:
-                    raise
-                if isinstance(
-                    error, (httpx.ConnectError, httpx.ConnectTimeout, ConnectionError)
-                ) and index + 1 < len(self._source.connection.transports):
-                    continue
-                raise failure from error
+                    if target.insecure_skip_verify:
+                        verify = False
+                    http = await stack.enter_async_context(
+                        httpx.AsyncClient(
+                            base_url=base_url,
+                            auth=(target.username, target.password) if target.username else None,
+                            headers={"Host": url.netloc},
+                            verify=verify,
+                            timeout=self._source.timeout_s,
+                            trust_env=False,
+                            limits=httpx.Limits(
+                                max_connections=self._source.concurrency,
+                                max_keepalive_connections=self._source.concurrency,
+                            ),
+                        )
+                    )
+                    self._servername = mapped.servername or endpoint.host
+                    # Only this initialization HEAD may try another address; user requests execute once.
+                    response = await http.head("/", extensions={"sni_hostname": self._servername})
+                    response.raise_for_status()
+                    self._http = http
+                    self._stack = stack
+                    self._access.connected(_transport_name(transport), mapped, candidate.source)
+                    return
+                except BaseException as error:
+                    failure = (
+                        _opensearch_error(error, endpoint, OpenSearchConnectionError)
+                        if isinstance(error, Exception)
+                        else None
+                    )
+                    if failure is not None:
+                        self._access.failed(
+                            _transport_name(transport), failure, mapped, candidate.source
+                        )
+                    await stack.aclose()
+                    if failure is None:
+                        raise
+                    last_error, last_cause = (
+                        failure,
+                        error if failure is not error else error.__cause__,
+                    )
+                    if failure.kind not in (
+                        ErrorKind.CONNECTION_FAILED,
+                        ErrorKind.CONNECTION_LOST,
+                        ErrorKind.TIMEOUT,
+                    ):
+                        break
+
+        assert last_error is not None
+        raise last_error from last_cause
 
     async def request(
         self, method: str, path: str, payload: Mapping[str, object] | None = None

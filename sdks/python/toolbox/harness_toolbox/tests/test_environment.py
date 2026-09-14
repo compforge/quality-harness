@@ -5,35 +5,31 @@ import pytest
 
 pytest.importorskip("kubernetes_asyncio")
 
-from harness_common import Component, Forge, KubernetesEnvironment, Repository, Service
-from harness_common.toolbox import ServiceDataSource, kubernetes_source
+from harness_common import (
+    Component,
+    Forge,
+    KubernetesEnvironment,
+    Repository,
+    Service,
+    ServiceDataSource,
+)
+
 from harness_toolbox import ClientManager
+from harness_toolbox.environment import kubernetes_source
 from harness_toolbox.kube import KubernetesDataSource, Options
 from harness_toolbox.transport import KubernetesAccess, PortForwardTransport
 
 ENV = KubernetesEnvironment("dev", "/config/dev", "cluster-context")
 OPTIONS = Options("runtime-ns", 15, 4)
-SERVICE = Service(
-    "business-name", Component(Repository(Forge("git"), "org/repo"), "server"), ENV
-)
+SERVICE = Service("business-name", Component(Repository(Forge("git"), "org/repo"), "server"), ENV)
 
 
 def test_reuse_uses_physical_access_not_environment_alias():
     source = kubernetes_source(ENV, OPTIONS)
-    assert (
-        source.key == kubernetes_source(replace(ENV, name="another-label"), OPTIONS).key
-    )
-    assert (
-        source.key
-        != kubernetes_source(replace(ENV, kubeconfig="/other-cluster"), OPTIONS).key
-    )
-    assert (
-        source.key
-        != kubernetes_source(replace(ENV, context="other-context"), OPTIONS).key
-    )
-    assert (
-        source.key != kubernetes_source(ENV, replace(OPTIONS, namespace="other-ns")).key
-    )
+    assert source.key == kubernetes_source(replace(ENV, name="another-label"), OPTIONS).key
+    assert source.key != kubernetes_source(replace(ENV, kubeconfig="/other-cluster"), OPTIONS).key
+    assert source.key != kubernetes_source(replace(ENV, context="other-context"), OPTIONS).key
+    assert source.key != kubernetes_source(ENV, replace(OPTIONS, namespace="other-ns")).key
 
 
 async def test_logical_services_share_access_without_platform_name_assumptions(
@@ -41,14 +37,10 @@ async def test_logical_services_share_access_without_platform_name_assumptions(
 ):
     kube = AsyncMock()
     kube.access = KubernetesAccess(ENV.kubeconfig, OPTIONS.namespace, ENV.context)
-    monkeypatch.setattr(
-        KubernetesDataSource, "create_client", lambda source, clients: kube
-    )
+    monkeypatch.setattr(KubernetesDataSource, "create_client", lambda source, clients: kube)
     source = kubernetes_source(ENV, OPTIONS)
     first = ServiceDataSource(SERVICE, source)
-    second = ServiceDataSource(
-        replace(SERVICE, name="another-business-service"), source
-    )
+    second = ServiceDataSource(replace(SERVICE, name="another-business-service"), source)
     async with ClientManager() as clients:
         client = await clients.get(first.source)
         assert client is await clients.get(second.source)
