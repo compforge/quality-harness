@@ -27,6 +27,21 @@ async def test_pod_python_preserves_container_and_stdin(monkeypatch, container):
     assert "secret" not in str(run.call_args.args[0])
 
 
+async def test_kubernetes_access_omits_stdin_flag_without_input(monkeypatch):
+    run = AsyncMock(return_value=b"result")
+    monkeypatch.setattr(transport, "run", run)
+    access = KubernetesAccess("/config", "ns", "context")
+
+    assert await access.execute("worker", ["env"]) == b"result"
+
+    run.assert_awaited_once_with(
+        access.command("exec", "worker", "--", "env"),
+        stdin=b"",
+        timeout_s=60,
+        max_bytes=64 * 1024 * 1024,
+    )
+
+
 def test_container_participates_in_transport_identity():
     access = KubernetesAccess(None, "ns")
     assert (

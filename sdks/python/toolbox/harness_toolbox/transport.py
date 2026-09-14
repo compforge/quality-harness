@@ -61,7 +61,11 @@ class KubernetesAccess:
         timeout_s: float = 60,
         max_bytes: int = 64 * 1024 * 1024,
     ) -> bytes:
-        args = ["exec", "-i", pod]
+        args = ["exec"]
+        # Opening then closing an unused stdin stream can truncate remote stdout.
+        if stdin:
+            args.append("-i")
+        args.append(pod)
         if container:
             args += ["-c", container]
         return await run(
