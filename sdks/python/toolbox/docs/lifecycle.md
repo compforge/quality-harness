@@ -62,6 +62,51 @@ private CAs use `ca_file`, and an intentional insecure environment must explicit
 pages; use `contextlib.aclosing` when stopping early so the cursor is cleared before the client closes.
 Consumers own index names, queries, and output files.
 
+### Failures and connection evidence
+
+Catch `ToolboxError` for translated access failures, or a protocol/operation subclass:
+`MySQLError → MySQLConnectionError / MySQLQueryError` and
+`OpenSearchError → OpenSearchConnectionError / OpenSearchRequestError`.
+
+Every toolbox exception has three fields: `kind` is a stable `ErrorKind`, `code` is the optional
+native DB/HTTP error code, and `message` is a safe contextual explanation, also returned by
+`str(error)`. Interpret codes in the context of the protocol class, never by parsing messages.
+Protocol adapters translate native failures once and preserve the original exception with
+`raise ... from error`; already-translated exceptions propagate unchanged.
+
+```python
+from harness_toolbox import ToolboxError, ErrorKind
+
+try:
+    database = await clients.get(source)
+    result = await database.query("SELECT 1")
+except ToolboxError as error:
+    if error.kind == ErrorKind.AUTHENTICATION_FAILED:
+        handle_authentication_failure(error.message)
+    report({"kind": error.kind, "code": error.code, "message": error.message})
+else:
+    report({"connection": database.diagnostics, "rows": len(result.rows)})
+```
+
+Consumers choose report fields and serialization. Exception messages exclude native driver text,
+SQL/parameters, credentials and URL paths/query strings. Native causes and full tracebacks are
+debugging material, **not** safe report output. Pod Python carries only safe error categories and
+numeric MySQL codes; the host reconstructs the same public exception hierarchy without fabricating
+an in-process driver cause.
+
+`client.diagnostics` is independent connection evidence: protocol, resolved target, ordered
+attempts and selected transport (`direct`, `port-forward` or `pod-python`). Snapshots are detached.
+A target without a selected transport does not prove connection success. MySQL targets also expose
+`target.diagnostics` before connecting. When initialization fails before a caller obtains the
+client, the exception message still identifies the target and failed action; exceptions do not
+carry the connection snapshot.
+
+Arguments/programming errors and cancellation are not translated. Connection configuration
+resolution belongs to the caller and its failures propagate unchanged. Result limits and invalid
+remote responses are operational failures. Successful empty queries are not errors. Classification
+does not authorize retries: only connection probes can use configured fallback routes; statements
+and user requests are never automatically replayed.
+
 ## Kubernetes and logs
 
 KubernetesDataSource owns namespace, API capacity, exec capacity and timeouts. KubernetesClient offers

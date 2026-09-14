@@ -14,6 +14,14 @@ from typing import TYPE_CHECKING
 
 from harness_toolbox._mysql_values import decode_value, encode_value
 from harness_toolbox.client import ClientProvider, data_source_key
+from harness_toolbox.diagnostics import _AccessRecorder, _transport_name
+from harness_toolbox.errors import (
+    ErrorKind,
+    MySQLConnectionError,
+    MySQLError,
+    MySQLQueryError,
+    ToolboxError,
+)
 from harness_toolbox.transport import ConnectionSource, Endpoint, PodPythonTransport
 
 if TYPE_CHECKING:
@@ -28,6 +36,11 @@ class MySQLTarget:
     password: str = field(repr=False)
     database: str = ""
     port: int = 3306
+
+    @property
+    def diagnostics(self) -> dict:
+        """Target identity without credentials; does not imply a connection succeeded."""
+        return {"host": self.host, "port": self.port, "database": self.database}
 
 
 @dataclass(frozen=True)
@@ -79,8 +92,9 @@ _POD_QUERY = (
 import json, sys
 import pymysql
 p = json.load(sys.stdin)
-c = pymysql.connect(**p["connection"], cursorclass=pymysql.cursors.SSCursor, autocommit=True)
+c = None
 try:
+    c = pymysql.connect(**p["connection"], cursorclass=pymysql.cursors.SSCursor, autocommit=True)
     if p["sql"] is None:
         print("{}")
     else:
@@ -92,16 +106,76 @@ try:
             columns = [d[0] for d in cursor.description] if cursor.description else []
             rows = cursor.fetchmany(p["max_rows"] + 1) if columns else []
             if len(rows) > p["max_rows"]:
-                raise ValueError("query exceeds row limit")
-            print(json.dumps({
-                "columns": columns,
-                "rows": [[encode_value(value) for value in row] for row in rows],
-                "affected_rows": -1 if columns else cursor.rowcount,
-            }))
+                print(json.dumps({"error": {"kind": "limit_exceeded", "code": None}}))
+            else:
+                print(json.dumps({
+                    "columns": columns,
+                    "rows": [[encode_value(value) for value in row] for row in rows],
+                    "affected_rows": -1 if columns else cursor.rowcount,
+                }))
+except pymysql.MySQLError as error:
+    # Driver messages can contain SQL or credentials. Return only a numeric code.
+    code = error.args[0] if error.args and type(error.args[0]) is int else None
+    print(json.dumps({"error": {"kind": "driver", "code": code}}))
 finally:
-    c.close()
+    if c is not None:
+        c.close()
 """
 )
+
+
+def _mysql_kind(code: int | None) -> ErrorKind:
+    return {
+        1044: ErrorKind.PERMISSION_DENIED,
+        1045: ErrorKind.AUTHENTICATION_FAILED,
+        1049: ErrorKind.RESOURCE_NOT_FOUND,
+        1146: ErrorKind.RESOURCE_NOT_FOUND,
+        2002: ErrorKind.CONNECTION_FAILED,
+        2003: ErrorKind.CONNECTION_FAILED,
+        2005: ErrorKind.CONNECTION_FAILED,
+        2006: ErrorKind.CONNECTION_LOST,
+        2013: ErrorKind.CONNECTION_LOST,
+    }.get(code, ErrorKind.OPERATION_FAILED)
+
+
+def _failure(
+    target: MySQLTarget,
+    error_type: type[MySQLError],
+    kind: ErrorKind,
+    code: int | None = None,
+) -> MySQLError:
+    action = "connect" if error_type is MySQLConnectionError else "query"
+    return error_type(
+        f"MySQL {action} failed at {target.host}:{target.port}, "
+        f"database {target.database!r}: {kind.value.replace('_', ' ')}",
+        kind=kind,
+        code=code,
+    )
+
+
+def _mysql_error(
+    error: Exception, target: MySQLTarget, error_type: type[MySQLError]
+) -> ToolboxError | None:
+    from sqlalchemy.exc import DBAPIError
+    from sqlalchemy.exc import TimeoutError as PoolTimeoutError
+
+    if isinstance(error, ToolboxError):
+        return error
+    if isinstance(error, (TimeoutError, PoolTimeoutError)):
+        return _failure(target, error_type, ErrorKind.TIMEOUT)
+    if isinstance(error, DBAPIError):
+        original = error.orig
+        code = original.args[0] if original.args and type(original.args[0]) is int else None
+        return _failure(target, error_type, _mysql_kind(code), code)
+    if isinstance(error, OSError):
+        kind = (
+            ErrorKind.CONNECTION_FAILED
+            if _connection_network_error(error)
+            else ErrorKind.OPERATION_FAILED
+        )
+        return _failure(target, error_type, kind, error.errno)
+    # Invalid arguments and programming errors are not infrastructure failures.
+    return None
 
 
 def _connection_network_error(error: BaseException) -> bool:
@@ -128,6 +202,7 @@ class MySQLClient:
         ):
             raise ValueError("MySQL limits must be positive")
         self._source = source
+        self._access = _AccessRecorder("mysql")
         self._target: MySQLTarget | None = None
         self._engine: AsyncEngine | None = None
         self._pod: PodPythonTransport | None = None
@@ -136,13 +211,20 @@ class MySQLClient:
         self._disposed = False
         self._disposal: asyncio.Task[None] | None = None
 
+    @property
+    def diagnostics(self) -> dict:
+        """Resolved target and attempted/selected transports, without credentials."""
+        return self._access.snapshot()
+
     async def initialize(self) -> None:
         if self._disposed:
             raise RuntimeError("MySQL client is disposed")
         if self._engine is not None or self._pod is not None:
             return
+        self._access = _AccessRecorder("mysql")
         self._target = await self._source.connection.resolve()
         target = self._target
+        self._access.target = target.diagnostics
         if not self._source.connection.transports:
             raise ValueError("MySQL requires a transport")
         for index, transport in enumerate(self._source.connection.transports):
@@ -151,13 +233,19 @@ class MySQLClient:
                 if isinstance(transport, PodPythonTransport):
                     await self._pod_query(transport, None, None)
                     self._pod = transport
+                    self._access.connected(_transport_name(transport))
                     return
                 from sqlalchemy import URL
                 from sqlalchemy.ext.asyncio import create_async_engine
 
-                mapped = await stack.enter_async_context(
-                    transport.connect(Endpoint(target.host, target.port))
-                )
+                try:
+                    mapped = await stack.enter_async_context(
+                        transport.connect(Endpoint(target.host, target.port))
+                    )
+                except RuntimeError as error:
+                    raise _failure(
+                        target, MySQLConnectionError, ErrorKind.OPERATION_FAILED
+                    ) from error
                 engine = create_async_engine(
                     URL.create(
                         "mysql+asyncmy",
@@ -179,17 +267,25 @@ class MySQLClient:
                     pass
                 self._engine = engine
                 self._stack = stack
+                self._access.connected(_transport_name(transport))
                 return
             except BaseException as error:
+                failure = (
+                    _mysql_error(error, target, MySQLConnectionError)
+                    if isinstance(error, Exception)
+                    else None
+                )
+                if failure is not None:
+                    self._access.failed(_transport_name(transport), failure)
                 await stack.aclose()
-                if isinstance(error, asyncio.CancelledError):
+                if failure is None or failure is error:
                     raise
                 if isinstance(transport, PodPythonTransport) or index + 1 == len(
                     self._source.connection.transports
                 ):
-                    raise
+                    raise failure from error
                 if not isinstance(error, TimeoutError) and not _connection_network_error(error):
-                    raise
+                    raise failure from error
 
     async def query(self, sql: str, params: Mapping[str, object] | None = None) -> QueryResult:
         """Execute once with DBAPI %(name)s bindings; no automatic retry.
@@ -200,6 +296,16 @@ class MySQLClient:
         """
         if self._disposed or (self._engine is None and self._pod is None):
             raise RuntimeError("MySQL client is not initialized")
+        try:
+            return await self._query(sql, params)
+        except Exception as error:
+            assert self._target is not None
+            failure = _mysql_error(error, self._target, MySQLQueryError)
+            if failure is None or failure is error:
+                raise
+            raise failure from error
+
+    async def _query(self, sql: str, params: Mapping[str, object] | None) -> QueryResult:
         async with asyncio.timeout(self._source.timeout_s), self._slots:
             if self._pod is not None:
                 return await self._pod_query(self._pod, sql, params)
@@ -216,7 +322,8 @@ class MySQLClient:
                             return QueryResult((), (), result.rowcount)
                         rows = result.fetchmany(self._source.max_rows + 1)
                         if len(rows) > self._source.max_rows:
-                            raise ValueError("query exceeds row limit")
+                            assert self._target is not None
+                            raise _failure(self._target, MySQLQueryError, ErrorKind.LIMIT_EXCEEDED)
                         # Fetching through EOF can close asyncmy's cursor; SELECT rowcount
                         # is unspecified anyway and must not be read from that cursor.
                         return QueryResult(
@@ -249,9 +356,33 @@ class MySQLClient:
             else {key: encode_value(value) for key, value in params.items()},
             "max_rows": self._source.max_rows,
         }
-        data = json.loads(
-            await transport.run(_POD_QUERY, payload, timeout_s=self._source.timeout_s)
-        )
+        error_type = MySQLConnectionError if sql is None else MySQLQueryError
+        try:
+            output = await transport.run(_POD_QUERY, payload, timeout_s=self._source.timeout_s)
+        except RuntimeError as error:
+            raise _failure(target, error_type, ErrorKind.OPERATION_FAILED) from error
+        try:
+            data = json.loads(output)
+        except (ValueError, UnicodeError) as error:
+            raise _failure(target, error_type, ErrorKind.INVALID_RESPONSE) from error
+        if not isinstance(data, dict):
+            raise _failure(target, error_type, ErrorKind.INVALID_RESPONSE)
+        if "error" in data:
+            remote = data["error"]
+            if not isinstance(remote, dict) or remote.get("kind") not in (
+                "driver",
+                "limit_exceeded",
+            ):
+                raise _failure(target, error_type, ErrorKind.INVALID_RESPONSE)
+            code = remote.get("code")
+            if code is not None and type(code) is not int:
+                raise _failure(target, error_type, ErrorKind.INVALID_RESPONSE)
+            kind = (
+                ErrorKind.LIMIT_EXCEEDED
+                if remote["kind"] == "limit_exceeded"
+                else _mysql_kind(code)
+            )
+            raise _failure(target, error_type, kind, code)
         return QueryResult(
             tuple(data.get("columns", [])),
             tuple(tuple(decode_value(value) for value in row) for row in data.get("rows", [])),

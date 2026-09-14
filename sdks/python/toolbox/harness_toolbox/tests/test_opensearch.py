@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from harness_toolbox import ClientManager
+from harness_toolbox.errors import ErrorKind, OpenSearchRequestError
 from harness_toolbox.opensearch import OpenSearchDataSource, OpenSearchTarget
 from harness_toolbox.transport import ConnectionSource
 
@@ -73,6 +74,10 @@ async def test_scroll_cleanup_on_early_stop_and_single_initialization():
     async with server(handle) as url, ClientManager() as clients:
         first, second = await asyncio.gather(clients.get(source(url)), clients.get(source(url)))
         assert first is second
+        assert first.diagnostics["selected_transport"] == "direct"
+        snapshot = first.diagnostics
+        snapshot["attempts"].clear()
+        assert len(first.diagnostics["attempts"]) == 1
         async with aclosing(first.scroll("spans", {"match_all": {}})) as pages:
             async for page in pages:
                 assert page[0]["_source"]["id"] == 1
@@ -93,10 +98,14 @@ async def test_response_limit_and_protocol_error_do_not_retry():
 
     async with server(handle) as url, ClientManager() as clients:
         client = await clients.get(source(url, max_response_bytes=20))
-        with pytest.raises(ValueError, match="byte limit"):
+        with pytest.raises(OpenSearchRequestError) as failure:
             await client.request("GET", "/large")
-        with pytest.raises(httpx.HTTPStatusError):
+        assert failure.value.kind == ErrorKind.LIMIT_EXCEEDED
+        with pytest.raises(OpenSearchRequestError) as failure:
             await client.request("GET", "/denied")
+        assert failure.value.kind == ErrorKind.PERMISSION_DENIED
+        assert failure.value.code == 403
+        assert isinstance(failure.value.__cause__, httpx.HTTPStatusError)
         with pytest.raises(ValueError, match="relative"):
             await client.request("GET", "https://elsewhere.example/")
     assert count == 2

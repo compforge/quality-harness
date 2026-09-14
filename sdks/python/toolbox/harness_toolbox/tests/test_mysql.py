@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from harness_toolbox import ClientManager
+from harness_toolbox.errors import ErrorKind, MySQLQueryError
 from harness_toolbox.mysql import (
     MySQLDataSource,
     MySQLTarget,
@@ -60,8 +61,14 @@ async def test_connection_fallback_but_never_query_replay(monkeypatch):
     source = MySQLDataSource(ConnectionSource("db", resolve, (Route(), Route())))
     async with ClientManager() as clients:
         client = await clients.get(source)
-        with pytest.raises(OperationalError):
+        assert client.diagnostics["selected_transport"] == "direct"
+        assert [item["status"] for item in client.diagnostics["attempts"]] == ["error", "ok"]
+        with pytest.raises(MySQLQueryError) as failure:
             await client.query("UPDATE test SET count = count + 1")
+        assert failure.value.kind == ErrorKind.CONNECTION_LOST
+        assert failure.value.code == 2013
+        assert isinstance(failure.value.__cause__, OperationalError)
+        assert "UPDATE" not in str(failure.value)
     assert len(attempts) == 2
     assert queries == [1]
     assert disposed == [0, 1]
