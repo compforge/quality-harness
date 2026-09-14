@@ -224,7 +224,11 @@ class KubernetesClient:
         async def operation() -> ExecResult:
             async with asyncio.timeout(self._options.exec_timeout_s), self._exec_slots:
                 await self._require_identity(ref)
-                args = ["exec", "-i", ref.name]
+                args = ["exec"]
+                # Opening then closing an unused stdin stream can truncate remote stdout.
+                if stdin:
+                    args.append("-i")
+                args.append(ref.name)
                 if container:
                     args += ["-c", container]
                 result = await execute(

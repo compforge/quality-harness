@@ -292,6 +292,22 @@ async def test_exec_stdin_exit_status_and_uid_check(tmp_path):
     await client.dispose()
 
 
+async def test_exec_omits_stdin_flag_without_input(tmp_path):
+    script = tmp_path / "kubectl"
+    script.write_text(
+        "#!/usr/bin/env python3\nimport json, sys\nsys.stdout.write(json.dumps(sys.argv[1:]))\n"
+    )
+    script.chmod(0o755)
+    api = FakeCoreV1API([pod("worker", "uid")])
+    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS, kubectl=str(script)), api=api)
+
+    result = await client.execute(PodRef("worker", "uid"), ["env"])
+
+    assert b'"-i"' not in result.stdout
+    assert b'"exec", "worker", "--", "env"' in result.stdout
+    await client.dispose()
+
+
 async def test_root_disposal_drains_exec(tmp_path):
     script = tmp_path / "kubectl"
     script.write_text("#!/usr/bin/env python3\nimport time\ntime.sleep(60)\n")
