@@ -1,4 +1,4 @@
-CHECK_PATHS ?= harness_common/ toolbox/harness_toolbox/ e2e_harness/ eval_harness/ perf_harness/ trace_harness/ trajectory_harness/
+CHECK_PATHS ?= common/harness_common/ toolbox/harness_toolbox/ e2e_harness/ eval_harness/ perf_harness/ trace_harness/ trajectory_harness/
 
 FIX_PATHS ?= $(CHECK_PATHS)
 

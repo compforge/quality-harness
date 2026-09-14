@@ -8,11 +8,12 @@ import json
 import math
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib.resources import files
 from typing import TYPE_CHECKING
 
 from harness_toolbox._mysql_values import decode_value, encode_value
+from harness_toolbox.address import address_candidates
 from harness_toolbox.client import ClientProvider, data_source_key
 from harness_toolbox.diagnostics import _AccessRecorder, _transport_name
 from harness_toolbox.errors import (
@@ -73,6 +74,7 @@ class MySQLDataSource:
             "mysql",
             [
                 self.connection.key,
+                self.connection.addresses.key if self.connection.addresses else None,
                 [t.key for t in self.connection.transports],
                 self.concurrency,
                 self.timeout_s,
@@ -82,7 +84,7 @@ class MySQLDataSource:
         )
 
     def create_client(self, clients: ClientProvider) -> MySQLClient:
-        return MySQLClient(self)
+        return MySQLClient(self, clients)
 
 
 # The Pod supplies PyMySQL; configuration and statements are stdin data, not Pod env conventions.
@@ -195,13 +197,14 @@ def _connection_network_error(error: BaseException) -> bool:
 
 
 class MySQLClient:
-    def __init__(self, source: MySQLDataSource) -> None:
+    def __init__(self, source: MySQLDataSource, clients: ClientProvider | None = None) -> None:
         if (
             min(source.concurrency, source.timeout_s, source.connect_timeout_s, source.max_rows)
             <= 0
         ):
             raise ValueError("MySQL limits must be positive")
         self._source = source
+        self._clients = clients
         self._access = _AccessRecorder("mysql")
         self._target: MySQLTarget | None = None
         self._engine: AsyncEngine | None = None
@@ -227,65 +230,91 @@ class MySQLClient:
         self._access.target = target.diagnostics
         if not self._source.connection.transports:
             raise ValueError("MySQL requires a transport")
-        for index, transport in enumerate(self._source.connection.transports):
-            stack = AsyncExitStack()
-            try:
-                if isinstance(transport, PodPythonTransport):
-                    await self._pod_query(transport, None, None)
-                    self._pod = transport
-                    self._access.connected(_transport_name(transport))
-                    return
-                from sqlalchemy import URL
-                from sqlalchemy.ext.asyncio import create_async_engine
-
+        last_error: ToolboxError | None = None
+        last_cause: BaseException | None = None
+        async for candidate in address_candidates(
+            Endpoint(target.host, target.port), self._source.connection.addresses, self._clients
+        ):
+            if candidate.error is not None:
+                self._access.failed(
+                    "resolution", candidate.error, candidate.endpoint, candidate.source
+                )
+                last_error, last_cause = candidate.error, None
+                continue
+            self._target = replace(
+                target, host=candidate.endpoint.host, port=candidate.endpoint.port
+            )
+            for transport in self._source.connection.transports:
+                stack = AsyncExitStack()
+                mapped = candidate.endpoint
                 try:
-                    mapped = await stack.enter_async_context(
-                        transport.connect(Endpoint(target.host, target.port))
+                    if isinstance(transport, PodPythonTransport):
+                        await self._pod_query(transport, None, None)
+                        self._pod = transport
+                        self._access.connected(_transport_name(transport), mapped, candidate.source)
+                        return
+                    from sqlalchemy import URL
+                    from sqlalchemy.ext.asyncio import create_async_engine
+
+                    try:
+                        mapped = await stack.enter_async_context(
+                            transport.connect(candidate.endpoint)
+                        )
+                    except RuntimeError as error:
+                        raise _failure(
+                            target, MySQLConnectionError, ErrorKind.OPERATION_FAILED
+                        ) from error
+                    engine = create_async_engine(
+                        URL.create(
+                            "mysql+asyncmy",
+                            username=target.username,
+                            password=target.password,
+                            host=mapped.host,
+                            port=mapped.port,
+                            database=target.database,
+                        ),
+                        pool_size=self._source.concurrency,
+                        max_overflow=0,
+                        pool_timeout=self._source.timeout_s,
+                        connect_args={"connect_timeout": self._source.connect_timeout_s},
+                        hide_parameters=True,
+                        isolation_level="AUTOCOMMIT",
                     )
-                except RuntimeError as error:
-                    raise _failure(
-                        target, MySQLConnectionError, ErrorKind.OPERATION_FAILED
-                    ) from error
-                engine = create_async_engine(
-                    URL.create(
-                        "mysql+asyncmy",
-                        username=target.username,
-                        password=target.password,
-                        host=mapped.host,
-                        port=mapped.port,
-                        database=target.database,
-                    ),
-                    pool_size=self._source.concurrency,
-                    max_overflow=0,
-                    pool_timeout=self._source.timeout_s,
-                    connect_args={"connect_timeout": self._source.connect_timeout_s},
-                    hide_parameters=True,
-                    isolation_level="AUTOCOMMIT",
-                )
-                stack.push_async_callback(engine.dispose)
-                async with asyncio.timeout(self._source.connect_timeout_s), engine.connect():
-                    pass
-                self._engine = engine
-                self._stack = stack
-                self._access.connected(_transport_name(transport))
-                return
-            except BaseException as error:
-                failure = (
-                    _mysql_error(error, target, MySQLConnectionError)
-                    if isinstance(error, Exception)
-                    else None
-                )
-                if failure is not None:
-                    self._access.failed(_transport_name(transport), failure)
-                await stack.aclose()
-                if failure is None or failure is error:
-                    raise
-                if isinstance(transport, PodPythonTransport) or index + 1 == len(
-                    self._source.connection.transports
-                ):
-                    raise failure from error
-                if not isinstance(error, TimeoutError) and not _connection_network_error(error):
-                    raise failure from error
+                    stack.push_async_callback(engine.dispose)
+                    async with asyncio.timeout(self._source.connect_timeout_s), engine.connect():
+                        pass
+                    self._engine = engine
+                    self._stack = stack
+                    self._access.connected(_transport_name(transport), mapped, candidate.source)
+                    return
+                except BaseException as error:
+                    failure = (
+                        _mysql_error(error, target, MySQLConnectionError)
+                        if isinstance(error, Exception)
+                        else None
+                    )
+                    if failure is not None:
+                        self._access.failed(
+                            _transport_name(transport), failure, mapped, candidate.source
+                        )
+                    await stack.aclose()
+                    if failure is None:
+                        raise
+                    last_error, last_cause = (
+                        failure,
+                        error if failure is not error else error.__cause__,
+                    )
+                    # Authentication/schema failure is about this address, not the access
+                    # channel. Try the next address, without repeating it through a tunnel.
+                    if failure.kind not in (
+                        ErrorKind.CONNECTION_FAILED,
+                        ErrorKind.CONNECTION_LOST,
+                        ErrorKind.TIMEOUT,
+                    ):
+                        break
+
+        assert last_error is not None
+        raise last_error from last_cause
 
     async def query(self, sql: str, params: Mapping[str, object] | None = None) -> QueryResult:
         """Execute once with DBAPI %(name)s bindings; no automatic retry.

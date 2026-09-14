@@ -38,8 +38,8 @@ async def query(clients, settings):
 ```
 
 MySQL uses SQLAlchemy with asyncmy for direct and forwarded access. It selects a route while establishing
-a connection, before user SQL. Authentication errors and statement failures do not cause fallback or
-replay. PodPythonTransport sends explicit connection settings and query parameters over stdin and uses
+a connection, before user SQL. Authentication errors may advance to another declared address, but
+do not retry the same address through another transport. Statement failures never cause replay. PodPythonTransport sends explicit connection settings and query parameters over stdin and uses
 PyMySQL in the Pod; it shares the resolved route/client, but opens a remote DB connection per exec.
 Statements use DBAPI `%(name)s` parameters on both paths. Queries are bounded by concurrency, timeout,
 and row limit. A statement timeout does not prove the server rolled back; callers decide transaction
@@ -140,7 +140,7 @@ from workload controllers and Pods.
 
 ```python
 from harness_common import KubernetesWorkload
-from harness_common.toolbox import kubernetes_source
+from harness_toolbox.environment import kubernetes_source
 from harness_toolbox.kube import Options
 
 async def observe(clients, service):
@@ -161,3 +161,38 @@ associate logical context with independently configured sources without changing
 PodPythonTransport accepts an explicit `container` for multi-container Pods. It is part of the
 transport identity so clients using different containers cannot share a route. Credentials and
 query parameters continue to travel over stdin.
+
+## Environment-scoped address selection
+
+Generic client ownership and service associations live in `harness_common`; toolbox
+re-exports the original lifecycle names. `harness_toolbox.environment.kubernetes_source`
+is the Kubernetes-specific factory. The independent packages depend in one direction:
+`quality-harness` → `harness-toolbox` → `harness-common`.
+
+```python
+from harness_common import KubernetesEnvironment
+from harness_toolbox.address import AddressPolicy
+
+addresses = AddressPolicy(
+    environment=KubernetesEnvironment("smoke", "/configs/smoke", "smoke-context"),
+    namespace="runtime",
+    fallback_hosts=("mysql-replica.storage.svc",),
+    timeout_s=10,
+    connection_pool_maxsize=8,
+)
+# Pass addresses=addresses to ConnectionSource for MySQL or OpenSearch.
+```
+
+Resolution is lazy and shares Kubernetes clients through the root ClientProvider.
+A Service lookup uses this environment's kubeconfig/context (empty kubeconfig means
+in-cluster identity, never ambient local kubeconfig). A confirmed Service never falls
+back to local short-name DNS. Cross-namespace names use `service.namespace.svc`;
+ordinary domains retain DNS semantics. ClusterIP, ready headless addresses, external
+DNS addresses and explicit alternatives are attempted sequentially and deduplicated.
+
+Only initialization can switch addresses: authentication/database failures advance to
+the next address, network failures may also advance to the next transport for the same
+address. Queries are never replayed. The first successful client is reused; failed
+attempt resources are closed. HTTPS keeps the configured SNI and HTTP Host even when
+connecting by IP. Diagnostics distinguish configured target, candidate origin, mapped
+endpoint and selected transport, without credentials or query data.

@@ -10,7 +10,8 @@ Install only the protocols you use:
 pip install 'harness-toolbox[kube,opensearch,mysql]'
 ```
 
-`Client` owns initialization and disposal. A `DataSource` identifies its configuration;
+`harness-common` owns `Client`, `DataSource`, `ClientProvider` and `ClientManager`;
+toolbox re-exports these names. `Client` owns initialization and disposal. A `DataSource` identifies its configuration;
 `ClientManager` shares it across concurrent or nested work and cleans up at root exit.
 `ConnectionSource` and `Transport` separate caller-owned configuration from the path used to reach it.
 

@@ -22,7 +22,7 @@ DataSource key 必须覆盖影响复用的协议、目标、配置与凭据；�
 共享容量和策略在一个根执行中保持一致，不能用同一个 key 请求相互冲突的策略。
 
 MySQL、Redis、OpenSearch 和 Kubernetes 客户端实现这些原语。连接、排队、取消、资源释放属于工具箱；
-授权、业务 SQL、Redis key、索引规则、采集时机和结果解释仍属于消费方。MySQL 只在建连网络错误时切换
+授权、业务 SQL、Redis key、索引规则、采集时机和结果解释仍属于消费方。MySQL 只在初始化阶段切换地址，建连网络错误可以切换
 Transport，认证错误或已开始执行的 SQL 错误不得触发重放。
 
 PodLogClient 以物理 Pod/container 身份及绝对时间窗口共享采集源，向并发和晚到的消费者回放原始日志。
@@ -41,11 +41,25 @@ Deployment、StatefulSet、DaemonSet 或 Pod；container 是可选操作配置�
 
 Toolbox 的范围是通用基础设施访问与操作，包括数据库、OpenSearch、Transport、进程与 Kubernetes，
 不以 Workload 为中心。Workload 操作只是其中一组能力；直接访问数据库无需构造 Service 或 Workload。
-`harness_common.toolbox` 适配逻辑环境的访问配置，`ServiceDataSource` 可关联 Service 与独立 DataSource；
+`harness_toolbox.environment` 适配逻辑环境的访问配置，`ServiceDataSource` 可关联 Service 与独立 DataSource；
 数据库执行入口是 DataSource/Client，逻辑服务解析不进入协议客户端。
 
 ClientManager 属于根执行，按实际访问配置、凭据与容量复用客户端并集中释放。环境名、服务名或
-Workload 名不能代替连接身份。依赖方向为 common 适配依赖 toolbox，独立 toolbox 不 import common。
+Workload 名不能代替连接身份。Python 的 Environment、Service、Client、DataSource、ClientProvider、
+ClientManager、ServiceDataSource 与配置 key 归独立的 harness-common；具体协议客户端、Transport、
+地址解析和 Kubernetes 工厂归 harness-toolbox。依赖方向为 toolbox → common → 标准库；common 的
+LLM HTTP 客户端通过独立 extra 引入 httpx。原 toolbox 生命周期符号保留转导出。
+
+`ConnectionSource.addresses` 可声明 `AddressPolicy(environment, namespace, fallback_hosts)`。
+IP 直接使用；Kubernetes 短名和指定 namespace 的两段 Service 名，以及 `name.namespace.svc[.<cluster-domain>]`
+通过对应环境的 API 获取 ClusterIP（headless 使用 ready endpoints），不回退本机短名 DNS。
+跨 namespace 使用带 `.svc` 的明确名称；其余域名按 DNS 返回顺序尝试 IP，候选去重。
+未声明 AddressPolicy 时，名称解析仍由 Transport 所在的访问位置负责。
+
+MySQL 以认证并选择 database 成功、OpenSearch 以初始化 HEAD 成功作为选中依据，保留客户端供后续请求使用。
+地址初始化失败可以尝试下一个候选，鉴权或 database 错误不在同一地址上换通道重试。
+SQL/搜索执行失败不重放。TLS 保留原始 servername 与 HTTP Host，不因 IP 或隧道映射关闭证书校验。
+诊断分别提供配置 target、各次 endpoint/source/transport、失败原因与 selected_endpoint，不包含凭据。
 
 ## 2. Kubernetes
 
