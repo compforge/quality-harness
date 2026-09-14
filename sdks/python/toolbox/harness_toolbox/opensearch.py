@@ -14,6 +14,13 @@ import httpx
 
 from harness_toolbox.client import ClientProvider, data_source_key
 from harness_toolbox.diagnostics import _AccessRecorder, _transport_name
+from harness_toolbox.errors import (
+    ErrorKind,
+    OpenSearchConnectionError,
+    OpenSearchError,
+    OpenSearchRequestError,
+    ToolboxError,
+)
 from harness_toolbox.transport import ConnectionSource, Endpoint, PodPythonTransport
 
 
@@ -51,6 +58,67 @@ class OpenSearchDataSource:
         return OpenSearchClient(self)
 
 
+def _tls_verification_failed(error: BaseException) -> bool:
+    # HTTP backends can wrap SSL errors or retain only the OpenSSL marker.
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen and len(seen) < 16:
+        seen.add(id(current))
+        if isinstance(current, ssl.SSLCertVerificationError) or any(
+            isinstance(arg, str) and "CERTIFICATE_VERIFY_FAILED" in arg for arg in current.args
+        ):
+            return True
+        current = current.__cause__ or (
+            None if current.__suppress_context__ else current.__context__
+        )
+    return False
+
+
+def _failure(
+    endpoint: Endpoint,
+    error_type: type[OpenSearchError],
+    kind: ErrorKind,
+    code: int | None = None,
+) -> OpenSearchError:
+    action = "connect" if error_type is OpenSearchConnectionError else "request"
+    return error_type(
+        f"OpenSearch {action} failed at {endpoint.host}:{endpoint.port}: "
+        f"{kind.value.replace('_', ' ')}",
+        kind=kind,
+        code=code,
+    )
+
+
+def _opensearch_error(
+    error: Exception, endpoint: Endpoint, error_type: type[OpenSearchError]
+) -> ToolboxError | None:
+    if isinstance(error, ToolboxError):
+        return error
+    code = None
+    if isinstance(error, (httpx.TransportError, ssl.SSLError)) and _tls_verification_failed(error):
+        kind = ErrorKind.TLS_VERIFICATION_FAILED
+    elif isinstance(error, httpx.HTTPStatusError):
+        code = error.response.status_code
+        kind = {
+            401: ErrorKind.AUTHENTICATION_FAILED,
+            403: ErrorKind.PERMISSION_DENIED,
+            404: ErrorKind.RESOURCE_NOT_FOUND,
+        }.get(code, ErrorKind.OPERATION_FAILED)
+    elif isinstance(error, (TimeoutError, httpx.TimeoutException)):
+        kind = ErrorKind.TIMEOUT
+    elif isinstance(error, (httpx.ConnectError, ConnectionError)):
+        kind = ErrorKind.CONNECTION_FAILED
+    elif isinstance(error, (httpx.ReadError, httpx.WriteError)):
+        kind = ErrorKind.CONNECTION_LOST
+    elif isinstance(error, (httpx.DecodingError, httpx.RemoteProtocolError)):
+        kind = ErrorKind.INVALID_RESPONSE
+    elif isinstance(error, (httpx.HTTPError, OSError)):
+        kind = ErrorKind.OPERATION_FAILED
+    else:
+        return None
+    return _failure(endpoint, error_type, kind, code)
+
+
 class OpenSearchClient:
     def __init__(self, source: OpenSearchDataSource) -> None:
         if source.concurrency < 1 or source.timeout_s <= 0 or source.max_response_bytes < 1:
@@ -60,6 +128,7 @@ class OpenSearchClient:
         self._stack = AsyncExitStack()
         self._http: httpx.AsyncClient | None = None
         self._servername: str | None = None
+        self._endpoint: Endpoint | None = None
         self._slots = asyncio.Semaphore(source.concurrency)
         self._disposed = False
         self._disposal: asyncio.Task[None] | None = None
@@ -75,14 +144,14 @@ class OpenSearchClient:
         if self._http is not None:
             return
         self._access = _AccessRecorder("opensearch")
-        with self._access.operation("resolve"):
-            target = await self._source.connection.resolve()
+        target = await self._source.connection.resolve()
         url = urlsplit(target.url)
         if url.scheme not in ("http", "https") or not url.hostname or url.username:
             raise ValueError("OpenSearch URL requires http(s), a host, and separate credentials")
         endpoint = Endpoint(
             url.hostname, url.port or (443 if url.scheme == "https" else 80), target.servername
         )
+        self._endpoint = endpoint
         self._access.target = {
             "host": endpoint.host,
             "port": endpoint.port,
@@ -95,7 +164,12 @@ class OpenSearchClient:
                 raise ValueError("OpenSearch requires a TCP transport")
             stack = AsyncExitStack()
             try:
-                mapped = await stack.enter_async_context(transport.connect(endpoint))
+                try:
+                    mapped = await stack.enter_async_context(transport.connect(endpoint))
+                except RuntimeError as error:
+                    raise _failure(
+                        endpoint, OpenSearchConnectionError, ErrorKind.OPERATION_FAILED
+                    ) from error
                 host = f"[{mapped.host}]" if ":" in mapped.host else mapped.host
                 base_url = urlunsplit((url.scheme, f"{host}:{mapped.port}", url.path, "", ""))
                 verify: ssl.SSLContext | bool = ssl.create_default_context(cafile=target.ca_file)
@@ -122,16 +196,22 @@ class OpenSearchClient:
                 self._stack = stack
                 self._access.connected(_transport_name(transport))
                 return
-            except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionError) as error:
-                self._access.failed(_transport_name(transport), error)
-                await stack.aclose()
-                if index + 1 == len(self._source.connection.transports):
-                    raise
             except BaseException as error:
-                if isinstance(error, Exception):
-                    self._access.failed(_transport_name(transport), error)
+                failure = (
+                    _opensearch_error(error, endpoint, OpenSearchConnectionError)
+                    if isinstance(error, Exception)
+                    else None
+                )
+                if failure is not None:
+                    self._access.failed(_transport_name(transport), failure)
                 await stack.aclose()
-                raise
+                if failure is None or failure is error:
+                    raise
+                if isinstance(
+                    error, (httpx.ConnectError, httpx.ConnectTimeout, ConnectionError)
+                ) and index + 1 < len(self._source.connection.transports):
+                    continue
+                raise failure from error
 
     async def request(
         self, method: str, path: str, payload: Mapping[str, object] | None = None
@@ -140,10 +220,17 @@ class OpenSearchClient:
             raise RuntimeError("OpenSearch client is not initialized")
         if not path.startswith("/") or path.startswith("//"):
             raise ValueError("request path must be relative to the configured OpenSearch host")
-        with self._access.operation("request"):
+        try:
             return await self._request(method, path, payload)
+        except Exception as error:
+            assert self._endpoint is not None
+            failure = _opensearch_error(error, self._endpoint, OpenSearchRequestError)
+            if failure is None or failure is error:
+                raise
+            raise failure from error
 
     async def _request(self, method: str, path: str, payload: Mapping[str, object] | None) -> dict:
+        assert self._endpoint is not None
         async with (
             asyncio.timeout(self._source.timeout_s),
             self._slots,
@@ -156,10 +243,15 @@ class OpenSearchClient:
             async for chunk in response.aiter_bytes():
                 data.extend(chunk)
                 if len(data) > self._source.max_response_bytes:
-                    raise ValueError("OpenSearch response exceeds byte limit")
-            result = json.loads(data)
+                    raise _failure(self._endpoint, OpenSearchRequestError, ErrorKind.LIMIT_EXCEEDED)
+            try:
+                result = json.loads(data)
+            except (ValueError, UnicodeError) as error:
+                raise _failure(
+                    self._endpoint, OpenSearchRequestError, ErrorKind.INVALID_RESPONSE
+                ) from error
             if not isinstance(result, dict):
-                raise ValueError("OpenSearch response must be an object")
+                raise _failure(self._endpoint, OpenSearchRequestError, ErrorKind.INVALID_RESPONSE)
             return result
 
     async def scroll(
@@ -187,7 +279,10 @@ class OpenSearchClient:
                     break
                 yield hits
                 if not scroll_id:
-                    raise ValueError("OpenSearch returned hits without a scroll id")
+                    assert self._endpoint is not None
+                    raise _failure(
+                        self._endpoint, OpenSearchRequestError, ErrorKind.INVALID_RESPONSE
+                    )
                 result = await self.request(
                     "POST", "/_search/scroll", {"scroll": keep_alive, "scroll_id": scroll_id}
                 )

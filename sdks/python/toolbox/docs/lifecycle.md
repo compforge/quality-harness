@@ -62,38 +62,50 @@ private CAs use `ca_file`, and an intentional insecure environment must explicit
 pages; use `contextlib.aclosing` when stopping early so the cursor is cleared before the client closes.
 Consumers own index names, queries, and output files.
 
-### Access diagnostics
+### Failures and connection evidence
 
-MySQL and OpenSearch clients expose a detached `client.diagnostics` snapshot: protocol,
-resolved target, ordered connection attempts and selected transport (`direct`, `port-forward`
-or `pod-python`). This is execution evidence, not a prediction from configuration. A resolved
-target without a selected transport does not mean the connection succeeded. MySQL targets also
-expose `target.diagnostics` for safe configuration inspection before connecting.
+Catch `ToolboxError` for translated access failures, or a protocol/operation subclass:
+`MySQLError → MySQLConnectionError / MySQLQueryError` and
+`OpenSearchError → OpenSearchConnectionError / OpenSearchRequestError`.
+
+Every toolbox exception has three fields: `kind` is a stable `ErrorKind`, `code` is the optional
+native DB/HTTP error code, and `message` is a safe contextual explanation, also returned by
+`str(error)`. Interpret codes in the context of the protocol class, never by parsing messages.
+Protocol adapters translate native failures once and preserve the original exception with
+`raise ... from error`; already-translated exceptions propagate unchanged.
 
 ```python
-from harness_toolbox.diagnostics import error_details
+from harness_toolbox import ToolboxError, ErrorKind
 
 try:
     database = await clients.get(source)
     result = await database.query("SELECT 1")
-except Exception as error:
-    report = error_details(error)
+except ToolboxError as error:
+    if error.kind == ErrorKind.AUTHENTICATION_FAILED:
+        handle_authentication_failure(error.message)
+    report({"kind": error.kind, "code": error.code, "message": error.message})
 else:
-    report = {"connection": database.diagnostics, "rows": len(result.rows)}
+    report({"connection": database.diagnostics, "rows": len(result.rows)})
 ```
 
-`error_details` preserves exception types and numeric DB/HTTP codes across wrappers, including
-SQLAlchemy's driver cause. Access failures add `access` with stage (`resolve`, `connect`,
-`query` or `request`) and a connection snapshot. Classification distinguishes TLS verification,
-authentication/permission, missing database/table, timeout and connection failures; unknown
-failures remain `query_error`. Cause traversal is bounded and reports truncation.
+Consumers choose report fields and serialization. Exception messages exclude native driver text,
+SQL/parameters, credentials and URL paths/query strings. Native causes and full tracebacks are
+debugging material, **not** safe report output. Pod Python carries only safe error categories and
+numeric MySQL codes; the host reconstructs the same public exception hierarchy without fabricating
+an in-process driver cause.
 
-Native exception types, cancellation, cleanup and retry rules are unchanged. Pod Python MySQL
-driver failures cross the process boundary as `RemoteMySQLError` with only the numeric code.
-Neither snapshots nor error summaries include raw exception messages, SQL/parameters, credentials,
-full URLs or connection/transport keys. Native exception text is **not** a safe report format.
-Consumers still control access to target host/database names and decide business meaning:
-an empty result, unavailable evidence and a failed business run are distinct states.
+`client.diagnostics` is independent connection evidence: protocol, resolved target, ordered
+attempts and selected transport (`direct`, `port-forward` or `pod-python`). Snapshots are detached.
+A target without a selected transport does not prove connection success. MySQL targets also expose
+`target.diagnostics` before connecting. When initialization fails before a caller obtains the
+client, the exception message still identifies the target and failed action; exceptions do not
+carry the connection snapshot.
+
+Arguments/programming errors and cancellation are not translated. Connection configuration
+resolution belongs to the caller and its failures propagate unchanged. Result limits and invalid
+remote responses are operational failures. Successful empty queries are not errors. Classification
+does not authorize retries: only connection probes can use configured fallback routes; statements
+and user requests are never automatically replayed.
 
 ## Kubernetes and logs
 

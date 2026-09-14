@@ -14,6 +14,7 @@ from asyncmy.cursors import Cursor
 from sqlalchemy.dialects.mysql.asyncmy import MySQLDialect_asyncmy
 
 from harness_toolbox import ClientManager
+from harness_toolbox.errors import ErrorKind, MySQLQueryError
 from harness_toolbox.mysql import MySQLDataSource, MySQLTarget
 from harness_toolbox.transport import ConnectionSource, KubernetesAccess, PodPythonTransport
 
@@ -221,8 +222,9 @@ async def test_non_row_statement_preserves_affected_rows(query_client):
 async def test_row_limit_closes_cursor_without_retry(query_client):
     client, database = query_client
     database.rows = [(1,), (2,), (3,)]
-    with pytest.raises(ValueError, match="row limit"):
+    with pytest.raises(MySQLQueryError) as failure:
         await client.query("SELECT value FROM records")
+    assert failure.value.kind == ErrorKind.LIMIT_EXCEEDED
     assert len(database.statements) == 1
     assert database.closed >= 1
 
@@ -263,8 +265,10 @@ async def test_parameters_preserve_native_types_on_both_routes(query_client, val
 async def test_timeout_does_not_replay(query_client):
     client, database = query_client
     database.delay = 1
-    with pytest.raises(TimeoutError):
+    with pytest.raises(MySQLQueryError) as failure:
         await client.query("SELECT 1")
+    assert failure.value.kind == ErrorKind.TIMEOUT
+    assert isinstance(failure.value.__cause__, TimeoutError)
     assert len(database.statements) == 1
     assert database.active == 0
 

@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from harness_toolbox import ClientManager
-from harness_toolbox.diagnostics import error_details
+from harness_toolbox.errors import ErrorKind, OpenSearchRequestError
 from harness_toolbox.opensearch import OpenSearchDataSource, OpenSearchTarget
 from harness_toolbox.transport import ConnectionSource
 
@@ -98,14 +98,14 @@ async def test_response_limit_and_protocol_error_do_not_retry():
 
     async with server(handle) as url, ClientManager() as clients:
         client = await clients.get(source(url, max_response_bytes=20))
-        with pytest.raises(ValueError, match="byte limit"):
+        with pytest.raises(OpenSearchRequestError) as failure:
             await client.request("GET", "/large")
-        with pytest.raises(httpx.HTTPStatusError) as failure:
+        assert failure.value.kind == ErrorKind.LIMIT_EXCEEDED
+        with pytest.raises(OpenSearchRequestError) as failure:
             await client.request("GET", "/denied")
-        details = error_details(failure.value)
-        assert details["kind"] == "permission_denied"
-        assert details["access"]["stage"] == "request"
-        assert details["causes"][0]["http_status"] == 403
+        assert failure.value.kind == ErrorKind.PERMISSION_DENIED
+        assert failure.value.code == 403
+        assert isinstance(failure.value.__cause__, httpx.HTTPStatusError)
         with pytest.raises(ValueError, match="relative"):
             await client.request("GET", "https://elsewhere.example/")
     assert count == 2

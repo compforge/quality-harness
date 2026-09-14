@@ -15,3 +15,5 @@ from harness_toolbox.client import (
 from harness_toolbox.client import (
     data_source_key as data_source_key,
 )
+from harness_toolbox.errors import ErrorKind as ErrorKind
+from harness_toolbox.errors import ToolboxError as ToolboxError
