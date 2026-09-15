@@ -473,7 +473,7 @@ provides-extras = ["llm"]
 
 [[package]]
 name = "harness-toolbox"
-version = "0.2.4"
+version = "0.2.5"
 source = { editable = "toolbox" }
 dependencies = [
     { name = "harness-common" },
@@ -1081,7 +1081,7 @@ wheels = [
 
 [[package]]
 name = "quality-harness"
-version = "0.2.19"
+version = "0.2.20"
 source = { editable = "." }
 dependencies = [
     { name = "atif" },

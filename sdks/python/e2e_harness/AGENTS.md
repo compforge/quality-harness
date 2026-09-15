@@ -22,6 +22,7 @@ e2e_harness/
 ├── caserun.py   # prepare/execute/judge/cleanup 生命周期、独立阶段 budget 与结果证据
 ├── matrix.py    # variant Cartesian product；variant 进入 arm_id + facets
 ├── temporal.py  # phase deadline 感知的 poll/retry/consistently
+├── command.py   # 项目原生命令的 transport/process 作用域；保留退出码，不替代 Case Verdict
 ├── assertion.py # judge.e2e.assert 求值器：{path,op,value} over response view（结构化、纯函数）
 ├── cli.py       # `e2e run case.yaml --base-url … → verdict.json`（+ __main__；JSON/SSE）
 # ── ③ 复用层 ──
