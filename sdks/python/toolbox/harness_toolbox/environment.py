@@ -22,7 +22,7 @@ def kubernetes_source(environment: KubernetesEnvironment, options: Options) -> K
         if environment.host.transport == "ssh":
             raise ValueError(
                 "KubernetesDataSource requires local cluster access; run the client on "
-                "Environment.host or use host.command for remote kubectl"
+                "Environment.host via host.command"
             )
     return KubernetesDataSource(
         options,
