@@ -1,12 +1,13 @@
 [project]
 name = "harness-toolbox"
-version = "0.2.3"
+version = "0.2.4"
 description = "Async infrastructure clients and execution-scoped resource sharing"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 dependencies = ["harness-common>=0.3.1,<0.4"]
 
 [project.optional-dependencies]
+prometheus = ["httpx>=0.27,<1", "prombed>=0.1.0"]
 kube = ["kubernetes-asyncio>=36.1,<37"]
 opensearch = ["httpx>=0.27,<1"]
 mysql = ["sqlalchemy[asyncio]>=2.0,<3", "asyncmy>=0.2.9,<1"]

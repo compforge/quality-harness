@@ -139,9 +139,17 @@ SSH 只启动一次只读 worker，Kubernetes 客户端在 Host 上读取 kubeco
 `top/rss` 使用 kubectl 的指标与 exec 通道；Helm 部署仍要求 Host 上有 Helm。
 
 每次 Trial 的观测期复用连接池（每个访问配置/namespace 最多 8 个连接，单次请求预算 10 秒）。
-同一采样周期内，同一访问配置、namespace 和 selector 的三个探针共享 Pod 列表及读取错误；
+每个采样周期创建 toolbox `ReadScope`，让同一访问配置、namespace 和 selector 的三个探针共享 Pod 列表及读取错误；
 下个周期重新读取，因此扩缩容不会沿用旧副本集合。列表读取失败进入 probe error 和 `up=0`，
 不会记为零副本或零资源。SSH 请求超时或取消后关闭对应 worker，避免后续请求误读残留响应。
 
 `observe_loop` 管理 `ProbeContext.clients` 的释放；直接调用 `Probe.sample` 的扩展测试，
 需要自行使用 `async with ctx.clients` 管理该生命周期。
+
+### Prometheus 观测
+
+`PrometheusProbe` 通过 toolbox `PrometheusDataSource` 抓取 `/metrics` 并查询内嵌 Prombed。
+同一访问配置的探针在单轮 `ReadScope` 内共享一次抓取，PromQL 查询仍各自执行。连接池与
+有界查询历史由该 Trial 的 `ClientManager` 管理，新 Trial 不读取旧 Trial 的样本。
+Prometheus 使用独立 HTTP 池，不占用发压连接；地址、认证和容量属于 DataSource，
+采样频率、输出指标/label 契约以及 SLO 属于 perf。

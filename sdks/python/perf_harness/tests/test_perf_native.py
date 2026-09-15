@@ -3,7 +3,7 @@ import time
 
 import pytest
 from harness_common import Host, KubernetesEnvironment
-from harness_toolbox.kube.resource_list import ResourceListDataSource
+from harness_toolbox.kube.resource_list import ResourceListClient, ResourceListDataSource
 
 from perf_harness.model import Service
 from perf_harness.observe.base import ProbeContext, observe_loop
@@ -16,7 +16,7 @@ async def test_native_probes_share_snapshot_refresh_and_dispose(monkeypatch, hos
     calls = []
     readers = []
 
-    class Reader:
+    class Reader(ResourceListClient):
         disposed = False
 
         async def initialize(self):
@@ -25,7 +25,7 @@ async def test_native_probes_share_snapshot_refresh_and_dispose(monkeypatch, hos
         async def dispose(self):
             self.disposed = True
 
-        async def list(self, api_version, kind, *, label_selector):
+        async def _list(self, api_version, kind, *, label_selector):
             calls.append((api_version, kind, label_selector))
             count = len(calls)
             if count == 2:
@@ -45,7 +45,7 @@ async def test_native_probes_share_snapshot_refresh_and_dispose(monkeypatch, hos
         assert source.environment.host == host
         assert source.environment.context == "chosen"
         assert source.options.namespace == "ns"
-        readers.append(Reader())
+        readers.append(Reader(source, clients))
         return readers[-1]
 
     monkeypatch.setattr(ResourceListDataSource, "create_client", create)
@@ -71,18 +71,20 @@ async def test_native_error_is_probe_failure_and_cancel_closes_clients(monkeypat
     started = asyncio.Event()
     disposed = asyncio.Event()
 
-    class Reader:
+    class Reader(ResourceListClient):
         async def initialize(self):
             pass
 
         async def dispose(self):
             disposed.set()
 
-        async def list(self, *args, **kwargs):
+        async def _list(self, *args, **kwargs):
             started.set()
             raise RuntimeError("403 denied")
 
-    monkeypatch.setattr(ResourceListDataSource, "create_client", lambda *_: Reader())
+    monkeypatch.setattr(
+        ResourceListDataSource, "create_client", lambda source, clients: Reader(source, clients)
+    )
     service = Service(
         environment=KubernetesEnvironment("dev", "/config"), namespace="ns", k8s_selector="app=chat"
     )
@@ -101,7 +103,7 @@ async def test_native_error_is_probe_failure_and_cancel_closes_clients(monkeypat
 
 
 async def test_direct_samples_refresh_without_observer_tick(monkeypatch):
-    class Reader:
+    class Reader(ResourceListClient):
         reads = 0
 
         async def initialize(self):
@@ -110,11 +112,13 @@ async def test_direct_samples_refresh_without_observer_tick(monkeypatch):
         async def dispose(self):
             pass
 
-        async def list(self, *args, **kwargs):
+        async def _list(self, *args, **kwargs):
             self.reads += 1
             return {"items": [{"status": {"containerStatuses": [{"restartCount": self.reads}]}}]}
 
-    monkeypatch.setattr(ResourceListDataSource, "create_client", lambda *_: Reader())
+    monkeypatch.setattr(
+        ResourceListDataSource, "create_client", lambda source, clients: Reader(source, clients)
+    )
     service = Service(
         environment=KubernetesEnvironment("dev", "/config"), namespace="ns", k8s_selector="app=chat"
     )

@@ -4,9 +4,13 @@ client (load-gen inflight/sent) is always recorded; there is no top-level probes
 """
 
 import json
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from harness_common.client import ClientManager
+from harness_toolbox.prometheus import PrometheusClient, PrometheusDataSource
 
 from perf_harness.config import load_experiment
 from perf_harness.drive.load import LoadProfile, Schedule
@@ -24,10 +28,23 @@ from perf_harness.observe import (
     KubectlTopProbe,
     PodCountProbe,
     Probe,
+    ProbeContext,
     PrometheusProbe,
     PrometheusQuery,
     ResourceLimitsProbe,
 )
+
+
+@asynccontextmanager
+async def _prometheus_context(monkeypatch, handler, service):
+    monkeypatch.setattr(
+        PrometheusDataSource,
+        "create_client",
+        lambda source, _: PrometheusClient(source, transport=httpx.MockTransport(handler)),
+    )
+    async with ClientManager() as clients:
+        yield ProbeContext(service=service, client=None, t0=1.0, clients=clients)
+
 
 _SERVICE = (
     "name: x\n"
@@ -417,7 +434,7 @@ def test_observe_per_pod_wires_the_flag(tmp_path):
     assert by_name["top.chat"]._per_pod and by_name["limits.chat"]._per_pod
 
 
-async def test_prometheus_probe_evaluates_promql_queries():
+async def test_prometheus_probe_evaluates_promql_queries(monkeypatch):
     import httpx
 
     text = (
@@ -452,13 +469,12 @@ async def test_prometheus_probe_evaluates_promql_queries():
         "prometheus.sse_streams",
         "prometheus.sse_errors",
     }
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        ctx = SimpleNamespace(service=Service(base_url="http://x"), probe_client=client, t0=1.0)
+    async with _prometheus_context(monkeypatch, handler, Service(base_url="http://x")) as ctx:
         out = await p.sample(ctx)
     assert out == {"sse_streams": 100.0, "sse_errors": 10.0}
 
 
-async def test_prometheus_probe_emits_declared_vector_labels():
+async def test_prometheus_probe_emits_declared_vector_labels(monkeypatch):
     import httpx
 
     text = (
@@ -481,8 +497,7 @@ async def test_prometheus_probe_emits_declared_vector_labels():
             ),
         ],
     )
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        ctx = SimpleNamespace(service=Service(base_url="http://x"), probe_client=client, t0=1.0)
+    async with _prometheus_context(monkeypatch, handler, Service(base_url="http://x")) as ctx:
         out = await p.sample(ctx)
     assert out == {
         'ctl_requests{path="/v1/bots"}': 42.0,
@@ -490,7 +505,7 @@ async def test_prometheus_probe_emits_declared_vector_labels():
     }
 
 
-async def test_downstream_prometheus_does_not_receive_subject_credentials():
+async def test_downstream_prometheus_does_not_receive_subject_credentials(monkeypatch):
     import httpx
 
     seen_headers = None
@@ -506,15 +521,11 @@ async def test_downstream_prometheus_does_not_receive_subject_credentials():
         headers={"X-Metrics-Token": "metrics-secret"},
         queries=[PrometheusQuery(name="requests", promql="sum(requests_total)")],
     )
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        ctx = SimpleNamespace(
-            service=Service(
-                base_url="http://example",
-                headers={"Authorization": "service-secret"},
-            ),
-            probe_client=client,
-            t0=1.0,
-        )
+    async with _prometheus_context(
+        monkeypatch,
+        handler,
+        Service(base_url="http://example", headers={"Authorization": "service-secret"}),
+    ) as ctx:
         await probe.sample(ctx)
     assert seen_headers["X-Metrics-Token"] == "metrics-secret"
     assert "Authorization" not in seen_headers
@@ -555,7 +566,7 @@ def test_observe_rejects_removed_scrape_surface(tmp_path):
         load_experiment(str(cfg))
 
 
-async def test_prometheus_http_error_raises_not_empty():
+async def test_prometheus_http_error_raises_not_empty(monkeypatch):
     import httpx
     from prombed import PrombedError
 
@@ -566,8 +577,7 @@ async def test_prometheus_http_error_raises_not_empty():
         service="chat",
         queries=[PrometheusQuery(name="requests", promql="sum(requests_total)")],
     )
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        ctx = SimpleNamespace(service=Service(base_url="http://x"), probe_client=client, t0=1.0)
+    async with _prometheus_context(monkeypatch, handler, Service(base_url="http://x")) as ctx:
         with pytest.raises(PrombedError, match="500"):
             await p.sample(ctx)
 
@@ -625,7 +635,7 @@ def test_prometheus_query_replaces_derived_metrics(tmp_path):
     )
     exp, _ = load_experiment(str(cfg))
     probe = next(p for p in exp.probes if p.name == "prometheus.chat")
-    assert probe._retention_ms == 120000
+    assert probe._options.retention_ms == 120000
     assert probe.queries[0].promql.startswith("sum(rate(")
     assert exp.slo[0].metric == 'prometheus.x_mean_s{service="chat"}.mean'
 
@@ -707,3 +717,32 @@ def test_limits_colors_are_report_palette():
     assert family_color("limits.mem_limit") == "#d62728"
     assert family_color("limits.cpu_request") == "#ff7f0e"
     assert family_color("top.cpu_m") == ""
+
+
+async def test_prometheus_history_is_scoped_to_trial_clients(monkeypatch):
+    values = iter([9, 11, 1])
+    now = 1_000_000
+    monkeypatch.setattr("prombed.prombed._now_ms", lambda: now)
+
+    def handler(_request):
+        return httpx.Response(200, text=f"requests_total {next(values)}\n")
+
+    probe = PrometheusProbe(queries=[PrometheusQuery("increase", "increase(requests_total[5m])")])
+    async with _prometheus_context(monkeypatch, handler, Service(base_url="http://x")) as ctx:
+        assert await probe.sample(ctx) == {}
+        now += 1_000
+        assert (await probe.sample(ctx))["increase"] > 0
+    now += 1_000
+    async with _prometheus_context(monkeypatch, handler, Service(base_url="http://x")) as ctx:
+        assert await probe.sample(ctx) == {}
+
+
+async def test_prometheus_subject_headers_and_scalar_mapping(monkeypatch):
+    def handler(request):
+        assert request.headers["Authorization"] == "subject-secret"
+        return httpx.Response(200, text="requests_total 1\n")
+
+    probe = PrometheusProbe(queries=[PrometheusQuery("answer", "1 + 2")])
+    service = Service(base_url="http://x", headers={"Authorization": "subject-secret"})
+    async with _prometheus_context(monkeypatch, handler, service) as ctx:
+        assert await probe.sample(ctx) == {"answer": 3}

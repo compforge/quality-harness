@@ -115,7 +115,26 @@ kubectl 命令，也不把远端配置当作本机文件。
 stderr 有界收集。调用取消、超时或协议断流后关闭 worker，后续请求不会误用残留响应。
 该通道不提供 manifest 写入，资源创建与清理继续由消费方明确调用原生操作。
 
-## 3. 故障注入后端
+## 3. 读取范围与 Prometheus
+
+`ClientManager` 共享连接与客户端状态；`ReadScope` 共享一轮读取的结果、错误和在途任务。
+调用方显式创建读取范围，适配器用 DataSource 配置和完整查询参数决定共享键。
+单个等待者取消不影响其它等待者；范围退出会取消并等待未完成读取，再释放结果。
+范围应嵌套在 ClientManager 内；消费方不能修改共享结果。
+`ResourceListClient.list(..., scope=scope)` 和 `PrometheusClient.read(..., scope=scope)`
+都支持这个可选参数，不传时每次重新访问。
+
+Python `harness-toolbox[prometheus]` 提供 `PrometheusDataSource`，描述 `/metrics` 地址、
+显式请求头、HTTP 连接池、总抓取超时、响应体及历史容量。客户端通过独立 HTTP 池抓取，
+用内嵌 Prombed 保存短期样本并执行 PromQL；它不是远端 Prometheus HTTP 查询 API 的客户端。
+相同配置在 ClientManager 内复用抓取客户端和历史；同一 ReadScope 内只抓取一次，
+各消费方分别执行查询，返回原始 Prometheus 类型与 labels。
+
+读取频率与范围边界由调用方决定；toolbox 不运行采样循环，也不声明业务指标或 SLO。
+perf 每个 Trial 持有 ClientManager、每轮观测创建 ReadScope，再把查询结果映射为指标。
+这样下一轮可见新数据，新 Trial 不会读到上一轮试验的历史。
+
+## 4. 故障注入后端
 
 Chaos Mesh、ChaosBlade、Toxiproxy、AgentChaos 等可以作为工具箱中的具体故障注入后端；它们负责执行
 和撤销受控故障、返回后端证据，不拥有故障意图、恢复标准或评估结论。

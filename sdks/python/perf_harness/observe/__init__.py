@@ -1,6 +1,6 @@
 """Probe families — the observation extension point.
 
-``base`` holds the ABC + the source-agnostic probes (client, embedded Prometheus);
+``base`` holds the ABC + the source-agnostic probes (client, Prometheus metric adapter);
 ``k8s`` holds the K8s-family probes. Adding a new Source family = a new
 module here. Import probes from the package root (``from perf_harness.observe
 import KubectlTopProbe``) — these are the stable names.

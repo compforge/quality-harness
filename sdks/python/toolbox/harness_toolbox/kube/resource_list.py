@@ -20,6 +20,7 @@ from harness_toolbox.environment import kubernetes_source
 from harness_toolbox.host import command
 from harness_toolbox.kube.model import Options
 from harness_toolbox.process import process_scope
+from harness_toolbox.read_scope import ReadScope
 
 if TYPE_CHECKING:
     from harness_toolbox.kube.client import KubernetesClient
@@ -91,9 +92,24 @@ class ResourceListClient:
         while chunk := await stream.read(65536):
             self._stderr.extend(chunk[: max(0, 65536 - len(self._stderr))])
 
-    async def list(self, api_version: str, kind: str, *, label_selector: str = "") -> dict:
+    async def list(
+        self,
+        api_version: str,
+        kind: str,
+        *,
+        label_selector: str = "",
+        scope: ReadScope | None = None,
+    ) -> dict:
         if self._closed:
             raise RuntimeError("resource list client is closed")
+        if scope is None:
+            return await self._list(api_version, kind, label_selector=label_selector)
+        key = (self._source.key, "list", api_version, kind, label_selector)
+        return await scope.read(
+            key, lambda: self._list(api_version, kind, label_selector=label_selector)
+        )
+
+    async def _list(self, api_version: str, kind: str, *, label_selector: str = "") -> dict:
         if self._native is not None:
             return await self._native.resources.list(
                 api_version, kind, label_selector=label_selector
