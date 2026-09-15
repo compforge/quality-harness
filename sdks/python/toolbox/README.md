@@ -60,7 +60,7 @@ Kubernetes Service endpoints retain their separate `list_service_pods` operation
 Prometheus observations use `PrometheusDataSource` from `harness_toolbox.prometheus`
 (extra `prometheus`). Its client scrapes a `/metrics` endpoint and evaluates PromQL locally
 with Prombed; it does not query a remote Prometheus server. `ClientManager` owns the HTTP
-pool and bounded history. Pass a `ReadScope` from `harness_toolbox.read_scope` to
+pool and bounded history. Pass a `DataLoader` from `harness_toolbox.data_loader` to
 `client.read(expressions, scope=scope)` to share one scrape across callers in that scope.
 A new scope reads again; query results retain their Prometheus types and labels.
 

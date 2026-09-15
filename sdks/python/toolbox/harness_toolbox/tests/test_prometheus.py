@@ -7,8 +7,8 @@ import pytest
 from harness_common.client import ClientManager
 from prombed import PrombedError
 
+from harness_toolbox.data_loader import DataLoader
 from harness_toolbox.prometheus import PrometheusClient, PrometheusDataSource, PrometheusOptions
-from harness_toolbox.read_scope import ReadScope
 
 
 @pytest.fixture(autouse=True)
@@ -43,7 +43,7 @@ async def test_datasource_shares_client_and_scoped_scrape_but_preserves_raw_labe
         assert client is not await clients.get(
             replace(source, options=PrometheusOptions(max_series=10))
         )
-        async with ReadScope() as scope:
+        async with DataLoader() as scope:
             a, b = await asyncio.gather(
                 client.read(["requests_total"], scope=scope),
                 client.read(["sum(requests_total)", "1 + 2"], scope=scope),
@@ -55,7 +55,7 @@ async def test_datasource_shares_client_and_scoped_scrape_but_preserves_raw_labe
         assert "instance" in row["metric"]
         assert float(row["value"][1]) == 7
         assert float(b["1 + 2"]["result"][1]) == 3
-        async with ReadScope() as scope:
+        async with DataLoader() as scope:
             await client.read(["requests_total"], scope=scope)
         assert len(calls) == 2
         await client.read(["requests_total"])
@@ -77,13 +77,13 @@ async def test_failed_scrape_is_shared_and_new_scope_recovers(monkeypatch):
     with_transport(monkeypatch, handler)
     async with ClientManager() as clients:
         client = await clients.get(PrometheusDataSource("http://metrics"))
-        async with ReadScope() as scope:
+        async with DataLoader() as scope:
             for _ in range(2):
                 with pytest.raises(PrombedError, match="500"):
                     await client.read(["requests_total"], scope=scope)
         assert calls == 1
         status = 200
-        async with ReadScope() as scope:
+        async with DataLoader() as scope:
             result = await client.read(["requests_total"], scope=scope)
         assert calls == 2 and result["requests_total"]["result"]
 
@@ -110,7 +110,7 @@ async def test_oversized_response_and_cancel_release_http_resources(monkeypatch)
     with_transport(monkeypatch, handler)
     async with ClientManager() as clients:
         client = await clients.get(PrometheusDataSource("http://metrics"))
-        async with ReadScope() as scope:
+        async with DataLoader() as scope:
             waiter = asyncio.create_task(client.read(["requests_total"], scope=scope))
             await started.wait()
         with pytest.raises(asyncio.CancelledError):

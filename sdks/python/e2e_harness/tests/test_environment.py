@@ -80,6 +80,8 @@ def test_environment_lifecycle_conformance(scenario):
                 if name == "judge":
                     raise Fail("wrong product behavior")
                 raise RuntimeError("cleanup failed")
+            if name == "cleanup" and "cleanup_observed" in scenario:
+                current.environment.target.values.update(scenario["cleanup_observed"])
 
         return execute
 
@@ -99,5 +101,61 @@ def test_environment_lifecycle_conformance(scenario):
     assert steps == scenario["steps"]
     assert result.variant.values["environment"] == "devbox-k8s"
     assert result.environment.target.source == "target-probe"
+    for key, value in scenario.get("cleanup_observed", {}).items():
+        assert result.environment.target.values[key] == scenario["required"][key]
+        assert result.cleanup_environment.target.values[key] == value
     state.environment.target.values["later"] = "mutation"
     assert "later" not in result.environment.target.values
+
+
+@pytest.mark.parametrize("prepare_error", [False, True])
+def test_cleanup_does_not_overwrite_prepared_conditions(prepare_error):
+    state = EnvironmentState(EnvironmentSnapshot("test", "generic"), None)
+
+    def prepare(ctx, state):
+        state.environment.target = EnvironmentFacts(
+            "probe", "before", {"ptrace": "denied"}
+        )
+        if prepare_error:
+            raise RuntimeError("partial prepare")
+
+    def cleanup(ctx, state):
+        state.environment.target.values["ptrace"] = "allowed"
+        state.environment.target.observed_at = "after"
+
+    result = run_in_environment(
+        CaseRef("environment", "snapshot"),
+        state,
+        CasePlan(
+            prepare=prepare,
+            execute=lambda ctx, s: None,
+            cleanup=cleanup,
+            budgets=Budgets(1, 1, 1, 1),
+        ),
+        required={"ptrace": "denied"},
+    )
+    assert result.status == ("error" if prepare_error else "pass")
+    assert result.environment.target.values["ptrace"] == "denied"
+    assert result.environment.target.observed_at == "before"
+    assert result.cleanup_environment.target.values["ptrace"] == "allowed"
+
+
+def test_keyboard_interrupt_still_runs_case_cleanup():
+    from e2e_harness.caserun import run_lifecycle
+
+    cleaned = []
+
+    def execute(ctx, state):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_lifecycle(
+            CaseRef("environment", "cancel"),
+            None,
+            CasePlan(
+                execute=execute,
+                cleanup=lambda ctx, s: cleaned.append(True),
+                budgets=Budgets(1, 1, 1, 1),
+            ),
+        )
+    assert cleaned == [True]

@@ -24,6 +24,11 @@ class E2EReducer(Reducer[E2ERun]):
                 "case_id": case.ref.id,
                 "arm_id": case.variant.id,
                 "environment": asdict(case.environment),
+                **(
+                    {"cleanup_environment": asdict(case.cleanup_environment)}
+                    if case.cleanup_environment is not None
+                    else {}
+                ),
             }
             for case in run.executions
             if isinstance(case, CaseRun) and case.environment is not None

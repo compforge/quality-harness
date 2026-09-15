@@ -1,6 +1,7 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -27,10 +28,12 @@ def forwards(monkeypatch):
             self.resource = resource
 
         @asynccontextmanager
-        async def connect(self, target):
+        async def _open(self, target):
             opened.append(self.resource)
             try:
-                yield Endpoint("127.0.0.1", 12000 + len(opened))
+                yield SimpleNamespace(
+                    endpoint=Endpoint("127.0.0.1", 12000 + len(opened)), alive=True
+                )
             finally:
                 closed.append(self.resource)
 
@@ -109,3 +112,46 @@ async def test_scope_required():
     transport = KubernetesPortForwardTransport(KubernetesAccess("config", "ns"))
     with pytest.raises(RuntimeError, match="not active"):
         await transport.service_endpoint("api", 80)
+
+
+async def test_dead_service_tunnel_reopens_without_changing_service_uid(monkeypatch):
+    import sys
+
+    from harness_toolbox import transport as transports
+    from harness_toolbox.process import process_scope
+
+    processes = []
+
+    @asynccontextmanager
+    async def worker(command):
+        # A real child owns a listening socket and the readiness stream, as kubectl does.
+        script = "import socket,time; s=socket.socket(); s.bind(('127.0.0.1',0)); s.listen(); print('Forwarding from 127.0.0.1:'+str(s.getsockname()[1]),flush=True); time.sleep(60)"
+        async with process_scope([sys.executable, "-c", script]) as process:
+            processes.append(process)
+            yield process
+
+    monkeypatch.setattr(transports, "process_scope", worker)
+    service = {
+        "metadata": {"uid": "same-service"},
+        "spec": {"clusterIP": "10.0.0.1", "ports": [{"port": 80}]},
+    }
+    monkeypatch.setattr(module, "run", AsyncMock(return_value=json.dumps(service).encode()))
+    transport = KubernetesPortForwardTransport(KubernetesAccess("config", "ns"))
+    async with transport:
+        target = await transport.service_endpoint("api", 80)
+        async with transport.connect(target) as first:
+            _, writer = await asyncio.open_connection(first.host, first.port)
+            writer.close()
+            await writer.wait_closed()
+        processes[0].terminate()
+        await processes[0].wait()
+        async with transport.connect(target) as second:
+            assert len(processes) == 2
+            _, writer = await asyncio.open_connection(second.host, second.port)
+            writer.close()
+            await writer.wait_closed()
+        async with transport.connect(target):
+            assert len(processes) == 2
+    assert all(p.returncode is not None for p in processes)
+    with pytest.raises(RuntimeError, match="closed"):
+        await transport.__aenter__()

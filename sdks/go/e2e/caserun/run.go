@@ -62,13 +62,14 @@ type PhaseResult struct {
 }
 
 type Result struct {
-	Environment *common.EnvironmentSnapshot `json:"environment,omitempty"`
-	Ref         CaseRef
-	Variant     matrix.Variant
-	Status      report.Status
-	Reason      string
-	Phases      []PhaseResult
-	Facets      map[string]string
+	Environment        *common.EnvironmentSnapshot `json:"environment,omitempty"`
+	CleanupEnvironment *common.EnvironmentSnapshot `json:"cleanup_environment,omitempty"`
+	Ref                CaseRef
+	Variant            matrix.Variant
+	Status             report.Status
+	Reason             string
+	Phases             []PhaseResult
+	Facets             map[string]string
 }
 
 type skipError struct{ reason string }
@@ -219,9 +220,10 @@ type Recorder struct {
 }
 
 type EnvironmentEvidence struct {
-	CaseID   string                     `json:"case_id"`
-	ArmID    string                     `json:"arm_id"`
-	Snapshot common.EnvironmentSnapshot `json:"environment"`
+	CaseID          string                      `json:"case_id"`
+	ArmID           string                      `json:"arm_id"`
+	Snapshot        common.EnvironmentSnapshot  `json:"environment"`
+	CleanupSnapshot *common.EnvironmentSnapshot `json:"cleanup_environment,omitempty"`
 }
 
 func (r *Recorder) Environments() []EnvironmentEvidence {
@@ -242,7 +244,7 @@ func (r *Recorder) Record(result Result) {
 	defer r.mu.Unlock()
 	r.results = append(r.results, result.CaseVerdict())
 	if result.Environment != nil {
-		r.environments = append(r.environments, EnvironmentEvidence{CaseID: result.Ref.ID, ArmID: result.Variant.ID(), Snapshot: *result.Environment})
+		r.environments = append(r.environments, EnvironmentEvidence{CaseID: result.Ref.ID, ArmID: result.Variant.ID(), Snapshot: *result.Environment, CleanupSnapshot: result.CleanupEnvironment})
 	}
 }
 

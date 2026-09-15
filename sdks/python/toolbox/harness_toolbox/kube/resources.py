@@ -106,22 +106,26 @@ class KubernetesResources:
     async def wait_deleted(
         self, manifest: dict[str, Any], *, timeout_s: float, interval_s: float
     ) -> None:
-        metadata = manifest["metadata"]
-        if not metadata.get("uid") or min(timeout_s, interval_s) <= 0:
-            raise ValueError("resource UID and positive wait budgets are required")
-        async with asyncio.timeout(timeout_s):
-            while True:
-                try:
-                    current = await self.get(
-                        manifest["apiVersion"], manifest["kind"], metadata["name"]
-                    )
-                except ApiException as error:
-                    if error.status == 404:
-                        return
-                    raise
-                if current["metadata"]["uid"] != metadata["uid"]:
+        await wait_deleted(self.get, manifest, timeout_s=timeout_s, interval_s=interval_s)
+
+
+async def wait_deleted(
+    get: Callable, manifest: dict, *, timeout_s: float, interval_s: float
+) -> None:
+    metadata = manifest["metadata"]
+    if not metadata.get("uid") or min(timeout_s, interval_s) <= 0:
+        raise ValueError("resource UID and positive wait budgets are required")
+    async with asyncio.timeout(timeout_s):
+        while True:
+            try:
+                current = await get(manifest["apiVersion"], manifest["kind"], metadata["name"])
+            except ApiException as error:
+                if error.status == 404:
                     return
-                await asyncio.sleep(interval_s)
+                raise
+            if current["metadata"]["uid"] != metadata["uid"]:
+                return
+            await asyncio.sleep(interval_s)
 
 
 async def _decode(response: ClientResponse) -> dict[str, Any]:

@@ -14,7 +14,7 @@ python/
 ├── perf_harness/       # 性能、容量与资源画像
 ├── trace_harness/      # 调用链分析
 ├── trajectory_harness/ # Agent 决策与行动序列评估
-├── common/            # 独立 harness-common：公共模型、Client/DataSource 生命周期、Verdict/LLM
+├── common/            # 独立 harness-common：公共模型、环境与 Client/DataSource 生命周期、Verdict/LLM
 ├── toolbox/           # 独立 harness-toolbox 包，含 harness_toolbox/ 与 pyproject.toml
 ├── pyproject.toml     # 包、依赖、CLI 与测试发现
 └── Makefile           # 测试、lint、格式化、构建与版本入口
@@ -23,6 +23,7 @@ python/
 ## 关键约定
 
 - 五个领域 SDK 互不 import；公共能力集中在中立共享包。`harness_common` 统一执行事实与输出契约，各 SDK 自行拥有 runner、scheduler 和协议原语。
+- 环境共享层只管理 EnvironmentFixture 与外层执行，Case / Trial 准备清理由各 Harness 拥有；见 [环境生命周期](../../docs/environment.md)。
 - 测试贴近所属包，放在各包 `tests/`；默认 pytest 覆盖完整工程，发行包排除测试。
 - 领域可选依赖通过 extras 声明，避免给其它 SDK 增加安装负担。
 - Python 包版本使用本目录 `make bump`，同步 `pyproject.toml` 与 `uv.lock`；仓库整体版本按根目录约定独立更新。

@@ -1,15 +1,27 @@
 import json
+import sys
+from types import SimpleNamespace
 
 import pytest
 from aiohttp import web
+from harness_common import Host, KubernetesEnvironment
 from harness_common.client import ClientManager
 from kubernetes_asyncio.client import ApiException
 
-from harness_toolbox.kube import KubernetesDataSource, Options, PodRef
+from harness_toolbox.kube import (
+    KubernetesDataSource,
+    KubernetesResourcesDataSource,
+    Options,
+    PodRef,
+)
 
 
-@pytest.fixture
-async def cluster(tmp_path):
+@pytest.fixture(params=[False, True], ids=["local", "host-worker"])
+async def cluster(tmp_path, monkeypatch, request):
+    remote = request.param
+    monkeypatch.setattr(
+        "harness_toolbox.kube.worker.command", lambda host, argv: [sys.executable, *argv[1:]]
+    )
     state = {"calls": [], "uid": "original", "deny": False, "deleted": False}
 
     async def serve(request):
@@ -90,9 +102,25 @@ async def cluster(tmp_path):
     )
     try:
         async with ClientManager() as clients:
-            client = await clients.get(
-                KubernetesDataSource(Options("ns", 2, 2), kubeconfig=str(config))
-            )
+            if remote:
+                resources = await clients.get(
+                    KubernetesResourcesDataSource(
+                        KubernetesEnvironment(
+                            "stub", str(config), host=Host("worker", "ssh", "stub")
+                        ),
+                        Options("ns", 10, 2),
+                    )
+                )
+                client = SimpleNamespace(
+                    resources=resources,
+                    wait_completed=resources.wait_completed,
+                    read_logs=resources.read_logs,
+                    dispose=resources.dispose,
+                )
+            else:
+                client = await clients.get(
+                    KubernetesDataSource(Options("ns", 2, 2), kubeconfig=str(config))
+                )
             yield client, state
     finally:
         await runner.cleanup()
@@ -153,5 +181,16 @@ async def test_cluster_resource_uses_cluster_path_and_borrow_does_not_outlive_cl
     )
     assert state["calls"][0][1] == "/api/v1/namespaces"
     await client.dispose()
-    with pytest.raises(RuntimeError, match="not initialized"):
+    with pytest.raises(RuntimeError, match="not initialized|closed"):
         await client.resources.get("v1", "Namespace", "owned")
+
+
+async def test_delete_requires_observed_uid_and_namespace(cluster):
+    client, state = cluster
+    manifest = {"apiVersion": "v1", "kind": "Pod", "metadata": {"name": "suite", "namespace": "ns"}}
+    with pytest.raises(ValueError, match="UID"):
+        await client.resources.delete(manifest)
+    manifest["metadata"].update(uid="original", namespace="other")
+    with pytest.raises(ValueError, match="namespace"):
+        await client.resources.delete(manifest)
+    assert state["calls"] == []

@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 
 from harness_toolbox.process import run
-from harness_toolbox.transport import Endpoint, KubernetesAccess, PortForwardTransport
+from harness_toolbox.transport import Endpoint, KubernetesAccess, PortForwardTransport, _PortForward
 
 LOG = logging.getLogger(__name__)
 
@@ -28,29 +28,32 @@ class KubernetesPortForwardTransport:
             raise ValueError("port-forward requires an explicit namespace")
         self.access = access
         self.timeout_s = timeout_s
-        self._stack = AsyncExitStack()
         self._lock = asyncio.Lock()
         self._services: dict[tuple[str, int], tuple[str, str]] = {}
-        self._endpoints: dict[tuple[str, str, int], Endpoint] = {}
+        self._tunnels: dict[tuple[str, str, int], tuple[_PortForward, AsyncExitStack]] = {}
         self._active = False
+        self._closed = False
 
     @property
     def key(self) -> str:
         return f"kubernetes-port-forward:{self.access!r}"
 
     async def __aenter__(self) -> KubernetesPortForwardTransport:
-        if self._active:
-            raise RuntimeError("transport scope is already active")
+        if self._active or self._closed:
+            raise RuntimeError("transport scope is already active or closed")
         self._active = True
-        await self._stack.__aenter__()
         return self
 
     async def __aexit__(self, *exc) -> None:
         self._active = False
-        await self._stack.__aexit__(*exc)
-        LOG.info("port-forward scope closed: tunnels=%s", len(self._endpoints))
-        self._endpoints.clear()
-        self._services.clear()
+        self._closed = True
+        async with self._lock:
+            tunnels, self._tunnels = self._tunnels, {}
+            self._services.clear()
+            async with AsyncExitStack() as closing:
+                for _, owned in tunnels.values():
+                    closing.push_async_exit(owned)
+        LOG.info("port-forward scope closed: tunnels=%s", len(tunnels))
 
     async def _get(self, resource: str) -> dict:
         return json.loads(
@@ -100,18 +103,26 @@ class KubernetesPortForwardTransport:
         # Resolve identity on each new client connection: Pod IPs may be reused
         # during a long run. Cached sockets are keyed by resource UID, not IP alone.
         async with self._lock:
+            if not self._active:
+                raise RuntimeError("transport scope is not active")
             resource, uid = await self._resource(target)
             key = (resource, uid, target.port)
-            local = self._endpoints.get(key)
-            if local is None:
+            cached = self._tunnels.get(key)
+            if cached is not None and not cached[0].alive:
+                await cached[1].aclose()
+                del self._tunnels[key]
+                cached = None
+                LOG.info("retired exited port-forward: resource=%s uid=%s", resource, uid)
+            if cached is None:
                 forward = PortForwardTransport(self.access, resource, target.port, self.timeout_s)
                 async with AsyncExitStack() as pending:
-                    local = await pending.enter_async_context(forward.connect(target))
+                    tunnel = await pending.enter_async_context(forward._open(target))
+                    local = tunnel.endpoint
                     current = await self._get(resource)
                     if current["metadata"]["uid"] != uid:
                         raise ConnectionError("port-forward target changed during startup")
-                    self._stack.push_async_exit(pending.pop_all())
-                self._endpoints[key] = local
+                    owned = pending.pop_all()
+                    self._tunnels[key] = (tunnel, owned)
                 LOG.info(
                     "port-forward %s:%s -> %s uid=%s localhost:%s",
                     target.host,
@@ -120,4 +131,6 @@ class KubernetesPortForwardTransport:
                     uid,
                     local.port,
                 )
+            else:
+                local = cached[0].endpoint
         yield Endpoint(local.host, local.port, target.servername or target.host)

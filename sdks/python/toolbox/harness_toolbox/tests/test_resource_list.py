@@ -9,7 +9,7 @@ from harness_common import Host, KubernetesEnvironment
 from harness_common.client import ClientManager
 from kubernetes_asyncio.client import ApiException
 
-from harness_toolbox.kube import Options
+from harness_toolbox.kube import KubernetesResourcesDataSource, Options
 from harness_toolbox.kube.resource_list import ResourceListDataSource
 
 
@@ -81,7 +81,7 @@ def remote_source(source, monkeypatch):
         calls.append(command(host, argv))
         return [sys.executable, *argv[1:]]
 
-    monkeypatch.setattr("harness_toolbox.kube.resource_list.command", local_worker)
+    monkeypatch.setattr("harness_toolbox.kube.worker.command", local_worker)
     return replace(
         source, environment=replace(source.environment, host=Host("devbox", "ssh", "devbox"))
     ), calls
@@ -107,7 +107,7 @@ async def test_resource_list_reuses_pool_and_closes(source, monkeypatch, remote)
         assert state["requests"][0][3] is state["requests"][1][3]
         if remote:
             assert len(calls) == 1 and calls[0][0] == "ssh"
-            process = client._process
+            process = client._resources._transport._process
     with pytest.raises(RuntimeError, match="closed"):
         await client.list("v1", "Pod")
     if remote:
@@ -136,7 +136,9 @@ async def test_remote_interrupted_response_retires_session(source, monkeypatch, 
     async with ClientManager() as clients:
         client = await clients.get(config)
         # Initialize before lowering the budget: the test targets an in-flight read.
-        client._source = replace(config, options=replace(config.options, request_timeout_s=0.1))
+        transport = client._resources._transport
+        process = transport._process
+        transport.options = replace(config.options, request_timeout_s=0.1)
         state["delay"] = 0.4
         task = asyncio.create_task(client.list("v1", "Pod"))
         if cancel:
@@ -145,9 +147,14 @@ async def test_remote_interrupted_response_retires_session(source, monkeypatch, 
             task.cancel()
         with pytest.raises(asyncio.CancelledError if cancel else TimeoutError):
             await task
-        assert client._process.returncode is not None
-        with pytest.raises(RuntimeError, match="closed"):
-            await client.list("v1", "Pod")
+        assert process.returncode is not None
+        assert len(state["requests"]) == 1
+        state["delay"] = 0
+        transport.options = config.options
+        assert client is await clients.get(config)
+        assert (await client.list("v1", "Pod"))["items"] == []
+        assert len(state["requests"]) == 2
+        assert transport._process is not process
 
 
 async def test_remote_response_limit(source, monkeypatch):
@@ -157,7 +164,7 @@ async def test_remote_response_limit(source, monkeypatch):
     async with ClientManager() as clients:
         client = await clients.get(config)
         state["size"] = 5000
-        with pytest.raises(RuntimeError, match="byte limit"):
+        with pytest.raises(ValueError, match="byte limit"):
             await client.list("v1", "Pod")
 
 
@@ -165,7 +172,7 @@ async def test_missing_remote_dependency_reports_failure(source, monkeypatch):
     config, _ = source
     config, _ = remote_source(config, monkeypatch)
     monkeypatch.setattr(
-        "harness_toolbox.kube.resource_list.command",
+        "harness_toolbox.kube.worker.command",
         lambda *args: [
             sys.executable,
             "-c",
@@ -175,3 +182,22 @@ async def test_missing_remote_dependency_reports_failure(source, monkeypatch):
     async with ClientManager() as clients:
         with pytest.raises(RuntimeError, match="harness-toolbox"):
             await clients.get(config)
+
+
+@pytest.mark.parametrize("remote", [False, True])
+async def test_read_view_borrows_shared_backend(source, monkeypatch, remote):
+    config, state = source
+    if remote:
+        config, calls = remote_source(config, monkeypatch)
+    async with ClientManager() as clients:
+        view = await clients.get(config)
+        resources = await clients.get(
+            KubernetesResourcesDataSource(config.environment, config.options)
+        )
+        assert view._resources is resources
+        await view.list("v1", "Pod")
+        await view.dispose()
+        await resources.list("v1", "Pod")
+        assert state["requests"][0][3] is state["requests"][1][3]
+        if remote:
+            assert len(calls) == 1

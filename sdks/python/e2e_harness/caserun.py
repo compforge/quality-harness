@@ -93,6 +93,7 @@ class CaseRun(Execution):
     facets: dict[str, str]
     reason: str | None = None
     environment: EnvironmentSnapshot | None = None
+    cleanup_environment: EnvironmentSnapshot | None = None
 
     def case_verdict(self) -> CaseVerdict:
         metrics = {
@@ -163,40 +164,42 @@ def run_lifecycle(
         if phase.name != "cleanup":
             blocked = True
 
-    if definition.prepare is not None:
-        phase = _run_phase(
-            "prepare", definition.budgets.prepare_s, state, definition.prepare
-        )
-        phases.append(phase)
-        apply(phase)
-
-    if not blocked:
-        phase = _run_phase(
-            "execute", definition.budgets.execute_s, state, definition.execute
-        )
-        phases.append(phase)
-        apply(phase)
-
-    if definition.judge is not None:
-        if blocked:
-            phases.append(
-                PhaseResult("judge", "skipped", 0, "blocked by an earlier phase")
-            )
-        else:
+    try:
+        if definition.prepare is not None:
             phase = _run_phase(
-                "judge", definition.budgets.judge_s, state, definition.judge
+                "prepare", definition.budgets.prepare_s, state, definition.prepare
             )
             phases.append(phase)
             apply(phase)
 
-    if definition.cleanup is not None:
-        # Cleanup receives a fresh deadline even when execute/judge exhausted
-        # theirs; teardown must not inherit an already-expired budget.
-        phase = _run_phase(
-            "cleanup", definition.budgets.cleanup_s, state, definition.cleanup
-        )
-        phases.append(phase)
-        apply(phase)
+        if not blocked:
+            phase = _run_phase(
+                "execute", definition.budgets.execute_s, state, definition.execute
+            )
+            phases.append(phase)
+            apply(phase)
+
+        if definition.judge is not None:
+            if blocked:
+                phases.append(
+                    PhaseResult("judge", "skipped", 0, "blocked by an earlier phase")
+                )
+            else:
+                phase = _run_phase(
+                    "judge", definition.budgets.judge_s, state, definition.judge
+                )
+                phases.append(phase)
+                apply(phase)
+
+    finally:
+        if definition.cleanup is not None:
+            # Cleanup receives a fresh deadline even when execute/judge exhausted
+            # theirs; teardown must not inherit an already-expired budget.
+            phase = _run_phase(
+                "cleanup", definition.budgets.cleanup_s, state, definition.cleanup
+            )
+            phases.append(phase)
+            apply(phase)
 
     return CaseRun(
         id=ref.id,

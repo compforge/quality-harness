@@ -18,9 +18,10 @@ from trace_harness.model.measurement import CallSource, Measurement, Measurement
 class Measurer:
     spec: MeasurementSpec
     compute: Callable[[TraceContext, list[CallSource]], Iterable[Measurement]]
-    requires: Callable[[TraceContext], tuple[EvidenceDependency | FactDependency, ...]] = (
-        lambda t: ()
-    )
+    requires: Callable[
+        [TraceContext],
+        tuple[EvidenceDependency | FactDependency, ...],
+    ] = lambda t: ()
 
 
 CALLS = MeasurementSpec(

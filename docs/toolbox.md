@@ -15,11 +15,19 @@ Python 位于 `sdks/python/toolbox`，独立分发为 `harness-toolbox`。
   初始化失败完成清理后允许重试；结束时取消并等待进行中的初始化，再按依赖顺序逆序销毁。
 - **ClientProvider**：只提供借用入口，子调用方无权关闭根调用方的共享资源。
 - **ConnectionSource**：解析协议连接信息，并声明适用的 Transport；环境配置语义由调用方提供。
-- **Transport**：提供直连、端口转发或 Pod Python 等访问路径，不改变目标身份和协议语义。
+- **Transport**：提供直连、端口转发、Host-native worker 或 Pod Python 等访问路径，并拥有相应通道的创建、失效和关闭。
 
 调用方创建根 ClientManager，将 ClientProvider 传给嵌套或并发工作，并在根执行结束时统一 dispose。
 DataSource key 必须覆盖影响复用的协议、目标、配置与凭据；可用摘要避免凭据出现在可观察 key 中。
 共享容量和策略在一个根执行中保持一致，不能用同一个 key 请求相互冲突的策略。
+
+Client 是执行期稳定的协议操作入口；Transport 内部的 worker、隧道可以失效和替换。
+数据库认证、事务与 HTTP 连接池等协议会话仍归 Client / 原生库。这里没有跨协议的公共 Session。
+通道中断使本次请求失败并淘汰该通道，下一个独立请求才可以重连；已发送的业务操作不自动重放。
+最终 dispose / scope exit 后不允许重开，借用者不关闭共享通道。
+
+Kubernetes port-forward 缓存同时保留资源 UID 和子进程存活状态。Service UID 不变而
+后端 Pod 重启时，已退出的隧道也必须重建；每次新建连接仍检查目标身份。
 
 MySQL、Redis、OpenSearch 和 Kubernetes 客户端实现这些原语。连接、排队、取消、资源释放属于工具箱；
 授权、业务 SQL、Redis key、索引规则、采集时机和结果解释仍属于消费方。MySQL 只在初始化阶段切换地址，建连网络错误可以切换
@@ -100,38 +108,40 @@ Pod、ConfigMap 等命名空间资源限制在 client 的 namespace；Node、Nam
 
 Pod 完成等待返回成功或失败的终态，日志通过原生 API 有界读取；二者均核验 Pod UID。
 创建哪些资源、何时清理、如何保存证据与解释准入拒绝由消费方拥有。
-当 kubeconfig 位于 SSH Host，部署调用方使用 Host 执行能力在该 Host 运行 Python
-客户端，由库在当地读取配置。SSH 只负责到达 Host，不把逐项 Kubernetes 操作翻译成
-kubectl 命令，也不把远端配置当作本机文件。
+### 本地与 Environment Host 上的统一资源访问
 
-### 持续读取 Environment Host 上的资源
+`KubernetesResourcesDataSource` 接收 `KubernetesEnvironment` 和 `Options`，在本机借用
+原生 Kubernetes 连接池，在 SSH Host 上通过持续存活的 `python3 -m harness_toolbox.kube.worker`
+执行相同的原生资源操作。支持 manifest create / get / list / UID delete、删除等待、Pod 完成
+等待及有界日志读取。namespace 校验、UID 保护和 API 错误状态在两端保持一致。
+Host 上须安装相同版本的 `harness-toolbox[kube]`；只传配置路径与操作参数，凭据留在 Host。
 
-`ResourceListDataSource` 提供由 `ClientManager` 管理的只读 manifest 列举。它接收
-`KubernetesEnvironment` 和现有 `Options`，本机使用共享原生客户端；SSH Host 使用持续存活的
-`python3 -m harness_toolbox.kube.resource_list` worker，复用远端连接池。Host 上须安装
-相同版本的 `harness-toolbox[kube]`，只传配置路径与查询条件，不传 kubeconfig 内容。
+`ResourceListDataSource` 提供只读列举视图，借用同一资源后端。读视图不拥有 worker，也不能
+关闭共享后端；API 权限由 Host 身份和 Kubernetes RBAC 限定。资源创建与清理由消费方明确调用。
 
-读请求继承 Options 的 namespace、请求时间和连接池预算；远端消息受 `max_exec_bytes` 限制，
-stderr 有界收集。调用取消、超时或协议断流后关闭 worker，后续请求不会误用残留响应。
-该通道不提供 manifest 写入，资源创建与清理继续由消费方明确调用原生操作。
+请求继承 Options 的 namespace、请求时间和连接池预算；远端消息受 `max_exec_bytes` 限制，
+stderr 有界收集。取消、超时或协议断流会退役当前 worker，后续请求新建通道，避免读到残留响应。
+正常 API 错误保留状态并返回给调用方，不销毁健康通道、不重放请求。Host 命令入口仍用于 Helm
+等程序；Kubernetes 资源操作在 Host 上调用原生 API，不转换为逐项 kubectl 子进程。
 
 ## 3. 读取范围与 Prometheus
 
-`ClientManager` 共享连接与客户端状态；`ReadScope` 共享一轮读取的结果、错误和在途任务。
+`ClientManager` 共享连接与客户端状态；`DataLoader` 共享一轮读取的结果、错误和在途任务。
 调用方显式创建读取范围，适配器用 DataSource 配置和完整查询参数决定共享键。
 单个等待者取消不影响其它等待者；范围退出会取消并等待未完成读取，再释放结果。
-范围应嵌套在 ClientManager 内；消费方不能修改共享结果。
+范围应嵌套在 ClientManager 内；消费方不能修改共享结果。DataLoader 只做单轮缓存和去重，
+不自动 batch，也不保证 Kubernetes 与 Prometheus 等不同来源处于同一原子快照。
 `ResourceListClient.list(..., scope=scope)` 和 `PrometheusClient.read(..., scope=scope)`
 都支持这个可选参数，不传时每次重新访问。
 
 Python `harness-toolbox[prometheus]` 提供 `PrometheusDataSource`，描述 `/metrics` 地址、
 显式请求头、HTTP 连接池、总抓取超时、响应体及历史容量。客户端通过独立 HTTP 池抓取，
 用内嵌 Prombed 保存短期样本并执行 PromQL；它不是远端 Prometheus HTTP 查询 API 的客户端。
-相同配置在 ClientManager 内复用抓取客户端和历史；同一 ReadScope 内只抓取一次，
+相同配置在 ClientManager 内复用抓取客户端和历史；同一 DataLoader 内只抓取一次，
 各消费方分别执行查询，返回原始 Prometheus 类型与 labels。
 
 读取频率与范围边界由调用方决定；toolbox 不运行采样循环，也不声明业务指标或 SLO。
-perf 每个 Trial 持有 ClientManager、每轮观测创建 ReadScope，再把查询结果映射为指标。
+perf 每个 Trial 持有 ClientManager、每轮观测创建 DataLoader，再把查询结果映射为指标。
 这样下一轮可见新数据，新 Trial 不会读到上一轮试验的历史。
 
 ## 4. 故障注入后端

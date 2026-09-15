@@ -27,6 +27,7 @@ func TestEnvironmentConformance(t *testing.T) {
 		Scenarios []struct {
 			Name               string
 			Observed, Required map[string]string
+			CleanupObserved    map[string]string `yaml:"cleanup_observed"`
 			Failure, Status    string
 			Steps              []string
 		}
@@ -51,6 +52,11 @@ func TestEnvironmentConformance(t *testing.T) {
 			step := func(name string) caserun.Step[State[int]] {
 				return func(_ context.Context, s *State[int]) error {
 					steps = append(steps, name)
+					if name == "cleanup" {
+						for key, value := range scenario.CleanupObserved {
+							s.Environment.Target.Values[key] = value
+						}
+					}
 					if name == "prepare" {
 						s.Environment.Target = common.EnvironmentFacts{Source: "target-probe", ObservedAt: time.Now().UTC().Format(time.RFC3339), Values: scenario.Observed}
 					}
@@ -71,9 +77,42 @@ func TestEnvironmentConformance(t *testing.T) {
 				t.Fatal("environment evidence missing")
 			}
 			state.Environment.Target.Values["later"] = "mutation"
+			for key, value := range scenario.CleanupObserved {
+				if result.Environment.Target.Values[key] != scenario.Required[key] || result.CleanupEnvironment.Target.Values[key] != value {
+					t.Fatal("cleanup rewrote preparation evidence")
+				}
+			}
 			if _, exists := result.Environment.Target.Values["later"]; exists {
 				t.Fatal("evidence mutated after run")
 			}
 		})
+	}
+}
+
+func TestCleanupPreservesPreparedConditions(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		state := State[int]{Environment: common.EnvironmentSnapshot{Name: "test", Kind: "generic", Profile: "default"}}
+		result := Run(context.Background(), caserun.Ref("environment", "snapshot"), nil, &state, map[string]string{"ptrace": "denied"}, caserun.Definition[State[int]]{
+			Prepare: func(_ context.Context, s *State[int]) error {
+				s.Environment.Target = common.EnvironmentFacts{Source: "probe", ObservedAt: "before", Values: map[string]string{"ptrace": "denied"}}
+				if partial {
+					return errors.New("partial prepare")
+				}
+				return nil
+			},
+			Execute: func(context.Context, *State[int]) error { return nil },
+			Cleanup: func(_ context.Context, s *State[int]) error {
+				s.Environment.Target.Values["ptrace"] = "allowed"
+				s.Environment.Target.ObservedAt = "after"
+				return nil
+			},
+			Budgets: caserun.Budgets{Prepare: time.Second, Execute: time.Second, Judge: time.Second, Cleanup: time.Second},
+		})
+		if result.Environment.Target.Values["ptrace"] != "denied" || result.Environment.Target.ObservedAt != "before" || result.CleanupEnvironment.Target.Values["ptrace"] != "allowed" {
+			t.Fatalf("prepared conditions overwritten: %+v", result)
+		}
+		if partial && result.Status != "error" {
+			t.Fatal("partial preparation must remain an error")
+		}
 	}
 }

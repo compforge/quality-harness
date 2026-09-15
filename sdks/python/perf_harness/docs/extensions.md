@@ -21,8 +21,7 @@ from perf_harness import FireContext, Outcome, TrialContext, Workload, register_
 
 
 class MyWorkload(Workload):
-    async def setup(self, ctx: TrialContext) -> None:
-        ...  # 创建本 trial 所需的外部状态
+    async def setup(self, ctx: TrialContext) -> None: ...  # 创建本 trial 所需的外部状态
 
     async def fire(self, ctx: FireContext) -> Outcome:
         response = await ctx.trial.client.post(
@@ -32,11 +31,11 @@ class MyWorkload(Workload):
         )
         return Outcome(status=response.status_code, duration_ms=...)
 
-    async def deactivate(self, ctx: TrialContext) -> None:
-        ...  # 触发停止/缩容；此时 Probe 仍在采样
+    async def deactivate(self, ctx: TrialContext) -> None: ...  # 触发停止/缩容；此时 Probe 仍在采样
 
-    async def cleanup(self, ctx: TrialContext) -> None:
-        ...  # 最终清理；Probe 已停止，HTTP client 仍可用
+    async def cleanup(
+        self, ctx: TrialContext
+    ) -> None: ...  # 最终清理；Probe 已停止，HTTP client 仍可用
 
 
 register_workload("my-service", lambda cfg: MyWorkload())
@@ -135,13 +134,13 @@ Runner 上展开远端路径或复制文件。Host 不改变压力机位置，Ch
 
 `restart/limits/pods` 通过 toolbox 原生 Kubernetes API 读取 Pod manifest。安装时启用
 `quality-harness[kube]`；SSH Host 还需在 `python3` 环境安装相同版本的 `harness-toolbox[kube]`。
-SSH 只启动一次只读 worker，Kubernetes 客户端在 Host 上读取 kubeconfig，观测结束后关闭。
+SSH 使用共享资源 worker 的只读视图，Kubernetes 客户端在 Host 上读取 kubeconfig，Trial 结束后关闭。
 `top/rss` 使用 kubectl 的指标与 exec 通道；Helm 部署仍要求 Host 上有 Helm。
 
 每次 Trial 的观测期复用连接池（每个访问配置/namespace 最多 8 个连接，单次请求预算 10 秒）。
-每个采样周期创建 toolbox `ReadScope`，让同一访问配置、namespace 和 selector 的三个探针共享 Pod 列表及读取错误；
+每个采样周期创建 toolbox `DataLoader`，让同一访问配置、namespace 和 selector 的三个探针共享 Pod 列表及读取错误；
 下个周期重新读取，因此扩缩容不会沿用旧副本集合。列表读取失败进入 probe error 和 `up=0`，
-不会记为零副本或零资源。SSH 请求超时或取消后关闭对应 worker，避免后续请求误读残留响应。
+不会记为零副本或零资源。SSH 请求超时或取消后关闭对应 worker；本次读取报错，后续采样新建通道，避免误读残留响应。
 
 `observe_loop` 管理 `ProbeContext.clients` 的释放；直接调用 `Probe.sample` 的扩展测试，
 需要自行使用 `async with ctx.clients` 管理该生命周期。
@@ -149,7 +148,7 @@ SSH 只启动一次只读 worker，Kubernetes 客户端在 Host 上读取 kubeco
 ### Prometheus 观测
 
 `PrometheusProbe` 通过 toolbox `PrometheusDataSource` 抓取 `/metrics` 并查询内嵌 Prombed。
-同一访问配置的探针在单轮 `ReadScope` 内共享一次抓取，PromQL 查询仍各自执行。连接池与
+同一访问配置的探针在单轮 `DataLoader` 内共享一次抓取，PromQL 查询仍各自执行。连接池与
 有界查询历史由该 Trial 的 `ClientManager` 管理，新 Trial 不读取旧 Trial 的样本。
 Prometheus 使用独立 HTTP 池，不占用发压连接；地址、认证和容量属于 DataSource，
 采样频率、输出指标/label 契约以及 SLO 属于 perf。
