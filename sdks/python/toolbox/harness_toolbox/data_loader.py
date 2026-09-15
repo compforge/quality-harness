@@ -9,7 +9,7 @@ from typing import TypeVar, cast
 T = TypeVar("T")
 
 
-class ReadScope:
+class DataLoader:
     """Deduplicate read-only operations until scope exit; never own their clients.
 
     Adapters own keys, including source identity and every query parameter. The
@@ -51,7 +51,7 @@ class ReadScope:
         await asyncio.gather(*tasks, return_exceptions=True)
         self._reads.clear()
 
-    async def __aenter__(self) -> ReadScope:
+    async def __aenter__(self) -> DataLoader:
         if self._active or self._closing is not None:
             raise RuntimeError("read scope cannot be reopened")
         self._active = True

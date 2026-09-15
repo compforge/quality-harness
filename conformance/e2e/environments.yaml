@@ -20,6 +20,12 @@ invalid:
   - {name: bad-transport, host: {name: builder, transport: teleport}}
   - {name: bad-local, host: {name: local, transport: local, address: builder}}
 scenarios:
+  - name: cleanup-changes-conditions
+    observed: {ptrace: denied}
+    required: {ptrace: denied}
+    cleanup_observed: {ptrace: allowed}
+    status: pass
+    steps: [prepare, execute, judge, cleanup]
   - name: allowed
     observed: {os: linux, ptrace: allowed}
     required: {os: linux, ptrace: allowed}

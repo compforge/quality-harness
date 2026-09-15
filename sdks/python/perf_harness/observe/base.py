@@ -21,8 +21,8 @@ from dataclasses import dataclass, field
 
 import httpx
 from harness_common.client import ClientManager
+from harness_toolbox.data_loader import DataLoader
 from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
-from harness_toolbox.read_scope import ReadScope
 
 from perf_harness.metric import (
     MetricFamily,
@@ -67,7 +67,7 @@ class ProbeContext:
     observer_client: httpx.AsyncClient | None = None
     # Owned by observe_loop; direct sample callers must dispose this manager.
     clients: ClientManager = field(default_factory=ClientManager)
-    reads: ReadScope | None = None
+    reads: DataLoader | None = None
 
     @property
     def probe_client(self) -> httpx.AsyncClient:
@@ -333,7 +333,7 @@ async def observe_loop(
         while True:
             t = time.monotonic() - ctx.t0
             ticks += 1
-            async with ReadScope() as reads:
+            async with DataLoader() as reads:
                 ctx.reads = reads
                 try:
                     for probe in probes:

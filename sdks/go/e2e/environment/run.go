@@ -65,9 +65,27 @@ func Run[S any](ctx context.Context, ref caserun.CaseRef, variant matrix.Variant
 		}
 		bound[key] = value
 	}
+	prepared := cloneSnapshot(state.Environment)
+	var cleaned *common.EnvironmentSnapshot
+	validatedPrepare := def.Prepare
+	def.Prepare = func(ctx context.Context, s *State[S]) error {
+		defer func() { prepared = cloneSnapshot(s.Environment) }()
+		return validatedPrepare(ctx, s)
+	}
+	if cleanup := def.Cleanup; cleanup != nil {
+		def.Cleanup = func(ctx context.Context, s *State[S]) error {
+			defer func() { cleaned = cloneSnapshot(s.Environment) }()
+			return cleanup(ctx, s)
+		}
+	}
 	result := caserun.Run(ctx, ref, bound, state, def)
+	result.Environment = prepared
+	result.CleanupEnvironment = cleaned
+	return result
+}
+
+func cloneSnapshot(snapshot common.EnvironmentSnapshot) *common.EnvironmentSnapshot {
 	// Results must survive fixture reuse without later mutations rewriting evidence.
-	snapshot := state.Environment
 	snapshot.Runner.Values = maps.Clone(snapshot.Runner.Values)
 	snapshot.Target.Values = maps.Clone(snapshot.Target.Values)
 	if snapshot.Host != nil {
@@ -75,6 +93,5 @@ func Run[S any](ctx context.Context, ref caserun.CaseRef, variant matrix.Variant
 		host.Values = maps.Clone(host.Values)
 		snapshot.Host = &host
 	}
-	result.Environment = &snapshot
-	return result
+	return &snapshot
 }

@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from harness_toolbox.read_scope import ReadScope
+from harness_toolbox.data_loader import DataLoader
 
 
 async def test_scope_shares_reads_and_errors_then_refreshes():
@@ -14,13 +14,13 @@ async def test_scope_shares_reads_and_errors_then_refreshes():
         await asyncio.sleep(0)
         return {"value": calls}
 
-    async with ReadScope() as scope:
+    async with DataLoader() as scope:
         a, b = await asyncio.gather(scope.read("a", read), scope.read("a", read))
         assert a is b and calls == 1
         assert (await scope.read("b", read))["value"] == 2
     with pytest.raises(RuntimeError, match="not active"):
         await scope.read("a", read)
-    async with ReadScope() as scope:
+    async with DataLoader() as scope:
         assert (await scope.read("a", read))["value"] == 3
 
     error = ValueError("failed query")
@@ -31,13 +31,13 @@ async def test_scope_shares_reads_and_errors_then_refreshes():
         failures += 1
         raise error
 
-    async with ReadScope() as scope:
+    async with DataLoader() as scope:
         for _ in range(2):
             with pytest.raises(ValueError) as caught:
                 await scope.read("failure", fail)
             assert caught.value is error
     assert failures == 1
-    async with ReadScope() as scope:
+    async with DataLoader() as scope:
         with pytest.raises(ValueError):
             await scope.read("failure", fail)
     assert failures == 2
@@ -51,7 +51,7 @@ async def test_cancelled_waiter_does_not_cancel_shared_read():
         await release.wait()
         return 42
 
-    async with ReadScope() as scope:
+    async with DataLoader() as scope:
         waiter = asyncio.create_task(scope.read("query", read))
         await started.wait()
         waiter.cancel()
@@ -71,7 +71,7 @@ async def test_scope_exit_joins_unfinished_read_and_discards_results():
         finally:
             finished.set()
 
-    async with ReadScope() as scope:
+    async with DataLoader() as scope:
         waiter = asyncio.create_task(scope.read("query", read))
         await started.wait()
     with pytest.raises(asyncio.CancelledError):
@@ -89,7 +89,7 @@ async def test_scope_caches_synchronous_loader_failure():
         calls += 1
         raise ValueError("cannot create read")
 
-    async with ReadScope() as scope:
+    async with DataLoader() as scope:
         for _ in range(2):
             with pytest.raises(ValueError):
                 await scope.read("query", fail)

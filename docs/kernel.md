@@ -51,7 +51,8 @@ e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共
 
 Service 是逻辑运行服务，不与 Kubernetes Service 或其它平台资源一一对应。Service.workloads 声明由哪些
 Workload 承载，部署配置为这一关系提供事实；映射变化不改变逻辑 Service 身份。DataSource 与
-Transport 描述各类基础设施的访问方式，ClientManager 管理执行期客户端；见 [toolbox](toolbox.md)。
+EnvironmentFixture 管理共享环境资源，领域执行回调内部的 Case / Trial 生命周期归各 Harness；见 [Environment](environment.md)。
+Transport 管理各类基础设施访问通道，ClientManager 管理执行期客户端；见 [toolbox](toolbox.md)。
 
 这些名字定义共同语义。Python Harness 共享 `harness_common` 中的身份基类；不同语言保持惯用 API，
 但遵守相同关系和落盘契约。

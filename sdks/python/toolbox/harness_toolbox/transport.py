@@ -80,6 +80,18 @@ class KubernetesAccess:
 
 
 @dataclass(frozen=True)
+class _PortForward:
+    endpoint: Endpoint
+    process: asyncio.subprocess.Process
+    stdout: asyncio.Task
+    stderr: asyncio.Task
+
+    @property
+    def alive(self) -> bool:
+        return self.process.returncode is None and not self.stdout.done() and not self.stderr.done()
+
+
+@dataclass(frozen=True)
 class PortForwardTransport:
     access: KubernetesAccess
     resource: str
@@ -92,6 +104,11 @@ class PortForwardTransport:
 
     @asynccontextmanager
     async def connect(self, target: Endpoint) -> AsyncIterator[Endpoint]:
+        async with self._open(target) as tunnel:
+            yield tunnel.endpoint
+
+    @asynccontextmanager
+    async def _open(self, target: Endpoint) -> AsyncIterator[_PortForward]:
         # Let kubectl allocate an ephemeral local port; preallocating creates a bind race.
         command = self.access.command(
             "port-forward", "--address", "127.0.0.1", self.resource, f":{self.remote_port}"
@@ -114,7 +131,7 @@ class PortForwardTransport:
             try:
                 endpoint = await asyncio.wait_for(ready(), self.timeout_s)
                 stdout = asyncio.create_task(read_bounded(process.stdout, 1024 * 1024))
-                yield endpoint
+                yield _PortForward(endpoint, process, stdout, stderr)
             finally:
                 for task in (stderr, stdout):
                     if task is not None:

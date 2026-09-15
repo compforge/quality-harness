@@ -10,7 +10,7 @@ import httpx
 from harness_common.client import ClientProvider, data_source_key
 from prombed import Prombed, ScrapeTarget
 
-from harness_toolbox.read_scope import ReadScope
+from harness_toolbox.data_loader import DataLoader
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ class PrometheusClient:
     """ClientManager owns the HTTP pool and the lifetime of retained observations.
 
     Each read scrapes once, then evaluates all expressions at that scrape's time.
-    A ReadScope shares that scrape across readers of the same source. Query
+    A DataLoader shares that scrape across readers of the same source. Query
     responses retain Prometheus labels/types; interpretation belongs to consumers.
     """
 
@@ -114,7 +114,7 @@ class PrometheusClient:
             return result.scraped_at
 
     async def read(
-        self, expressions: Sequence[str], *, scope: ReadScope | None = None
+        self, expressions: Sequence[str], *, scope: DataLoader | None = None
     ) -> dict[str, dict]:
         if self._runtime is None or self._closed:
             raise RuntimeError("Prometheus client is closed")

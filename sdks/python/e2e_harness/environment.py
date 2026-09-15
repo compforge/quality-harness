@@ -65,8 +65,35 @@ def run_in_environment(
                     f"environment condition {key}: observed {env.target.values.get(key)!r}, required {expected!r}"
                 )
 
+    prepared = deepcopy(state.environment)
+    cleaned = None
+
+    def capture_prepare(ctx: PhaseContext, current: EnvironmentState[S]) -> None:
+        nonlocal prepared
+        try:
+            prepare(ctx, current)
+        finally:
+            # Preserve the conditions validated before stimulus, including partial failure.
+            prepared = deepcopy(current.environment)
+
+    def cleanup(ctx: PhaseContext, current: EnvironmentState[S]) -> None:
+        nonlocal cleaned
+        try:
+            if definition.cleanup:
+                definition.cleanup(ctx, current)
+        finally:
+            cleaned = deepcopy(current.environment)
+
     run = run_lifecycle(
-        ref, state, replace(definition, prepare=prepare), variant=Variant(values)
+        ref,
+        state,
+        replace(
+            definition,
+            prepare=capture_prepare,
+            cleanup=cleanup if definition.cleanup else None,
+        ),
+        variant=Variant(values),
     )
-    run.environment = deepcopy(state.environment)
+    run.environment = prepared
+    run.cleanup_environment = cleaned
     return run
