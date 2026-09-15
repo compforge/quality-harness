@@ -98,3 +98,27 @@ async def test_native_error_is_probe_failure_and_cancel_closes_clients(monkeypat
     assert disposed.is_set()
     assert store[("restart", "up")][0].value == 0
     assert ("restart", "restarts") not in store
+
+
+async def test_direct_samples_refresh_without_observer_tick(monkeypatch):
+    class Reader:
+        reads = 0
+
+        async def initialize(self):
+            pass
+
+        async def dispose(self):
+            pass
+
+        async def list(self, *args, **kwargs):
+            self.reads += 1
+            return {"items": [{"status": {"containerStatuses": [{"restartCount": self.reads}]}}]}
+
+    monkeypatch.setattr(ResourceListDataSource, "create_client", lambda *_: Reader())
+    service = Service(
+        environment=KubernetesEnvironment("dev", "/config"), namespace="ns", k8s_selector="app=chat"
+    )
+    ctx = ProbeContext(service=service, client=None, t0=time.monotonic())
+    async with ctx.clients:
+        assert await RestartProbe().sample(ctx) == {"restarts": 1}
+        assert await RestartProbe().sample(ctx) == {"restarts": 2}

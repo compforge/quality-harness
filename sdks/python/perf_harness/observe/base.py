@@ -66,7 +66,7 @@ class ProbeContext:
     observer_client: httpx.AsyncClient | None = None
     # Owned by observe_loop; direct sample callers must dispose this manager.
     clients: ClientManager = field(default_factory=ClientManager)
-    sample_cache: dict[tuple[str, str], dict | Exception] = field(default_factory=dict)
+    sample_cache: dict[tuple[str, str], dict | Exception] | None = None
 
     @property
     def probe_client(self) -> httpx.AsyncClient:
@@ -373,7 +373,7 @@ async def observe_loop(
         while True:
             t = time.monotonic() - ctx.t0
             ticks += 1
-            ctx.sample_cache.clear()
+            ctx.sample_cache = {}
             for probe in probes:
                 try:
                     reading = await probe.sample(ctx)

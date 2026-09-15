@@ -93,6 +93,9 @@ async def _pod_snapshot(service: Service, ctx: ProbeContext) -> dict:
         service.environment,
         Options(namespace=service.namespace, request_timeout_s=10, connection_pool_maxsize=8),
     )
+    if ctx.sample_cache is None:
+        client = await ctx.clients.get(source)
+        return await client.list("v1", "Pod", label_selector=service.k8s_selector)
     key = (source.key, service.k8s_selector)
     # why: one physical Pod set per tick keeps count, limits and restarts aligned
     # during autoscaling. The observer clears snapshots, but retains connections.
