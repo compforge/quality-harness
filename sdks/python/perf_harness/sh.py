@@ -1,22 +1,16 @@
-"""Tiny async subprocess helper, shared by the k8s-touching modules."""
+"""Bounded subprocess execution shared by perf's Kubernetes operations."""
 
-from __future__ import annotations
-
-import asyncio
+from harness_toolbox.process import execute
 
 
 async def run_capture(cmd: list[str], timeout: float = 300.0) -> str:
-    """Run ``cmd``, return stdout; raise RuntimeError with stderr on failure."""
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    """Run argv with bounded output and cancellation-safe process cleanup."""
     try:
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError as e:
-        proc.kill()
-        raise RuntimeError(f"timeout after {timeout}s: {' '.join(cmd)}") from e
-    if proc.returncode != 0:
-        raise RuntimeError(f"command failed ({proc.returncode}): {' '.join(cmd)}\n{err.decode()}")
-    return out.decode()
+        result = await execute(cmd, timeout_s=timeout)
+    except TimeoutError as exc:
+        raise RuntimeError(f"timeout after {timeout}s: {' '.join(cmd)}") from exc
+    if result.exit_code:
+        raise RuntimeError(
+            f"command failed ({result.exit_code}): {' '.join(cmd)}\n{result.stderr.decode()}"
+        )
+    return result.stdout.decode()

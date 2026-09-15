@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from harness_common import Deployer
+from harness_common import Deployer, Host
+from harness_toolbox.host import command
 
 from perf_harness.model import Deployment, ResourceProfile
 from perf_harness.sh import run_capture
@@ -31,6 +32,8 @@ class HelmDeployer(Deployer[Deployment]):
         chart_path: str,
         namespace: str,
         kubeconfig: str,
+        host: Host | None = None,
+        context: str | None = None,
         base_values: str | None = None,
         set_paths: dict[str, str] | None = None,
         rollout_timeout_s: int = 180,
@@ -40,10 +43,18 @@ class HelmDeployer(Deployer[Deployment]):
         self.chart_path = chart_path
         self.namespace = namespace
         self.kubeconfig = kubeconfig
+        self.host = host
+        self.context = context
         self.base_values = base_values
         self.set_paths = set_paths or dict(self.DEFAULT_SET_PATHS)
         self.rollout_timeout_s = rollout_timeout_s
         self.extra_set = extra_set or {}
+
+    async def _run(self, argv: list[str]) -> str:
+        if self.context:
+            flag = "--kube-context" if argv[0] == "helm" else "--context"
+            argv = [argv[0], flag, self.context, *argv[1:]]
+        return await run_capture(command(self.host, argv))
 
     def _set_args(self, profile: ResourceProfile) -> list[str]:
         sets: dict[str, str] = {}
@@ -74,8 +85,8 @@ class HelmDeployer(Deployer[Deployment]):
         if self.base_values:
             cmd += ["-f", self.base_values]
         cmd += self._set_args(profile)
-        await run_capture(cmd)
-        await run_capture(
+        await self._run(cmd)
+        await self._run(
             [
                 "kubectl",
                 "--kubeconfig",
@@ -102,4 +113,4 @@ class HelmDeployer(Deployer[Deployment]):
         ]
         if self.base_values:
             cmd += ["-f", self.base_values]
-        await run_capture(cmd)
+        await self._run(cmd)

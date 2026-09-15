@@ -108,3 +108,25 @@ pods.count{service="worker",state="total|active|ready|running|pending|unschedula
 `limits` 同样每周期刷新 Pod 集合，因此动态扩缩容时聚合 request/limit 不会停留在 trial
 开始时的副本数。`client.sent` counter 在报告中转换为逐 tick 实际发送速率，可与 Pod 数量及
 业务 gauge 对齐查看。
+
+## Environment Host
+
+`service.environment` 使用 common 的 Environment / Host 格式。省略 `host` 时在当前主机
+执行 Kubernetes 操作；声明 SSH Host 后，Kubernetes probes、Helm 部署与回收通过 toolbox
+在该 Host 执行。`context` 同时用于 kubectl 与 Helm，未声明 environment 的下游观测项继承
+主服务环境；显式 `host: null` 恢复当前主机访问。
+
+```yaml
+service:
+  environment:
+    name: dev
+    kind: kubernetes
+    host: {name: devbox, transport: ssh, address: my-devbox}
+    kubeconfig: /home/dev/.kube/config
+    context: dev
+```
+
+远端 kubeconfig、chart 和 values 路径属于 Host，应使用 Host 上的绝对路径；框架不会在
+Runner 上展开远端路径或复制文件。Host 不改变压力机位置，Chat/HTTP/SSE 以及 Prometheus
+请求仍从 Runner 发出，`base_url` 和 probe URL 必须从 Runner 可达。仅 HTTP 的 generic/host
+环境可以发压，但 Kubernetes probes 在没有集群访问配置时不产出观测。
