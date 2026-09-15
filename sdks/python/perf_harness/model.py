@@ -30,6 +30,7 @@ from harness_common import (
     Repository,
 )
 from harness_common import Deployment as BaseDeployment
+from harness_common import Environment as BaseEnvironment
 from harness_common import Outcome as BaseOutcome
 from harness_common import Service as BaseService
 
@@ -136,7 +137,7 @@ class Service(BaseService):
             name="",
         )
     )
-    environment: Environment = field(default_factory=lambda: Environment(name=""))
+    environment: BaseEnvironment = field(default_factory=lambda: Environment(name=""))
     base_url: str = ""
     headers: dict[str, str] = field(default_factory=dict, repr=False)
     namespace: str = ""

@@ -9,11 +9,20 @@ from __future__ import annotations
 
 import importlib
 import os
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import get_args
 
 import yaml
-from harness_common import Component, Deployer, Forge, Repository
+from harness_common import (
+    Component,
+    Deployer,
+    Environment,
+    Forge,
+    KubernetesEnvironment,
+    Repository,
+)
+from harness_common.environment import parse_environment
 from harness_common.overlay import Overlay
 from spec_case.facets import FacetSchema
 from spec_case.model import Case, CaseSet, load_caseset, validate
@@ -26,7 +35,6 @@ from perf_harness.metric import MetricFamily, parse_ref, validate_ref
 from perf_harness.metric.store import PER_REQUEST_DESCRIPTORS, REQUEST_DESCRIPTORS, SLO_METRICS
 from perf_harness.model import (
     Deployment,
-    Environment,
     ResourceProfile,
     Service,
     SloAssertion,
@@ -313,7 +321,25 @@ def _parse_service(c: dict, fallback_environment: Environment | None = None) -> 
     name = str(c.get("name", ""))
     component = c.get("component") or {}
     repository = component.get("repository") or {}
-    environment = c.get("environment") or {}
+    # Downstream services share the access host unless explicitly overridden.
+    inherited = (
+        {**asdict(fallback_environment), "kind": fallback_environment.kind}
+        if fallback_environment
+        else {}
+    )
+    override = c.get("environment") or {}
+    if not isinstance(override, dict):
+        raise ValueError("environment must be a mapping")
+    if "kind" not in override and (override.get("kubeconfig") or override.get("context")):
+        inherited.pop("kind", None)
+    if override.get("kind") in {"generic", "host"}:
+        inherited.pop("kubeconfig", None)
+        inherited.pop("context", None)
+    environment = parse_environment(inherited | override)
+    if isinstance(environment, KubernetesEnvironment) and (
+        environment.host is None or environment.host.transport in {"", "local"}
+    ):
+        environment = replace(environment, kubeconfig=os.path.expanduser(environment.kubeconfig))
     return Service(
         name=name,
         component=Component(
@@ -323,23 +349,7 @@ def _parse_service(c: dict, fallback_environment: Environment | None = None) -> 
             ),
             name=str(component.get("name") or name),
         ),
-        environment=Environment(
-            name=str(
-                environment.get("name")
-                or (fallback_environment.name if fallback_environment else "")
-            ),
-            kubeconfig=os.path.expanduser(
-                str(
-                    environment.get("kubeconfig")
-                    or (fallback_environment.kubeconfig if fallback_environment else "")
-                )
-            ),
-            context=(
-                str(environment["context"])
-                if environment.get("context")
-                else (fallback_environment.context if fallback_environment else None)
-            ),
-        ),
+        environment=environment,
         base_url=str(c.get("base_url", "")).rstrip("/"),
         headers={str(k): str(v) for k, v in (c.get("headers") or {}).items()},
         namespace=str(c.get("namespace", "")),
@@ -505,17 +515,25 @@ def _parse_deployer(c: dict | None, service: Service) -> Deployer[Deployment] | 
         return None
     kind = c.get("type", "helm")
     if kind == "helm":
-        if not service.environment.kubeconfig or not service.namespace:
+        if (
+            not isinstance(service.environment, KubernetesEnvironment)
+            or not service.environment.kubeconfig
+            or not service.namespace
+        ):
             raise ValueError(
-                "a Helm deployer requires `service.environment.kubeconfig` and "
-                "`service.namespace`"
+                "a Helm deployer requires `service.environment.kubeconfig` and `service.namespace`"
             )
+        remote = (
+            service.environment.host is not None and service.environment.host.transport == "ssh"
+        )
         return HelmDeployer(
             release=c["release"],
-            chart_path=os.path.expanduser(c["chart_path"]),
+            chart_path=c["chart_path"] if remote else os.path.expanduser(c["chart_path"]),
             namespace=service.namespace,
             kubeconfig=service.environment.kubeconfig,
-            base_values=_expand(c.get("base_values")),
+            base_values=c.get("base_values") if remote else _expand(c.get("base_values")),
+            host=service.environment.host,
+            context=service.environment.context,
             set_paths=c.get("set_paths"),
             rollout_timeout_s=int(c.get("rollout_timeout_s", 180)),
             extra_set=c.get("extra_set"),

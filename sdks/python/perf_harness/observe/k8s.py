@@ -10,14 +10,27 @@ from __future__ import annotations
 
 import json
 
+from harness_common import KubernetesEnvironment
+from harness_toolbox.host import command
+
 from perf_harness.metric import series_id
 from perf_harness.model import Service
 from perf_harness.observe.base import FamilySpec, Probe, ProbeContext
 from perf_harness.sh import run_capture
 
 
+async def _run(service: Service, argv: list[str]) -> str:
+    environment = service.environment
+    if not isinstance(environment, KubernetesEnvironment):
+        raise ValueError("Kubernetes probes require a Kubernetes environment")
+    if environment.context:
+        argv = [argv[0], "--context", environment.context, *argv[1:]]
+    return await run_capture(command(environment.host, argv))
+
+
 async def _pod_name(service: Service) -> str | None:
-    out = await run_capture(
+    out = await _run(
+        service,
         [
             "kubectl",
             "--kubeconfig",
@@ -30,7 +43,7 @@ async def _pod_name(service: Service) -> str | None:
             service.k8s_selector,
             "-o",
             "jsonpath={.items[0].metadata.name}",
-        ]
+        ],
     )
     return out.strip() or None
 
@@ -62,7 +75,12 @@ class _K8sProbe(Probe):
     def _ref(self, ctx: ProbeContext) -> Service | None:
         """The explicitly bound Service, else the experiment Service."""
         service = self._target_service or ctx.service
-        if not (service.environment.kubeconfig and service.namespace and service.k8s_selector):
+        if not (
+            isinstance(service.environment, KubernetesEnvironment)
+            and service.environment.kubeconfig
+            and service.namespace
+            and service.k8s_selector
+        ):
             return None
         return service
 
@@ -86,7 +104,8 @@ class KubectlTopProbe(_K8sProbe):
         # reading is the per-tick SUM across replicas (gauge summary = peak-of-sum,
         # "did total cpu/mem spike"); per_pod keeps the rows separate instead — one
         # {pod}-labeled series per replica ("which pod is hot / near ITS limit").
-        text = await run_capture(
+        text = await _run(
+            service,
             [
                 "kubectl",
                 "--kubeconfig",
@@ -98,7 +117,7 @@ class KubectlTopProbe(_K8sProbe):
                 "-l",
                 service.k8s_selector,
                 "--no-headers",
-            ]
+            ],
         )
         if self._per_pod:
             out: dict[str, float] = {}
@@ -147,7 +166,7 @@ class PerWorkerRSSProbe(_K8sProbe):
         if service.container:
             cmd += ["-c", service.container]
         cmd += ["--", "ps", "-eo", "pid,rss,args"]
-        text = await run_capture(cmd)
+        text = await _run(service, cmd)
         n_workers, rss_total_mi = parse_ps_rss(text)
         return {"rss_total_mi": rss_total_mi, "n_workers": float(n_workers)}
 
@@ -167,7 +186,8 @@ class RestartProbe(_K8sProbe):
         service = self._ref(ctx)
         if not service:
             return {}
-        out = await run_capture(
+        out = await _run(
+            service,
             [
                 "kubectl",
                 "--kubeconfig",
@@ -180,7 +200,7 @@ class RestartProbe(_K8sProbe):
                 service.k8s_selector,
                 "-o",
                 "jsonpath={.items[*].status.containerStatuses[*].restartCount}",
-            ]
+            ],
         )
         total = sum(int(x) for x in out.split() if x.isdigit())
         return {"restarts": float(total)}
@@ -205,7 +225,8 @@ class PodCountProbe(_K8sProbe):
         service = self._ref(ctx)
         if not service:
             return {}
-        text = await run_capture(
+        text = await _run(
+            service,
             [
                 "kubectl",
                 "--kubeconfig",
@@ -218,7 +239,7 @@ class PodCountProbe(_K8sProbe):
                 service.k8s_selector,
                 "-o",
                 "json",
-            ]
+            ],
         )
         return {
             series_id("count", {"state": state}): float(value)
@@ -278,7 +299,8 @@ class ResourceLimitsProbe(_K8sProbe):
             return {}
         # one `get pod -o json` read; the per-pod parse is the single source — the
         # service-level reading is just its sum, so the two views can never disagree
-        text = await run_capture(
+        text = await _run(
+            service,
             [
                 "kubectl",
                 "--kubeconfig",
@@ -291,7 +313,7 @@ class ResourceLimitsProbe(_K8sProbe):
                 service.k8s_selector,
                 "-o",
                 "json",
-            ]
+            ],
         )
         per_pod = parse_pod_resources(text)
         out: dict[str, float] = {}
