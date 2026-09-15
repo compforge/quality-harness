@@ -21,7 +21,8 @@ e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共
 | **Repository** | Forge 下的一份代码仓，以 Forge 与仓内路径共同确定；可以包含一个或多个 Component。 |
 | **Product** | 面向业务的产品身份；可以由多个 Component 组成，公共 Component 也可以服务多个 Product，归属关系由 registry 维护。 |
 | **Component** | 代码 Repository 内一个可独立构建或发布的稳定组件；一个 Repository 可以包含一个或多个 Component，不会运行为 Workload 的 Component 不产生 Service。 |
-| **Environment** | 一组部署与运行所共享的命名环境；它识别证据产生在哪里，具体访问方式、凭据和发布策略仍归部署领域。 |
+| **Environment** | 一组部署与运行所共享的命名环境，可包含 Host；它识别证据产生在哪里，凭据和发布策略归部署领域。 |
+| **Host** | Environment 的可选组成部分，描述主机身份及访问方式；在 Kubernetes 环境中是集群操作入口，不能代替目标 Pod 的执行事实。见 [Environment](environment.md)。 |
 | **Service** | 一个 Component 在某个 Environment 中具名的运行体现；由 service name、Component 与 Environment 共同确定，不等同于代码 Repository 或具体平台 Workload。 |
 | **Workload** | Service 在运行平台上的具名承载单元；Service 声明零个或多个 Workload 引用，具体实例及当前状态在执行期查询。它不是一次 Deployment 发布记录，也不是 perf 领域的请求负载模型。 |
 | **Operation** | Service 对外提供的一项具名能力，也是 Case 所绑定的服务能力；不包含特定传输协议的访问细节。 |

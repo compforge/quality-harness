@@ -30,6 +30,10 @@ from harness_common.deployment import Deployer as Deployer
 from harness_common.deployment import Deployment as Deployment
 from harness_common.environment import Environment as Environment
 from harness_common.environment import KubernetesEnvironment as KubernetesEnvironment
+from harness_common.environment import HostEnvironment as HostEnvironment
+from harness_common.host import Host as Host
+from harness_common.environment import EnvironmentFacts as EnvironmentFacts
+from harness_common.environment import EnvironmentSnapshot as EnvironmentSnapshot
 from harness_common.execution import Execution as Execution
 from harness_common.experiment import Experiment as Experiment
 from harness_common.experiment import ExperimentRun as ExperimentRun

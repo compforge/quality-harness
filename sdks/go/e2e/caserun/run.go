@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/compforge/quality-harness/sdks/go/common"
 	"github.com/compforge/quality-harness/sdks/go/e2e/matrix"
 	"github.com/compforge/quality-harness/sdks/go/report"
 )
@@ -61,12 +62,13 @@ type PhaseResult struct {
 }
 
 type Result struct {
-	Ref     CaseRef
-	Variant matrix.Variant
-	Status  report.Status
-	Reason  string
-	Phases  []PhaseResult
-	Facets  map[string]string
+	Environment *common.EnvironmentSnapshot `json:"environment,omitempty"`
+	Ref         CaseRef
+	Variant     matrix.Variant
+	Status      report.Status
+	Reason      string
+	Phases      []PhaseResult
+	Facets      map[string]string
 }
 
 type skipError struct{ reason string }
@@ -211,14 +213,37 @@ func (r Result) CaseVerdict() report.CaseVerdict {
 // Recorder collects case results across subtests and projects them into one
 // run verdict. It is safe for parallel subtests.
 type Recorder struct {
-	mu      sync.Mutex
-	results []report.CaseVerdict
+	mu           sync.Mutex
+	results      []report.CaseVerdict
+	environments []EnvironmentEvidence
+}
+
+type EnvironmentEvidence struct {
+	CaseID   string                     `json:"case_id"`
+	ArmID    string                     `json:"arm_id"`
+	Snapshot common.EnvironmentSnapshot `json:"environment"`
+}
+
+func (r *Recorder) Environments() []EnvironmentEvidence {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	result := append([]EnvironmentEvidence(nil), r.environments...)
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].CaseID != result[j].CaseID {
+			return result[i].CaseID < result[j].CaseID
+		}
+		return result[i].ArmID < result[j].ArmID
+	})
+	return result
 }
 
 func (r *Recorder) Record(result Result) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.results = append(r.results, result.CaseVerdict())
+	if result.Environment != nil {
+		r.environments = append(r.environments, EnvironmentEvidence{CaseID: result.Ref.ID, ArmID: result.Variant.ID(), Snapshot: *result.Environment})
+	}
 }
 
 func (r *Recorder) Verdict(scope, runID string) report.RunVerdict {

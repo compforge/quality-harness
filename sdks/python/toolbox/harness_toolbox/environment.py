@@ -17,6 +17,13 @@ def kubernetes_source(environment: KubernetesEnvironment, options: Options) -> K
     """
     from harness_toolbox.kube import KubernetesDataSource
 
+    if environment.host is not None:
+        environment.host.validate()
+        if environment.host.transport == "ssh":
+            raise ValueError(
+                "KubernetesDataSource requires local cluster access; run the client on "
+                "Environment.host or use host.command for remote kubectl"
+            )
     return KubernetesDataSource(
         options,
         kubeconfig=environment.kubeconfig or None,

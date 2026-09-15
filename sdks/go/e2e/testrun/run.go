@@ -2,6 +2,7 @@
 package testrun
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -71,9 +72,14 @@ func (r *Run) validateConfig() error {
 // first ensures fail, error, and skipped cases all remain visible in Verdict.
 func (r *Run) Assert(t *testing.T, result caserun.Result) {
 	t.Helper()
+	r.Record(result)
+	caserun.Assert(t, result)
+}
+
+// Record retains a result without testing.T, for adapters such as TestMain.
+func (r *Run) Record(result caserun.Result) {
 	r.recorder.Record(result)
 	r.count.Add(1)
-	caserun.Assert(t, result)
 }
 
 // Finish writes runs/<scope>/<run-id>/verdict.json. A test selection that did
@@ -88,6 +94,13 @@ func (r *Run) Finish() (report.RunVerdict, string, error) {
 		return verdict, "", nil
 	}
 	path, err := report.WriteVerdict(filepath.Join(r.runsDir, r.scope, r.runID), verdict)
+	if err == nil && len(r.recorder.Environments()) > 0 {
+		var data []byte
+		data, err = json.MarshalIndent(r.recorder.Environments(), "", "  ")
+		if err == nil {
+			err = os.WriteFile(filepath.Join(filepath.Dir(path), "environments.json"), data, 0600)
+		}
+	}
 	return verdict, path, err
 }
 

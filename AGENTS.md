@@ -45,6 +45,7 @@ quality-harness/
 ## References
 
 - [通用内核与职责边界](docs/kernel.md)
+- [Environment、可选 Host 与环境证据](docs/environment.md)
 - [项目级 Quality Harness 设计](docs/quality-harness.md)
 - [共享平台工具箱](docs/toolbox.md)
 - [跨语言约定](spec/conventions.md)
