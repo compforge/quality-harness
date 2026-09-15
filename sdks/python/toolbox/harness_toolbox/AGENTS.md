@@ -15,8 +15,10 @@ harness_toolbox/
 ├── errors.py       # ToolboxError 契约与协议子类；适配器负责转换原生异常
 ├── diagnostics.py  # 客户端连接路径快照，与异常独立
 ├── transport.py    # 连接解析、直连、port-forward、Pod Python 路径
+├── read_scope.py   # 单次读取范围内共享结果、错误与在途任务
+├── prometheus.py   # Prometheus DataSource、有界抓取与 Prombed 查询历史
 ├── process.py      # 有界子进程 I/O、退出结果与取消清理
-├── kube/           # Pod 增删、状态等待、Event、exec 与隧道
+├── kube/           # Pod/manifest 操作、Host 原生资源读取、状态等待、Event、exec 与隧道
 ├── opensearch.py   # HTTP 池、有界响应与 scroll
 ├── mysql.py        # SQLAlchemy async 池与 Pod Python 查询
 ├── pod_log.py      # 按物理实例/窗口共享采集，依赖 Kubernetes 客户端

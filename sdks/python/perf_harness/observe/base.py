@@ -20,7 +20,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 import httpx
-from prombed import Prombed, ScrapeTarget
+from harness_common.client import ClientManager
+from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
+from harness_toolbox.read_scope import ReadScope
 
 from perf_harness.metric import (
     MetricFamily,
@@ -53,9 +55,9 @@ class ProbeContext:
 
     ``client`` is the *load* client (also handed to ``Workload.fire``).
     ``observer_client`` is a separate client with its own small pool that
-    HTTP-source probes (e.g. ``/metrics`` scrape) must use, so observation does
-    NOT queue behind load traffic on a saturated pool — which is exactly when
-    server-side evidence matters most. Falls back to ``client`` when unset.
+    custom HTTP-source probes use to avoid queuing behind load traffic. Falls
+    back to ``client`` when unset. DataSource clients (including Prometheus)
+    have their own pools, managed by ``clients`` for this Trial.
     """
 
     service: Service
@@ -63,6 +65,9 @@ class ProbeContext:
     t0: float
     stats: ClientStats = field(default_factory=ClientStats)
     observer_client: httpx.AsyncClient | None = None
+    # Owned by observe_loop; direct sample callers must dispose this manager.
+    clients: ClientManager = field(default_factory=ClientManager)
+    reads: ReadScope | None = None
 
     @property
     def probe_client(self) -> httpx.AsyncClient:
@@ -201,9 +206,9 @@ class PrometheusProbe(Probe):
     """Scrape and query a Prometheus endpoint through an embedded Prombed runtime.
 
     Perf owns the observation cadence and final report/SLO model; Prombed owns the
-    Prometheus text format, bounded short-term storage, scrape health, counter reset
-    semantics, and PromQL evaluation. A fresh runtime is created for each Trial so
-    range queries can never read samples from a previous load arm.
+    Prometheus text format, bounded short-term storage and PromQL evaluation.
+    Toolbox owns access and retained observations through a DataSource; the Trial
+    owns ClientManager so range queries cannot read samples from a previous arm.
     """
 
     name = "prometheus"
@@ -226,14 +231,13 @@ class PrometheusProbe(Probe):
         self._service = service
         self._url = url
         self._headers = dict(headers or {})
-        self._timeout_ms = timeout_ms
-        self._max_scrape_bytes = max_scrape_bytes
-        self._retention_ms = retention_ms
-        self._max_series = max_series
-        self._max_samples_per_series = max_samples_per_series
-        self._runtime: Prombed | None = None
-        self._trial_t0: float | None = None
-        self._client: httpx.AsyncClient | None = None
+        self._options = PrometheusOptions(
+            timeout_ms=timeout_ms,
+            max_scrape_bytes=max_scrape_bytes,
+            retention_ms=retention_ms,
+            max_series=max_series,
+            max_samples_per_series=max_samples_per_series,
+        )
         self.families = {
             query.name: FamilySpec(
                 query.unit,
@@ -248,52 +252,15 @@ class PrometheusProbe(Probe):
         if service:
             self.name = f"{self.name}.{service}"
 
-    async def _fetch(
-        self,
-        url: str,
-        headers: dict[str, str],
-        timeout: float,
-        max_bytes: int,
-    ) -> bytes:
-        if self._client is None:
-            raise RuntimeError("Prometheus probe has no observer client")
-        body = bytearray()
-        async with self._client.stream("GET", url, headers=headers, timeout=timeout) as response:
-            response.raise_for_status()
-            async for chunk in response.aiter_bytes():
-                body.extend(chunk)
-                if len(body) > max_bytes:
-                    raise ValueError(
-                        f"Prometheus response exceeds configured limit of {max_bytes} bytes"
-                    )
-        return bytes(body)
-
-    def _start_trial(self, ctx: ProbeContext) -> None:
-        url = self._url or ctx.service.base_url.rstrip("/") + "/metrics"
-        # Service credentials apply only to its implicit endpoint. A downstream
-        # Prometheus URL must opt in its own headers; forwarding Service auth would
-        # cross a service trust boundary.
+    def _source(self, ctx: ProbeContext) -> PrometheusDataSource:
+        # Service credentials apply only to its implicit metrics endpoint.
+        # An explicit downstream URL must supply its own credentials.
         target_headers = ctx.service.headers if self._url is None else {}
-        target = ScrapeTarget(
-            url,
-            headers={
-                **target_headers,
-                **self._headers,
-                "User-Agent": "quality-harness/perf",
-            },
-            timeout_ms=self._timeout_ms,
-            max_body_bytes=self._max_scrape_bytes,
+        return PrometheusDataSource(
+            url=self._url or ctx.service.base_url.rstrip("/") + "/metrics",
+            headers={**target_headers, **self._headers, "User-Agent": "quality-harness/perf"},
+            options=self._options,
         )
-        self._runtime = Prombed(
-            targets=[target],
-            retention_ms=self._retention_ms,
-            max_series=self._max_series,
-            max_samples_per_series=self._max_samples_per_series,
-            scrape_timeout_ms=self._timeout_ms,
-            max_scrape_bytes=self._max_scrape_bytes,
-            fetch=self._fetch,
-        )
-        self._trial_t0 = ctx.t0
 
     @staticmethod
     def _labels(metric: dict[str, str]) -> dict[str, str]:
@@ -321,14 +288,11 @@ class PrometheusProbe(Probe):
             out[key] = float(row["value"][1])
 
     async def sample(self, ctx: ProbeContext) -> dict[str, float]:
-        self._client = ctx.probe_client
-        if self._runtime is None or self._trial_t0 != ctx.t0:
-            self._start_trial(ctx)
-        assert self._runtime is not None
-        result = (await self._runtime.scrape_once())[0]
+        client = await ctx.clients.get(self._source(ctx))
+        results = await client.read([query.promql for query in self.queries], scope=ctx.reads)
         out: dict[str, float] = {}
         for query in self.queries:
-            data = self._runtime.query(query.promql, result.scraped_at)["data"]
+            data = results[query.promql]
             if data["resultType"] == "scalar":
                 if query.labels:
                     raise ValueError(
@@ -365,27 +329,33 @@ async def observe_loop(
     affected summaries and the trial. A broken /metrics must not render as calm data."""
     failures: dict[str, list[str]] = {}
     ticks = 0
-    while True:
-        t = time.monotonic() - ctx.t0
-        ticks += 1
-        for probe in probes:
-            try:
-                reading = await probe.sample(ctx)
-            except Exception as exc:  # noqa: BLE001 — one bad probe must not stop observation
-                failures.setdefault(probe.name, []).append(repr(exc))
-                reading = None
-            # synthesize the probe's health as a SERIES (the Prometheus `up` analogue):
-            # the trial census says THAT observation broke, this says WHEN — §4 can
-            # chart the outage window instead of a fake-calm gap. 1 ok / 0 failed.
-            store.setdefault((probe.name, "up"), []).append(
-                Sample(t, 0.0 if reading is None else 1.0)
-            )
-            for key, val in (reading or {}).items():
-                store.setdefault((probe.name, key), []).append(Sample(t, val))
-        if stop.is_set():
-            break
-        with contextlib.suppress(asyncio.TimeoutError):
-            await asyncio.wait_for(stop.wait(), timeout=interval)
+    async with ctx.clients:
+        while True:
+            t = time.monotonic() - ctx.t0
+            ticks += 1
+            async with ReadScope() as reads:
+                ctx.reads = reads
+                try:
+                    for probe in probes:
+                        try:
+                            reading = await probe.sample(ctx)
+                        except Exception as exc:  # noqa: BLE001 — one bad probe must not stop observation
+                            failures.setdefault(probe.name, []).append(repr(exc))
+                            reading = None
+                        # synthesize the probe's health as a SERIES (the Prometheus `up` analogue):
+                        # the trial census says THAT observation broke, this says WHEN — §4 can
+                        # chart the outage window instead of a fake-calm gap. 1 ok / 0 failed.
+                        store.setdefault((probe.name, "up"), []).append(
+                            Sample(t, 0.0 if reading is None else 1.0)
+                        )
+                        for key, val in (reading or {}).items():
+                            store.setdefault((probe.name, key), []).append(Sample(t, val))
+                finally:
+                    ctx.reads = None
+            if stop.is_set():
+                break
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(stop.wait(), timeout=interval)
     return {
         name: ProbeErrors(failures=len(errs), ticks=ticks, last=errs[-1])
         for name, errs in failures.items()
