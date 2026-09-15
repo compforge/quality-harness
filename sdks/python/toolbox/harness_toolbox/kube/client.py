@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
+from aiohttp import ClientResponse
 from kubernetes_asyncio import client as kubernetes
 from kubernetes_asyncio import config
 from kubernetes_asyncio.client.exceptions import ApiException
@@ -26,6 +27,7 @@ from harness_toolbox.kube.model import (
     PodSpec,
     ResourceNotFoundError,
 )
+from harness_toolbox.kube.resources import KubernetesResources
 from harness_toolbox.kube.selector import label_selector
 from harness_toolbox.process import ExecResult, execute
 from harness_toolbox.transport import Endpoint, KubernetesAccess, PortForwardTransport
@@ -34,6 +36,10 @@ T = TypeVar("T")
 
 
 class _CoreV1API(Protocol):
+    async def read_namespaced_pod_log(
+        self, name: str, namespace: str, **kwargs: Any
+    ) -> ClientResponse: ...
+
     async def read_namespaced_endpoints(
         self, name: str, namespace: str, **kwargs: Any
     ) -> kubernetes.V1Endpoints: ...
@@ -110,6 +116,12 @@ class KubernetesClient:
         self._exec_slots = asyncio.Semaphore(source.options.exec_concurrency)
         self._operations: set[asyncio.Task] = set()
         self._disposal: asyncio.Task[None] | None = None
+        self.resources = KubernetesResources(self._native_api, self._options)
+
+    def _native_api(self) -> kubernetes.ApiClient:
+        if self._api_client is None or self._disposed:
+            raise RuntimeError("Kubernetes client is not initialized")
+        return self._api_client
 
     @property
     def _api(self) -> _CoreV1API:
@@ -502,6 +514,44 @@ class KubernetesClient:
             condition="Unschedulable",
             matches=lambda pod: pod.unschedulable,
         )
+
+    async def wait_completed(self, ref: PodRef, *, timeout_s: float, interval_s: float) -> Pod:
+        """Return either terminal phase; the consumer decides its meaning."""
+        return await self._wait_pod(
+            ref,
+            timeout_s=timeout_s,
+            interval_s=interval_s,
+            condition="completed",
+            matches=lambda pod: pod.phase in {"Succeeded", "Failed"},
+        )
+
+    async def read_logs(self, ref: PodRef, *, container: str, max_bytes: int) -> bytes:
+        """Read a bounded native API log response, checking Pod identity twice."""
+        if max_bytes <= 0:
+            raise ValueError("log byte limit must be positive")
+        async with asyncio.timeout(self._options.request_timeout_s), self._exec_slots:
+            await self._require_identity(ref)
+            response = await self._api.read_namespaced_pod_log(
+                ref.name,
+                self._options.namespace,
+                container=container,
+                _preload_content=False,
+                _request_timeout=self._options.request_timeout_s,
+            )
+            try:
+                if not 200 <= response.status < 300:
+                    error = ApiException(status=response.status, reason=response.reason)
+                    error.body = await response.text()
+                    raise error
+                data = bytearray()
+                async for chunk in response.content.iter_chunked(65536):
+                    data.extend(chunk)
+                    if len(data) > max_bytes:
+                        raise ValueError("Pod log response exceeds byte limit")
+                await self._require_identity(ref)
+                return bytes(data)
+            finally:
+                response.release()
 
     async def list_events(self, ref: PodRef) -> list[Event]:
         """Return deterministically ordered Events for one physical Pod."""

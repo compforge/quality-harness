@@ -90,6 +90,20 @@ Python 同时提供 Pod 创建、exec、port-forward、日志采集及上述控�
 TypeScript 提供 exec、port-forward、Pod/Service 投影与日志采集；Go 提供上述控制和等待能力。各语言的能力覆盖可以不同，共有的 namespace、实例身份、取消及资源容量语义应保持
 一致。原始执行通道不替代宿主授权，不自动将低层 kubectl 命令升级为具有 UID 保护的语义操作。
 
+### 原始资源与权限实验
+
+Python KubernetesClient.resources 使用 `kubernetes-asyncio` 的动态 API，复用同一
+连接池与请求预算，支持原始 manifest 的创建、读取、列举和带 UID 条件的删除。
+Pod、ConfigMap 等命名空间资源限制在 client 的 namespace；Node、Namespace、admission
+配置等集群资源仍受 API 权限约束。原始 manifest 保留 admission 后的字段，便于比较提交
+配置与实际配置，不在 toolbox 复制各种产品的 Pod schema。
+
+Pod 完成等待返回成功或失败的终态，日志通过原生 API 有界读取；二者均核验 Pod UID。
+创建哪些资源、何时清理、如何保存证据与解释准入拒绝由消费方拥有。
+当 kubeconfig 位于 SSH Host，部署调用方使用 Host 执行能力在该 Host 运行 Python
+客户端，由库在当地读取配置。SSH 只负责到达 Host，不把逐项 Kubernetes 操作翻译成
+kubectl 命令，也不把远端配置当作本机文件。
+
 ## 3. 故障注入后端
 
 Chaos Mesh、ChaosBlade、Toxiproxy、AgentChaos 等可以作为工具箱中的具体故障注入后端；它们负责执行
