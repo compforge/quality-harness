@@ -17,6 +17,8 @@ harness_toolbox/
 ├── transport.py    # 连接解析、直连、port-forward、Pod Python 路径
 ├── read_scope.py   # 单次读取范围内共享结果、错误与在途任务
 ├── prometheus.py   # Prometheus DataSource、有界抓取与 Prombed 查询历史
+├── kube_portforward.py # 执行期 Service/Pod IP 隧道复用与资源身份校验
+├── socks.py        # 外部客户端接入 Transport 的 loopback SOCKS5 适配
 ├── process.py      # 有界子进程 I/O、退出结果与取消清理
 ├── kube/           # Pod/manifest 操作、Host 原生资源读取、状态等待、Event、exec 与隧道
 ├── opensearch.py   # HTTP 池、有界响应与 scroll
