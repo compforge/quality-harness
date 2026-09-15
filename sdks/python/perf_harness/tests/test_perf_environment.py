@@ -72,13 +72,10 @@ def test_invalid_environment_is_rejected(environment):
     [
         (k8s.KubectlTopProbe, ["chat-1 50m 100Mi"]),
         (k8s.PerWorkerRSSProbe, ["chat-1", "PID RSS COMMAND\n1 1024 gunicorn"]),
-        (k8s.RestartProbe, ["0 1"]),
-        (k8s.PodCountProbe, ['{"items": []}']),
-        (k8s.ResourceLimitsProbe, ['{"items": []}']),
     ],
 )
 @pytest.mark.asyncio
-async def test_all_kubernetes_probes_use_access_host(monkeypatch, probe_type, responses):
+async def test_kubectl_probes_use_access_host(monkeypatch, probe_type, responses):
     service = _parse_service(service_config())
     commands = []
     pending = iter(responses)

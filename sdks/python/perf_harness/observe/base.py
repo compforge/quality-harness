@@ -20,6 +20,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 import httpx
+from harness_common.client import ClientManager
 from prombed import Prombed, ScrapeTarget
 
 from perf_harness.metric import (
@@ -63,6 +64,9 @@ class ProbeContext:
     t0: float
     stats: ClientStats = field(default_factory=ClientStats)
     observer_client: httpx.AsyncClient | None = None
+    # Owned by observe_loop; direct sample callers must dispose this manager.
+    clients: ClientManager = field(default_factory=ClientManager)
+    sample_cache: dict[tuple[str, str], dict | Exception] = field(default_factory=dict)
 
     @property
     def probe_client(self) -> httpx.AsyncClient:
@@ -365,27 +369,29 @@ async def observe_loop(
     affected summaries and the trial. A broken /metrics must not render as calm data."""
     failures: dict[str, list[str]] = {}
     ticks = 0
-    while True:
-        t = time.monotonic() - ctx.t0
-        ticks += 1
-        for probe in probes:
-            try:
-                reading = await probe.sample(ctx)
-            except Exception as exc:  # noqa: BLE001 — one bad probe must not stop observation
-                failures.setdefault(probe.name, []).append(repr(exc))
-                reading = None
-            # synthesize the probe's health as a SERIES (the Prometheus `up` analogue):
-            # the trial census says THAT observation broke, this says WHEN — §4 can
-            # chart the outage window instead of a fake-calm gap. 1 ok / 0 failed.
-            store.setdefault((probe.name, "up"), []).append(
-                Sample(t, 0.0 if reading is None else 1.0)
-            )
-            for key, val in (reading or {}).items():
-                store.setdefault((probe.name, key), []).append(Sample(t, val))
-        if stop.is_set():
-            break
-        with contextlib.suppress(asyncio.TimeoutError):
-            await asyncio.wait_for(stop.wait(), timeout=interval)
+    async with ctx.clients:
+        while True:
+            t = time.monotonic() - ctx.t0
+            ticks += 1
+            ctx.sample_cache.clear()
+            for probe in probes:
+                try:
+                    reading = await probe.sample(ctx)
+                except Exception as exc:  # noqa: BLE001 — one bad probe must not stop observation
+                    failures.setdefault(probe.name, []).append(repr(exc))
+                    reading = None
+                # synthesize the probe's health as a SERIES (the Prometheus `up` analogue):
+                # the trial census says THAT observation broke, this says WHEN — §4 can
+                # chart the outage window instead of a fake-calm gap. 1 ok / 0 failed.
+                store.setdefault((probe.name, "up"), []).append(
+                    Sample(t, 0.0 if reading is None else 1.0)
+                )
+                for key, val in (reading or {}).items():
+                    store.setdefault((probe.name, key), []).append(Sample(t, val))
+            if stop.is_set():
+                break
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(stop.wait(), timeout=interval)
     return {
         name: ProbeErrors(failures=len(errs), ticks=ticks, last=errs[-1])
         for name, errs in failures.items()

@@ -112,8 +112,7 @@ pods.count{service="worker",state="total|active|ready|running|pending|unschedula
 ## Environment Host
 
 `service.environment` 使用 common 的 Environment / Host 格式。省略 `host` 时在当前主机
-执行 Kubernetes 操作；声明 SSH Host 后，Kubernetes probes、Helm 部署与回收通过 toolbox
-在该 Host 执行。`context` 同时用于 kubectl 与 Helm，未声明 environment 的下游观测项继承
+执行 Kubernetes 操作；声明 SSH Host 后，Kubernetes 观测与 Helm 操作在该 Host 执行。`context` 同时用于 kubectl 与 Helm，未声明 environment 的下游观测项继承
 主服务环境；显式 `host: null` 恢复当前主机访问。
 
 ```yaml
@@ -130,3 +129,19 @@ service:
 Runner 上展开远端路径或复制文件。Host 不改变压力机位置，Chat/HTTP/SSE 以及 Prometheus
 请求仍从 Runner 发出，`base_url` 和 probe URL 必须从 Runner 可达。仅 HTTP 的 generic/host
 环境可以发压，但 Kubernetes probes 在没有集群访问配置时不产出观测。
+
+
+### 原生 Pod 观测
+
+`restart/limits/pods` 通过 toolbox 原生 Kubernetes API 读取 Pod manifest。安装时启用
+`quality-harness[kube]`；SSH Host 还需在 `python3` 环境安装相同版本的 `harness-toolbox[kube]`。
+SSH 只启动一次只读 worker，Kubernetes 客户端在 Host 上读取 kubeconfig，观测结束后关闭。
+`top/rss` 使用 kubectl 的指标与 exec 通道；Helm 部署仍要求 Host 上有 Helm。
+
+每次 Trial 的观测期复用连接池（每个访问配置/namespace 最多 8 个连接，单次请求预算 10 秒）。
+同一采样周期内，同一访问配置、namespace 和 selector 的三个探针共享 Pod 列表及读取错误；
+下个周期重新读取，因此扩缩容不会沿用旧副本集合。列表读取失败进入 probe error 和 `up=0`，
+不会记为零副本或零资源。SSH 请求超时或取消后关闭对应 worker，避免后续请求误读残留响应。
+
+`observe_loop` 管理 `ProbeContext.clients` 的释放；直接调用 `Probe.sample` 的扩展测试，
+需要自行使用 `async with ctx.clients` 管理该生命周期。

@@ -31,7 +31,7 @@ perf_harness/
 │   └── scheduler.py#   驱动循环：开/闭环 + 熔断 DECIDE + drain/cancel ENACT → TrialStop
 ├── observe/        # 看什么（扩展点②）；FamilySpec 单表声明 metric 元数据
 │   ├── base.py     #   Probe ABC + client/Prombed 探针 + observe_loop（采样循环）
-│   └── k8s.py      #   top/rss/restart/limits（kubectl 系探针，纯函数解析器可单测）
+│   └── k8s.py      #   top/rss 的 kubectl 采样与 restart/limits/pods 的原生 API 采样
 ├── metric/         # 收腰：唯一的那张表
 │   ├── family.py   #   纯模型：MetricFamily(side/value_kind)+summary union+Missing+寻址
 │   ├── store.py    #   MetricStore：消费方唯一读面（query/pivot/rows）

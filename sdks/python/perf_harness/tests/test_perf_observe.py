@@ -291,10 +291,10 @@ async def test_limits_probe_per_pod_and_summed_share_one_source(monkeypatch):
         }
     )
 
-    async def fake_run(cmd):
-        return j
+    async def fake_run(service, ctx):
+        return json.loads(j)
 
-    monkeypatch.setattr("perf_harness.observe.k8s.run_capture", fake_run)
+    monkeypatch.setattr("perf_harness.observe.k8s._pod_snapshot", fake_run)
     service = _k8s_service("chat", "app=chat")
     ctx = SimpleNamespace(service=Service())
     per_pod = await ResourceLimitsProbe(target_service=service, per_pod=True).sample(ctx)
@@ -337,10 +337,10 @@ async def test_limits_probe_refreshes_dynamic_pod_set(monkeypatch):
         ]
     )
 
-    async def fake_run(cmd):
-        return next(responses)
+    async def fake_run(service, ctx):
+        return json.loads(next(responses))
 
-    monkeypatch.setattr("perf_harness.observe.k8s.run_capture", fake_run)
+    monkeypatch.setattr("perf_harness.observe.k8s._pod_snapshot", fake_run)
     service = _k8s_service("chat", "app=chat")
     probe = ResourceLimitsProbe(target_service=service)
     ctx = SimpleNamespace(service=Service())

@@ -1,9 +1,7 @@
 """K8s-family probes — the common Source today, but only one Source family.
 
-These read the Service's pod via ``kubectl`` (top / exec ps / restartCount).
-The parsers are pure functions so they are unit-tested without a cluster; the
-probes that wrap them simply shell out and skip themselves when the Service has
-no Kubernetes coordinates.
+Pod manifests use the native toolbox client; top and process RSS use kubectl.
+Pure parsers preserve the metric model independently of the access transport.
 """
 
 from __future__ import annotations
@@ -83,6 +81,33 @@ class _K8sProbe(Probe):
         ):
             return None
         return service
+
+
+async def _pod_snapshot(service: Service, ctx: ProbeContext) -> dict:
+    # Import the optional kube extra only when a native probe actually samples.
+    from harness_toolbox.kube.model import Options
+    from harness_toolbox.kube.resource_list import ResourceListDataSource
+
+    assert isinstance(service.environment, KubernetesEnvironment)
+    source = ResourceListDataSource(
+        service.environment,
+        Options(namespace=service.namespace, request_timeout_s=10, connection_pool_maxsize=8),
+    )
+    key = (source.key, service.k8s_selector)
+    # why: one physical Pod set per tick keeps count, limits and restarts aligned
+    # during autoscaling. The observer clears snapshots, but retains connections.
+    if key not in ctx.sample_cache:
+        try:
+            client = await ctx.clients.get(source)
+            ctx.sample_cache[key] = await client.list(
+                "v1", "Pod", label_selector=service.k8s_selector
+            )
+        except Exception as error:
+            ctx.sample_cache[key] = error
+    snapshot = ctx.sample_cache[key]
+    if isinstance(snapshot, Exception):
+        raise snapshot
+    return snapshot
 
 
 class KubectlTopProbe(_K8sProbe):
@@ -186,23 +211,12 @@ class RestartProbe(_K8sProbe):
         service = self._ref(ctx)
         if not service:
             return {}
-        out = await _run(
-            service,
-            [
-                "kubectl",
-                "--kubeconfig",
-                service.environment.kubeconfig,
-                "-n",
-                service.namespace,
-                "get",
-                "pod",
-                "-l",
-                service.k8s_selector,
-                "-o",
-                "jsonpath={.items[*].status.containerStatuses[*].restartCount}",
-            ],
+        snapshot = await _pod_snapshot(service, ctx)
+        total = sum(
+            container.get("restartCount", 0)
+            for pod in snapshot.get("items", [])
+            for container in (pod.get("status") or {}).get("containerStatuses", [])
         )
-        total = sum(int(x) for x in out.split() if x.isdigit())
         return {"restarts": float(total)}
 
 
@@ -225,25 +239,10 @@ class PodCountProbe(_K8sProbe):
         service = self._ref(ctx)
         if not service:
             return {}
-        text = await _run(
-            service,
-            [
-                "kubectl",
-                "--kubeconfig",
-                service.environment.kubeconfig,
-                "-n",
-                service.namespace,
-                "get",
-                "pod",
-                "-l",
-                service.k8s_selector,
-                "-o",
-                "json",
-            ],
-        )
+        snapshot = await _pod_snapshot(service, ctx)
         return {
             series_id("count", {"state": state}): float(value)
-            for state, value in parse_pod_counts(text).items()
+            for state, value in _pod_counts(snapshot).items()
         }
 
 
@@ -297,25 +296,8 @@ class ResourceLimitsProbe(_K8sProbe):
         service = self._ref(ctx)
         if not service:
             return {}
-        # one `get pod -o json` read; the per-pod parse is the single source — the
-        # service-level reading is just its sum, so the two views can never disagree
-        text = await _run(
-            service,
-            [
-                "kubectl",
-                "--kubeconfig",
-                service.environment.kubeconfig,
-                "-n",
-                service.namespace,
-                "get",
-                "pod",
-                "-l",
-                service.k8s_selector,
-                "-o",
-                "json",
-            ],
-        )
-        per_pod = parse_pod_resources(text)
+        snapshot = await _pod_snapshot(service, ctx)
+        per_pod = _pod_resources(snapshot.get("items", []))
         out: dict[str, float] = {}
         if self._per_pod:
             for pod, vals in per_pod.items():
@@ -330,6 +312,10 @@ class ResourceLimitsProbe(_K8sProbe):
 
 def parse_pod_counts(text: str) -> dict[str, int]:
     """Parse ``kubectl get pod -o json`` into bounded lifecycle counts."""
+    return _pod_counts(json.loads(text or "{}"))
+
+
+def _pod_counts(snapshot: dict) -> dict[str, int]:
     counts = {
         "total": 0,
         "active": 0,
@@ -339,7 +325,7 @@ def parse_pod_counts(text: str) -> dict[str, int]:
         "unschedulable": 0,
         "terminating": 0,
     }
-    for pod in json.loads(text or "{}").get("items", []):
+    for pod in snapshot.get("items", []):
         counts["total"] += 1
         metadata = pod.get("metadata") or {}
         status = pod.get("status") or {}
@@ -409,6 +395,10 @@ def parse_pod_resources(json_text: str) -> dict[str, dict[str, float]]:
         items = json.loads(json_text).get("items", [])
     except (ValueError, AttributeError):
         return {}
+    return _pod_resources(items)
+
+
+def _pod_resources(items: list[dict]) -> dict[str, dict[str, float]]:
     out: dict[str, dict[str, float]] = {}
     for item in items:
         pod = (item.get("metadata") or {}).get("name")

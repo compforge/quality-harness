@@ -104,6 +104,17 @@ Pod 完成等待返回成功或失败的终态，日志通过原生 API 有界�
 客户端，由库在当地读取配置。SSH 只负责到达 Host，不把逐项 Kubernetes 操作翻译成
 kubectl 命令，也不把远端配置当作本机文件。
 
+### 持续读取 Environment Host 上的资源
+
+`ResourceListDataSource` 提供由 `ClientManager` 管理的只读 manifest 列举。它接收
+`KubernetesEnvironment` 和现有 `Options`，本机使用共享原生客户端；SSH Host 使用持续存活的
+`python3 -m harness_toolbox.kube.resource_list` worker，复用远端连接池。Host 上须安装
+相同版本的 `harness-toolbox[kube]`，只传配置路径与查询条件，不传 kubeconfig 内容。
+
+读请求继承 Options 的 namespace、请求时间和连接池预算；远端消息受 `max_exec_bytes` 限制，
+stderr 有界收集。调用取消、超时或协议断流后关闭 worker，后续请求不会误用残留响应。
+该通道不提供 manifest 写入，资源创建与清理继续由消费方明确调用原生操作。
+
 ## 3. 故障注入后端
 
 Chaos Mesh、ChaosBlade、Toxiproxy、AgentChaos 等可以作为工具箱中的具体故障注入后端；它们负责执行
