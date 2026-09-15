@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
 from harness_common import Execution, OperationRun
+from harness_common.environment import EnvironmentSnapshot
 from harness_common.verdict import CaseVerdict, Status
 from e2e_harness.matrix import Variant
 
@@ -91,6 +92,7 @@ class CaseRun(Execution):
     phases: tuple[PhaseResult, ...]
     facets: dict[str, str]
     reason: str | None = None
+    environment: EnvironmentSnapshot | None = None
 
     def case_verdict(self) -> CaseVerdict:
         metrics = {

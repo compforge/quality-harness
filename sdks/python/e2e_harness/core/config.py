@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from harness_common import Component, Forge, KubernetesEnvironment, Repository
+from harness_common import Component, Environment, Forge, Repository
+from harness_common.environment import parse_environment
 from harness_common import Experiment as BaseExperiment
 from harness_common import Service as BaseService
 
@@ -29,9 +30,7 @@ class Service(BaseService):
             name="",
         )
     )
-    environment: KubernetesEnvironment = field(
-        default_factory=lambda: KubernetesEnvironment(name="")
-    )
+    environment: Environment = field(default_factory=lambda: Environment(name=""))
     base_url: str = ""
     headers: dict[str, str] = field(default_factory=dict)
 
@@ -129,6 +128,25 @@ def _build_from_env() -> dict:
     headers = json.loads(raw_headers) if raw_headers else {}
     if not isinstance(headers, dict):
         raise ValueError("E2E_SERVICE_HEADERS must be a JSON object")
+    environment = {"name": os.environ.get("E2E_ENVIRONMENT", "")}
+    for key, variable in {
+        "kind": "E2E_ENVIRONMENT_KIND",
+        "kubeconfig": "E2E_KUBECONFIG",
+        "context": "E2E_KUBE_CONTEXT",
+    }.items():
+        if os.environ.get(variable):
+            environment[key] = os.environ[variable]
+    host = {
+        key: os.environ[variable]
+        for key, variable in {
+            "name": "E2E_HOST_NAME",
+            "transport": "E2E_HOST_TRANSPORT",
+            "address": "E2E_HOST_ADDRESS",
+        }.items()
+        if os.environ.get(variable)
+    }
+    if host:
+        environment["host"] = host
     return {
         "service": {
             "name": os.environ.get("E2E_SERVICE_NAME", ""),
@@ -139,11 +157,7 @@ def _build_from_env() -> dict:
                 },
                 "name": os.environ.get("E2E_COMPONENT_NAME", ""),
             },
-            "environment": {
-                "name": os.environ.get("E2E_ENVIRONMENT", ""),
-                "kubeconfig": os.environ.get("E2E_KUBECONFIG", ""),
-                "context": os.environ.get("E2E_KUBE_CONTEXT") or None,
-            },
+            "environment": environment,
             "base_url": os.environ.get("E2E_BASE_URL", ""),
             "headers": headers,
         },
@@ -185,7 +199,7 @@ def _validate_config(data: Any) -> None:
     _reject_unknown_fields(
         environment,
         "service.environment",
-        {"name", "kubeconfig", "context"},
+        {"name", "kind", "host", "kubeconfig", "context"},
     )
     _mapping_field(service, "headers", "service.headers")
 
@@ -241,13 +255,7 @@ def _parse_config(data: dict) -> E2EConfig:
                 ),
                 name=str(component.get("name", "")),
             ),
-            environment=KubernetesEnvironment(
-                name=str(environment.get("name", "")),
-                kubeconfig=str(environment.get("kubeconfig", "")),
-                context=(
-                    str(environment["context"]) if environment.get("context") else None
-                ),
-            ),
+            environment=parse_environment(environment),
             base_url=svc.get("base_url", "").rstrip("/"),
             headers={str(k): str(v) for k, v in headers.items()} if headers else {},
         ),

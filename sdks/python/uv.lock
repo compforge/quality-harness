@@ -459,7 +459,7 @@ wheels = [
 
 [[package]]
 name = "harness-common"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "common" }
 
 [package.optional-dependencies]
@@ -473,7 +473,7 @@ provides-extras = ["llm"]
 
 [[package]]
 name = "harness-toolbox"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "toolbox" }
 dependencies = [
     { name = "harness-common" },
@@ -1075,7 +1075,7 @@ wheels = [
 
 [[package]]
 name = "quality-harness"
-version = "0.2.14"
+version = "0.2.15"
 source = { editable = "." }
 dependencies = [
     { name = "atif" },

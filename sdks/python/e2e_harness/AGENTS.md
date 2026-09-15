@@ -39,7 +39,7 @@ e2e_harness/
 - **Kernel 对齐**：Runner `Outcome` 是 Observation，一次 CaseRun（`case_id + variant`）是 Unit；一组可复判 CaseRun Unit 构成 Dataset，本次选择的 assertion / deterministic judge / soft metric 直接定义评估侧重点。立即执行并直接写 Verdict 可以融合这些阶段，但必须保留 Outcome、来源 identity 和实际组件配置，使判断能够离线重放；详见 [`../../../docs/kernel.md`](../../../docs/kernel.md#dataset-与反复评估)。
 - **case 两个编写前端**：手写 canonical CaseSet，或 `@case/@spec` NL marker 经 `casegen compile` 编译（`casegen check` 是无-LLM intent-hash 漂移闸门）。`binding.symbol_id + optional spec_id` 对齐 spec-case 的 plural `specs[]`；未填 assertion 的草稿是 error，不会假绿。
 - **Outcome 是 runner↔judge 契约**：`status_code / headers / body / duration_ms / metadata / raw`；SSE events 进 `metadata['events']`，engine 的 `response_view` 暴露 `events[]` / `event_count`。
-- **Config**（`config.yaml`，语言无关 schema）：`service.{name,component,environment,base_url,headers}`，其中当前 environment 默认按 `KubernetesEnvironment{name,kubeconfig,context}` 解析；另有 `runtime.*_timeout` / `discover.{source_root,test_root}`（discover/casegen 用）。harness 不内置服务专用 header 名。
+- **Config**（`config.yaml`，语言无关 schema）：`service.{name,component,environment,base_url,headers}`，Environment 支持 generic、host、kubernetes 及可选 Host；另有 `runtime.*_timeout` / `discover.{source_root,test_root}`。环境实测值与配置分离，见 [Environment](../../../docs/environment.md)。harness 不内置服务专用 header 名。
 - **verdict**（`spec/verdict-schema.yaml`）：`e2e run` 跑完落 `runs/<scope>/<run-id>/verdict.json`（scope 默认 CaseSet 名，即 Experiment 名）。
 
 - **当前范围**：服务 API 契约测试；Playbook / Script 与 Web、移动端、产品 API Target 的长期边界见领域设计。

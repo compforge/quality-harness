@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/compforge/quality-harness/sdks/go/common"
 	"gopkg.in/yaml.v3"
 )
 
@@ -31,9 +32,7 @@ type Component struct {
 	Name       string     `yaml:"name"`
 }
 
-type Environment struct {
-	Name string `yaml:"name"`
-}
+type Environment = common.Environment
 
 type KubernetesEnvironment struct {
 	Environment `yaml:",inline"`
@@ -42,11 +41,11 @@ type KubernetesEnvironment struct {
 }
 
 type Service struct {
-	Name        string                `yaml:"name"`
-	Component   Component             `yaml:"component"`
-	Environment KubernetesEnvironment `yaml:"environment"`
-	BaseURL     string                `yaml:"base_url"`
-	Headers     map[string]string     `yaml:"headers"`
+	Name        string             `yaml:"name"`
+	Component   Component          `yaml:"component"`
+	Environment common.Environment `yaml:"environment"`
+	BaseURL     string             `yaml:"base_url"`
+	Headers     map[string]string  `yaml:"headers"`
 }
 
 // Operation is one named capability exposed by a Service.
@@ -169,6 +168,13 @@ func loadFromEnvVars() (*E2EConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	environment := common.Environment{Name: os.Getenv("E2E_ENVIRONMENT"), Kind: os.Getenv("E2E_ENVIRONMENT_KIND"), Kubeconfig: os.Getenv("E2E_KUBECONFIG"), Context: os.Getenv("E2E_KUBE_CONTEXT")}
+	if os.Getenv("E2E_HOST_NAME") != "" || os.Getenv("E2E_HOST_TRANSPORT") != "" || os.Getenv("E2E_HOST_ADDRESS") != "" {
+		environment.Host = &common.Host{Name: os.Getenv("E2E_HOST_NAME"), Transport: os.Getenv("E2E_HOST_TRANSPORT"), Address: os.Getenv("E2E_HOST_ADDRESS")}
+	}
+	if err := environment.Validate(); err != nil {
+		return nil, err
+	}
 	return &E2EConfig{
 		Service: Service{
 			Name:    os.Getenv("E2E_SERVICE_NAME"),
@@ -180,12 +186,8 @@ func loadFromEnvVars() (*E2EConfig, error) {
 				},
 				Name: os.Getenv("E2E_COMPONENT_NAME"),
 			},
-			Environment: KubernetesEnvironment{
-				Environment: Environment{Name: os.Getenv("E2E_ENVIRONMENT")},
-				Kubeconfig:  os.Getenv("E2E_KUBECONFIG"),
-				Context:     os.Getenv("E2E_KUBE_CONTEXT"),
-			},
-			Headers: headers,
+			Environment: environment,
+			Headers:     headers,
 		},
 		Runtime: RuntimeConfig{
 			HTTPTimeoutS:   120,
@@ -233,7 +235,31 @@ func validateConfig(data map[string]any) error {
 			return err
 		}
 		if environment != nil {
-			if err := rejectUnknownFields(environment, "service.environment", "name", "kubeconfig", "context"); err != nil {
+			if err := rejectUnknownFields(environment, "service.environment", "name", "kind", "host", "kubeconfig", "context"); err != nil {
+				return err
+			}
+			for key, value := range environment {
+				if key != "host" && value != nil {
+					if _, ok := value.(string); !ok {
+						return fmt.Errorf("environment fields except host must be strings")
+					}
+				}
+			}
+			host, err := mappingField(environment, "host", "service.environment.host")
+			if err != nil {
+				return err
+			}
+			if host != nil {
+				if err := rejectUnknownFields(host, "service.environment.host", "name", "transport", "address"); err != nil {
+					return err
+				}
+				for _, value := range host {
+					if _, ok := value.(string); !ok {
+						return fmt.Errorf("host fields must be strings")
+					}
+				}
+			}
+			if err := environmentFrom(environment).Validate(); err != nil {
 				return err
 			}
 		}
@@ -318,9 +344,7 @@ func parseConfig(data map[string]any) *E2EConfig {
 			config.Service.Component.Name = strVal(component, "name")
 		}
 		if environment, ok := svc["environment"].(map[string]any); ok {
-			config.Service.Environment.Name = strVal(environment, "name")
-			config.Service.Environment.Kubeconfig = strVal(environment, "kubeconfig")
-			config.Service.Environment.Context = strVal(environment, "context")
+			config.Service.Environment = environmentFrom(environment)
 		}
 		config.Service.Headers = make(map[string]string)
 		if headers, ok := svc["headers"].(map[string]any); ok {
@@ -366,8 +390,16 @@ func serviceHeadersFromEnv() (map[string]string, error) {
 	return headers, nil
 }
 
+func environmentFrom(data map[string]any) common.Environment {
+	env := common.Environment{Name: strVal(data, "name"), Kind: strVal(data, "kind"), Kubeconfig: strVal(data, "kubeconfig"), Context: strVal(data, "context")}
+	if host, ok := data["host"].(map[string]any); ok {
+		env.Host = &common.Host{Name: strVal(host, "name"), Transport: strVal(host, "transport"), Address: strVal(host, "address")}
+	}
+	return env
+}
+
 func strVal(m map[string]any, key string) string {
-	if v, ok := m[key]; ok {
+	if v, ok := m[key]; ok && v != nil {
 		return fmt.Sprint(v)
 	}
 	return ""

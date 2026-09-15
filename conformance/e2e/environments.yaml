@@ -1,0 +1,49 @@
+environments:
+  - spec: {name: local, kind: host}
+    kind: host
+  - spec: {name: local-named, kind: host, host: {name: laptop, transport: local}}
+    kind: host
+  - spec: {name: devbox, kind: host, host: {name: test-builder, transport: ssh, address: builder}}
+    kind: host
+  - spec: {name: devbox-k8s, kind: kubernetes, kubeconfig: /configs/test, context: single-node}
+    kind: kubernetes
+  - spec: {name: remote-k8s, kind: kubernetes, host: {name: test-builder, transport: ssh, address: builder}, kubeconfig: /etc/rancher/k3s/k3s.yaml}
+    kind: kubernetes
+  - spec: {name: existing, kubeconfig: /configs/legacy}
+    kind: kubernetes
+  - spec: {name: generic}
+    kind: generic
+invalid:
+  - {name: missing-address, kind: host, host: {name: builder, transport: ssh}}
+  - {name: typo, kind: devbox}
+  - {name: local, kind: host, kubeconfig: /configs/wrong}
+  - {name: bad-transport, host: {name: builder, transport: teleport}}
+  - {name: bad-local, host: {name: local, transport: local, address: builder}}
+scenarios:
+  - name: allowed
+    observed: {os: linux, ptrace: allowed}
+    required: {os: linux, ptrace: allowed}
+    status: pass
+    steps: [prepare, execute, judge, cleanup]
+  - name: condition-not-realized
+    observed: {os: linux, ptrace: allowed}
+    required: {ptrace: denied}
+    status: error
+    steps: [prepare, cleanup]
+  - name: unknown-is-not-denied
+    observed: {os: linux}
+    required: {ptrace: denied}
+    status: error
+    steps: [prepare, cleanup]
+  - name: behavior-mismatch
+    observed: {ptrace: denied}
+    required: {ptrace: denied}
+    failure: judge
+    status: fail
+    steps: [prepare, execute, judge, cleanup]
+  - name: cleanup-failure
+    observed: {ptrace: denied}
+    required: {ptrace: denied}
+    failure: cleanup
+    status: error
+    steps: [prepare, execute, judge, cleanup]

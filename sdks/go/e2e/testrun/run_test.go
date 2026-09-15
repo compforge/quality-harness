@@ -3,14 +3,39 @@ package testrun
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/compforge/quality-harness/sdks/go/common"
 	"github.com/compforge/quality-harness/sdks/go/e2e/caserun"
 	"github.com/compforge/quality-harness/sdks/go/report"
 )
+
+func TestEnvironmentEvidencePersistsOnFailure(t *testing.T) {
+	run := New("environment", WithRunsDir(t.TempDir()), WithRunID("failed"))
+	result := passingResult()
+	result.Status = report.StatusError
+	result.Environment = &common.EnvironmentSnapshot{Name: "devbox-k8s", Kind: "kubernetes", Profile: "denied", HostName: "devbox"}
+	run.Record(result)
+	verdict, path, err := run.Finish()
+	if err != nil || verdict.Status != report.StatusError {
+		t.Fatalf("verdict=%+v error=%v", verdict, err)
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(path), "environments.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evidence []caserun.EnvironmentEvidence
+	if err := json.Unmarshal(data, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if len(evidence) != 1 || evidence[0].Snapshot.HostName != "devbox" {
+		t.Fatalf("evidence=%+v", evidence)
+	}
+}
 
 func passingResult() caserun.Result {
 	return caserun.Run(

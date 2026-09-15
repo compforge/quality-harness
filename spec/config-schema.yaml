@@ -30,9 +30,21 @@ properties:
         additionalProperties: false
         properties:
           name: {type: string}
+          kind:
+            enum: [generic, host, kubernetes]
+            description: 环境形态；local/devbox 是环境名，主机访问方式由 host.transport 指定
+          host:
+            type: object
+            additionalProperties: false
+            required: [name]
+            properties:
+              name: {type: string, minLength: 1}
+              transport: {enum: [local, ssh], default: local}
+              address: {type: string}
+            description: 可选的环境主机；Kubernetes 中表示集群操作入口，不表示 Pod 节点
           kubeconfig:
             type: string
-            description: Kubernetes kubeconfig 路径；空值表示由具体访问适配器决定是否使用 in-cluster 配置
+            description: Environment.host 上的 Kubernetes kubeconfig 路径；省略 host 时在当前执行主机解释
           context:
             type: string
             description: 可选 Kubernetes context
