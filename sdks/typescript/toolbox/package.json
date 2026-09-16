@@ -83,7 +83,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@compforge/harness-common": "file:../common",
+    "@compforge/harness-common": "0.0.1",
     "@aws-sdk/client-s3": "3.1133.0",
     "@kubernetes/client-node": "1.4.0",
     "@opensearch-project/opensearch": "3.6.0",
