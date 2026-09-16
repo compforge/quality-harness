@@ -9,8 +9,8 @@
 
 ```text
 toolbox/
-├── src/client*.ts       # 初始化、借用、并发复用与幂等销毁
-├── src/datasource.ts    # 客户端身份、构造与连接信息解析契约
+├── src/client*.ts       # harness-common 生命周期契约的兼容导出
+├── src/datasource.ts    # common 导出与 toolbox 连接信息解析契约
 ├── src/concurrency.ts   # 可取消的共享容量
 ├── src/transport/       # TCP、端口转发与 Pod Python 路径
 ├── src/kubernetes/      # 集群访问、日志源共享与字节预算
@@ -27,6 +27,7 @@ toolbox/
 
 - 根调用方拥有 ClientManager 和销毁权；子调用方只借用 ClientProvider。按稳定 DataSource key 合并初始化，
   初始化失败完成清理后允许重试，dispose 幂等且等待进行中的工作退出。
+- 中立生命周期实现归同语言的 `../common`；本包依赖 common，不复制实现或反向注入平台概念。
 - 日志并发、字节预算和外部访问期限由调用方显式提供。不同数据源可共享根容量，不能按子调用重建池。
 - 只在连接建立失败时选择另一 Transport，不重放可能已执行的协议操作。
 - Python/Go/TypeScript 对齐已有公共行为语义，各自可以有不同能力覆盖；不为目录对称补实现。

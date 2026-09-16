@@ -71,6 +71,12 @@ ClientManager、ServiceDataSource 与配置 key 归独立的 harness-common；�
 地址解析和 Kubernetes 工厂归 harness-toolbox。依赖方向为 toolbox → common → 标准库；common 的
 LLM HTTP 客户端通过独立 extra 引入 httpx。原 toolbox 生命周期符号保留转导出。
 
+共享层按语言独立组织：Python 位于 `sdks/python/common`，TypeScript 位于
+`sdks/typescript/common`，分别发布 `harness-common` 与 `@compforge/harness-common`。
+TypeScript common 承载 Client、DataSource、ClientProvider、ClientManager、ServiceDataSource
+与配置 key；Service 关联保留消费方的 Service 类型，不引入 Doctor 或平台专用定义。
+两种语言不要求功能覆盖完全相同；TypeScript toolbox 同样只转导出中立生命周期符号。
+
 `ConnectionSource.addresses` 可声明 `AddressPolicy(environment, namespace, fallback_hosts)`。
 IP 直接使用；Kubernetes 短名和指定 namespace 的两段 Service 名，以及 `name.namespace.svc[.<cluster-domain>]`
 通过对应环境的 API 获取 ClusterIP（headless 使用 ready endpoints），不回退本机短名 DNS。

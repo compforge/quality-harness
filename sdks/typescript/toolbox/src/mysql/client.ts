@@ -1,7 +1,8 @@
 import type { Client } from "../client";
 import { ConcurrencyPool } from "../concurrency";
 import { createConnection, type Connection, type ConnectionOptions, type RowDataPacket } from "mysql2/promise";
-import type { Database, DatabaseTarget, DatabaseRow } from "./types";
+import type { Database, DatabaseTarget, DatabaseRow, DatabaseQueryLimits, DatabaseQueryResult } from "./types";
+import { queryReadonlySession, validateQueryLimits } from "./readonly";
 import type { ConnectionSource, ClientLifecycle } from "../datasource";
 import { isConnectionNetworkError, type Transport, type PodPythonTransport } from "../transport";
 import { queryMysqlViaPod } from "./pod";
@@ -23,6 +24,18 @@ export class MysqlDatabase implements Database {
 
   query(target: DatabaseTarget, sql: string, values: readonly unknown[]): Promise<DatabaseRow[]> {
     return this.#queries.run(() => this.#query(target, sql, values), this.options.signal);
+  }
+
+  /** Bounded, single-statement prepared execution on an isolated READ ONLY session (native only). */
+  queryReadonly(target: DatabaseTarget, sql: string, values: readonly unknown[], limits: DatabaseQueryLimits): Promise<DatabaseQueryResult> {
+    validateQueryLimits(limits);
+    return this.#queries.run(async () => {
+      const session = await this.#open(target);
+      if (session.kind !== "tcp") throw new Error("Bounded readonly MySQL queries require a native TCP transport");
+      try {
+        return await queryReadonlySession(session.connection, sql, values, limits, this.options.signal);
+      } finally { session.connection.destroy(); }
+    }, this.options.signal);
   }
 
   initialize(target: DatabaseTarget): Promise<void> {
@@ -121,7 +134,7 @@ export class MysqlClient<Target extends DatabaseTarget = DatabaseTarget> impleme
     })();
   }
 
-  get database(): Database {
+  get database(): MysqlDatabase {
     if (!this.#database) throw new Error("MySQL client is not initialized");
     return this.#database;
   }
