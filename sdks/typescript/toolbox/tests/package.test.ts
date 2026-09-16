@@ -4,20 +4,32 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+function installCommon(root: string): void {
+  const source = dirname(dirname(fileURLToPath(import.meta.resolve("@compforge/harness-common"))));
+  const target = join(root, "node_modules/@compforge/harness-common");
+  mkdirSync(target, { recursive: true });
+  cpSync(join(source, "dist"), join(target, "dist"), { recursive: true });
+  cpSync(join(source, "package.json"), join(target, "package.json"));
+}
 
 test("published lifecycle and transport entries run in Node without protocol drivers", () => {
   const root = mkdtempSync(join(tmpdir(), "harness-toolbox-package-"));
   const target = join(root, "node_modules/@compforge/harness-toolbox");
   mkdirSync(target, { recursive: true });
   try {
+    installCommon(root);
     cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const result = spawnSync("node", ["--input-type=module", "-e", `
       import assert from 'node:assert/strict';
       import { ClientManager } from '@compforge/harness-toolbox';
       import { ClientManager as Subpath } from '@compforge/harness-toolbox/client-manager';
+      import { ClientManager as Common } from '@compforge/harness-common';
       import { DirectTransport } from '@compforge/harness-toolbox/transport';
       assert.equal(ClientManager, Subpath);
+      assert.equal(ClientManager, Common);
       let created = 0, closed = 0;
       const source = { key: 'test', createClient: () => {
         created++; return { initialize: async () => {}, dispose: async () => { closed++; } };
@@ -39,6 +51,7 @@ test("published S3 entry performs bounded signed reads through a mapped route in
   const target = join(root, "node_modules/@compforge/harness-toolbox");
   mkdirSync(target, { recursive: true });
   try {
+    installCommon(root);
     cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const require = createRequire(import.meta.url);

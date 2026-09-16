@@ -11,6 +11,21 @@ export interface DatabaseTarget extends DatabaseIdentity {
 
 export type DatabaseRow = Record<string, unknown>;
 
+export interface DatabaseQueryLimits {
+  timeoutMs: number;
+  maxRows: number;
+  /** Maximum retained UTF-8 JSON row bytes, not a limit on an individual wire packet. */
+  maxBytes: number;
+}
+
+export interface DatabaseQueryResult {
+  rows: DatabaseRow[];
+  columns: string[];
+  bytes: number;
+  truncated: boolean;
+  truncation?: "rows" | "bytes";
+}
+
 /** Storage-neutral operations shared by infrastructure consumers. */
 export interface Database {
   query(

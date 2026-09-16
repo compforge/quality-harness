@@ -1,5 +1,9 @@
 # Harness Toolbox
 
+Client, DataSource and ClientManager are owned by the sibling TypeScript package
+`@compforge/harness-common`. Toolbox provides protocol implementations and transports;
+its lifecycle entrypoints re-export the same common symbols.
+
 Shared infrastructure for diagnostic tools, test runners and business adapters. Use the same
 clients to access Kubernetes, MySQL, Redis, OpenSearch and S3-compatible object storage without depending on a particular
 command, plugin protocol, test model or verdict.
@@ -81,3 +85,17 @@ for mapped routes; direct endpoints also support virtual-hosted buckets. Signed 
 identity remain the logical endpoint, not the forwarded address. Private CAs may be supplied
 explicitly with `ca`; certificate verification stays enabled. Initialization prepares the client
 and route without listing buckets or claiming that credentials have been validated.
+
+## Bounded MySQL reads
+
+`MysqlClient.database.queryReadonly(target, sql, values, { timeoutMs, maxRows, maxBytes })` uses
+the shared query slot and a disposable native session with `NO_BACKSLASH_ESCAPES`, a SELECT deadline,
+and a READ ONLY transaction. Prepared execution binds values and retains rows incrementally,
+returning `rows`, `columns`, `bytes`, `truncated`, and `truncation`. An extra row proves row truncation;
+a row exceeding the remaining byte budget is not retained.
+
+Callers own SQL classification, function policy, and least-privilege identities: READ ONLY alone
+is not an arbitrary-SQL sandbox. This API requires MySQL 5.7.8+ `max_execution_time` and does not
+fall back to Pod Python. Completion, truncation, timeout, and cancellation destroy the disposable
+session without replay or changes to ordinary borrowed sessions. Disconnect does not prove immediate
+server cancellation. The byte budget limits retained JSON rows, not individual wire packets or fields.
