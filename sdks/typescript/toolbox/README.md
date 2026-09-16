@@ -1,7 +1,7 @@
 # Harness Toolbox
 
 Shared infrastructure for diagnostic tools, test runners and business adapters. Use the same
-clients to access Kubernetes, MySQL, Redis and OpenSearch without depending on a particular
+clients to access Kubernetes, MySQL, Redis, OpenSearch and S3-compatible object storage without depending on a particular
 command, plugin protocol, test model or verdict.
 
 The package supports Node.js 22+ and Bun. Install with `npm install @compforge/harness-toolbox`.
@@ -45,3 +45,39 @@ capture policy, shared concurrency pool and byte budget; the package does not ch
 limits. Temporary capture files live until client disposal.
 
 See [toolbox contracts](../../../docs/toolbox.md) for ownership and cross-language semantics.
+
+## Read S3 objects
+
+S3 uses the official AWS SDK behind the same managed lifecycle. Supply resolved connection
+settings and explicit limits; the package does not discover business configuration or credentials.
+
+```ts
+import { ClientManager } from "@compforge/harness-toolbox";
+import { S3DataSource } from "@compforge/harness-toolbox/s3";
+
+const clients = new ClientManager();
+try {
+  const s3 = await clients.get(new S3DataSource({
+    endpoint: "https://s3.example.com", region: "us-east-1",
+    credentials: { accessKeyId: "...", secretAccessKey: "..." },
+  }, { concurrency: 4, connectTimeoutMs: 5_000, requestTimeoutMs: 15_000 }));
+  const object = await s3.headObject("artifacts", "runs/example.json");
+  const prefix = await s3.readObject("artifacts", "runs/example.json", { maxBytes: 65_536 });
+  // prefix.truncated distinguishes a bounded prefix from the complete object.
+} finally {
+  await clients.dispose();
+}
+```
+
+`listObjects` and `listBuckets` return one explicitly bounded page with continuation tokens;
+callers own traversal and total scan budgets. Bucket HEAD and versioning are also available.
+Errors preserve SDK status/code: a failed HEAD is not converted to `exists=false`. Reads stop at
+the byte cap and close the body; request deadlines include queueing and body consumption.
+No write operations, automatic retries or implicit region redirects are exposed.
+
+For a mapped TCP transport, pass `{ key: "cluster/context identity", transport }` as the third
+DataSource argument. The caller owns that transport's lifetime. Path-style addressing is required
+for mapped routes; direct endpoints also support virtual-hosted buckets. Signed Host and TLS
+identity remain the logical endpoint, not the forwarded address. Private CAs may be supplied
+explicitly with `ca`; certificate verification stays enabled. Initialization prepares the client
+and route without listing buckets or claiming that credentials have been validated.

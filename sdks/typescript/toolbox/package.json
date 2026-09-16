@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -57,6 +57,14 @@
       "types": "./dist/opensearch/*.d.ts",
       "import": "./dist/opensearch/*.js"
     },
+    "./s3": {
+      "types": "./dist/s3/index.d.ts",
+      "import": "./dist/s3/index.js"
+    },
+    "./s3/*": {
+      "types": "./dist/s3/*.d.ts",
+      "import": "./dist/s3/*.js"
+    },
     "./client": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js"
@@ -75,10 +83,12 @@
     "README.md"
   ],
   "dependencies": {
-    "mysql2": "3.23.1",
-    "@redis/client": "6.1.0",
-    "@opensearch-project/opensearch": "3.6.0",
+    "@aws-sdk/client-s3": "3.1133.0",
     "@kubernetes/client-node": "1.4.0",
+    "@opensearch-project/opensearch": "3.6.0",
+    "@redis/client": "6.1.0",
+    "@smithy/node-http-handler": "4.12.1",
+    "mysql2": "3.23.1",
     "node-fetch": "2.7.0"
   },
   "devDependencies": {
