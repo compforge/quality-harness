@@ -29,13 +29,26 @@ Client 是执行期稳定的协议操作入口；Transport 内部的 worker、�
 Kubernetes port-forward 缓存同时保留资源 UID 和子进程存活状态。Service UID 不变而
 后端 Pod 重启时，已退出的隧道也必须重建；每次新建连接仍检查目标身份。
 
-MySQL、Redis、OpenSearch 和 Kubernetes 客户端实现这些原语。连接、排队、取消、资源释放属于工具箱；
+MySQL、Redis、OpenSearch、S3 和 Kubernetes 客户端实现这些原语。连接、排队、取消、资源释放属于工具箱；
 授权、业务 SQL、Redis key、索引规则、采集时机和结果解释仍属于消费方。MySQL 只在初始化阶段切换地址，建连网络错误可以切换
 Transport，认证错误或已开始执行的 SQL 错误不得触发重放。
 
 PodLogClient 以物理 Pod/container 身份及绝对时间窗口共享采集源，向并发和晚到的消费者回放原始日志。
 相对窗口或缺少实例身份的请求不能复用。消费者保有独立过滤与原始文件；根并发池和字节预算只约束真实
 网络采集，不约束本地回放。容量、预算和访问期限显式传入，不将某个产品的现场默认值作为通用策略。
+
+### S3 对象访问
+
+TypeScript 的 S3DataSource 把调用方已解析的连接配置、凭据、访问路径身份和容量策略绑定为复用身份。
+S3Client 基于官方 SDK 提供只读 metadata、单页列表和有界对象读取；业务 bucket/key 规则、扫描总预算、
+授权与证据解释归消费方。MinIO 等平台管理指标不是 S3 数据面接口，不进入此 client。
+
+并发槽覆盖完整请求及响应流消费，截止时间覆盖排队；取消或销毁会终止读流并释放连接池。列表不自动
+遍历后续页，正文达到预算时关闭读流并标记截断。SDK 错误保留状态，HEAD 权限拒绝不能伪装成对象不存在。
+
+Transport 只映射连接地址，不改变签名 Host 或 TLS 身份；映射通道使用 path-style，并保持证书校验。
+调用方提供私有 CA 时只改变信任来源，不关闭验证。client 初始化仅准备协议资源和访问路径，不用
+ListBuckets 预检强加账号级权限，也不自动重放失败请求。
 
 ### 与 Environment / Service / Workload 的关联
 
