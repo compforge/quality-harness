@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from spec_case.model import Case
 
-from perf_harness.drive.load import LoadPlan
+from perf_harness.drive.load import LoadPlan, Warmup
 from perf_harness.drive.runner import ArmContext, FireContext, MockRunner, Runner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.model import (
@@ -42,7 +42,14 @@ async def test_engine_smoke_offline():
         service=service,
         runner=MockRunner(base_ms=5),
         resources=[ResourceProfile(workers=2)],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=3, duration_s=(0.0 + 0.4))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=3,
+                hold_s=(0.0 + 0.4),
+            )
+        ],
         probes=[ClientProbe()],
         observe_interval_s=0.05,
     )
@@ -69,7 +76,14 @@ async def test_engine_stamps_case_id_and_preserves_exception_detail():
         service=Service("mock", base_url="http://127.0.0.1:0"),
         runner=_RaisesWL(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.05))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.05),
+            )
+        ],
         cases=[Case(id="transport-case", input={})],
         observe_interval_s=0.01,
     )
@@ -88,7 +102,14 @@ async def test_engine_sweeps_grid():
         service=service,
         runner=MockRunner(base_ms=2),
         resources=[ResourceProfile(workers=2), ResourceProfile(workers=4)],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=2, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=2,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
         probes=[ClientProbe()],
         observe_interval_s=0.05,
     )
@@ -104,7 +125,14 @@ def test_perf_arm_ids_must_be_unique():
         service=Service("mock", base_url="http://127.0.0.1:0"),
         runner=MockRunner(base_ms=2),
         resources=[duplicate, duplicate],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=2, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=2,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
     )
     with pytest.raises(ValueError, match="duplicate arm id"):
         experiment.resolved_arms()
@@ -115,7 +143,14 @@ def test_perf_arm_id_disambiguates_configs_with_same_display_label():
         service=Service("mock", base_url="http://127.0.0.1:0"),
         runner=MockRunner(base_ms=2),
         resources=[ResourceProfile(replicas=1), ResourceProfile(replicas=2)],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=2, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=2,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
     )
     arms = experiment.resolved_arms()
     assert len({arm.id for arm in arms}) == 2
@@ -133,9 +168,10 @@ async def test_circuit_breaker_aborts_arm_run_on_error_rate():
         resources=[ResourceProfile()],
         loads=[
             LoadPlan(
+                warmup=Warmup(step_s=0),
                 request_rate=float("inf"),
-                max_concurrency=4,
-                duration_s=(0.0 + 5.0),
+                max_inflight=4,
+                hold_s=(0.0 + 5.0),
                 abort_on_error_rate=0.5,
                 breaker_min_n=5,
             )
@@ -165,7 +201,14 @@ async def test_no_breaker_runs_full_window_not_aborted():
         service=service,
         runner=_AlwaysFailWL(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=2, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=2,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
         observe_interval_s=0.05,
     )
     r = (await Engine(exp).run()).arm_runs[0]
@@ -185,7 +228,7 @@ class _SlowWL(Runner):
 
 
 async def test_hard_stop_force_cancels_inflight_and_counts_interrupted():
-    # drain_timeout_s=0 → at the deadline the in-flight (slow) requests are force-
+    # cooldown_timeout_s=0 → at the deadline the in-flight (slow) requests are force-
     # cancelled and counted as `interrupted`, and a cancelled request NEVER becomes a
     # latency sample (overall.n stays 0). Validates the A4 invariant + the census.
     service = Service("h", base_url="http://127.0.0.1:0")
@@ -195,10 +238,11 @@ async def test_hard_stop_force_cancels_inflight_and_counts_interrupted():
         resources=[ResourceProfile()],
         loads=[
             LoadPlan(
+                warmup=Warmup(step_s=0),
                 request_rate=float("inf"),
-                max_concurrency=3,
-                duration_s=(0.0 + 0.2),
-                drain_timeout_s=0.0,
+                max_inflight=3,
+                hold_s=(0.0 + 0.2),
+                cooldown_timeout_s=0.0,
             )
         ],
         observe_interval_s=0.05,
@@ -217,7 +261,12 @@ async def test_engine_open_model_smoke():
         runner=MockRunner(base_ms=2),
         resources=[ResourceProfile(workers=2)],
         loads=[
-            LoadPlan(request_rate=40, max_concurrency=128, duration_s=(0.2 + 0.6), warmup_s=0.2)
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=40,
+                max_inflight=128,
+                hold_s=0.6,
+            )
         ],
         probes=[ClientProbe()],
         observe_interval_s=0.05,
@@ -266,7 +315,14 @@ async def test_arm_run_hooks_wrap_load_and_cooldown_only_extends_raw_series():
         service=Service("mock", base_url="http://127.0.0.1:0"),
         runner=LifecycleRunner(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.12))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.12),
+            )
+        ],
         probes=[PhaseProbe()],
         observe_interval_s=0.03,
         cooldown_s=0.12,
@@ -309,8 +365,18 @@ async def test_cleanup_runs_when_setup_fails():
         runner=BrokenSetup(),
         resources=[ResourceProfile()],
         loads=[
-            LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.1)),
-            LoadPlan(request_rate=float("inf"), max_concurrency=2, duration_s=(0.0 + 0.1)),
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.1),
+            ),
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=2,
+                hold_s=(0.0 + 0.1),
+            ),
         ],
     )
     run = await Engine(exp).run()
@@ -341,7 +407,14 @@ async def test_cleanup_error_does_not_hide_setup_error():
         service=Service("mock", base_url="http://127.0.0.1:0"),
         runner=BrokenLifecycle(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.1))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.1),
+            )
+        ],
     )
     run = await Engine(exp).run()
     assert run.arm_runs[0].phase_errors == [
@@ -368,7 +441,14 @@ async def test_cancellation_propagates_after_cleanup():
         service=Service("mock", base_url="http://127.0.0.1:0"),
         runner=CancelledSetup(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.1))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.1),
+            )
+        ],
     )
     with pytest.raises(asyncio.CancelledError, match="stop run"):
         await Engine(exp).run()
@@ -387,7 +467,14 @@ async def test_cleanup_error_marks_completed_arm_run_as_phase_error():
         service=Service("mock", base_url="http://127.0.0.1:0"),
         runner=BrokenCleanup(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.05))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.05),
+            )
+        ],
     )
     run = await Engine(exp).run()
     arm_run = run.arm_runs[0]
@@ -410,7 +497,14 @@ async def test_cooldown_slo_missing_data_fails_closed():
         service=Service("mock", base_url="http://127.0.0.1:0"),
         runner=MockRunner(base_ms=1),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.05))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.05),
+            )
+        ],
         probes=[EmptyProbe()],
         observe_interval_s=0.01,
         cooldown_s=0.03,
@@ -434,7 +528,14 @@ def test_cooldown_window_omits_stale_or_failed_probe_data():
         service=Service("mock", base_url="http://127.0.0.1:0"),
         runner=MockRunner(base_ms=1),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.05))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.05),
+            )
+        ],
         probes=[ValueProbe()],
     )
     engine = Engine(exp)

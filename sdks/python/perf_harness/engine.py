@@ -210,7 +210,7 @@ class Engine:
         exp = self.experiment
         profile, load = arm.resources, arm.load
         stats = ClientStats()
-        cap = load.peak_concurrency
+        cap = load.peak_inflight
         result = ArmRun(
             id=f"{self.run_id}:{arm.id}", service=service.name, arm=arm, windows=[], series={}
         )
@@ -239,7 +239,7 @@ class Engine:
             stop = asyncio.Event()
             try:
                 await exp.runner.setup(execution.context)
-                execution.enter("measurement")
+                execution.enter("warmup")
                 ctx = ProbeContext(
                     service=service,
                     client=client,
@@ -260,13 +260,15 @@ class Engine:
                     result,
                     execution.drive,
                 )
-                execution.enter("deactivate")
+                execution.enter("cooldown")
                 await exp.runner.deactivate(execution.context)
                 if exp.cooldown_s:
                     execution.enter("cooldown")
                     cooldown_start_s = time.monotonic() - ctx.t0
                     await asyncio.sleep(exp.cooldown_s)
             except Exception as exc:
+                if execution.phase in ("warmup", "hold"):
+                    execution.enter(execution.drive.phase)
                 execution.record(exc)
             except BaseException as exc:
                 # Cancellation / process-level interrupts remain control flow rather
@@ -309,6 +311,7 @@ class Engine:
             store,
             probe_errors,
             measurement_end_s=execution.drive.measurement_end_s or 0.0,
+            drive_state=execution.drive,
             cooldown_start_s=cooldown_start_s,
             cooldown_end_s=cooldown_end_s,
         )
@@ -324,12 +327,13 @@ class Engine:
         probe_errors: dict[str, ProbeErrors] | None = None,
         *,
         measurement_end_s: float | None = None,
+        drive_state: DriveState | None = None,
         cooldown_start_s: float | None = None,
         cooldown_end_s: float | None = None,
     ) -> ArmRun:
         exp = self.experiment
         load = arm.load
-        warmup = load.warmup_s
+        warmup = drive_state.measurement_start_s if drive_state else 0.0
         measured_end = measurement_end_s if measurement_end_s is not None else load.duration_s
 
         windows = [
@@ -343,7 +347,7 @@ class Engine:
             )
         ]
         clock = 0.0
-        for index, stage in enumerate(load.planned_stages):
+        for index, stage in enumerate(() if drive_state else load.planned_stages):
             stage_start, stage_end = clock, clock + stage.duration_s
             start, end = max(stage_start, warmup), min(stage_end, measured_end)
             if end > start:
@@ -359,7 +363,15 @@ class Engine:
                     )
                 )
             clock = stage_end
-        if cooldown_start_s is not None and cooldown_end_s is not None:
+        if drive_state:
+            windows[0].complete = drive_state.stop.reason == "deadline" and any(
+                w.kind == "hold" and w.complete for w in drive_state.windows
+            )
+            windows[0].limited_s = sum(w.limited_s for w in drive_state.windows if w.kind == "hold")
+            windows.extend(drive_state.windows)
+        if drive_state and cooldown_end_s is not None and drive_state.windows:
+            drive_state.windows[-1].end_s = cooldown_end_s
+        elif cooldown_start_s is not None and cooldown_end_s is not None:
             windows.append(
                 Window(
                     id="cooldown",
@@ -372,21 +384,20 @@ class Engine:
             )
 
         drain_end = max([measured_end, *(r.finished_at or measured_end for r in result.requests)])
-        if drain_end > measured_end:
+        if not drive_state and drain_end > measured_end:
             windows.append(
                 Window(
-                    id="drain",
-                    name="drain",
-                    kind="drain",
+                    id="cooldown",
+                    name="cooldown",
+                    kind="cooldown",
                     start_s=measured_end,
                     end_s=drain_end + 1e-12,
                     complete=True,
                 )
             )
 
+        result.windows = windows
         for window in windows:
-            if window.kind == "cooldown":
-                continue
             window.request = reduce_requests(result, window.start_s, window.end_s)
             case_ids = {r.case_id for r in result.requests}
             window.by_case = {

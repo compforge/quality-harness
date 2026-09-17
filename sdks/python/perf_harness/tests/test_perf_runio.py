@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from spec_case.model import Case
 
-from perf_harness.drive.load import LoadPlan
+from perf_harness.drive.load import LoadPlan, Warmup
 from perf_harness.drive.runner import Runner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.metric import series_id
@@ -54,9 +54,10 @@ async def _run(tmp_path):
         resources=[ResourceProfile(workers=2, memory="2Gi")],
         loads=[
             LoadPlan(
+                warmup=Warmup(step_s=0),
                 request_rate=float("inf"),
-                max_concurrency=2,
-                duration_s=(0.0 + 0.3),
+                max_inflight=2,
+                hold_s=(0.0 + 0.3),
                 abort_on_error_rate=0.5,
                 breaker_min_n=5,
             )
@@ -219,7 +220,14 @@ async def test_probe_errors_round_trip(tmp_path):
         service=Service("chat", base_url="http://127.0.0.1:0"),
         runner=_WL(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
         probes=[_Down()],
         observe_interval_s=0.05,
         name="pe",
@@ -243,7 +251,14 @@ async def test_setup_error_still_writes_complete_run_artifacts(tmp_path):
         service=Service("chat", base_url="http://127.0.0.1:0"),
         runner=_BrokenSetup(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.1))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.1),
+            )
+        ],
         name="setup-error",
     )
     run = await Engine(exp, run_id="20260101-000002").run()

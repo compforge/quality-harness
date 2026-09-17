@@ -43,7 +43,7 @@ MetricValueKind = Literal["counter", "gauge", "distribution", "scalar"]
 # value so analysis can't silently read a biased number as clean:
 #   - co_biased     : closed-loop tail latency under-samples slow responses (a arm_run-level
 #                     property of model=closed) → don't treat as a strict SLO tail.
-#   - high_drop     : open-loop max_concurrency shed real load → percentiles understate reality.
+#   - high_drop     : request evidence contains dropped arrivals → percentiles understate reality.
 #   - few_samples   : the slice has too few observations for stable percentiles.
 #   - stale         : a probe missed enough ticks that the series is patchy.
 #   - counter_reset : a counter went backwards mid-arm_run (pod restart / exporter reset);

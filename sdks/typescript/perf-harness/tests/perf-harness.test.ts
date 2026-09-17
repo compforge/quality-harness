@@ -1,3 +1,4 @@
+import { LoadController } from "../src/controller";
 import { describe, test, expect } from "bun:test";
 import {
   mkdtempSync,
@@ -53,7 +54,7 @@ function slow(ms: number): Runner & { active: number; peak: number } {
   };
 }
 
-test("finite rate caps complete request lifetimes and records drops without calls", async () => {
+test("finite rate pauses at the inflight cap without queued or dropped calls", async () => {
   const runner = slow(80),
     run = await new Engine({
       service,
@@ -61,9 +62,9 @@ test("finite rate caps complete request lifetimes and records drops without call
       loads: [
         {
           request_rate: 1000,
-          max_concurrency: 3,
-          duration_s: 0.06,
-          drain_timeout_s: 0.2,
+          max_inflight: 3,
+          warmup: { step_s: 0 }, hold_s: 0.06,
+          cooldown_timeout_s: 0.2,
         },
       ],
     }).run();
@@ -71,7 +72,8 @@ test("finite rate caps complete request lifetimes and records drops without call
   expect(runner.peak).toBe(3);
   expect(runner.active).toBe(0);
   expect(arm.operation_runs.length).toBe(3);
-  expect(arm.requests.some((r) => r.state === "dropped")).toBe(true);
+  expect(arm.requests.some((r) => r.state === "dropped")).toBe(false);
+  expect(arm.windows.find(w => w.kind === "hold")!.limited_s).toBeGreaterThan(0);
   expect(
     arm.requests.every(
       (r) => r.dispatched_at === undefined || r.dispatched_at < 0.06,
@@ -92,21 +94,21 @@ test("infinite rate replenishes, downscale does not cancel running SSE", async (
       loads: [
         {
           request_rate: Infinity,
-          max_concurrency: 4,
-          duration_s: 0.12,
-          drain_timeout_s: 0.2,
+          max_inflight: 4,
+          warmup: { step_s: 0 }, hold_s: 0.12,
+          cooldown_timeout_s: 0.2,
           stages: [
             {
               duration_s: 0.02,
               request_rate: Infinity,
-              max_concurrency: 4,
+              max_inflight: 4,
               kind: "hold",
               name: "same",
             },
             {
               duration_s: 0.1,
               request_rate: Infinity,
-              max_concurrency: 1,
+              max_inflight: 1,
               kind: "hold",
               name: "same",
             },
@@ -139,9 +141,9 @@ test("hard stop records every interrupted call and leaves no tasks", async () =>
       loads: [
         {
           request_rate: Infinity,
-          max_concurrency: 4,
-          duration_s: 0.03,
-          drain_timeout_s: 0,
+          max_inflight: 4,
+          warmup: { step_s: 0 }, hold_s: 0.03,
+          cooldown_timeout_s: 0,
         },
       ],
       judge: () => {
@@ -161,7 +163,7 @@ test("artifact round trip and rejudge do not change raw evidence", async () => {
   const run = await new Engine({
     service,
     runner: slow(5),
-    loads: [{ request_rate: 50, max_concurrency: 2, duration_s: 0.04 }],
+    loads: [{ request_rate: 50, max_inflight: 2, warmup: { step_s: 0 }, hold_s: 0.04 }],
   }).run();
   const dir = mkdtempSync(join(tmpdir(), "perf-ts-"));
   try {
@@ -182,19 +184,19 @@ test("artifact round trip and rejudge do not change raw evidence", async () => {
 test("ramp arrival clock and validation use explicit units", () => {
   const load = {
     request_rate: 0,
-    max_concurrency: 2,
-    duration_s: 3,
+    max_inflight: 2,
+    warmup: { step_s: 0 }, hold_s: 3,
     stages: [
       {
         duration_s: 2,
         request_rate: 20,
-        max_concurrency: 4,
+        max_inflight: 4,
         kind: "ramp" as const,
       },
       {
         duration_s: 1,
         request_rate: 20,
-        max_concurrency: 4,
+        max_inflight: 4,
         kind: "hold" as const,
       },
     ],
@@ -203,8 +205,8 @@ test("ramp arrival clock and validation use explicit units", () => {
   expect(target(load, 1)).toEqual([10, 3]);
   expect(arrivalTime(load, 5)).toBeCloseTo(1);
   expect(arrivalTime(load, 30)).toBeCloseTo(2.5);
-  for (const max_concurrency of [0, 1.5])
-    expect(() => validateLoadPlan({ ...load, max_concurrency })).toThrow();
+  for (const max_inflight of [0, 1.5])
+    expect(() => validateLoadPlan({ ...load, max_inflight })).toThrow();
   expect(() => validateLoadPlan({ ...load, request_rate: Infinity })).toThrow();
 });
 
@@ -225,7 +227,7 @@ test("setup failure still cleans up and preserves phase evidence", async () => {
   const run = await new Engine({
     service,
     runner,
-    loads: [{ request_rate: 1, max_concurrency: 1, duration_s: 0.01 }],
+    loads: [{ request_rate: 1, max_inflight: 1, warmup: { step_s: 0 }, hold_s: 0.01 }],
   }).run();
   expect(cleaned).toBe(true);
   expect(run.passed).toBe(false);
@@ -246,8 +248,8 @@ test("breaker uses completed evaluations and preserves Outcomes", async () => {
     loads: [
       {
         request_rate: Infinity,
-        max_concurrency: 2,
-        duration_s: 1,
+        max_inflight: 2,
+        warmup: { step_s: 0 }, hold_s: 1,
         abort_on_error_rate: 0.5,
         breaker_min_n: 4,
       },
@@ -303,9 +305,9 @@ test("external abort interrupts drain promptly and cleans up all calls", async (
       loads: [
         {
           request_rate: Infinity,
-          max_concurrency: 2,
-          duration_s: 0.01,
-          drain_timeout_s: 10,
+          max_inflight: 2,
+          warmup: { step_s: 0 }, hold_s: 0.01,
+          cooldown_timeout_s: 10,
         },
       ],
     }).run();
@@ -332,7 +334,7 @@ test("saturated immediate Runner yields to cancellation without polling-limited 
           return { status: 200, duration_ms: 0 };
         },
       },
-      loads: [{ request_rate: Infinity, max_concurrency: 1, duration_s: 2 }],
+      loads: [{ request_rate: Infinity, max_inflight: 1, warmup: { step_s: 0 }, hold_s: 2 }],
     }).run();
     expect(performance.now() - started).toBeLessThan(1000);
     expect(run.executions[0]!.operation_runs.length).toBeGreaterThan(5);
@@ -355,7 +357,7 @@ const failureScenarios = JSON.parse(
   duration_s: number;
   first_response_s: number;
   cancellation_delay_s: number;
-  drain_timeout_s: number;
+  cooldown_timeout_s: number;
   stop_reason: string;
   measurement_complete: boolean;
   inflight_at_stop: number;
@@ -413,9 +415,9 @@ for (const scenario of failureScenarios) {
       loads: [
         {
           request_rate: Infinity,
-          max_concurrency: 2,
-          duration_s: scenario.duration_s,
-          drain_timeout_s: scenario.drain_timeout_s,
+          max_inflight: 2,
+          warmup: { step_s: 0 }, hold_s: scenario.duration_s,
+          cooldown_timeout_s: scenario.cooldown_timeout_s,
         },
       ],
     }).run();
@@ -440,7 +442,7 @@ for (const scenario of failureScenarios) {
     expect(arm.evaluations).toEqual({});
     const interrupted = arm.requests.find((r) => r.state === "interrupted")!;
     expect(interrupted.finished_at!).toBeGreaterThan(measurement.end_s);
-    const drain = arm.windows.find((w) => w.kind === "drain")!;
+    const drain = arm.windows.find((w) => w.kind === "cooldown")!;
     expect(drain.start_s).toBe(measurement.end_s);
     expect(drain.request!.completed).toBe(1 - scenario.completed);
     expect(
@@ -472,15 +474,15 @@ test("duplicate Arms are rejected before setup or requests", async () => {
       throw new Error("must not fire");
     },
   };
-  const load = { request_rate: 50, max_concurrency: 2, duration_s: 0.04 };
+  const load = { request_rate: 50, max_inflight: 2, warmup: { step_s: 0 }, hold_s: 0.04 };
   for (const config of [
     { loads: [load, { ...load }] },
     {
       loads: [
         load,
         {
-          duration_s: 0.04,
-          max_concurrency: 2,
+          warmup: { step_s: 0 }, hold_s: 0.04,
+          max_inflight: 2,
           request_rate: 50,
           arrival: "constant" as const,
         },
@@ -507,8 +509,8 @@ test("distinct configurations sharing a display label retain separate evidence a
     service,
     runner: slow(1),
     loads: [
-      { request_rate: 50, max_concurrency: 2, duration_s: 0.03 },
-      { request_rate: 50, max_concurrency: 2, duration_s: 0.035 },
+      { request_rate: 50, max_inflight: 2, warmup: { step_s: 0 }, hold_s: 0.03 },
+      { request_rate: 50, max_inflight: 2, warmup: { step_s: 0 }, hold_s: 0.035 },
     ],
   }).run();
   const dir = mkdtempSync(join(tmpdir(), "perf-identities-"));
@@ -530,4 +532,39 @@ test("distinct configurations sharing a display label retain separate evidence a
   } finally {
     rmSync(dir, { recursive: true });
   }
+});
+
+
+test("shared phased load contract", () => {
+  const scenarios = JSON.parse(readFileSync(new URL("../../../../conformance/perf/fixtures/phased-load.json", import.meta.url), "utf8"));
+  for (const scenario of scenarios) {
+    const control = new LoadController(scenario.load);
+    for (const step of scenario.steps) {
+      control.advance(step.at, step.inflight);
+      expect(control.phase).toBe(step.phase);
+      expect(control.target(step.at)[0]).toBe(step.rate);
+    }
+    expect(control.hold_start_s).toBe(scenario.hold_start_s);
+    expect(control.end_s).toBe(scenario.end_s);
+    const hold = control.windows.find(w => w.kind === "hold")!;
+    expect(hold.complete).toBe(true);
+    expect(hold.end_s - hold.start_s).toBe(60);
+  }
+});
+
+test("cap feedback replenishes at target rate throughout hold", async () => {
+  const runner = slow(30);
+  const run = await new Engine({ service, runner, loads: [{ request_rate: 100, max_inflight: 1, hold_s: 0.12, warmup: {step_s: 1}, cooldown_timeout_s: 0.2 }] }).run();
+  const arm = run.executions[0]!;
+  const warmup = arm.windows.find(w => w.kind === "warmup")!;
+  const hold = arm.windows.find(w => w.kind === "hold")!;
+  expect(warmup.end_reason).toBe("inflight_limit");
+  expect(hold.target_level).toBe(100);
+  expect(hold.end_s - hold.start_s).toBeCloseTo(0.12);
+  expect(hold.limited_s).toBeGreaterThan(0);
+  expect(runner.peak).toBe(1);
+  expect(runner.active).toBe(0);
+  expect(arm.operation_runs.length).toBeGreaterThanOrEqual(3);
+  expect(arm.requests.every(r => r.state === "finished" && r.dispatched_at! < hold.end_s)).toBe(true);
+  expect(arm.windows.find(w => w.kind === "cooldown")!.request!.completed).toBeGreaterThan(0);
 });

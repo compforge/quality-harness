@@ -13,7 +13,7 @@ required:
 properties:
   schema:
     type: integer
-    const: 5
+    const: 6
   run_id:
     type: string
     minLength: 1
@@ -62,7 +62,7 @@ $defs:
     required:
     - duration_s
     - request_rate
-    - max_concurrency
+    - max_inflight
     - kind
     properties:
       duration_s:
@@ -73,12 +73,13 @@ $defs:
         - type: number
           minimum: 0
         - const: inf
-      max_concurrency:
+      max_inflight:
         type: integer
         minimum: 1
       kind:
         enum:
         - ramp
+        - warmup
         - hold
       name:
         type:
@@ -88,14 +89,14 @@ $defs:
     type: object
     required:
     - request_rate
-    - max_concurrency
-    - duration_s
+    - max_inflight
+    - hold_s
     properties:
       request_rate: *id001
-      max_concurrency:
+      max_inflight:
         type: integer
         minimum: 1
-      duration_s:
+      hold_s:
         type: number
         exclusiveMinimum: 0
       stages:
@@ -108,10 +109,13 @@ $defs:
         - poisson
       seed:
         type: integer
-      warmup_s:
-        type: number
-        minimum: 0
-      drain_timeout_s:
+      warmup:
+        type: object
+        properties:
+          step_s:
+            type: number
+            minimum: 0
+      cooldown_timeout_s:
         type: number
         minimum: 0
       breaker_min_n:
@@ -275,9 +279,9 @@ $defs:
       kind:
         enum:
         - measurement
+        - warmup
         - ramp
         - hold
-        - drain
         - cooldown
       start_s:
         type: number
@@ -291,6 +295,11 @@ $defs:
         type:
         - number
         - 'null'
+        minimum: 0
+      end_reason:
+        type: [string, "null"]
+      limited_s:
+        type: number
         minimum: 0
       request:
         oneOf:
@@ -346,8 +355,8 @@ $defs:
       phase:
         enum:
         - setup
-        - measurement
-        - deactivate
+        - warmup
+        - hold
         - cooldown
         - cleanup
       error_type:

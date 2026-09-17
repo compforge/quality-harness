@@ -44,9 +44,9 @@ cases:
 
 load:
   request_rate: inf
-  max_concurrency: 6
-  duration_s: 3
-  drain_timeout_s: 5
+  max_inflight: 6
+  hold_s: 3
+  cooldown_timeout_s: 5
 
 
 observe:                          # 资源观测：Service 自身 + 下游 Service

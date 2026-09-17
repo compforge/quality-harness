@@ -1,6 +1,6 @@
 # Perf Harness 跨语言契约
 
-Python 与 TypeScript 共享本契约；各语言保持惯用 API，功能覆盖可以不同。本次 schema 5 不兼容旧产物。
+Python 与 TypeScript 共享本契约；各语言保持惯用 API，功能覆盖可以不同。当前产物使用 schema 6。
 
 ## 事实骨架
 
@@ -20,18 +20,22 @@ Service 持有 common Component/Repository/Forge/Environment/Workload 身份；�
 
 ## 调度契约
 
-LoadPlan 必填 `request_rate`、`max_concurrency`、`duration_s`。有限速率独立于响应时间；
-满并发立即记录 drop，reason=concurrency_limit，无 pending queue，也不创建等待连接的请求 Task。
-`request_rate=inf` 按 slot 补充。并发覆盖完整请求生命周期，包括 SSE 完整读取。
+LoadPlan 必填 `request_rate` 与 `max_inflight`，`hold_s` 默认 60 秒。
+`warmup.step_s` 默认 5 秒：从 min(1, request_rate) 开始逐档倍增，达到目标速率或首次达到
+max_inflight 后进入 hold。step_s=0 或 request_rate=inf 直接进入 hold。
 
-Stage 显式声明 duration_s/request_rate/max_concurrency/kind；hold 直接取本段值，ramp 从上一值
-线性变化，并发向下取整且至少为 1。降并发不取消已有请求。各段时长之和等于 duration_s；
-单个 LoadPlan 不混合有限速率与 inf。有限速率支持 constant/poisson，时钟按累计到达量反解。
-第一条计划到达从 t=0 开始；seed 保证本语言内重复性，不要求语言间相同随机序列。
+hold 从实际进入时计时，维持配置的目标 request_rate 作为补位节奏；预热触顶不冻结低速档。
+满在途暂停源头，空位出现后继续发起，不排队、不虚构 drop、不突发补发。有限速率支持
+constant/poisson 间隔，seed 保证本语言内重复性；inf 按空位补充。
+并发覆盖完整请求生命周期，包括 SSE 完整读取。调度器卡顿不在恢复后补发错过的请求。
 
-到期停止发压，最多等待 drain_timeout_s，然后取消并 join 剩余请求，再释放客户端。
-因调度器卡顿而错过截止的计划到达记为 scheduler_deadline 丢弃，不得在截止后补发。
-活跃任务数有界，历史证据内存随总请求数增长。Runner 必须支持取消，不能偷偷创建自己的加压循环。
+Stage 显式声明 duration_s/request_rate/max_inflight/kind，支持 warmup/hold/ramp；简单配置
+生成 warmup 与 hold 计划。显式 stages 自行决定时长，不叠加默认 warmup 和 hold。
+降并发不取消已有请求；单个 LoadPlan 不混合有限速率与 inf。
+
+hold 到期停止发压。cooldown 最多等待 cooldown_timeout_s（默认 180 秒），然后取消并 join
+剩余请求，再释放客户端。活跃任务数有界，历史证据内存随实际请求数增长。
+Runner 必须支持取消，不能自己创建加压循环。
 
 ## Runner、Judge 与生命周期
 
@@ -40,7 +44,8 @@ RequestEvaluation，按 OperationRun ID 保存，不回写 Outcome。默认 Judg
 SSE 业务完成规则由 consumer 显式声明。Outcome.meta 可记录 trace_id、message_id、完成事件等原始信号。
 first_byte_ms 只表示首字节，不能自动命名 TTFT；业务 token 时刻由 Runner 识别。
 
-生命周期：setup → 发压 → drain/cancel → deactivate → cooldown → cleanup → 释放客户端。
+生命周期：setup → warmup → hold → cooldown → cleanup。
+排空和停用是内部动作；可选 cooldown_s 在停用后延长资源观测。
 Python 资源观察覆盖发压、排空、停用与 cooldown；TypeScript 资源观察仍由消费方负责。
 普通生命周期异常记录 phase_errors，终止 sweep，verdict=error；控制流取消允许继续向调用方传播。
 停止发压时立即记录 measurement 边界、停止原因与在途数量；取消并 join 后补齐中断清点。
@@ -52,26 +57,28 @@ Python 资源观察覆盖发压、排空、停用与 cooldown；TypeScript 资�
 
 所有时刻是相对 ArmRun 发压起点的秒数；Window 使用半开区间 `[start_s,end_s)`。
 
-- arrived / arrival_rps / n_dropped 按 scheduled_at 的到达计划归窗；arrived_at 保留实际处理时刻。
+- arrived / arrival_rps 按源头实际接受的发起机会 scheduled_at 归窗；arrived_at 保留实际处理时刻。
 - dispatched / dispatch_rps 按实际 dispatched_at 归窗。
 - completed / throughput_rps / succeeded / success_rps 按实际 finished_at 归窗，只含 finished 请求。
 - n / n_ok / error_rate / latency 按 dispatch cohort 归窗，包含排空后才完成的 Outcome。
 - inflight_peak/end 由实际调用起止事件求得，包括前一个窗口带入的请求。
 - scheduler_lag_ms = (arrived_at - scheduled_at) × 1000。
 
-measurement 排除 warmup；ramp/hold 对齐 Stage；drain 独立记录停止发压后的完成事件；
-cooldown 表达 deactivate 后的资源观察。nearest-rank 百分位索引为 `ceil(q*n)-1`。
+measurement 从首个实际 hold 开始；warmup/ramp/hold 对齐实际执行的 Stage；
+cooldown 记录停压后的完成事件与资源观测。Window.end_reason 记录阶段结束原因，
+limited_s 记录已经允许发起但被在途上限阻塞的时间。nearest-rank 百分位索引为 `ceil(q*n)-1`。
 丢弃、中断不进入延迟分布；无完成样本的延迟/错误率 SLO 为缺数据。
 co_biased/high_drop/incomplete/few_samples 等可信度标记必须随 summary 保存。
 
 Python capacity 只读取有请求、无丢弃/中断/未判定且匹配 SLO 全通过的完整 hold。
+有限速率窗口被在途上限阻塞时，不确认配置速率容量，也不参与资源曲线外推。
 无 SLO 的正常运行 verdict=skipped，不表示容量通过。TypeScript 当前不提供 SLO 评估与 HTML 报告。
 离线可更换 Judge、重算统计与 SLO；重渲染报告不重新发压或判定。当前 perf 请求判定表是领域投影，
 未实现通用 EvaluationRun/Worksheet 的全量持久化，不把设计目标写成已实现能力。
 
 ## 比较条件
 
-有限速率的默认扫描轴为 request_rate，无限速率的扫描轴为 max_concurrency。另一轴的完整调度、
+有限速率的默认扫描轴为 request_rate，无限速率的扫描轴为 max_inflight。另一轴的完整调度、
 资源配置、到达分布、seed、时长、warmup、drain 与熔断条件必须相同；扫描轴的阶段形态按峰值
 归一化后也必须相同。不同条件分组，条件相同且至少有两个不同档位才绘制响应曲线或拟合斜率。
 固定有限速率、只改变并发上限的实验保留为不同条件的结果点，不推导速率容量曲线。
@@ -83,7 +90,7 @@ Python capacity 只读取有请求、无丢弃/中断/未判定且匹配 SLO 全
 
 | 文件 | 契约 |
 |---|---|
-| run.json | schema=5，executions 数组；无重复的 arm_runs/outcomes 存储 |
+| run.json | schema=6，executions 数组；无重复的 arm_runs/outcomes 存储 |
 | requests.jsonl | 每行 arm_run_id + request + 可选 operation_run（拥有唯一原始 Outcome） |
 | evaluations.json | ArmRun ID → OperationRun ID → RequestEvaluation |
 | timeseries.csv | arm_run,series,t,value 的资源采样 |

@@ -14,7 +14,7 @@ from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.prometheus import PrometheusClient, PrometheusDataSource
 
 from perf_harness.config import load_experiment
-from perf_harness.drive.load import LoadPlan
+from perf_harness.drive.load import LoadPlan, Warmup
 from perf_harness.drive.runner import Runner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.metric import (
@@ -54,7 +54,7 @@ _SERVICE = (
     "  namespace: ns, k8s_selector: app=chat }\n"
     "resources: [ {} ]\n"
     "runner: { name: mock }\n"
-    "load: { request_rate: inf, max_concurrency: 1, duration_s: 0.2 }\n"
+    "load: { request_rate: inf, max_inflight: 1, hold_s: 0.2 }\n"
 )
 
 
@@ -393,7 +393,14 @@ async def test_engine_fans_pod_labeled_keys_into_per_pod_series():
         service=Service("m", base_url="http://127.0.0.1:0"),
         runner=_NoopWL(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=2, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=2,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
         probes=[_FanProbe()],
     )
     r = (await Engine(exp).run()).arm_runs[0]
@@ -608,7 +615,14 @@ async def test_probe_errors_flow_to_arm_run_and_store():
         service=Service("m", base_url="http://127.0.0.1:0"),
         runner=_NoopWL(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
         probes=[_FlakyProbe()],
         observe_interval_s=0.05,
     )
@@ -672,7 +686,14 @@ async def test_up_series_synthesized_per_probe():
         service=Service("m", base_url="http://127.0.0.1:0"),
         runner=_NoopWL(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
         probes=[_FanProbe(), _FlakyProbe()],
         observe_interval_s=0.05,
     )

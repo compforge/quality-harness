@@ -1,5 +1,5 @@
 {
-  "schema": 5,
+  "schema": 6,
   "run_id": "run",
   "experiment": "fixture",
   "created_at": "2026-09-17T00:00:00Z",
@@ -21,15 +21,17 @@
         },
         "load": {
           "request_rate": "inf",
-          "max_concurrency": 1,
-          "duration_s": 1,
+          "max_inflight": 1,
           "stages": [],
           "arrival": "constant",
           "seed": 0,
-          "warmup_s": 0.0,
           "abort_on_error_rate": null,
           "breaker_min_n": 20,
-          "drain_timeout_s": 30.0
+          "cooldown_timeout_s": 30.0,
+          "hold_s": 1,
+          "warmup": {
+            "step_s": 0
+          }
         }
       },
       "stop": {
@@ -53,7 +55,7 @@
           "side": "request",
           "value_kind": "scalar",
           "source": "client",
-          "description": "judged failures ÷ sent requests (Judge)",
+          "description": "judged failures \u00f7 sent requests (Judge)",
           "labels": []
         },
         "request.throughput_rps": {
@@ -61,7 +63,7 @@
           "side": "request",
           "value_kind": "scalar",
           "source": "client",
-          "description": "completed requests ÷ steady window",
+          "description": "completed requests \u00f7 steady window",
           "labels": []
         },
         "request.drop_rate": {
@@ -69,7 +71,7 @@
           "side": "request",
           "value_kind": "scalar",
           "source": "client",
-          "description": "open-loop client_saturated drops ÷ offered (not latency samples)",
+          "description": "open-loop client_saturated drops \u00f7 offered (not latency samples)",
           "labels": []
         },
         "request.arrived": {

@@ -1,4 +1,4 @@
-import { arrivalTime, saturated, target } from "./load";
+import { LoadController } from "./controller";
 import type {
   Arm,
   ArmRun,
@@ -7,6 +7,8 @@ import type {
   Outcome,
   RequestRecord,
   StopSnapshot,
+  Window,
+  Phase,
 } from "./model";
 import type { ArmContext, Runner } from "./runner";
 import type { Judge } from "./judge";
@@ -14,6 +16,9 @@ import type { Judge } from "./judge";
 // Owned by the ArmRun lifecycle, so exceptions cannot discard already observed facts.
 export interface DriveState {
   measurement_end_s?: number;
+  measurement_start_s?: number;
+  windows?: Window[];
+  phase?: Phase;
   stop: ArmStop;
 }
 
@@ -46,8 +51,11 @@ export async function drive(options: {
   const errors: unknown[] = [];
   let completed = 0,
     failed = 0,
-    volume = 0,
-    due = saturated(load) ? 0 : arrivalTime(load, 0);
+    due = 0;
+  let lastDispatch: number | undefined, lastRate: number | undefined;
+  let wasFull = false;
+  const control = new LoadController(load);
+  state.windows = control.windows;
   let reason: ArmStop["reason"] = "deadline",
     snapshot: StopSnapshot | undefined;
   let rngState = (load.seed ?? 0) >>> 0;
@@ -63,7 +71,9 @@ export async function drive(options: {
     }
     return cases[cases.length - 1]!;
   };
-  function offer(scheduled: number, dropReason?: string): void {
+  function offer(scheduled: number): boolean {
+    const at = now();
+    if (at >= control.deadline || active.size >= control.target(at)[1]) return false;
     const item = pick();
     const record: RequestRecord = {
       id: `${execution.id}:${execution.requests.length}`,
@@ -74,12 +84,6 @@ export async function drive(options: {
       facets: { ...item.facets },
     };
     execution.requests.push(record);
-    if (dropReason || active.size >= target(load, now())[1]) {
-      record.state = "dropped";
-      record.reason = dropReason ?? "concurrency_limit";
-      record.finished_at = now();
-      return;
-    }
     const controller = new AbortController();
     record.dispatched_at = now();
     record.operation_run_id = record.id;
@@ -138,6 +142,7 @@ export async function drive(options: {
         active.delete(task);
       });
     active.set(task, controller);
+    return true;
   }
   // Resolve on completion or deadline, with no orphaned timers/listeners.
   async function wait(seconds: number): Promise<void> {
@@ -161,8 +166,16 @@ export async function drive(options: {
     }
   }
   try {
-    while (now() < load.duration_s && !signal?.aborted) {
+    while (!signal?.aborted) {
+      const elapsed = now();
+      control.advance(
+        elapsed,
+        active.size,
+        active.size >= control.target(elapsed)[1] && elapsed >= due,
+      );
+      state.phase = control.phase;
       if (errors.length) throw errors[0];
+      if (control.done) break;
       if (
         load.abort_on_error_rate !== undefined &&
         completed >= (load.breaker_min_n ?? 20) &&
@@ -170,77 +183,83 @@ export async function drive(options: {
       ) {
         reason = "error_rate";
         snapshot = {
-          at_s: now(),
+          at_s: elapsed,
           completed,
           errors: failed,
           error_rate: failed / completed,
           threshold: load.abort_on_error_rate,
         };
+        control.abort(elapsed);
         break;
       }
-      if (saturated(load)) {
-        const count = Math.max(0, target(load, now())[1] - active.size);
-        for (let i = 0; i < count; i++) offer(now());
-      } else if (due <= now()) {
-        offer(due);
-        volume += load.arrival === "poisson" ? -Math.log(random()) : 1;
-        due = arrivalTime(load, volume);
+      const [rate, cap] = control.target(elapsed);
+      if (rate !== lastRate) {
+        due = lastDispatch === undefined
+          ? elapsed
+          : Math.max(elapsed, lastDispatch + (rate ? 1 / rate : Infinity));
+        lastRate = rate;
+      }
+      if (wasFull && active.size < cap) due = Math.max(due, elapsed);
+      wasFull = active.size >= cap;
+      if (active.size < cap && rate && due <= elapsed) {
+        // No queued arrivals while full, and no catch-up burst after a scheduler stall.
+        if (!offer(due)) continue;
+        lastDispatch = elapsed;
+        due = elapsed + (load.arrival === "poisson" ? -Math.log(random()) / rate : 1 / rate);
+        control.advance(now(), active.size);
         await new Promise<void>((resolve) => setImmediate(resolve));
         continue;
       }
-      const delay = Math.max(
-        0,
-        Math.min(
-          0.01,
-          load.duration_s - now(),
-          saturated(load) ? Infinity : due - now(),
-        ),
-      );
+      // Observe a blocked pacing opportunity even when no request has completed yet.
+      const delay = Math.max(0, Math.min(
+        0.01,
+        control.deadline - now(),
+        rate && due > now() ? due - now() : Infinity,
+      ));
       await wait(delay);
-      // Even immediately completed Runners must let timers and external aborts progress.
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
-    if (signal?.aborted) reason = "aborted";
-    if (reason === "deadline" && !saturated(load)) {
-      while (due < load.duration_s && !signal?.aborted) {
-        offer(due, "scheduler_deadline");
-        volume += load.arrival === "poisson" ? -Math.log(random()) : 1;
-        due = arrivalTime(load, volume);
-        await new Promise<void>((resolve) => setImmediate(resolve));
-      }
+    if (signal?.aborted) {
+      reason = "aborted";
+      control.abort(now());
     }
-    state.measurement_end_s = reason === "deadline" ? load.duration_s : now();
+    state.measurement_end_s = control.end_s!;
+    state.measurement_start_s = control.hold_start_s ?? control.end_s!;
     state.stop = {
-      reason,
-      snapshot,
-      inflight_at_stop: active.size,
-      interrupted: 0,
-      force_cancelled: false,
+      reason, snapshot, inflight_at_stop: active.size,
+      interrupted: 0, force_cancelled: false,
     };
-    const drainDeadline = now() + (load.drain_timeout_s ?? 30);
-    while (!signal?.aborted && active.size && now() < drainDeadline)
-      await wait(drainDeadline - now());
+    state.phase = "cooldown";
+    const deadline = now() + (load.cooldown_timeout_s ?? 180);
+    while (!signal?.aborted && active.size && now() < deadline)
+      await wait(deadline - now());
     if (signal?.aborted) state.stop.reason = "aborted";
-    for (const controller of active.values()) controller.abort();
-    // Runner must cooperate with cancellation; do not close its clients while work remains.
-    await Promise.all(active.keys());
-    if (errors.length) throw errors[0];
   } finally {
-    // Capture the transition BEFORE cancellation/join; cleanup latency is not measurement.
+    // Capture the load boundary before cancellation; cleanup latency is not measurement.
     if (state.measurement_end_s === undefined) {
-      state.measurement_end_s = Math.min(now(), load.duration_s);
+      control.abort(now());
+      state.measurement_end_s = control.end_s!;
+      state.measurement_start_s = control.hold_start_s ?? control.end_s!;
       state.stop = {
-        reason: "aborted",
-        inflight_at_stop: active.size,
-        interrupted: 0,
-        force_cancelled: false,
+        reason: "aborted", inflight_at_stop: active.size,
+        interrupted: 0, force_cancelled: false,
       };
     }
     for (const controller of active.values()) controller.abort();
     await Promise.all(active.keys());
-    state.stop.interrupted = execution.requests.filter(
-      (r) => r.state === "interrupted",
-    ).length;
+    state.stop.interrupted = execution.requests.filter((r) => r.state === "interrupted").length;
     state.stop.force_cancelled = state.stop.interrupted > 0;
+    state.windows!.push({
+      id: "cooldown", name: "cooldown", kind: "cooldown",
+      start_s: state.measurement_end_s,
+      end_s: now(),
+      complete: !state.stop.force_cancelled,
+      end_reason: state.stop.force_cancelled
+        ? (state.stop.reason === "aborted" ? "cancelled" : "timeout")
+        : "empty",
+      limited_s: 0,
+      by_case: {}, by_facet: {}, probe_metrics: {},
+    });
   }
+  if (errors.length) throw errors[0];
 }

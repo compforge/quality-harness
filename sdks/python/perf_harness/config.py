@@ -29,7 +29,7 @@ from spec_case.facets import FacetSchema
 from spec_case.model import Case, CaseSet, load_caseset, validate
 
 from perf_harness.deploy import HelmDeployer
-from perf_harness.drive.load import LoadPlan, Stage
+from perf_harness.drive.load import LoadPlan, Stage, Warmup
 from perf_harness.drive.runner import MockRunner, Runner, build_runner
 from perf_harness.engine import Experiment
 from perf_harness.judge import build_judge
@@ -570,6 +570,7 @@ def _parse_loads(c: dict | list[dict]) -> list[LoadPlan]:
             raise ValueError(f"unknown load fields: {sorted(unknown)}")
         values = dict(item)
         values["request_rate"] = float(values["request_rate"])
+        values["warmup"] = Warmup(**values.get("warmup", {}))
         values["stages"] = tuple(
             Stage(**{**stage, "request_rate": float(stage["request_rate"])})
             for stage in values.get("stages", [])
@@ -716,7 +717,7 @@ def _validate_slo(
         fam = registry.get(name)
         non_service_labels = {k: v for k, v in labels.items() if k != "service"}
 
-        if a.window.kind in ("ramp", "hold"):
+        if a.window.kind in ("warmup", "ramp", "hold"):
             candidates = [stage for stage in planned if stage.kind == a.window.kind]
             if a.window.name is not None:
                 candidates = [stage for stage in candidates if stage.label == a.window.name]
@@ -727,21 +728,26 @@ def _validate_slo(
         elif a.window.name is not None or a.window.level is not None:
             raise ValueError("slo.window name/level only apply to ramp or hold windows")
 
-        if a.window.kind == "cooldown":
-            if cooldown_s <= 0:
-                raise ValueError(
-                    f"slo.metric {a.metric!r}: cooldown window requires cooldown_s > 0"
-                )
-            if fam is None or fam.side != "resource":
-                raise ValueError(
-                    f"slo.metric {a.metric!r}: cooldown window only supports "
-                    "resource-side time-sampled metrics"
-                )
-            if fam.value_kind not in ("gauge", "counter"):
-                raise ValueError(
-                    f"slo.metric {a.metric!r}: cooldown window needs a raw "
-                    f"gauge/counter series, got {fam.value_kind}"
-                )
+        if (
+            a.window.kind == "cooldown"
+            and (fam is None or fam.side == "request")
+            and name
+            not in {
+                "request.completed",
+                "request.succeeded",
+                "request.throughput_rps",
+                "request.success_rps",
+                "request.inflight_peak",
+                "request.inflight_end",
+                "throughput_rps",
+                "success_rps",
+                "completed",
+                "succeeded",
+                "inflight_peak",
+                "inflight_end",
+            }
+        ):
+            raise ValueError("cooldown request SLO must use completion or inflight metrics")
 
         if fam is not None and fam.side == "resource":
             if stat is None:

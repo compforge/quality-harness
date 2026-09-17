@@ -16,6 +16,7 @@ from perf_harness import (
     Runner,
     Service,
 )
+from perf_harness.drive.load import Warmup
 from perf_harness.metric.reduce import reduce_requests
 from perf_harness.runio import load_run, write_run_data
 
@@ -44,24 +45,31 @@ def experiment(runner, load, **kw):
     )
 
 
-async def test_rate_cap_records_drops_and_never_dispatches_after_deadline(tmp_path):
+async def test_rate_cap_pauses_without_drops_and_never_dispatches_after_deadline(tmp_path):
     runner = BlockingRunner(0.08)
     run = await Engine(
         experiment(
             runner,
-            LoadPlan(request_rate=1000, max_concurrency=3, duration_s=0.06, drain_timeout_s=0.2),
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=1000,
+                max_inflight=3,
+                hold_s=0.06,
+                cooldown_timeout_s=0.2,
+            ),
         )
     ).run()
     arm = run.arm_runs[0]
     assert runner.peak == 3 and runner.active == 0
-    assert len(arm.requests) == 60
+    assert len(arm.requests) == 3
     assert len(arm.operation_runs) == 3
-    assert sum(r.state == "dropped" for r in arm.requests) == 57
+    assert all(r.state == "finished" for r in arm.requests)
     assert all(r.dispatched_at is None or r.dispatched_at < 0.06 for r in arm.requests)
     assert arm.measurement.request.completed == 0
     assert arm.measurement.request.dispatched == 3
     assert arm.measurement.request.n == 3
-    assert arm.measurement.request.n_dropped == 57
+    assert arm.measurement.request.n_dropped == 0
+    assert arm.measurement.limited_s > 0
     write_run_data(run, tmp_path)
     restored = load_run(tmp_path).arm_runs[0]
     assert restored.requests == arm.requests
@@ -79,7 +87,11 @@ async def test_hard_stop_keeps_each_interrupted_call_and_does_not_judge_it():
         experiment(
             runner,
             LoadPlan(
-                request_rate=float("inf"), max_concurrency=4, duration_s=0.03, drain_timeout_s=0
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=4,
+                hold_s=0.03,
+                cooldown_timeout_s=0,
             ),
             judge=judge,
         )
@@ -95,7 +107,8 @@ async def test_hard_stop_keeps_each_interrupted_call_and_does_not_judge_it():
 async def test_offline_rejudge_preserves_raw_evidence():
     run = await Engine(
         experiment(
-            BlockingRunner(0.005), LoadPlan(request_rate=50, max_concurrency=2, duration_s=0.04)
+            BlockingRunner(0.005),
+            LoadPlan(warmup=Warmup(step_s=0), request_rate=50, max_inflight=2, hold_s=0.04),
         )
     ).run()
     arm = run.arm_runs[0]
@@ -114,7 +127,9 @@ async def test_runner_error_measures_actual_elapsed_and_judge_error_is_phase_fai
             raise RuntimeError("broken")
 
     run = await Engine(
-        experiment(Bad(), LoadPlan(request_rate=1, max_concurrency=1, duration_s=0.03))
+        experiment(
+            Bad(), LoadPlan(warmup=Warmup(step_s=0), request_rate=1, max_inflight=1, hold_s=0.03)
+        )
     ).run()
     assert run.arm_runs[0].operation_runs[0].outcome.duration_ms >= 9
 
@@ -124,7 +139,7 @@ async def test_runner_error_measures_actual_elapsed_and_judge_error_is_phase_fai
     run = await Engine(
         experiment(
             BlockingRunner(0.005),
-            LoadPlan(request_rate=1, max_concurrency=1, duration_s=0.03),
+            LoadPlan(warmup=Warmup(step_s=0), request_rate=1, max_inflight=1, hold_s=0.03),
             judge=broken_judge,
         )
     ).run()
@@ -132,7 +147,7 @@ async def test_runner_error_measures_actual_elapsed_and_judge_error_is_phase_fai
     assert len(run.arm_runs[0].operation_runs) == 1
 
 
-async def test_generator_stall_records_unoffered_arrivals_without_late_calls():
+async def test_generator_stall_does_not_catch_up_after_the_hold_deadline():
     class Stalled(Runner):
         async def fire(self, ctx):
             time.sleep(0.06)  # Deliberately block the generator to exercise missed deadlines.
@@ -142,17 +157,18 @@ async def test_generator_stall_records_unoffered_arrivals_without_late_calls():
         experiment(
             Stalled(),
             LoadPlan(
+                warmup=Warmup(step_s=0),
                 request_rate=1000,
-                max_concurrency=1,
-                duration_s=0.04,
+                max_inflight=1,
+                hold_s=0.04,
             ),
         )
     ).run()
     arm = run.arm_runs[0]
-    assert len(arm.requests) == 40
+    assert len(arm.requests) == 1
     assert len(arm.operation_runs) == 1
-    assert sum(r.reason == "scheduler_deadline" for r in arm.requests) == 39
-    assert arm.measurement.request.n_dropped == 39
+    assert all(r.state == "finished" for r in arm.requests)
+    assert arm.measurement.request.n_dropped == 0
     assert arm.measurement.request.completed == 0
 
 
@@ -165,10 +181,11 @@ async def test_interrupted_run_verdict_and_no_latency_evidence(tmp_path):
         experiment(
             BlockingRunner(10),
             LoadPlan(
+                warmup=Warmup(step_s=0),
                 request_rate=float("inf"),
-                max_concurrency=1,
-                duration_s=0.02,
-                drain_timeout_s=0,
+                max_inflight=1,
+                hold_s=0.02,
+                cooldown_timeout_s=0,
             ),
         )
     ).run()
@@ -218,10 +235,11 @@ async def test_judge_failure_preserves_boundaries_and_census(scenario, tmp_path)
         experiment(
             runner,
             LoadPlan(
+                warmup=Warmup(step_s=0),
                 request_rate=float("inf"),
-                max_concurrency=2,
-                duration_s=scenario["duration_s"],
-                drain_timeout_s=scenario["drain_timeout_s"],
+                max_inflight=2,
+                hold_s=scenario["duration_s"],
+                cooldown_timeout_s=scenario["cooldown_timeout_s"],
             ),
             judge=broken_judge,
         )
@@ -246,7 +264,7 @@ async def test_judge_failure_preserves_boundaries_and_census(scenario, tmp_path)
     finished = next(r for r in arm.requests if r.state == "finished")
     interrupted = next(r for r in arm.requests if r.state == "interrupted")
     assert interrupted.finished_at > arm.measurement.end_s
-    drain = next(w for w in arm.windows if w.kind == "drain")
+    drain = next(w for w in arm.windows if w.kind == "cooldown")
     assert drain.start_s == arm.measurement.end_s
     assert drain.request.completed == 1 - scenario["completed"]
     call = next(o for o in arm.operation_runs if o.id == finished.operation_run_id)

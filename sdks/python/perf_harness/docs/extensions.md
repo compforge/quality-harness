@@ -48,7 +48,7 @@ register_runner("my-service", lambda cfg: MyRunner())
 顺序固定为：
 
 ```text
-setup → measurement → drain/cancel → deactivate → cooldown → cleanup
+setup → warmup → hold → cooldown → cleanup
 ```
 
 顶层 `cooldown_s` 控制停用后的观测窗口。cooldown 样本进入 `run.json` /

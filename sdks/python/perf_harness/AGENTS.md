@@ -26,9 +26,9 @@ perf_harness/
 ├── deploy.py       # 可选部署执行器；HelmDeployer 是唯一碰 helm 处
 ├── engine.py       # 纯编排：扫网格，每格 apply → drive → observe → reduce
 ├── drive/          # 怎么压（扩展点①）
-│   ├── load.py     #   LoadPlan：request_rate × max_concurrency + 显式 Stage
+│   ├── load.py     #   LoadPlan：request_rate × max_inflight + 显式 Stage
 │   ├── runner.py #   ArmContext/FireContext + fire 协议适配与注册；judge.py 独立判定
-│   └── scheduler.py#   驱动循环：开/闭环 + 熔断 DECIDE + drain/cancel ENACT → ArmStop
+│   └── scheduler.py#   驱动循环：节奏与在途反馈 + 熔断 + cooldown/cancel → ArmStop
 ├── observe/        # 看什么（扩展点②）；FamilySpec 单表声明 metric 元数据
 │   ├── base.py     #   Probe ABC + client/Prometheus 指标适配 + observe_loop（采样循环）
 │   └── k8s.py      #   top/rss 的 kubectl 采样与 restart/limits/pods 的原生 API 采样
@@ -49,14 +49,14 @@ perf_harness/
 
 - **metric 是收腰**：producer 产 metric、分析/报告读 metric，只经 `MetricStore` 按 `<family>{labels}.<stat>` 寻址；service / facet 是实体 label，时间只由 Window 选择，不能再伪装成 metric label。模型细节见 `docs/metric-model.md`。
 - **Stage ≠ Window**：Stage 是计划的负载控制段；Window 是实际观测边界，延迟按发射时刻归窗，吞吐按真实事件时刻计数，request/resource 使用同一 start/end。重复 stage 名仍有不同 `window_id`。
-- **比较先固定条件**：有限速率扫 request_rate，饱和发压扫 max_concurrency；另一轴与调度形态等条件不同就分组，分析 / 容量 / 报告共用 comparison。
+- **比较先固定条件**：有限速率扫 request_rate，饱和发压扫 max_inflight；另一轴与调度形态等条件不同就分组，分析 / 容量 / 报告共用 comparison。
 - **加压是 x 轴不是 metric**：响应面 `metric = f(Arm, Window, slice)`；Arm 是命名配置，ArmRun 是该 Arm 的一次真实执行。
 
 ### 扩展点（业务接入只碰这两个）
 
 - **Case 资产归 spec-case**：实验用 `caseset: <path>` 引用 canonical CaseSet，`cases:` 只做 case 选择/排序与实验本地 `weight`；`input/facets/judge/binding` 不在 perf 配置里覆盖。无 `caseset` 的内联 cases 仍是轻量实验入口。
 - **Kernel 对齐**：request Outcome、Probe sample 及其 window-aligned 归约事实是 Observation；request、window、run 是不同 Unit grain，必须区分分析粒度，不能混成一张表。raw/model Run facts 构成可离线重算 Dataset，本次选择的 独立 Judge、SLO 和 analysis 组件直接定义评估侧重点；换 SLO 或分析透镜不得重新发压，详见 [`../../../docs/kernel.md`](../../../docs/kernel.md#dataset-与反复评估)。
-- **`Runner`**（协议适配）：`ArmContext` 是整个 ArmRun 共用的不可变输入，单次并发请求通过 `FireContext(arm_run, case)` 组合请求 Case；`fire` 只记原始观测，独立 `Judge(outcome)→RequestEvaluation` 才裁决（纯函数，可离线重判）。各服务在自己项目写、`register_runner` 注册；ArmRun 固定按 `setup → measurement → drain/cancel → deactivate → cooldown → cleanup` 运行，其中业务 hook 只有 `setup/deactivate/cleanup`。
+- **`Runner`**（协议适配）：`ArmContext` 是整个 ArmRun 共用的不可变输入，单次并发请求通过 `FireContext(arm_run, case)` 组合请求 Case；`fire` 只记原始观测，独立 `Judge(outcome)→RequestEvaluation` 才裁决（纯函数，可离线重判）。各服务在自己项目写、`register_runner` 注册；ArmRun 固定按 `setup → warmup → hold → cooldown → cleanup` 运行，其中业务 hook 只有 `setup/deactivate/cleanup`。
 - **`Probe`**（看什么）：`families` 单表声明元数据（FamilySpec：unit/value_kind/description，describe/summarize/Engine 共读），`sample()` 周期采样；Source 不绑 k8s，consumer 可通过 extension module + `register_probe` 扩展。Prometheus 来源由 toolbox 的 `PrometheusDataSource` 访问；`PrometheusProbe` 只将 PromQL 结果映射为声明的指标与 label 契约。采样周期由 perf 决定，单轮读取共享由 toolbox `DataLoader` 管理，连接和查询历史随 ArmRun 的 `ClientManager` 释放。
 - **压后观测不污染容量口径**：`cooldown_s` 延长 raw series 以观察回收/缩容；默认 SLO 只读 measurement Window，`window: {kind: cooldown}` 显式读取 cooldown。
 
@@ -69,7 +69,7 @@ perf_harness/
 
 ### 产物与运行
 
-- `Experiment` 扩展 common 的具名验证意图；`Run` 扩展 common `ExperimentRun`，`ArmRun` 是 common `Execution` 的 perf 子类，每次真实请求记录为 `OperationRun → Outcome`。`PerfReducer` 只读这些事实并把 Artifact 落到 `runs/<experiment>/<run_id>/`，累积不覆盖。落盘三层 raw（requests.jsonl / evaluations.json/timeseries.csv）→ 模型（run.json，schema 版本化，`load_run` 离线重建）→ 视图（report/CSV，纯下游）。
+- `Experiment` 扩展 common 的具名验证意图；`Run` 扩展 common `ExperimentRun`，`ArmRun` 是 common `Execution` 的 perf 子类，每次真实请求记录为 `OperationRun → Outcome`。`PerfReducer` 只读这些事实并把 Artifact 落到 `runs/<experiment>/<run_id>/`，累积不覆盖。落盘三层 raw（requests.jsonl / evaluations.json/timeseries.csv）→ 模型（run.json，schema 6 版本化，`load_run` 离线重建）→ 视图（report/CSV，纯下游）。
 - `verdict.json` 是跨 harness 契约（spec/verdict-schema.yaml，devloop 消费），改动需五家对齐。
 - 请求侧指标走客户端 Outcome（没 `/metrics` 的服务也能压）；`/metrics` 只喂资源侧。
 

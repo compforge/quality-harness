@@ -1,7 +1,7 @@
 from harness_common.overlay import Overlay
 from spec_case.model import Case
 
-from perf_harness.drive.load import LoadPlan
+from perf_harness.drive.load import LoadPlan, Warmup
 from perf_harness.drive.runner import MockRunner, Runner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.model import Outcome, ResourceProfile, Service
@@ -16,7 +16,14 @@ async def test_facets_pivot_and_weighting():
         service=_subject(),
         runner=MockRunner(),
         resources=[ResourceProfile(workers=2)],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=4, duration_s=(0.0 + 0.5))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=4,
+                hold_s=(0.0 + 0.5),
+            )
+        ],
         cases=[
             Case(id="simple", input={"ms": 2}, facets={"difficulty": "simple"}),
             Case(id="complex", input={"ms": 20}, facets={"difficulty": "complex"}),
@@ -49,29 +56,31 @@ class _SlowRunner(Runner):
         return Outcome(status=200, duration_ms=50)
 
 
-async def test_open_loop_drops_are_separate_not_latency_samples():
-    # 200 rps open against a 50ms runner capped at 2 inflight → most arrivals
-    # are client_saturated drops. Drops must NOT contaminate latency (they'd drag
-    # p50 toward 0) and are counted separately (n_dropped), attributed per facet.
+async def test_inflight_backpressure_preserves_case_and_facet_latency_samples():
+    # A 50ms request with two slots cannot sustain 200 RPS. Pausing the source
+    # must preserve the latency of real calls and their case/facet attribution.
     experiment = Experiment(
         service=_subject(),
         runner=_SlowRunner(),
         resources=[ResourceProfile(workers=2)],
-        loads=[LoadPlan(request_rate=200, max_concurrency=2, duration_s=(0.0 + 0.4))],
+        loads=[
+            LoadPlan(warmup=Warmup(step_s=0), request_rate=200, max_inflight=2, hold_s=(0.0 + 0.4))
+        ],
         cases=[Case(id="x", input={}, facets={"difficulty": "simple"})],
     )
     r = (await Engine(experiment).run()).arm_runs[0]
-    assert r.measurement.request.n_dropped > 0  # saturation happened
+    assert r.measurement.request.n_dropped == 0
+    assert r.measurement.limited_s > 0
+    assert "co_biased" in r.measurement.request.caveats
     assert r.measurement.request.n > 0  # some requests were actually sent
     assert set(r.measurement.by_case) == {"x"}
     assert r.measurement.by_case["x"].n == r.measurement.request.n
     assert r.measurement.by_case["x"].n_dropped == r.measurement.request.n_dropped
-    # drops are out of the latency histogram → fired ~50ms requests set the
-    # percentile, not the 0ms drops (the coordinated-omission bug this fixes)
+    # Only actual 50ms requests contribute to the latency distribution.
     assert r.measurement.request.p50_ms >= 40
-    # client_saturated is a drop, not a server error
+    # Intentional backpressure is not a request error.
     assert "client_saturated" not in r.measurement.request.error_breakdown
-    # drops attributed to the Case's facet → per-facet sent + dropped both reconcile
+    # Case and facet projections reconcile with the same request facts.
     assert "difficulty" in r.measurement.by_facet
     assert (
         sum(s.n for s in r.measurement.by_facet["difficulty"].values()) == r.measurement.request.n
@@ -87,7 +96,14 @@ async def test_no_cases_is_anonymous_no_facets():
         service=_subject(),
         runner=MockRunner(base_ms=2),
         resources=[ResourceProfile(workers=2)],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=2, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=2,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
     )
     r = (await Engine(experiment).run()).arm_runs[0]
     assert r.measurement.request.n > 0

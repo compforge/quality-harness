@@ -1,3 +1,4 @@
+import type { DriveState } from "./scheduler";
 import { stages, stageLabel, level, saturated } from "./load";
 import type {
   ArmRun,
@@ -37,7 +38,7 @@ export function requestStats(
   const n_dropped = arrived.filter((r) => r.state === "dropped").length;
   const n_interrupted = cohort.filter((r) => r.state === "interrupted").length;
   const caveats: string[] = [];
-  if (saturated(execution.arm.load) && n) caveats.push("co_biased");
+  if (n && (saturated(execution.arm.load) || execution.windows.some(w => (w.limited_s ?? 0) > 0 && w.start_s < end && w.end_s > start))) caveats.push("co_biased");
   if (n_dropped) caveats.push("high_drop");
   if (n_interrupted || evaluations.some((e) => !e)) caveats.push("incomplete");
   if (n < 30) caveats.push("few_samples");
@@ -111,9 +112,9 @@ export function requestStats(
     metrics,
   };
 }
-export function buildWindows(execution: ArmRun, actualEnd: number): Window[] {
+export function buildWindows(execution: ArmRun, actualEnd: number, drive?: DriveState): Window[] {
   const load = execution.arm.load,
-    warmup = load.warmup_s ?? 0;
+    warmup = drive?.measurement_start_s ?? 0;
   const make = (
     id: string,
     name: string,
@@ -162,6 +163,7 @@ export function buildWindows(execution: ArmRun, actualEnd: number): Window[] {
       probe_metrics: {},
     };
   };
+  if (drive?.windows) execution.windows = drive.windows;
   const result = [
     make(
       "measurement",
@@ -169,11 +171,13 @@ export function buildWindows(execution: ArmRun, actualEnd: number): Window[] {
       "measurement",
       warmup,
       Math.max(warmup, actualEnd),
-      actualEnd >= load.duration_s,
+      drive
+        ? drive.stop.reason === "deadline" && !!drive.windows?.some(w => w.kind === "hold" && w.complete)
+        : actualEnd >= stages(load).reduce((n, s) => n + s.duration_s, 0),
     ),
   ];
   let clock = 0;
-  stages(load).forEach((stage, i) => {
+  (drive ? [] : stages(load)).forEach((stage, i) => {
     const start = Math.max(clock, warmup),
       end = Math.min(clock + stage.duration_s, actualEnd);
     if (end > start)
@@ -190,13 +194,24 @@ export function buildWindows(execution: ArmRun, actualEnd: number): Window[] {
       );
     clock += stage.duration_s;
   });
+  if (drive?.windows) {
+    result[0]!.limited_s = drive.windows
+      .filter(w => w.kind === "hold")
+      .reduce((n, w) => n + (w.limited_s ?? 0), 0);
+    for (const w of drive.windows) {
+      result.push({
+        ...make(w.id, w.name, w.kind, w.start_s, w.end_s, w.complete, w.target_level),
+        end_reason: w.end_reason, limited_s: w.limited_s,
+      });
+    }
+  }
   const drainEnd = Math.max(
     actualEnd,
     ...execution.requests.map((r) => r.finished_at ?? actualEnd),
   );
-  if (drainEnd > actualEnd)
+  if (!drive && drainEnd > actualEnd)
     result.push(
-      make("drain", "drain", "drain", actualEnd, drainEnd + 1e-9, true),
+      make("cooldown", "cooldown", "cooldown", actualEnd, drainEnd + 1e-9, true),
     );
   return result;
 }

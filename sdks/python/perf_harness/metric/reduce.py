@@ -92,7 +92,10 @@ def reduce_requests(
     dropped = sum(r.state == "dropped" for r in arrived)
     interrupted = sum(r.state == "interrupted" for r in cohort)
     caveats = set()
-    if execution.arm.load.saturated and n:
+    if n and (
+        execution.arm.load.saturated
+        or any(w.limited_s > 0 and w.start_s < end and w.end_s > start for w in execution.windows)
+    ):
         caveats.add("co_biased")
     if dropped:
         caveats.add("high_drop")

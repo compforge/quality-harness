@@ -279,8 +279,8 @@ class ProbeErrors:
     last: str
 
 
-WindowKind = Literal["measurement", "ramp", "hold", "drain", "cooldown"]
-Phase = Literal["setup", "measurement", "deactivate", "cooldown", "cleanup"]
+WindowKind = Literal["measurement", "warmup", "ramp", "hold", "cooldown"]
+Phase = Literal["setup", "warmup", "hold", "cooldown", "cleanup"]
 
 
 @dataclass(frozen=True)
@@ -318,6 +318,8 @@ class Window:
     by_case: dict[str, RequestStats] = field(default_factory=dict)
     by_facet: dict[str, dict[str, RequestStats]] = field(default_factory=dict)
     probe_metrics: dict[str, MetricSummary] = field(default_factory=dict)
+    end_reason: str | None = None
+    limited_s: float = 0.0
 
     @property
     def duration_s(self) -> float:

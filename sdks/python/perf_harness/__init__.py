@@ -24,6 +24,7 @@ from perf_harness.config import load_experiment as load_experiment
 from perf_harness.deploy import HelmDeployer as HelmDeployer
 from perf_harness.drive.load import LoadPlan as LoadPlan
 from perf_harness.drive.load import Stage as Stage
+from perf_harness.drive.load import Warmup as Warmup
 from perf_harness.drive.runner import ArmContext as ArmContext
 from perf_harness.drive.runner import FireContext as FireContext
 from perf_harness.drive.runner import MockRunner as MockRunner
