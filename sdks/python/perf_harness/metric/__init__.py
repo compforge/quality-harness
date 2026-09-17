@@ -6,7 +6,7 @@ read from it; neither knows the other. Three submodules:
   - ``family``: the pure model — ``MetricFamily`` (identity + side + value_kind),
     the typed summary union, ``Missing``, and the ``<name>{labels}.<stat>``
     addressing helpers. Stdlib-only; never imports model.py.
-  - ``store``: ``MetricStore``, the one addressable read face over a run's trials
+  - ``store``: ``MetricStore``, the one addressable read face over a run's arm_runs
     (+ the builtin request-side family descriptors).
   - ``reduce``: the minting point — raw observations → typed summaries + caveats.
 

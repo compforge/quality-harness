@@ -10,11 +10,12 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from harness_common.client import ClientManager
+from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.prometheus import PrometheusClient, PrometheusDataSource
 
 from perf_harness.config import load_experiment
-from perf_harness.drive.load import LoadProfile, Schedule
-from perf_harness.drive.workload import Workload
+from perf_harness.drive.load import LoadPlan
+from perf_harness.drive.runner import Runner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.metric import (
     GaugeSummary,
@@ -22,7 +23,7 @@ from perf_harness.metric import (
     split_ref,
     split_series,
 )
-from perf_harness.model import Environment, Outcome, ResourceProfile, Service
+from perf_harness.model import Outcome, ResourceProfile, Service
 from perf_harness.observe import (
     FamilySpec,
     KubectlTopProbe,
@@ -52,15 +53,15 @@ _SERVICE = (
     "  environment: { name: dev, kubeconfig: ~/.kube/d },\n"
     "  namespace: ns, k8s_selector: app=chat }\n"
     "resources: [ {} ]\n"
-    "workload: { name: mock }\n"
-    "load: { model: closed, levels: [1], ramp_s: 0, steady_s: 0.2 }\n"
+    "runner: { name: mock }\n"
+    "load: { request_rate: inf, max_concurrency: 1, duration_s: 0.2 }\n"
 )
 
 
 def _k8s_service(name: str, selector: str) -> Service:
     return Service(
         name=name,
-        environment=Environment(name="test", kubeconfig="/kc"),
+        environment=KubernetesEnvironment(name="test", kubeconfig="/kc"),
         namespace="ns",
         k8s_selector=selector,
     )
@@ -380,7 +381,7 @@ class _FanProbe(Probe):
         }
 
 
-class _NoopWL(Workload):
+class _NoopWL(Runner):
     name = "noop"
 
     async def fire(self, ctx):
@@ -390,12 +391,12 @@ class _NoopWL(Workload):
 async def test_engine_fans_pod_labeled_keys_into_per_pod_series():
     exp = Experiment(
         service=Service("m", base_url="http://127.0.0.1:0"),
-        workload=_NoopWL(),
+        runner=_NoopWL(),
         resources=[ResourceProfile()],
-        loads=[LoadProfile(model="closed", schedule=Schedule.ramp_hold(2, 0.0, 0.2))],
+        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=2, duration_s=(0.0 + 0.2))],
         probes=[_FanProbe()],
     )
-    r = (await Engine(exp).run()).trials[0]
+    r = (await Engine(exp).run()).arm_runs[0]
     # each pod becomes its own series, base {service} merged with the key's {pod}
     # (plus the synthesized health series at the probe's base label-set)
     sids = {sid for sid in r.series if sid.startswith("fan.")}
@@ -599,19 +600,19 @@ class _FlakyProbe(Probe):
         raise RuntimeError("metrics endpoint down")
 
 
-async def test_probe_errors_flow_to_trial_and_store():
+async def test_probe_errors_flow_to_arm_run_and_store():
     from perf_harness.metric import Missing
     from perf_harness.metric.store import MetricStore
 
     exp = Experiment(
         service=Service("m", base_url="http://127.0.0.1:0"),
-        workload=_NoopWL(),
+        runner=_NoopWL(),
         resources=[ResourceProfile()],
-        loads=[LoadProfile(model="closed", schedule=Schedule.ramp_hold(1, 0.0, 0.2))],
+        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.2))],
         probes=[_FlakyProbe()],
         observe_interval_s=0.05,
     )
-    r = (await Engine(exp).run()).trials[0]
+    r = (await Engine(exp).run()).arm_runs[0]
     pe = r.probe_errors["flaky.chat"]
     assert pe.failures == pe.ticks >= 1 and "down" in pe.last
     # an absent read on an errored probe is Missing(probe_error) — NOT "no slice"
@@ -666,16 +667,16 @@ def test_top_level_derived_is_removed(tmp_path):
 
 async def test_up_series_synthesized_per_probe():
     # the Prometheus `up` analogue: health is a SERIES (when did it break), not just
-    # the trial census. Healthy probe → all 1s; flaky probe → 0s and mean < 1.
+    # the arm_run census. Healthy probe → all 1s; flaky probe → 0s and mean < 1.
     exp = Experiment(
         service=Service("m", base_url="http://127.0.0.1:0"),
-        workload=_NoopWL(),
+        runner=_NoopWL(),
         resources=[ResourceProfile()],
-        loads=[LoadProfile(model="closed", schedule=Schedule.ramp_hold(1, 0.0, 0.2))],
+        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.2))],
         probes=[_FanProbe(), _FlakyProbe()],
         observe_interval_s=0.05,
     )
-    r = (await Engine(exp).run()).trials[0]
+    r = (await Engine(exp).run()).arm_runs[0]
     healthy = r.measurement.probe_metrics[series_id("fan.up", {"service": "chat"})]
     assert healthy.mean == 1.0 and healthy.peak == 1.0
     broken = r.measurement.probe_metrics[series_id("flaky.up", {"service": "chat"})]
@@ -719,7 +720,7 @@ def test_limits_colors_are_report_palette():
     assert family_color("top.cpu_m") == ""
 
 
-async def test_prometheus_history_is_scoped_to_trial_clients(monkeypatch):
+async def test_prometheus_history_is_scoped_to_arm_run_clients(monkeypatch):
     values = iter([9, 11, 1])
     now = 1_000_000
     monkeypatch.setattr("prombed.prombed._now_ms", lambda: now)

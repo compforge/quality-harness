@@ -1,58 +1,58 @@
-# 扩展与 Trial 生命周期
+# 扩展与 ArmRun 生命周期
 
 perf harness 只负责负载编排、观测和结果模型；服务协议、环境准备与业务指标留在 consumer
 项目。consumer 通过一个可导入的 Python 模块注册扩展，experiment 配置显式声明该模块：
 
 ```yaml
 extensions: [my_service.perf]
-workload: { name: my-service }
+runner: { name: my-service }
 ```
 
 `extensions` 是 run 配置的一部分，因此同一份配置经 CLI 或 `load_experiment()` 运行时都会加载
 相同扩展；模块需要在当前 Python 环境的 import path 中。
 
-## Workload 与生命周期
+## Runner 与生命周期
 
-`Workload.fire()` / `judge()` 负责单次请求。`TrialContext` 是整个 Trial 共用的不可变输入，
-`FireContext` 在它之上组合本次 dispatch 的 Case；一次 Trial 前后的有状态操作使用三个可选 hook：
+`Runner.fire()` 负责单次请求；独立 `Judge` 负责原始证据的纯判定。`ArmContext` 是整个 ArmRun 共用的不可变输入，
+`FireContext` 在它之上组合本次 dispatch 的 Case；一次 ArmRun 前后的有状态操作使用三个可选 hook：
 
 ```python
-from perf_harness import FireContext, Outcome, TrialContext, Workload, register_workload
+from perf_harness import FireContext, Outcome, ArmContext, Runner, register_runner
 
 
-class MyWorkload(Workload):
-    async def setup(self, ctx: TrialContext) -> None: ...  # 创建本 trial 所需的外部状态
+class MyRunner(Runner):
+    async def setup(self, ctx: ArmContext) -> None: ...  # 创建本 arm_run 所需的外部状态
 
     async def fire(self, ctx: FireContext) -> Outcome:
-        response = await ctx.trial.client.post(
-            ctx.trial.service.base_url + "/chat",
+        response = await ctx.arm_run.client.post(
+            ctx.arm_run.service.base_url + "/chat",
             json=ctx.case.input,
-            headers={"x-perf-run-id": ctx.trial.run_id},
+            headers={"x-perf-run-id": ctx.arm_run.run_id},
         )
         return Outcome(status=response.status_code, duration_ms=...)
 
-    async def deactivate(self, ctx: TrialContext) -> None: ...  # 触发停止/缩容；此时 Probe 仍在采样
+    async def deactivate(self, ctx: ArmContext) -> None: ...  # 触发停止/缩容；此时 Probe 仍在采样
 
     async def cleanup(
-        self, ctx: TrialContext
+        self, ctx: ArmContext
     ) -> None: ...  # 最终清理；Probe 已停止，HTTP client 仍可用
 
 
-register_workload("my-service", lambda cfg: MyWorkload())
+register_runner("my-service", lambda cfg: MyRunner())
 ```
 
-`setup`、所有并发 `fire`、`deactivate` 和 `cleanup` 看到的是同一个 `TrialContext`；每次
-`fire` 的 `FireContext` 则是独立对象。不要把当前 Case 写回 TrialContext，否则并发 dispatch
+`setup`、所有并发 `fire`、`deactivate` 和 `cleanup` 看到的是同一个 `ArmContext`；每次
+`fire` 的 `FireContext` 则是独立对象。不要把当前 Case 写回 ArmContext，否则并发 dispatch
 会共享并覆盖请求状态。取消与 deadline 沿用 asyncio task / timeout 语义，不塞进领域 Context。
 
 顺序固定为：
 
 ```text
-setup → measurement → deactivation → cooldown → cleanup
+setup → measurement → drain/cancel → deactivate → cooldown → cleanup
 ```
 
 顶层 `cooldown_s` 控制停用后的观测窗口。cooldown 样本进入 `run.json` /
-`timeseries.csv` 和 HTML 曲线，用于回收、缩容与泄漏观察；Trial 汇总和默认 SLO
+`timeseries.csv` 和 HTML 曲线，用于回收、缩容与泄漏观察；ArmRun 汇总和默认 SLO
 仍只统计 measurement，只有显式 `window: {kind: cooldown}` 的资源 SLO 读取 cooldown。
 即使 setup 或 measurement 抛错，`cleanup` 仍会执行。
 
@@ -104,7 +104,7 @@ factory 中写 load 编排或业务判定。
 pods.count{service="worker",state="total|active|ready|running|pending|unschedulable|terminating"}
 ```
 
-`limits` 同样每周期刷新 Pod 集合，因此动态扩缩容时聚合 request/limit 不会停留在 trial
+`limits` 同样每周期刷新 Pod 集合，因此动态扩缩容时聚合 request/limit 不会停留在 arm_run
 开始时的副本数。`client.sent` counter 在报告中转换为逐 tick 实际发送速率，可与 Pod 数量及
 业务 gauge 对齐查看。
 
@@ -134,10 +134,10 @@ Runner 上展开远端路径或复制文件。Host 不改变压力机位置，Ch
 
 `restart/limits/pods` 通过 toolbox 原生 Kubernetes API 读取 Pod manifest。安装时启用
 `quality-harness[kube]`；SSH Host 还需在 `python3` 环境安装相同版本的 `harness-toolbox[kube]`。
-SSH 使用共享资源 worker 的只读视图，Kubernetes 客户端在 Host 上读取 kubeconfig，Trial 结束后关闭。
+SSH 使用共享资源 worker 的只读视图，Kubernetes 客户端在 Host 上读取 kubeconfig，ArmRun 结束后关闭。
 `top/rss` 使用 kubectl 的指标与 exec 通道；Helm 部署仍要求 Host 上有 Helm。
 
-每次 Trial 的观测期复用连接池（每个访问配置/namespace 最多 8 个连接，单次请求预算 10 秒）。
+每次 ArmRun 的观测期复用连接池（每个访问配置/namespace 最多 8 个连接，单次请求预算 10 秒）。
 每个采样周期创建 toolbox `DataLoader`，让同一访问配置、namespace 和 selector 的三个探针共享 Pod 列表及读取错误；
 下个周期重新读取，因此扩缩容不会沿用旧副本集合。列表读取失败进入 probe error 和 `up=0`，
 不会记为零副本或零资源。SSH 请求超时或取消后关闭对应 worker；本次读取报错，后续采样新建通道，避免误读残留响应。
@@ -149,6 +149,24 @@ SSH 使用共享资源 worker 的只读视图，Kubernetes 客户端在 Host 上
 
 `PrometheusProbe` 通过 toolbox `PrometheusDataSource` 抓取 `/metrics` 并查询内嵌 Prombed。
 同一访问配置的探针在单轮 `DataLoader` 内共享一次抓取，PromQL 查询仍各自执行。连接池与
-有界查询历史由该 Trial 的 `ClientManager` 管理，新 Trial 不读取旧 Trial 的样本。
+有界查询历史由该 ArmRun 的 `ClientManager` 管理，新 ArmRun 不读取旧 ArmRun 的样本。
 Prometheus 使用独立 HTTP 池，不占用发压连接；地址、认证和容量属于 DataSource，
 采样频率、输出指标/label 契约以及 SLO 属于 perf。
+
+## 独立 Judge
+
+```python
+from perf_harness import RequestEvaluation, register_judge
+
+
+def chat_completed(outcome):
+    ok = outcome.status == 200 and outcome.meta.get("saw_done") and not outcome.meta.get("exc")
+    return RequestEvaluation(bool(ok), None if ok else "incomplete_stream")
+
+
+register_judge("chat-completed", chat_completed)
+```
+
+配置 `judge: chat-completed`，或直接传 `Experiment(judge=chat_completed, ...)`。
+Judge 不访问资源 Probe、不触发网络调用、不修改 Outcome。共享 `stream_sse` 来自 toolbox，
+perf 包只适配返回类型；它记录 `first_byte_ms`（首字节），业务首 token 需要 Runner 显式识别后记录。

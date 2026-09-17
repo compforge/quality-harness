@@ -1,308 +1,337 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { describe, test, expect } from "bun:test";
+import { mkdtempSync, cpSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { loadCaseSet } from "@compforge/spec-case/model";
-import {
-  buildWindows,
-  Engine,
-  rampHold,
-  serializeOutcomes,
-  serializeRun,
-  writeRunData,
-  type Outcome,
-  type Workload,
-} from "../src";
+import { join } from "node:path";
+import { Engine } from "../src/engine";
+import { validateLoadPlan, target, arrivalTime } from "../src/load";
+import { loadRun, writeRunData, serializeRequests } from "../src/runio";
+import { requestStats } from "../src/reduce";
+import type { Service, Outcome } from "../src/model";
+import type { Runner } from "../src/runner";
+const service: Service = {
+  name: "mock",
+  component: {
+    name: "api",
+    repository: { forge: { name: "github" }, path: "example/mock" },
+  },
+  environment: { name: "local" },
+  workloads: [],
+};
+function slow(ms: number): Runner & { active: number; peak: number } {
+  return {
+    name: "mock",
+    active: 0,
+    peak: 0,
+    async fire(ctx) {
+      this.active++;
+      this.peak = Math.max(this.peak, this.active);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const finish = () => {
+            ctx.signal.removeEventListener("abort", cancel);
+            resolve();
+          };
+          const timer = setTimeout(finish, ms);
+          const cancel = () => {
+            clearTimeout(timer);
+            reject(new Error("cancelled"));
+          };
+          ctx.signal.addEventListener("abort", cancel, { once: true });
+          if (ctx.signal.aborted) cancel();
+        });
+      } finally {
+        this.active--;
+      }
+      return { status: 200, duration_ms: ms };
+    },
+  };
+}
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-const PERF_FIXTURES = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../../conformance/perf/fixtures",
-);
-const SHARED_CASESET = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../../conformance/case/fixtures/shared-chat.yaml",
-);
-
-describe("TypeScript perf harness", () => {
-  test("closed-loop holds the requested concurrency and records request metrics", async () => {
-    let inflight = 0;
-    let peak = 0;
-    const workload: Workload = {
-      fire: async (): Promise<Outcome> => {
-        const started = performance.now();
-        inflight += 1;
-        peak = Math.max(peak, inflight);
-        await sleep(15);
-        inflight -= 1;
-        return {
-          status: 200,
-          duration_ms: performance.now() - started,
-          metrics: { ttft_ms: 5 },
-          meta: { trace_id: `trace-${Math.random()}` },
-        };
-      },
-    };
-    const run = await new Engine({
-      name: "closed",
-      service: { name: "chat" },
-      workload,
-      loads: [rampHold("closed", 5, 0, 0.12, { graceful_stop_s: 1 })],
-    }).run();
-
-    expect(peak).toBe(5);
-    expect(run.trials).toHaveLength(1);
-    expect(run.trials[0]!.windows[0]!.request!.n).toBeGreaterThan(5);
-    expect(run.trials[0]!.windows[0]!.request!.metrics.ttft_ms!.p95).toBe(5);
-    expect(run.trials[0]!.outcomes.every(({ outcome }) => outcome.meta?.trace_id)).toBe(true);
-  });
-
-  test("request limit is an exact safety rail", async () => {
-    const workload: Workload = {
-      fire: async () => ({ status: 200, duration_ms: 1 }),
-    };
-    const run = await new Engine({
-      service: { name: "chat" },
-      workload,
-      loads: [rampHold("closed", 5, 0, 1, { max_requests: 12 })],
-    }).run();
-    expect(run.trials[0]!.stop.reason).toBe("request_limit");
-    expect(run.trials[0]!.outcomes).toHaveLength(12);
-  });
-
-  test("loads multiple canonical Cases and reduces each Case independently", async () => {
-    const originalRandom = Math.random;
-    let pick = 0;
-    Math.random = () => (pick++ % 2 === 0 ? 0.1 : 0.9);
-    try {
-      const caseSet = loadCaseSet(SHARED_CASESET);
-      const run = await new Engine({
-        service: { name: "chat" },
-        workload: {
-          fire: async ({ case: selected }) => ({
-            status: 200,
-            duration_ms: selected.id === "ordinary_chat" ? 10 : 20,
-          }),
+test("finite rate caps complete request lifetimes and records drops without calls", async () => {
+  const runner = slow(80),
+    run = await new Engine({
+      service,
+      runner,
+      loads: [
+        {
+          request_rate: 1000,
+          max_concurrency: 3,
+          duration_s: 0.06,
+          drain_timeout_s: 0.2,
         },
-        caseSet,
-        caseMix: [{ id: "ordinary_chat", weight: 1 }, { id: "knowledge_chat", weight: 1 }],
-        loads: [rampHold("closed", 1, 0, 1, { max_requests: 4 })],
-      }).run();
+      ],
+    }).run();
+  const arm = run.executions[0]!;
+  expect(runner.peak).toBe(3);
+  expect(runner.active).toBe(0);
+  expect(arm.operation_runs.length).toBe(3);
+  expect(arm.requests.some((r) => r.state === "dropped")).toBe(true);
+  expect(
+    arm.requests.every(
+      (r) => r.dispatched_at === undefined || r.dispatched_at < 0.06,
+    ),
+  ).toBe(true);
+  expect(arm.windows[0]!.request!.completed).toBe(0);
+  expect(arm.windows[0]!.request!.n).toBe(3);
+  expect(arm.requests.filter((r) => r.state !== "dropped").length).toBe(
+    arm.operation_runs.length,
+  );
+});
 
-      const byCase = run.trials[0]!.windows[0]!.by_case;
-      expect(Object.keys(byCase).sort()).toEqual(["knowledge_chat", "ordinary_chat"]);
-      expect(byCase.ordinary_chat!.n + byCase.knowledge_chat!.n).toBe(4);
-      expect(byCase.ordinary_chat!.p50_ms).toBe(10);
-      expect(byCase.knowledge_chat!.p50_ms).toBe(20);
-    } finally {
-      Math.random = originalRandom;
-    }
-  });
+test("infinite rate replenishes, downscale does not cancel running SSE", async () => {
+  const runner = slow(80),
+    run = await new Engine({
+      service,
+      runner,
+      loads: [
+        {
+          request_rate: Infinity,
+          max_concurrency: 4,
+          duration_s: 0.12,
+          drain_timeout_s: 0.2,
+          stages: [
+            {
+              duration_s: 0.02,
+              request_rate: Infinity,
+              max_concurrency: 4,
+              kind: "hold",
+              name: "same",
+            },
+            {
+              duration_s: 0.1,
+              request_rate: Infinity,
+              max_concurrency: 1,
+              kind: "hold",
+              name: "same",
+            },
+          ],
+        },
+      ],
+    }).run();
+  const arm = run.executions[0]!;
+  expect(runner.peak).toBe(4);
+  expect(arm.stop.interrupted).toBe(0);
+  expect(
+    arm.requests.filter(
+      (r) => r.dispatched_at! >= 0.02 && r.dispatched_at! < 0.075,
+    ).length,
+  ).toBe(0);
+  expect(arm.windows.filter((w) => w.kind === "hold").map((w) => w.id)).toEqual(
+    ["stage-0", "stage-1"],
+  );
+  expect(arm.windows.find((w) => w.id === "stage-0")!.request!.n).toBe(4);
+  expect(arm.windows.find((w) => w.id === "stage-0")!.request!.completed).toBe(
+    0,
+  );
+});
 
-  test("rejects experiment-local Case overrides and unknown selections", () => {
-    const base = {
-      service: { name: "chat" },
-      workload: { fire: async () => ({ status: 200, duration_ms: 1 }) },
-      loads: [rampHold("closed", 1, 0, 1)],
-    };
-    expect(() => new Engine({ ...base, caseMix: [{ id: "ordinary_chat" }] })).toThrow("caseSet");
-    expect(() => new Engine({
-      ...base,
-      caseSet: loadCaseSet(SHARED_CASESET),
-      caseMix: [{ id: "missing" }],
-    })).toThrow("not found");
-  });
+test("hard stop records every interrupted call and leaves no tasks", async () => {
+  const runner = slow(10000),
+    run = await new Engine({
+      service,
+      runner,
+      loads: [
+        {
+          request_rate: Infinity,
+          max_concurrency: 4,
+          duration_s: 0.03,
+          drain_timeout_s: 0,
+        },
+      ],
+      judge: () => {
+        throw new Error("must not judge interruption");
+      },
+    }).run();
+  const arm = run.executions[0]!;
+  expect(run.passed).toBe(false);
+  expect(runner.active).toBe(0);
+  expect(arm.stop.interrupted).toBe(4);
+  expect(arm.operation_runs.length).toBe(4);
+  expect(arm.requests.every((r) => r.state === "interrupted")).toBe(true);
+  expect(Object.keys(arm.evaluations).length).toBe(0);
+});
 
-  test("error-rate breaker stops a failing trial", async () => {
-    const workload: Workload = {
-      fire: async () => ({ status: 503, duration_ms: 1 }),
-    };
-    const run = await new Engine({
-      service: { name: "chat" },
-      workload,
-      loads: [rampHold("closed", 2, 0, 1, {
+test("artifact round trip and rejudge do not change raw evidence", async () => {
+  const run = await new Engine({
+    service,
+    runner: slow(5),
+    loads: [{ request_rate: 50, max_concurrency: 2, duration_s: 0.04 }],
+  }).run();
+  const dir = mkdtempSync(join(tmpdir(), "perf-ts-"));
+  try {
+    writeRunData(run, dir);
+    const loaded = loadRun(dir);
+    expect(loaded.executions[0]!.requests).toEqual(run.executions[0]!.requests);
+    const arm = loaded.executions[0]!,
+      before = serializeRequests(loaded);
+    for (const op of arm.operation_runs)
+      arm.evaluations[op.id] = { ok: false, error_kind: "business" };
+    expect(requestStats(arm, 0, 0.04).error_rate).toBe(1);
+    expect(serializeRequests(loaded)).toBe(before);
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test("ramp arrival clock and validation use explicit units", () => {
+  const load = {
+    request_rate: 0,
+    max_concurrency: 2,
+    duration_s: 3,
+    stages: [
+      {
+        duration_s: 2,
+        request_rate: 20,
+        max_concurrency: 4,
+        kind: "ramp" as const,
+      },
+      {
+        duration_s: 1,
+        request_rate: 20,
+        max_concurrency: 4,
+        kind: "hold" as const,
+      },
+    ],
+  };
+  validateLoadPlan(load);
+  expect(target(load, 1)).toEqual([10, 3]);
+  expect(arrivalTime(load, 5)).toBeCloseTo(1);
+  expect(arrivalTime(load, 30)).toBeCloseTo(2.5);
+  for (const max_concurrency of [0, 1.5])
+    expect(() => validateLoadPlan({ ...load, max_concurrency })).toThrow();
+  expect(() => validateLoadPlan({ ...load, request_rate: Infinity })).toThrow();
+});
+
+test("setup failure still cleans up and preserves phase evidence", async () => {
+  let cleaned = false;
+  const runner: Runner = {
+    name: "broken",
+    async setup() {
+      throw new Error("setup failed");
+    },
+    async fire() {
+      throw new Error("must not execute");
+    },
+    async cleanup() {
+      cleaned = true;
+    },
+  };
+  const run = await new Engine({
+    service,
+    runner,
+    loads: [{ request_rate: 1, max_concurrency: 1, duration_s: 0.01 }],
+  }).run();
+  expect(cleaned).toBe(true);
+  expect(run.passed).toBe(false);
+  expect(run.executions[0]!.phase_errors[0]!.phase).toBe("setup");
+  expect(run.executions[0]!.operation_runs.length).toBe(0);
+});
+
+test("breaker uses completed evaluations and preserves Outcomes", async () => {
+  const runner: Runner = {
+    name: "fail",
+    async fire() {
+      return { status: 500, duration_ms: 1 };
+    },
+  };
+  const run = await new Engine({
+    service,
+    runner,
+    loads: [
+      {
+        request_rate: Infinity,
+        max_concurrency: 2,
+        duration_s: 1,
         abort_on_error_rate: 0.5,
         breaker_min_n: 4,
-      })],
-    }).run();
-    expect(run.trials[0]!.stop.reason).toBe("error_rate");
-    expect(run.passed).toBe(false);
-  });
-
-  test("validates shared safety fields before starting load", () => {
-    expect(() => new Engine({
-      service: { name: "chat" },
-      workload: { fire: async () => ({ status: 200, duration_ms: 1 }) },
-      loads: [rampHold("closed", 1, 0, 1, { max_requests: 0 })],
-    })).toThrow("max_requests");
-    expect(() => new Engine({
-      service: { name: "chat" },
-      workload: { fire: async () => ({ status: 200, duration_ms: 1 }) },
-      loads: [rampHold("closed", 1, 0, 1, { warmup_s: -1 })],
-    })).toThrow("warmup_s");
-    expect(() => new Engine({
-      service: { name: "chat" },
-      workload: { fire: async () => ({ status: 200, duration_ms: 1 }) },
-      loads: [{
-        model: "closed",
-        schedule: { start_level: Number.NaN, stages: [{ over_s: 1, to_level: 1, kind: "hold" }] },
-      }],
-    })).toThrow("levels and durations");
-    expect(() => new Engine({
-      service: { name: "chat" },
-      workload: { fire: async () => ({ status: 200, duration_ms: 1 }) },
-      loads: [rampHold("closed", 1, 0, 1, {
-        pacing: { kind: "between", secs: 2, max_secs: 1 },
-      })],
-    })).toThrow("max_secs");
-  });
-
-  test("clips stage drill-downs to the post-warmup measurement interval", () => {
-    const load = {
-      model: "closed" as const,
-      schedule: {
-        start_level: 0,
-        stages: [
-          { over_s: 0.5, to_level: 1, kind: "ramp" as const },
-          { over_s: 0.5, to_level: 1, kind: "hold" as const },
-        ],
       },
-      warmup_s: 0.75,
-    };
-    const windows = buildWindows(load, [
-      { t: 0.25, outcome: { status: 200, duration_ms: 5, ok: true } },
-      { t: 0.8, outcome: { status: 200, duration_ms: 10, ok: true } },
-    ], 1);
+    ],
+  }).run();
+  const arm = run.executions[0]!;
+  expect(arm.stop.reason).toBe("error_rate");
+  expect(arm.stop.snapshot!.completed).toBeGreaterThanOrEqual(4);
+  expect(arm.operation_runs.every((o) => !("ok" in o.outcome))).toBe(true);
+});
 
-    expect(windows.map((window) => window.id)).toEqual(["measurement", "stage-02"]);
-    expect(windows[0]).toMatchObject({ start_s: 0.75, end_s: 1, request: { n: 1 } });
-    expect(windows[1]).toMatchObject({ start_s: 0.75, end_s: 1, request: { n: 1 } });
-  });
-
-  test("preserves phase errors as diagnostic artifacts and stops the sweep", async () => {
-    const engine = new Engine({
-      service: { name: "chat" },
-      workload: {
-        setup: async () => { throw new Error("setup failed"); },
-        fire: async () => ({ status: 200, duration_ms: 1 }),
-        cleanup: async () => { throw new Error("cleanup failed"); },
-      },
-      loads: [rampHold("closed", 1, 0, 1), rampHold("closed", 2, 0, 1)],
-    });
-    const run = await engine.run();
-    expect(run.passed).toBe(false);
-    expect(run.trials).toHaveLength(1);
-    expect(run.trials[0]!.stop.reason).toBe("aborted");
-    expect(run.trials[0]!.phase_errors).toEqual([
-      { phase: "setup", error_type: "Error", message: "setup failed" },
-      { phase: "cleanup", error_type: "Error", message: "cleanup failed" },
-    ]);
-
-    const directory = mkdtempSync(join(tmpdir(), "ts-perf-error-"));
-    try {
-      writeRunData(run, directory);
-      expect(JSON.parse(readFileSync(join(directory, "run.json"), "utf8"))).toMatchObject({
-        passed: false,
-        trials: [{ phase_errors: [{ phase: "setup" }, { phase: "cleanup" }] }],
-      });
-      expect(JSON.parse(readFileSync(join(directory, "verdict.json"), "utf8"))).toMatchObject({
-        status: "error",
-      });
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
+test("common conformance fixture preserves identity and raw trace correlation", () => {
+  const fixture = new URL(
+    "../../../../conformance/perf/fixtures/",
+    import.meta.url,
+  );
+  const dir = mkdtempSync(join(tmpdir(), "perf-fixture-"));
+  try {
+    for (const name of ["run.json", "requests.jsonl", "evaluations.json"])
+      cpSync(new URL(`basic.${name}`, fixture), join(dir, name));
+    const run = loadRun(dir),
+      arm = run.executions[0]!;
+    expect(arm.operation_runs[0]!.outcome.meta!.trace_id).toBe(
+      "0123456789abcdef0123456789abcdef",
+    );
+    expect(arm.requests[1]!.state).toBe("dropped");
+    expect(arm.arm.load.request_rate).toBe(Infinity);
+    for (const window of arm.windows) {
+      const actual = requestStats(arm, window.start_s, window.end_s);
+      const expected = structuredClone(window.request!);
+      actual.caveats.sort();
+      expected.caveats.sort();
+      for (const metric of Object.values(actual.metrics)) metric.caveats.sort();
+      for (const metric of Object.values(expected.metrics))
+        metric.caveats.sort();
+      expect(actual).toEqual(expected);
     }
-  });
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
 
-  test("external cancellation propagates after cleanup", async () => {
-    const controller = new AbortController();
-    const reason = new Error("stop run");
-    const events: string[] = [];
-    const engine = new Engine({
-      service: { name: "chat" },
-      signal: controller.signal,
-      workload: {
-        setup: async (context) => {
-          events.push("setup");
-          controller.abort(reason);
-          throw context.signal.reason;
-        },
-        fire: async () => ({ status: 200, duration_ms: 1 }),
-        cleanup: async () => { events.push("cleanup"); },
-      },
-      loads: [rampHold("closed", 1, 0, 1)],
-    });
-
-    let caught: unknown;
-    try {
-      await engine.run();
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBe(reason);
-    expect(events).toEqual(["setup", "cleanup"]);
-  });
-
-  test("empty raw outcome stream contains no invalid blank record", () => {
-    expect(serializeOutcomes({
-      schema: 4,
-      run_id: "empty",
-      experiment: "perf",
-      created_at: new Date(0).toISOString(),
-      service: "chat",
-      passed: false,
-      n_trials: 0,
-      trials: [],
-    })).toBe("");
-  });
-
-  test("persists shared schema-4 model and raw outcomes", async () => {
+test("external abort interrupts drain promptly and cleans up all calls", async () => {
+  const controller = new AbortController();
+  const runner = slow(10000);
+  const timer = setTimeout(() => controller.abort(), 50);
+  const started = performance.now();
+  try {
     const run = await new Engine({
-      service: { name: "chat" },
-      workload: { fire: async () => ({ status: 200, duration_ms: 1, meta: { trace_id: "t1" } }) },
-      loads: [rampHold("closed", 1, 0, 0.03, { max_requests: 1 })],
-    }, { run_id: "fixed" }).run();
-    const document = serializeRun(run);
-    expect(document).toMatchObject({ schema: 4, run_id: "fixed", n_trials: 1 });
+      service,
+      runner,
+      signal: controller.signal,
+      loads: [
+        {
+          request_rate: Infinity,
+          max_concurrency: 2,
+          duration_s: 0.01,
+          drain_timeout_s: 10,
+        },
+      ],
+    }).run();
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(run.executions[0]!.stop.reason).toBe("aborted");
+    expect(run.executions[0]!.stop.interrupted).toBe(2);
+    expect(runner.active).toBe(0);
+  } finally {
+    clearTimeout(timer);
+  }
+});
 
-    const directory = mkdtempSync(join(tmpdir(), "ts-perf-"));
-    try {
-      writeRunData(run, directory);
-      expect(JSON.parse(readFileSync(join(directory, "run.json"), "utf8"))).toMatchObject({ schema: 4 });
-      expect(JSON.parse(readFileSync(join(directory, "outcomes.jsonl"), "utf8"))).toMatchObject({
-        trial: run.trials[0]!.id,
-        meta: { trace_id: "t1" },
-      });
-      expect(JSON.parse(readFileSync(join(directory, "verdict.json"), "utf8"))).toMatchObject({
-        harness: "perf",
-        scope: "perf",
-        run_id: "fixed",
-        status: "skipped",
-      });
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
-  test("reads the language-neutral conformance fixture", () => {
-    const run = JSON.parse(readFileSync(join(PERF_FIXTURES, "basic.run.json"), "utf8"));
-    const outcome = JSON.parse(readFileSync(join(PERF_FIXTURES, "basic.outcomes.jsonl"), "utf8"));
-
-    expect(run).toMatchObject({
-      schema: 4,
-      trials: [{
-        id: "default__closed-5c",
-        arm: { id: "default__closed-5c" },
-        windows: [{
-          request: { metrics: { first_token_ms: { p95: 6500 } } },
-          by_case: { ordinary_chat: { n: 1 } },
-        }],
-      }],
-    });
-    expect(outcome).toMatchObject({
-      trial: "default__closed-5c",
-      metrics: { first_token_ms: 6500 },
-      meta: { trace_id: "0123456789abcdef0123456789abcdef" },
-    });
-  });
+test("saturated immediate Runner yields to cancellation without polling-limited throughput", async () => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30);
+  const started = performance.now();
+  try {
+    const run = await new Engine({
+      service,
+      signal: controller.signal,
+      runner: {
+        name: "immediate",
+        async fire() {
+          return { status: 200, duration_ms: 0 };
+        },
+      },
+      loads: [{ request_rate: Infinity, max_concurrency: 1, duration_s: 2 }],
+    }).run();
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(run.executions[0]!.operation_runs.length).toBeGreaterThan(5);
+    expect(run.executions[0]!.stop.reason).toBe("aborted");
+  } finally {
+    clearTimeout(timer);
+  }
 });

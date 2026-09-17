@@ -1,281 +1,183 @@
-"""Trial drivers — turn a LoadProfile into actual fires, and stop cleanly.
-
-Two loops (picked by ``load.model``): ``drive_open`` issues arrivals at the
-Schedule's time-varying rate λ(t); ``drive_closed`` tracks the Schedule's target
-concurrency with virtual user loops. Both share the same stop discipline:
-DECIDE (deadline, or the error-rate circuit breaker) → ENACT (stop scheduling →
-drain in-flight up to ``graceful_stop_s`` → cancel stragglers), and every trial
-ends with a structured ``TrialStop``. A cancelled in-flight request never enters
-the latency stats — only completed requests are latency facts.
-"""
+"""One bounded scheduler for finite arrivals and concurrency-driven replenishment."""
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import random
 import time
+from contextlib import suppress
 
-from harness_common import OperationRun
+from harness_common import Operation, OperationRun
 from spec_case.model import Case
 
-from perf_harness.drive.load import LoadProfile
-from perf_harness.drive.workload import FireContext, TrialContext, Workload
-from perf_harness.model import Outcome, StopSnapshot, TrialStop
-from perf_harness.observe import ProbeContext
+from perf_harness.drive.runner import ArmContext, FireContext, Runner
+from perf_harness.judge import Judge
+from perf_harness.model import ArmRun, ArmStop, Outcome, StopSnapshot
+from perf_harness.observe.base import ProbeContext
+from perf_harness.records import RequestRecord
 
 
-def _pick(cases: list[Case], weights: list[float]) -> Case:
-    """Pick one Case by weight (the load mix). Done in the driver so a dropped
-    arrival can be attributed to the same Case it would have fired."""
-    return random.choices(cases, weights, k=1)[0]  # noqa: S311 — load mix, not crypto
-
-
-async def _fire(
-    workload: Workload,
-    trial: TrialContext,
+async def drive(
+    runner: Runner,
+    judge: Judge,
+    context: ArmContext,
     ctx: ProbeContext,
-    case: Case,
-    timed: list[tuple[float, Outcome]],
-    operation_runs: list[OperationRun[Outcome]] | None = None,
-    execution_id: str = "trial",
-) -> None:
-    # Window attribution follows dispatch time. Completion time would move a long
-    # request into a later hold and corrupt both capacity and resource correlation.
-    started_at_s = time.monotonic() - ctx.t0
-    ctx.stats.start()
-    try:
-        fire_context = FireContext(trial=trial, case=case)
-        outcome = await workload.fire(fire_context)
-    except Exception as e:  # noqa: BLE001 — never let one fire kill the generator
-        outcome = Outcome(
-            status=None,
-            duration_ms=0.0,
-            meta={"exc": type(e).__name__, "exc_detail": str(e)},
-        )
-    finally:
-        ctx.stats.done()
-    # judge is the sole verdict authority — even a transport exception is judged
-    # (via meta["exc"]), so ok/error_kind are decided in exactly one place.
-    verdict = workload.judge(outcome)
-    outcome.ok = verdict.ok
-    outcome.error_kind = verdict.error_kind
-    outcome.case_id = case.id
-    # stamp the fired Case's facets (a Workload may have added runtime-derived ones)
-    outcome.facets = {**case.facets, **outcome.facets}
-    timed.append((started_at_s, outcome))
-    if operation_runs is not None:
-        operation_runs.append(
+    cases: list[Case],
+    weights: list[float],
+    execution: ArmRun,
+) -> ArmStop:
+    load = context.load
+    rng = random.Random(load.seed)
+    arrival_rng = random.Random(load.seed)
+    active: set[asyncio.Task] = set()
+    wake = asyncio.Event()
+    failures: list[BaseException] = []
+    completed = errors = 0
+    volume = 0.0
+    due = 0.0 if load.saturated else load.arrival_time(volume)
+    reason, snapshot = "deadline", None
+
+    def now() -> float:
+        return time.monotonic() - ctx.t0
+
+    async def fire(record: RequestRecord, case: Case) -> None:
+        nonlocal completed, errors
+        record.dispatched_at = now()
+        record.state = "dispatched"
+        record.operation_run_id = record.id
+        operation = Operation(name=runner.name)
+        try:
+            operation = runner.operation(FireContext(context, case))
+            outcome = await runner.fire(FireContext(context, case))
+        except asyncio.CancelledError:
+            record.state = "interrupted"
+            record.reason = "cancelled"
+            outcome = Outcome(
+                status=None,
+                duration_ms=(now() - record.dispatched_at) * 1000,
+                meta={"interrupted": True},
+                case_id=case.id,
+                facets=dict(case.facets),
+            )
+            raise
+        except Exception as error:
+            outcome = Outcome(
+                status=None,
+                duration_ms=(now() - record.dispatched_at) * 1000,
+                meta={"exc": type(error).__name__, "exc_detail": str(error)},
+            )
+        finally:
+            record.finished_at = now()
+            ctx.stats.done()
+            # Even cancellation has an actual-call record, but never a fabricated response.
+            if record.state == "interrupted":
+                execution.operation_runs.append(
+                    OperationRun(
+                        id=record.id, service=context.service, operation=operation, outcome=outcome
+                    )
+                )
+        record.state = "finished"
+        outcome.case_id = case.id
+        outcome.facets = {**case.facets, **outcome.facets}
+        record.facets = dict(outcome.facets)
+        execution.operation_runs.append(
             OperationRun(
-                id=f"{execution_id}:{len(operation_runs)}",
-                service=trial.service,
-                operation=workload.operation(FireContext(trial=trial, case=case)),
-                outcome=outcome,
+                id=record.id, service=context.service, operation=operation, outcome=outcome
             )
         )
+        evaluation = judge(outcome)
+        execution.evaluations[record.id] = evaluation
+        completed += 1
+        errors += not evaluation.ok
 
+    def settled(task: asyncio.Task) -> None:
+        active.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            failures.append(task.exception())
+        wake.set()
 
-def _breaker_snapshot(
-    timed: list[tuple[float, Outcome]], load: LoadProfile, at_s: float
-) -> StopSnapshot | None:
-    """Mid-trial circuit breaker DECIDE step: a ``StopSnapshot`` once ≥ ``breaker_min_n``
-    requests have been SENT and their cumulative error rate (judged failures ÷ sent)
-    reaches ``abort_on_error_rate``, else ``None``. Counts the whole run incl. warmup —
-    a safety net (stop hammering a failing Service), not a measurement. Drops aren't
-    sent; only completed fires are in ``timed`` (in-flight ones haven't appended yet).
-    The snapshot is the trip view the report shows — not the post-warmup measurement."""
-    threshold = load.abort_on_error_rate
-    if threshold is None:
-        return None
-    sent = [o for (_t, o) in timed if not o.dropped]
-    n = len(sent)
-    if n < load.breaker_min_n:
-        return None
-    errors = sum(1 for o in sent if not o.ok)
-    rate = errors / n
-    if rate < threshold:
-        return None
-    return StopSnapshot(at_s=at_s, sent=n, errors=errors, error_rate=rate, threshold=threshold)
-
-
-async def _winddown(
-    tasks: list[asyncio.Task], ctx: ProbeContext, graceful_stop_s: float
-) -> tuple[int, int, bool]:
-    """ENACT step (shared by open + closed, breaker + deadline): bring the load to rest.
-    New scheduling is already stopped (the driver loop has exited / set its stop flag);
-    here we DRAIN in-flight requests for up to ``graceful_stop_s``, then force-cancel the
-    stragglers. Returns ``(inflight_at_stop, interrupted, force_cancelled)`` — the census
-    for ``TrialStop``. A cancelled in-flight request never appends an Outcome, so it is a
-    census number only, never a latency sample (``ctx.stats.inflight`` is the live
-    in-flight *request* count, so the census is model-agnostic)."""
-    inflight_at_stop = ctx.stats.inflight
-    pending = [t for t in tasks if not t.done()]
-    if pending and graceful_stop_s > 0:
-        await asyncio.wait(pending, timeout=graceful_stop_s)
-    survivors = [t for t in tasks if not t.done()]
-    interrupted = ctx.stats.inflight  # still in flight after the drain → about to be cut
-    for t in survivors:
-        t.cancel()
-    if survivors:
-        await asyncio.gather(*survivors, return_exceptions=True)
-    # force_cancelled tracks cut REQUESTS, not cut tasks: a closed-loop user task in
-    # think-time (no in-flight request) is cancelled cleanly — that's not a forced
-    # interruption. So tie it to interrupted requests, keeping the census coherent.
-    return inflight_at_stop, interrupted, interrupted > 0
-
-
-async def drive_open(
-    workload: Workload,
-    trial: TrialContext,
-    ctx: ProbeContext,
-    cases: list[Case],
-    weights: list[float],
-    timed: list[tuple[float, Outcome]],
-    operation_runs: list[OperationRun[Outcome]],
-    execution_id: str,
-) -> TrialStop:
-    """Open-loop: issue fires at the Schedule's time-varying arrival rate λ(t).
-
-    Driven by integrating λ over *real* elapsed time: each tick adds
-    ``λ(t)·dt`` to an accumulator and fires one arrival per whole unit accrued.
-    This is drift-free (dt is measured, not assumed), handles a ramp naturally
-    (arrivals accelerate as λ climbs, with no infinite first gap when λ≈0), and
-    needs no special-casing per shape. Over ``max_inflight`` an arrival is
-    recorded as a ``client_saturated`` drop instead of fired.
-    """
-    load = trial.load
-    sched = load.schedule
-    deadline = ctx.t0 + sched.total_s
-    tick = 0.02
-    accum = 0.0
-    last = time.monotonic()
-    tasks: list[asyncio.Task] = []
-    snapshot: StopSnapshot | None = None
-    while True:
-        now = time.monotonic()
-        if now >= deadline:
-            break
-        snap = _breaker_snapshot(timed, load, now - ctx.t0)  # DECIDE: error-rate breaker
-        if snap is not None:
-            snapshot = snap  # stop scheduling new arrivals; wind down below
-            break
-        elapsed = now - ctx.t0
-        accum += sched.intensity(elapsed) * (now - last)
-        last = now
-        while accum >= 1.0:
-            accum -= 1.0
-            case = _pick(cases, weights)  # pick first so a drop carries the mix's facets
-            if load.max_inflight is not None and ctx.stats.inflight >= load.max_inflight:
-                # shed load instead of firing: a never-sent request. Recorded as a
-                # drop (dropped=True), NOT a 0ms latency sample. max_inflight is a
-                # safety rail (OOM guard) — if it engages on real tail events the
-                # latency stats understate reality, so the report flags the Trial.
-                timed.append(
-                    (
-                        now - ctx.t0,
-                        Outcome(
-                            ok=False,
-                            status=None,
-                            duration_ms=0.0,
-                            case_id=case.id,
-                            error_kind="client_saturated",
-                            dropped=True,
-                            facets=dict(case.facets),
-                        ),
-                    )
-                )
-            else:
-                tasks.append(
-                    asyncio.create_task(
-                        _fire(
-                            workload,
-                            trial,
-                            ctx,
-                            case,
-                            timed,
-                            operation_runs,
-                            execution_id,
-                        )
-                    )
-                )
-        await asyncio.sleep(tick)
-    # ENACT: drain in-flight up to graceful_stop_s, then cancel; census → TrialStop
-    inflight_at_stop, interrupted, forced = await _winddown(tasks, ctx, load.graceful_stop_s)
-    return TrialStop(
-        reason="error_rate" if snapshot else "deadline",
-        snapshot=snapshot,
-        inflight_at_stop=inflight_at_stop,
-        interrupted=interrupted,
-        force_cancelled=forced,
-    )
-
-
-async def drive_closed(
-    workload: Workload,
-    trial: TrialContext,
-    ctx: ProbeContext,
-    cases: list[Case],
-    weights: list[float],
-    timed: list[tuple[float, Outcome]],
-    operation_runs: list[OperationRun[Outcome]],
-    execution_id: str,
-) -> TrialStop:
-    """Closed-loop: track the Schedule's target concurrency over time.
-
-    A supervisor checks the target ``round(intensity(t))`` each tick and spawns
-    or retires user loops to match — so the same Schedule that ramps an open rate
-    also ramps (and, for a spike/step-down, *retires*) concurrent users. Each
-    user loops ``fire → wait(pacing)``; retiring cancels the task (a cancelled
-    mid-fire still runs ``_fire``'s finally, keeping inflight balanced, and
-    appends no outcome). On stop (breaker or deadline) the ``stopping`` event lets
-    users finish their current fire, then ``_winddown`` drains/cancels (graceful_stop_s).
-    """
-    load = trial.load
-    sched = load.schedule
-    pacing = load.pacing
-    deadline = ctx.t0 + sched.total_s
-    tick = 0.1
-
-    stopping = asyncio.Event()  # set on stop → users finish current fire then exit (graceful)
-
-    async def user_loop() -> None:
-        while not stopping.is_set() and time.monotonic() < deadline:
-            fired_at = time.monotonic()
-            await _fire(
-                workload,
-                trial,
-                ctx,
-                _pick(cases, weights),
-                timed,
-                operation_runs,
-                execution_id,
+    def offer(scheduled: float, drop_reason: str | None = None) -> None:
+        case = rng.choices(cases, weights=weights, k=1)[0]
+        record = RequestRecord(
+            id=f"{execution.id}:{len(execution.requests)}",
+            case_id=case.id,
+            scheduled_at=scheduled,
+            arrived_at=now(),
+            facets=dict(case.facets),
+        )
+        execution.requests.append(record)
+        _, cap = load.target(record.arrived_at)
+        if drop_reason or ctx.stats.inflight >= cap:
+            record.state, record.reason, record.finished_at = (
+                "dropped",
+                drop_reason or "concurrency_limit",
+                record.arrived_at,
             )
-            wait = pacing.wait_s(time.monotonic() - fired_at)
-            if wait > 0:
-                # interruptible think-time: wake promptly when stopping is set
-                with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(stopping.wait(), timeout=wait)
+            ctx.stats.dropped += 1
+            return
+        # Reserve before creating a Task: a batch of due arrivals must see previous reservations.
+        ctx.stats.start()
+        task = asyncio.create_task(fire(record, case))
+        active.add(task)
+        task.add_done_callback(settled)
 
-    users: list[asyncio.Task] = []
-    snapshot: StopSnapshot | None = None
-    while time.monotonic() < deadline:
-        snap = _breaker_snapshot(timed, load, time.monotonic() - ctx.t0)  # DECIDE
-        if snap is not None:
-            snapshot = snap
-            break
-        target = max(round(sched.intensity(time.monotonic() - ctx.t0)), 0)
-        while len(users) < target:
-            users.append(asyncio.create_task(user_loop()))
-        while len(users) > target:
-            users.pop().cancel()  # retire (normal ramp-down) — not a stop event
-        await asyncio.sleep(tick)
-    # ENACT: stop scheduling new fires (users finish current fire), then drain + cancel
-    stopping.set()
-    inflight_at_stop, interrupted, forced = await _winddown(users, ctx, load.graceful_stop_s)
-    return TrialStop(
-        reason="error_rate" if snapshot else "deadline",
+    try:
+        while now() < load.duration_s:
+            if failures:
+                raise failures[0]
+            if (
+                load.abort_on_error_rate is not None
+                and completed >= load.breaker_min_n
+                and errors / completed >= load.abort_on_error_rate
+            ):
+                reason = "error_rate"
+                snapshot = StopSnapshot(
+                    now(), completed, errors, errors / completed, load.abort_on_error_rate
+                )
+                break
+            elapsed = now()
+            wake.clear()
+            if load.saturated:
+                _, cap = load.target(elapsed)
+                for _ in range(max(0, cap - ctx.stats.inflight)):
+                    offer(elapsed)
+            else:
+                # Yield per offer so cancellation progresses even after a stall.
+                if due <= elapsed:
+                    offer(due)
+                    volume += arrival_rng.expovariate(1) if load.arrival == "poisson" else 1
+                    due = load.arrival_time(volume)
+                    await asyncio.sleep(0)
+                    continue
+            delay = min(0.02, max(0, load.duration_s - now()))
+            if not load.saturated:
+                delay = min(delay, max(0, due - now()))
+            with suppress(TimeoutError):
+                await asyncio.wait_for(wake.wait(), timeout=delay)
+        # Account for planned arrivals missed by a stalled generator; never send after deadline.
+        if reason == "deadline" and not load.saturated:
+            while due < load.duration_s:
+                offer(due, "scheduler_deadline")
+                volume += arrival_rng.expovariate(1) if load.arrival == "poisson" else 1
+                due = load.arrival_time(volume)
+                await asyncio.sleep(0)
+        inflight = ctx.stats.inflight
+        if active:
+            await asyncio.wait(active, timeout=load.drain_timeout_s)
+    finally:
+        # Join cancellations before returning ownership of clients or environment resources.
+        remaining = list(active)
+        for task in remaining:
+            task.cancel()
+        if remaining:
+            await asyncio.gather(*remaining, return_exceptions=True)
+    if failures:
+        raise failures[0]
+    interrupted = sum(r.state == "interrupted" for r in execution.requests)
+    return ArmStop(
+        reason=reason,
         snapshot=snapshot,
-        inflight_at_stop=inflight_at_stop,
+        inflight_at_stop=inflight,
         interrupted=interrupted,
-        force_cancelled=forced,
+        force_cancelled=bool(interrupted),
     )

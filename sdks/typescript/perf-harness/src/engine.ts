@@ -1,8 +1,18 @@
 import { createHash } from "node:crypto";
-import { validateCaseSet, type Case, type CaseSet } from "@compforge/spec-case/model";
+import {
+  validateCaseSet,
+  type Case,
+  type CaseSet,
+} from "@compforge/spec-case/model";
+import { defaultJudge, type Judge } from "./judge";
 import { drive } from "./scheduler";
 import { buildWindows } from "./reduce";
-import { loadLabel, resourceLabel, validateLoadProfile, type LoadProfile } from "./load";
+import {
+  loadLabel,
+  resourceLabel,
+  validateLoadPlan,
+  type LoadPlan,
+} from "./load";
 import type {
   Arm,
   CaseMixEntry,
@@ -11,31 +21,39 @@ import type {
   ResourceProfile,
   Run,
   Service,
-  TrialRecord,
+  ArmRun,
 } from "./model";
-import type { TrialContext, Workload } from "./workload";
+import type { ArmContext, Runner } from "./runner";
 
 export interface Experiment {
   name?: string;
   service: Service;
-  workload: Workload;
+  runner: Runner;
+  judge?: Judge;
   resources?: ResourceProfile[];
-  loads: LoadProfile[];
+  loads: LoadPlan[];
   caseSet?: CaseSet;
   caseMix?: readonly CaseMixEntry[];
   signal?: AbortSignal;
-  onTrialStart?(context: TrialContext, startedAt: Date): Promise<void> | void;
-  onTrialFinish?(trial: TrialRecord): Promise<void> | void;
+  onArmStart?(context: ArmContext, startedAt: Date): Promise<void> | void;
+  onArmFinish?(arm_run: ArmRun): Promise<void> | void;
 }
 
-function resolveCases(experiment: Experiment): { cases: readonly Case[]; weights: number[] } {
+function resolveCases(experiment: Experiment): {
+  cases: readonly Case[];
+  weights: number[];
+} {
   if (!experiment.caseSet) {
-    if (experiment.caseMix?.length) throw new Error("perf caseMix requires a canonical caseSet");
+    if (experiment.caseMix?.length)
+      throw new Error("perf caseMix requires a canonical caseSet");
     return { cases: [{ id: "default", input: {} }], weights: [1] };
   }
   validateCaseSet(experiment.caseSet);
   const byId = new Map(experiment.caseSet.cases.map((item) => [item.id, item]));
-  if (!byId.size) throw new Error(`perf CaseSet '${experiment.caseSet.caseset}' has no cases`);
+  if (!byId.size)
+    throw new Error(
+      `perf CaseSet '${experiment.caseSet.caseset}' has no cases`,
+    );
   const selection = experiment.caseMix?.length
     ? experiment.caseMix
     : experiment.caseSet.cases.map((item) => ({ id: item.id, weight: 1 }));
@@ -43,11 +61,14 @@ function resolveCases(experiment: Experiment): { cases: readonly Case[]; weights
   const cases: Case[] = [];
   const weights: number[] = [];
   for (const entry of selection) {
-    if (ids.has(entry.id)) throw new Error(`duplicate perf Case selection: ${entry.id}`);
+    if (ids.has(entry.id))
+      throw new Error(`duplicate perf Case selection: ${entry.id}`);
     ids.add(entry.id);
     const item = byId.get(entry.id);
     if (!item) {
-      throw new Error(`perf Case '${entry.id}' not found in CaseSet '${experiment.caseSet.caseset}'`);
+      throw new Error(
+        `perf Case '${entry.id}' not found in CaseSet '${experiment.caseSet.caseset}'`,
+      );
     }
     const weight = entry.weight ?? 1;
     if (!Number.isFinite(weight) || weight < 0) {
@@ -69,18 +90,26 @@ function runId(now = new Date()): string {
 
 function arms(experiment: Experiment): Arm[] {
   const resources = experiment.resources?.length ? experiment.resources : [{}];
-  const expanded = resources.flatMap((resource) => experiment.loads.map((load) => ({
-    base: `${resourceLabel(resource)}|${loadLabel(load)}`,
-    resources: resource,
-    load,
-  })));
+  const expanded = resources.flatMap((resource) =>
+    experiment.loads.map((load) => ({
+      base: `${resourceLabel(resource)}|${loadLabel(load)}`,
+      resources: resource,
+      load,
+    })),
+  );
   const counts = new Map<string, number>();
-  for (const item of expanded) counts.set(item.base, (counts.get(item.base) ?? 0) + 1);
+  for (const item of expanded)
+    counts.set(item.base, (counts.get(item.base) ?? 0) + 1);
   return expanded.map((item) => {
-    const suffix = counts.get(item.base)! > 1
-      ? `@${createHash("sha256").update(JSON.stringify(item)).digest("hex").slice(0, 8)}`
-      : "";
-    return { id: `${item.base}${suffix}`, resources: item.resources, load: item.load };
+    const suffix =
+      counts.get(item.base)! > 1
+        ? `@${createHash("sha256").update(JSON.stringify(item)).digest("hex").slice(0, 8)}`
+        : "";
+    return {
+      id: `${item.base}${suffix}`,
+      resources: item.resources,
+      load: item.load,
+    };
   });
 }
 
@@ -92,7 +121,7 @@ function phaseError(phase: Phase, error: unknown): PhaseError {
   };
 }
 
-class TrialExecutionContext {
+class ArmExecutionContext {
   phase: Phase = "setup";
   readonly phaseErrors: PhaseError[] = [];
   hasFatalError = false;
@@ -100,7 +129,7 @@ class TrialExecutionContext {
   hasCleanupAfterFatal = false;
   cleanupAfterFatal: unknown;
 
-  constructor(readonly workload: TrialContext) {}
+  constructor(readonly runner: ArmContext) {}
 
   enter(phase: Phase): void {
     this.phase = phase;
@@ -118,8 +147,9 @@ export class Engine {
   readonly #weights: number[];
 
   constructor(experiment: Experiment, options: { run_id?: string } = {}) {
-    if (!experiment.loads.length) throw new Error("perf experiment requires at least one load profile");
-    experiment.loads.forEach(validateLoadProfile);
+    if (!experiment.loads.length)
+      throw new Error("perf experiment requires at least one load profile");
+    experiment.loads.forEach(validateLoadPlan);
     const resolved = resolveCases(experiment);
     this.#experiment = experiment;
     this.#runId = options.run_id ?? runId();
@@ -129,58 +159,79 @@ export class Engine {
 
   async run(): Promise<Run> {
     const created = new Date();
-    const trials: TrialRecord[] = [];
+    const arm_runs: ArmRun[] = [];
     for (const arm of arms(this.#experiment)) {
       if (this.#experiment.signal?.aborted) break;
       const started = new Date();
       const controller = new AbortController();
       const abort = () => controller.abort(this.#experiment.signal?.reason);
       this.#experiment.signal?.addEventListener("abort", abort, { once: true });
-      const context: TrialContext = {
+      const context: ArmContext = {
         service: this.#experiment.service,
         arm,
         run_id: this.#runId,
         signal: controller.signal,
       };
-      const execution = new TrialExecutionContext(context);
+      const execution = new ArmExecutionContext(context);
+      const result: ArmRun = {
+        id: `${this.#runId}:${arm.id}`,
+        service: context.service.name,
+        arm,
+        started_at: started.toISOString(),
+        finished_at: "",
+        windows: [],
+        stop: {
+          reason: "aborted",
+          inflight_at_stop: 0,
+          interrupted: 0,
+          force_cancelled: false,
+        },
+        slo: [],
+        registry: {},
+        probe_errors: {},
+        phase_errors: [],
+        operation_runs: [],
+        requests: [],
+        evaluations: {},
+      };
       let driven: Awaited<ReturnType<typeof drive>> | undefined;
       try {
-        await this.#experiment.workload.setup?.(execution.workload);
+        await this.#experiment.runner.setup?.(execution.runner);
         execution.enter("measurement");
-        await this.#experiment.onTrialStart?.(execution.workload, started);
+        await this.#experiment.onArmStart?.(execution.runner, started);
         driven = await drive({
-          workload: this.#experiment.workload,
-          context: { service: execution.workload.service, run_id: execution.workload.run_id },
+          judge: this.#experiment.judge ?? defaultJudge,
+          execution: result,
+          runner: this.#experiment.runner,
+          context: execution.runner,
           arm,
           cases: this.#cases,
           weights: this.#weights,
           signal: this.#experiment.signal,
         });
         execution.enter("deactivate");
-        await this.#experiment.workload.deactivate?.(execution.workload);
+        await this.#experiment.runner.deactivate?.(execution.runner);
       } catch (error) {
         if (this.#experiment.signal?.aborted) {
           execution.hasFatalError = true;
           execution.fatalError = error;
-        }
-        else execution.record(error);
+        } else execution.record(error);
       } finally {
         this.#experiment.signal?.removeEventListener("abort", abort);
         try {
-          await this.#experiment.workload.cleanup?.(execution.workload);
+          await this.#experiment.runner.cleanup?.(execution.runner);
         } catch (cleanupError) {
           if (execution.hasFatalError) {
             execution.hasCleanupAfterFatal = true;
             execution.cleanupAfterFatal = cleanupError;
-          }
-          else execution.record(cleanupError, "cleanup");
+          } else execution.record(cleanupError, "cleanup");
         }
       }
       if (execution.hasFatalError) {
         if (execution.hasCleanupAfterFatal) {
           throw new AggregateError(
             [execution.fatalError, execution.cleanupAfterFatal],
-            "perf trial was cancelled and cleanup also failed",
+            "perf arm_run was cancelled and cleanup also failed",
             { cause: execution.fatalError },
           );
         }
@@ -188,44 +239,39 @@ export class Engine {
       }
 
       const finished = new Date();
-      const outcomes = driven?.outcomes ?? [];
       const stop = driven?.stop ?? {
         reason: "aborted" as const,
         inflight_at_stop: 0,
         interrupted: 0,
         force_cancelled: false,
       };
-      const trial: TrialRecord = {
-        id: arm.id,
-        service: this.#experiment.service.name,
-        arm,
-        started_at: started.toISOString(),
-        finished_at: finished.toISOString(),
-        windows: buildWindows(arm.load, outcomes, driven?.stop.snapshot?.at_s ?? driven?.elapsed_s ?? 0),
-        stop,
-        slo: [],
-        registry: {},
-        probe_errors: {},
-        phase_errors: execution.phaseErrors,
-        outcomes,
-      };
-      trials.push(trial);
-      await this.#experiment.onTrialFinish?.(trial);
+      const arm_run = result;
+      arm_run.finished_at = finished.toISOString();
+      arm_run.windows = buildWindows(arm_run, driven?.elapsed_s ?? 0);
+      arm_run.stop = stop;
+      arm_run.phase_errors = execution.phaseErrors;
+      arm_runs.push(arm_run);
+      await this.#experiment.onArmFinish?.(arm_run);
       // A phase failure means the execution/testbed state is no longer a safe
       // baseline for the next Arm, regardless of any future SLO stop policy.
-      if (trial.phase_errors.length) break;
+      if (arm_run.phase_errors.length) break;
     }
     return {
-      schema: 4,
+      schema: 5,
       run_id: this.#runId,
       experiment: this.#experiment.name ?? "perf",
       created_at: created.toISOString(),
       service: this.#experiment.service.name,
-      passed: trials.length === arms(this.#experiment).length
-        && trials.every((trial) => !trial.phase_errors.length
-          && (trial.stop.reason === "deadline" || trial.stop.reason === "request_limit")),
-      n_trials: trials.length,
-      trials,
+      passed:
+        arm_runs.length === arms(this.#experiment).length &&
+        arm_runs.every(
+          (arm_run) =>
+            !arm_run.phase_errors.length &&
+            arm_run.stop.reason === "deadline" &&
+            !arm_run.stop.interrupted,
+        ),
+      executions: arm_runs,
+      artifacts: [],
     };
   }
 }

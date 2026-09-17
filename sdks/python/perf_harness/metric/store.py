@@ -1,4 +1,4 @@
-"""MetricStore — the one addressable read face over a run's trials.
+"""MetricStore — the one addressable read face over a run's arm_runs.
 
 A run is a response surface: ``metric = f(Arm, Window, slice)``. The store IS
 that surface as an index — every report/SLO-visible number is addressable
@@ -36,7 +36,7 @@ from perf_harness.metric import (
     parse_ref,
     resolve,
 )
-from perf_harness.model import RequestStats, TrialRecord, Window
+from perf_harness.model import ArmRun, RequestStats, Window
 
 # builtin request-side metric families (aggregated from judged Outcomes) — always
 # present, registered so an SLO may gate them and the report can describe them.
@@ -55,7 +55,7 @@ REQUEST_DESCRIPTORS: list[MetricFamily] = [
         "request",
         "scalar",
         "client",
-        description="judged failures ÷ sent requests (Workload.judge)",
+        description="judged failures ÷ completed dispatch-cohort requests (Judge)",
     ),
     MetricFamily(
         "request.throughput_rps",
@@ -71,22 +71,41 @@ REQUEST_DESCRIPTORS: list[MetricFamily] = [
         "request",
         "scalar",
         "client",
-        description="open-loop client_saturated drops ÷ offered (not latency samples)",
+        description="finite-rate drops ÷ offered (not latency samples)",
     ),
 ]
 
-# framework-recorded per-request metrics (stream_sse always records ttft_ms) — declared
+EVENT_FIELDS = (
+    "arrived",
+    "dispatched",
+    "completed",
+    "succeeded",
+    "n_interrupted",
+    "inflight_peak",
+    "inflight_end",
+    "arrival_rps",
+    "dispatch_rps",
+    "success_rps",
+)
+REQUEST_DESCRIPTORS.extend(
+    MetricFamily(
+        f"request.{key}", "rps" if key.endswith("rps") else "count", "request", "scalar", "client"
+    )
+    for key in EVENT_FIELDS
+)
+
+# framework-recorded per-request metrics (stream_sse records first_byte_ms) — declared
 # so an SLO may gate them. A consumer's OWN per-request metrics (first_<event>_ms …) are
-# undeclared by default → they reach the report/CSV but cannot gate unless the Workload
+# undeclared by default → they reach the report/CSV but cannot gate unless the Runner
 # declares them via describe() (an SLO must fail-fast, not silently skip a typo).
 PER_REQUEST_DESCRIPTORS: list[MetricFamily] = [
     MetricFamily(
-        "ttft_ms",
+        "first_byte_ms",
         "ms",
         "request",
         "distribution",
         "client",
-        description="time to first SSE byte/event, per request",
+        description="time to first response byte (not model TTFT)",
     ),
 ]
 
@@ -112,26 +131,28 @@ def slice_summaries(sl: RequestStats) -> dict[str, MetricSummary]:
     slice's caveats ride on its ``request.duration_ms`` distribution, so a CO-biased /
     saturated latency is never read as clean."""
     out: dict[str, MetricSummary] = dict(sl.metrics)
-    out["request.duration_ms"] = DistributionSummary(
-        n=sl.n, mean=sl.mean_ms, p50=sl.p50_ms, p95=sl.p95_ms, p99=sl.p99_ms, caveats=sl.caveats
-    )
-    out["request.error_rate"] = ScalarSummary(sl.error_rate)
+    if sl.n:
+        out["request.duration_ms"] = DistributionSummary(
+            n=sl.n, mean=sl.mean_ms, p50=sl.p50_ms, p95=sl.p95_ms, p99=sl.p99_ms, caveats=sl.caveats
+        )
+        out["request.error_rate"] = ScalarSummary(sl.error_rate)
     out["request.throughput_rps"] = ScalarSummary(sl.throughput_rps)
     out["request.drop_rate"] = ScalarSummary(sl.drop_rate)
+    out.update({f"request.{key}": ScalarSummary(getattr(sl, key)) for key in EVENT_FIELDS})
     return out
 
 
 class MetricStore:
-    """Addressable read face over Trial Windows (see module docstring)."""
+    """Addressable read face over ArmRun Windows (see module docstring)."""
 
-    def __init__(self, trials: list[TrialRecord]) -> None:
-        self._trials = trials
+    def __init__(self, arm_runs: list[ArmRun]) -> None:
+        self._arm_runs = arm_runs
         self._families: dict[str, MetricFamily] = {}
-        for trial in trials:
-            self._families.update(trial.metrics)
+        for arm_run in arm_runs:
+            self._families.update(arm_run.metrics)
 
-    def rows(self) -> list[TrialRecord]:
-        return self._trials
+    def rows(self) -> list[ArmRun]:
+        return self._arm_runs
 
     def families(self) -> dict[str, MetricFamily]:
         return self._families
@@ -139,21 +160,23 @@ class MetricStore:
     def family(self, name: str) -> MetricFamily | None:
         return self._families.get(name)
 
-    def query(self, trial: TrialRecord, ref: str, window: Window | None = None) -> Read:
+    def query(self, arm_run: ArmRun, ref: str, window: Window | None = None) -> Read:
         """Resolve a metric ref inside one Window; measurement is the default."""
-        window = window or trial.measurement
+        window = window or arm_run.measurement
         name, labels, stat = parse_ref(ref)
-        family = trial.metrics.get(name) or self._families.get(name)
+        family = arm_run.metrics.get(name) or self._families.get(name)
         if family is not None and family.side == "resource":
             if stat is None:
                 return Missing("no_data")
             value = resolve(window.probe_metrics, ref)
             if value is not None:
                 return value
-            return self._resource_missing(trial, name, labels)
+            return self._resource_missing(arm_run, name, labels)
         request = self._request_slice(window, labels)
         if request is None:
             return Missing("no_slice")
+        if request.n == 0 and name in {"p50_ms", "p95_ms", "p99_ms", "mean_ms", "error_rate"}:
+            return Missing("no_data")
         if stat is None:
             value = getattr(request, name, None)
             return float(value) if value is not None else Missing("no_data")
@@ -164,9 +187,9 @@ class MetricStore:
         return value if value is not None else Missing("no_data")
 
     def summary(
-        self, trial: TrialRecord, sid: str, window: Window | None = None
+        self, arm_run: ArmRun, sid: str, window: Window | None = None
     ) -> MetricSummary | None:
-        window = window or trial.measurement
+        window = window or arm_run.measurement
         name, labels, _ = parse_ref(sid)
         if "service" in labels:
             return window.probe_metrics.get(sid)
@@ -174,10 +197,10 @@ class MetricStore:
         return slice_summaries(request).get(name) if request is not None else None
 
     def pivot(
-        self, trial: TrialRecord, family: str, by: str, window: Window | None = None
+        self, arm_run: ArmRun, family: str, by: str, window: Window | None = None
     ) -> dict[str, MetricSummary]:
         """Group one Window's resource series by a label."""
-        window = window or trial.measurement
+        window = window or arm_run.measurement
         out: dict[str, MetricSummary] = {}
         for sid, summary in window.probe_metrics.items():
             name, labels, _ = parse_ref(sid)
@@ -195,10 +218,10 @@ class MetricStore:
         return window.by_facet.get(key, {}).get(value)
 
     @staticmethod
-    def _resource_missing(trial: TrialRecord, name: str, labels: dict[str, str]) -> Missing:
+    def _resource_missing(arm_run: ArmRun, name: str, labels: dict[str, str]) -> Missing:
         service = labels.get("service")
         if service is not None:
             probe_id = f"{name.split('.', 1)[0]}.{service}"
-            if probe_id in trial.probe_errors:
+            if probe_id in arm_run.probe_errors:
                 return Missing("probe_error")
         return Missing("no_slice" if labels else "no_data")

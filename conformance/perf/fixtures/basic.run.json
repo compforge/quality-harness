@@ -1,42 +1,35 @@
 {
-  "schema": 4,
-  "run_id": "conformance-basic",
-  "experiment": "shared-contract",
-  "created_at": "2026-01-01T00:00:00Z",
-  "service": "chat",
+  "schema": 5,
+  "run_id": "run",
+  "experiment": "fixture",
+  "created_at": "2026-09-17T00:00:00Z",
+  "service": "mock",
   "passed": true,
-  "n_trials": 1,
-  "trials": [
+  "executions": [
     {
-      "id": "default__closed-5c",
-      "service": "chat",
-      "started_at": "2026-01-01T00:00:00Z",
-      "finished_at": "2026-01-01T00:01:10Z",
+      "id": "run:one",
+      "service": "mock",
       "arm": {
-        "id": "default__closed-5c",
+        "id": "one",
         "resources": {
           "cpu": null,
           "memory": null,
           "workers": null,
           "replicas": 1,
-          "extra": {}
+          "extra": {},
+          "label": "default"
         },
         "load": {
-          "model": "closed",
-          "schedule": {
-            "start_level": 0,
-            "stages": [
-              {"over_s": 10, "to_level": 5, "kind": "ramp", "name": "ramp-5"},
-              {"over_s": 60, "to_level": 5, "kind": "hold", "name": "hold-5"}
-            ]
-          },
-          "pacing": {"kind": "none", "secs": 0, "max_secs": 0},
-          "warmup_s": 0,
-          "max_inflight": null,
-          "max_requests": null,
-          "abort_on_error_rate": 0.1,
-          "breaker_min_n": 10,
-          "graceful_stop_s": 30
+          "request_rate": "inf",
+          "max_concurrency": 1,
+          "duration_s": 1,
+          "stages": [],
+          "arrival": "constant",
+          "seed": 0,
+          "warmup_s": 0.0,
+          "abort_on_error_rate": null,
+          "breaker_min_n": 20,
+          "drain_timeout_s": 30.0
         }
       },
       "stop": {
@@ -46,54 +39,383 @@
         "force_cancelled": false
       },
       "slo": [],
-      "registry": {},
+      "registry": {
+        "request.duration_ms": {
+          "unit": "ms",
+          "side": "request",
+          "value_kind": "distribution",
+          "source": "client",
+          "description": "end-to-end request latency, client-observed",
+          "labels": []
+        },
+        "request.error_rate": {
+          "unit": "ratio",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "judged failures ÷ sent requests (Judge)",
+          "labels": []
+        },
+        "request.throughput_rps": {
+          "unit": "rps",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "completed requests ÷ steady window",
+          "labels": []
+        },
+        "request.drop_rate": {
+          "unit": "ratio",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "open-loop client_saturated drops ÷ offered (not latency samples)",
+          "labels": []
+        },
+        "request.arrived": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.dispatched": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.completed": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.succeeded": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.n_interrupted": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.inflight_peak": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.inflight_end": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.arrival_rps": {
+          "unit": "rps",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.dispatch_rps": {
+          "unit": "rps",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.success_rps": {
+          "unit": "rps",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "scheduler_lag_ms": {
+          "unit": "ms",
+          "side": "request",
+          "value_kind": "distribution",
+          "source": "client",
+          "description": "",
+          "labels": []
+        }
+      },
       "windows": [
         {
           "id": "measurement",
           "name": "measurement",
           "kind": "measurement",
-          "start_s": 0,
-          "end_s": 70,
+          "start_s": 0.0,
+          "end_s": 1,
           "complete": true,
           "target_level": null,
           "request": {
             "n": 1,
             "n_ok": 1,
-            "throughput_rps": 0.0142857143,
-            "p50_ms": 7000,
-            "p95_ms": 7000,
-            "p99_ms": 7000,
-            "mean_ms": 7000,
-            "error_rate": 0,
+            "throughput_rps": 0.0,
+            "p50_ms": 2000,
+            "p95_ms": 2000,
+            "p99_ms": 2000,
+            "error_rate": 0.0,
             "error_breakdown": {},
-            "n_dropped": 0,
-            "caveats": ["co_biased", "few_samples"],
+            "arrived": 2,
+            "dispatched": 1,
+            "completed": 0,
+            "succeeded": 0,
+            "n_interrupted": 0,
+            "arrival_rps": 2.0,
+            "dispatch_rps": 1.0,
+            "success_rps": 0.0,
+            "inflight_peak": 1,
+            "inflight_end": 1,
+            "n_dropped": 1,
+            "mean_ms": 2000.0,
             "metrics": {
-              "first_token_ms": {
+              "scheduler_lag_ms": {
                 "kind": "distribution",
-                "n": 1,
-                "mean": 6500,
-                "p50": 6500,
-                "p95": 6500,
-                "p99": 6500,
-                "caveats": ["co_biased", "few_samples"]
+                "n": 2,
+                "mean": 0.0,
+                "p50": 0,
+                "p95": 0.0,
+                "p99": 0.0,
+                "caveats": [
+                  "co_biased",
+                  "few_samples",
+                  "high_drop"
+                ]
               }
-            }
+            },
+            "caveats": [
+              "co_biased",
+              "few_samples",
+              "high_drop"
+            ]
           },
           "by_case": {
-            "ordinary_chat": {
+            "hello": {
               "n": 1,
               "n_ok": 1,
-              "throughput_rps": 0.0142857143,
-              "p50_ms": 7000,
-              "p95_ms": 7000,
-              "p99_ms": 7000,
-              "mean_ms": 7000,
+              "throughput_rps": 0.0,
+              "p50_ms": 2000,
+              "p95_ms": 2000,
+              "p99_ms": 2000,
+              "error_rate": 0.0,
+              "error_breakdown": {},
+              "arrived": 2,
+              "dispatched": 1,
+              "completed": 0,
+              "succeeded": 0,
+              "n_interrupted": 0,
+              "arrival_rps": 2.0,
+              "dispatch_rps": 1.0,
+              "success_rps": 0.0,
+              "inflight_peak": 1,
+              "inflight_end": 1,
+              "n_dropped": 1,
+              "mean_ms": 2000.0,
+              "metrics": {
+                "scheduler_lag_ms": {
+                  "kind": "distribution",
+                  "n": 2,
+                  "mean": 0.0,
+                  "p50": 0,
+                  "p95": 0.0,
+                  "p99": 0.0,
+                  "caveats": [
+                    "co_biased",
+                    "few_samples",
+                    "high_drop"
+                  ]
+                }
+              },
+              "caveats": [
+                "co_biased",
+                "few_samples",
+                "high_drop"
+              ]
+            }
+          },
+          "by_facet": {},
+          "probe_metrics": {}
+        },
+        {
+          "id": "stage-0",
+          "name": "hold@1",
+          "kind": "hold",
+          "start_s": 0.0,
+          "end_s": 1.0,
+          "complete": true,
+          "target_level": 1,
+          "request": {
+            "n": 1,
+            "n_ok": 1,
+            "throughput_rps": 0.0,
+            "p50_ms": 2000,
+            "p95_ms": 2000,
+            "p99_ms": 2000,
+            "error_rate": 0.0,
+            "error_breakdown": {},
+            "arrived": 2,
+            "dispatched": 1,
+            "completed": 0,
+            "succeeded": 0,
+            "n_interrupted": 0,
+            "arrival_rps": 2.0,
+            "dispatch_rps": 1.0,
+            "success_rps": 0.0,
+            "inflight_peak": 1,
+            "inflight_end": 1,
+            "n_dropped": 1,
+            "mean_ms": 2000.0,
+            "metrics": {
+              "scheduler_lag_ms": {
+                "kind": "distribution",
+                "n": 2,
+                "mean": 0.0,
+                "p50": 0,
+                "p95": 0.0,
+                "p99": 0.0,
+                "caveats": [
+                  "co_biased",
+                  "few_samples",
+                  "high_drop"
+                ]
+              }
+            },
+            "caveats": [
+              "co_biased",
+              "few_samples",
+              "high_drop"
+            ]
+          },
+          "by_case": {
+            "hello": {
+              "n": 1,
+              "n_ok": 1,
+              "throughput_rps": 0.0,
+              "p50_ms": 2000,
+              "p95_ms": 2000,
+              "p99_ms": 2000,
+              "error_rate": 0.0,
+              "error_breakdown": {},
+              "arrived": 2,
+              "dispatched": 1,
+              "completed": 0,
+              "succeeded": 0,
+              "n_interrupted": 0,
+              "arrival_rps": 2.0,
+              "dispatch_rps": 1.0,
+              "success_rps": 0.0,
+              "inflight_peak": 1,
+              "inflight_end": 1,
+              "n_dropped": 1,
+              "mean_ms": 2000.0,
+              "metrics": {
+                "scheduler_lag_ms": {
+                  "kind": "distribution",
+                  "n": 2,
+                  "mean": 0.0,
+                  "p50": 0,
+                  "p95": 0.0,
+                  "p99": 0.0,
+                  "caveats": [
+                    "co_biased",
+                    "few_samples",
+                    "high_drop"
+                  ]
+                }
+              },
+              "caveats": [
+                "co_biased",
+                "few_samples",
+                "high_drop"
+              ]
+            }
+          },
+          "by_facet": {},
+          "probe_metrics": {}
+        },
+        {
+          "id": "drain",
+          "name": "drain",
+          "kind": "drain",
+          "start_s": 1,
+          "end_s": 2.000000000001,
+          "complete": true,
+          "target_level": null,
+          "request": {
+            "n": 0,
+            "n_ok": 0,
+            "throughput_rps": 0.9999999999989999,
+            "p50_ms": 0.0,
+            "p95_ms": 0.0,
+            "p99_ms": 0.0,
+            "error_rate": 0,
+            "error_breakdown": {},
+            "arrived": 0,
+            "dispatched": 0,
+            "completed": 1,
+            "succeeded": 1,
+            "n_interrupted": 0,
+            "arrival_rps": 0.0,
+            "dispatch_rps": 0.0,
+            "success_rps": 0.9999999999989999,
+            "inflight_peak": 1,
+            "inflight_end": 0,
+            "n_dropped": 0,
+            "mean_ms": 0,
+            "metrics": {},
+            "caveats": [
+              "few_samples"
+            ]
+          },
+          "by_case": {
+            "hello": {
+              "n": 0,
+              "n_ok": 0,
+              "throughput_rps": 0.9999999999989999,
+              "p50_ms": 0.0,
+              "p95_ms": 0.0,
+              "p99_ms": 0.0,
               "error_rate": 0,
               "error_breakdown": {},
+              "arrived": 0,
+              "dispatched": 0,
+              "completed": 1,
+              "succeeded": 1,
+              "n_interrupted": 0,
+              "arrival_rps": 0.0,
+              "dispatch_rps": 0.0,
+              "success_rps": 0.9999999999989999,
+              "inflight_peak": 1,
+              "inflight_end": 0,
               "n_dropped": 0,
-              "caveats": ["co_biased", "few_samples"],
-              "metrics": {}
+              "mean_ms": 0,
+              "metrics": {},
+              "caveats": [
+                "few_samples"
+              ]
             }
           },
           "by_facet": {},
@@ -101,8 +423,7 @@
         }
       ],
       "probe_errors": {},
-      "implementation_note": "readers ignore unknown optional fields"
+      "phase_errors": []
     }
-  ],
-  "implementation_note": "fixture belongs to the shared contract"
+  ]
 }

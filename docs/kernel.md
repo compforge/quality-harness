@@ -31,7 +31,7 @@ e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共
 | **Deployer** | 执行 Deployment 的协议无关端口；Helm、Docker 等是具体实现。 |
 | **Experiment** | 一份具名、可复现的验证意图；公共层只拥有稳定名称，各 Harness 子类增加 Case、Arm、Workload、Metric 或 Policy 等领域配置。 |
 | **ExperimentRun** | Experiment 的一次真实执行，以 experiment name、`run_id` 和创建时间标识；领域实现可以简称为 `Run`。 |
-| **Execution** | ExperimentRun 内由领域定义的组织单元；E2E 的 CaseRun 与 perf 的 Trial 都是 Execution。公共层不规定调度器或 runner 的调用协议。 |
+| **Execution** | ExperimentRun 内由领域定义的组织单元；E2E 的 CaseRun 与 perf 的 ArmRun 都是 Execution。公共层不规定调度器或 runner 的调用协议。 |
 | **OperationRun** | 对某个 Service 的 Operation 的一次真实调用；直接拥有这次调用产生的 Outcome。 |
 | **Outcome** | OperationRun 产生的原始领域证据。公共层只统一语义角色，具体字段由领域子类定义。 |
 | **Reducer** | 只读取 ExperimentRun 已记录事实并产出 Artifact 的领域归约器；不得再次调用被测 Service。 |
@@ -53,7 +53,7 @@ Service 是逻辑运行服务，不与 Kubernetes Service 或其它平台资源�
 Workload 承载，部署配置为这一关系提供事实；映射变化不改变逻辑 Service 身份。
 Workload 内含定位描述，执行期发现 WorkloadInstance；身份与访问边界见 [Workload](workload.md)。
 EnvironmentContext 绑定执行期环境、借用客户端入口与预算；EnvironmentFixture 编排共享环境资源，
-领域执行回调内部的 Case / Trial 生命周期归各 Harness；见 [Environment](environment.md)。
+领域执行回调内部的 Case / ArmRun 生命周期归各 Harness；见 [Environment](environment.md)。
 ClientProvider 通过客户端标识与构造方法显式连接可访问 Environment 和 DataSource；
 DataSource 仅表达数据来源语义，ClientManager 统一接收两者。
 Transport 管理各类基础设施访问通道，ClientManager 管理执行期客户端；见 [toolbox](toolbox.md)。
@@ -72,6 +72,11 @@ ExperimentRun
 
 Reducer.reduce(ExperimentRun) → Artifact × N → Report / Verdict
 ```
+
+OperationRun 是一次真实服务调用的基本单位。ExperimentRun 通过领域自己的 Execution 组织这些调用，
+而不直接管理所有调用细节：E2E 可以按 CaseRun 分组，perf 的 ArmRun 则组织固定 Arm、目标 Service/Workload
+和一批 Case 在一次加压过程中产生的 N 次调用，N 由加压器决定。简单 Case 的一次触发对应一个 OperationRun；
+多步骤 Case 可以产生多个 OperationRun。
 
 公共层统一的是执行后的事实，不统一执行机制：领域 Engine 可以使用 runner、scheduler、队列或其它方式
 组织 OperationRun。因而 common 不提供 `Driver.run` / `DriverRun`。Outcome 与 Artifact 也不是一一对应：

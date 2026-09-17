@@ -75,6 +75,6 @@ from e2e_harness.runner.events import events as events
 from e2e_harness.runner.events import find_event as find_event
 from e2e_harness.runner.events import find_event_data as find_event_data
 from e2e_harness.runner.json_runner import JSONRunner as JSONRunner
-from e2e_harness.runner.sse_parser import SSEEvent as SSEEvent
-from e2e_harness.runner.sse_parser import SSEParser as SSEParser
+from harness_toolbox.sse_parser import SSEEvent as SSEEvent
+from harness_toolbox.sse_parser import SSEParser as SSEParser
 from e2e_harness.runner.sse_runner import SSERunner as SSERunner

@@ -4,8 +4,8 @@ import yaml
 from harness_common import Experiment as BaseExperiment
 from harness_common import ExperimentRun
 
-from perf_harness.drive.load import LoadProfile, Schedule
-from perf_harness.drive.workload import MockWorkload, Workload
+from perf_harness.drive.load import LoadPlan
+from perf_harness.drive.runner import MockRunner, Runner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.model import (
     Outcome,
@@ -28,9 +28,9 @@ def test_make_run_id_format():
 async def test_write_run_lays_out_experiment_dir(tmp_path):
     experiment = Experiment(
         service=_subject(),
-        workload=MockWorkload(base_ms=2),
+        runner=MockRunner(base_ms=2),
         resources=[ResourceProfile(workers=2)],
-        loads=[LoadProfile(model="closed", schedule=Schedule.ramp_hold(2, 0.0, 0.2))],
+        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=2, duration_s=(0.0 + 0.2))],
         name="chat-sizing",
     )
     engine = Engine(experiment, run_id="20260101-000000")
@@ -46,7 +46,8 @@ async def test_write_run_lays_out_experiment_dir(tmp_path):
     write_run(run, str(tmp_path), config_path=str(config))
     assert run.artifact_paths() == {
         "model": "run.json",
-        "outcomes": "outcomes.jsonl",
+        "requests": "requests.jsonl",
+        "evaluations": "evaluations.json",
         "timeseries": "timeseries.csv",
     }
 
@@ -58,7 +59,7 @@ async def test_write_run_lays_out_experiment_dir(tmp_path):
     meta = json.loads((run_dir / "run.json").read_text())
     assert meta["experiment"] == "chat-sizing"
     assert meta["run_id"] == "20260101-000000"
-    assert meta["n_trials"] == len(run.trials)
+    assert len(meta["executions"]) == len(run.arm_runs)
 
     snapshot = yaml.safe_load((run_dir / "config.yaml").read_text())
     assert snapshot["caseset"] == "./caseset.yaml"
@@ -73,18 +74,18 @@ async def test_write_run_lays_out_experiment_dir(tmp_path):
 async def test_run_id_reaches_fire(tmp_path):
     seen: list[str] = []
 
-    class RecordingWorkload(Workload):
+    class RecordingRunner(Runner):
         name = "rec"
 
         async def fire(self, ctx):
-            seen.append(ctx.trial.run_id)
+            seen.append(ctx.arm_run.run_id)
             return Outcome(ok=True, status=200, duration_ms=1.0)
 
     experiment = Experiment(
         service=_subject(),
-        workload=RecordingWorkload(),
+        runner=RecordingRunner(),
         resources=[ResourceProfile()],
-        loads=[LoadProfile(model="closed", schedule=Schedule.ramp_hold(1, 0.0, 0.1))],
+        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.1))],
     )
     await Engine(experiment, run_id="RID-123").run()
     assert seen and all(r == "RID-123" for r in seen)

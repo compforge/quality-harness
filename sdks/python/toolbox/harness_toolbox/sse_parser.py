@@ -65,7 +65,7 @@ class SSEParser:
         Strips trailing whitespace (incl. CRLF) so callers can feed raw lines
         from ``iter_lines`` / ``aiter_lines`` directly.
         """
-        line = line.rstrip()
+        line = line.rstrip("\r\n")
         if not line:
             if self._data_lines:
                 return self._emit()

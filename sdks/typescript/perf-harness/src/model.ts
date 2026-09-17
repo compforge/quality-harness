@@ -1,4 +1,4 @@
-import type { LoadProfile } from "./load";
+import type { LoadPlan } from "./load";
 export type { Case, CaseSet } from "@compforge/spec-case/model";
 
 export interface CaseMixEntry {
@@ -14,74 +14,43 @@ export interface ResourceProfile {
   extra?: Record<string, string>;
 }
 
-export interface Forge {
-  name: string;
-}
-
-export interface Repository {
-  forge: Forge;
-  path: string;
-}
-
-export interface Product {
-  name: string;
-}
-
-export interface Component {
-  repository: Repository;
-  name: string;
-}
-
-export interface Environment {
-  name: string;
-}
-
-export interface KubernetesEnvironment extends Environment {
-  kubeconfig: string;
-  context?: string;
-}
-
-export interface Service {
-  name: string;
-  component?: Component;
-  environment?: KubernetesEnvironment;
+import type {
+  Service as BaseService,
+  Execution,
+  ExperimentRun,
+} from "@compforge/harness-common";
+export type {
+  Operation,
+  HttpOperation,
+  OperationRun,
+  Environment,
+  Component,
+  Repository,
+  Forge,
+} from "@compforge/harness-common";
+export interface Service extends BaseService {
   base_url?: string;
   headers?: Record<string, string>;
-  namespace?: string;
-  k8s_selector?: string;
-  container?: string;
-}
-
-export interface Operation {
-  name: string;
-}
-
-export interface HttpOperation extends Operation {
-  method: string;
-  path: string;
 }
 
 export interface Arm {
   id: string;
   resources: ResourceProfile;
-  load: LoadProfile;
+  load: LoadPlan;
 }
 
 export interface Outcome {
   status: number | null;
   duration_ms: number;
-  ok?: boolean;
-  error_kind?: string;
   events?: number;
   nbytes?: number;
   metrics?: Record<string, number>;
-  dropped?: boolean;
   meta?: Record<string, unknown>;
   facets?: Record<string, string>;
   case_id?: string;
 }
 
-export interface Verdict {
+export interface RequestEvaluation {
   ok: boolean;
   error_kind?: string;
 }
@@ -107,11 +76,21 @@ export interface RequestStats {
   error_rate: number;
   error_breakdown: Record<string, number>;
   n_dropped: number;
+  arrived: number;
+  dispatched: number;
+  completed: number;
+  succeeded: number;
+  n_interrupted: number;
+  arrival_rps: number;
+  dispatch_rps: number;
+  success_rps: number;
+  inflight_peak: number;
+  inflight_end: number;
   caveats: string[];
   metrics: Record<string, DistributionSummary>;
 }
 
-export type WindowKind = "measurement" | "ramp" | "hold" | "cooldown";
+export type WindowKind = "measurement" | "ramp" | "hold" | "drain" | "cooldown";
 
 export interface Window {
   id: string;
@@ -129,13 +108,13 @@ export interface Window {
 
 export interface StopSnapshot {
   at_s: number;
-  sent: number;
+  completed: number;
   errors: number;
   error_rate: number;
   threshold: number;
 }
 
-export interface TrialStop {
+export interface ArmStop {
   reason: "deadline" | "error_rate" | "request_limit" | "aborted";
   snapshot?: StopSnapshot;
   inflight_at_stop: number;
@@ -143,7 +122,8 @@ export interface TrialStop {
   force_cancelled: boolean;
 }
 
-export type Phase = "setup" | "measurement" | "deactivate" | "cooldown" | "cleanup";
+export type Phase =
+  "setup" | "measurement" | "deactivate" | "cooldown" | "cleanup";
 
 export interface PhaseError {
   phase: Phase;
@@ -151,33 +131,37 @@ export interface PhaseError {
   message: string;
 }
 
-export interface TimedOutcome {
-  t: number;
-  outcome: Outcome;
+export interface RequestRecord {
+  id: string;
+  case_id: string;
+  scheduled_at: number;
+  arrived_at: number;
+  dispatched_at?: number;
+  finished_at?: number;
+  state: "arrived" | "dispatched" | "finished" | "dropped" | "interrupted";
+  reason?: string;
+  operation_run_id?: string;
+  facets: Record<string, string>;
 }
 
-export interface TrialRecord {
+export interface ArmRun extends Execution<Outcome> {
   id: string;
   service: string;
   arm: Arm;
   started_at: string;
   finished_at: string;
   windows: Window[];
-  stop: TrialStop;
+  stop: ArmStop;
   slo: unknown[];
   registry: Record<string, unknown>;
   probe_errors: Record<string, unknown>;
   phase_errors: PhaseError[];
-  outcomes: TimedOutcome[];
+  requests: RequestRecord[];
+  evaluations: Record<string, RequestEvaluation>;
 }
 
-export interface Run {
-  schema: 4;
-  run_id: string;
-  experiment: string;
-  created_at: string;
+export interface Run extends ExperimentRun<ArmRun> {
+  schema: 5;
   service: string;
   passed: boolean;
-  n_trials: number;
-  trials: TrialRecord[];
 }

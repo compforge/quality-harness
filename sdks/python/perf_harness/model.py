@@ -3,15 +3,15 @@
 The whole harness is four lines::
 
     一个 Experiment 比较一组 Arm;
-    一个 Arm 是命名的 ResourceProfile(资源档) + LoadProfile(负载档);
-    一个 Trial 是 Arm 的真实执行, 由 Workload 发 Case、Probe 周期采样并按 Window 归约;
+    一个 Arm 是命名的 ResourceProfile(资源档) + LoadPlan(负载档);
+    一个 ArmRun 是 Arm 的真实执行, 由 Runner 发 Case、Probe 周期采样并按 Window 归约;
     report / SLO / analyze 都是对这张表的查询。
 
 This module holds the nouns that are *just data* (no behaviour): the
 time-series primitives (`Sample`/`Series`), one request's `Outcome` + its
-`Verdict`, the domain `Environment` / `Service`, the `ResourceProfile` (资源档),
-and the per-Trial/-Run aggregates (`RequestStats`/`TrialRecord`/`Run`). The load
-*shape* vocabulary (`LoadProfile`/`Schedule`/`Pacing`) lives in `load.py`;
+`RequestEvaluation`, the domain `Environment` / `Service`, the `ResourceProfile` (资源档),
+and the per-ArmRun/-Run aggregates (`RequestStats`/`ArmRun`/`Run`). The load
+*shape* vocabulary (`LoadPlan`/`Stage`) lives in `load.py`;
 behaviour (firing load, sampling probes, provisioning) lives in sibling modules.
 """
 
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from harness_common import (
     Component,
@@ -32,14 +32,14 @@ from harness_common import Deployment as BaseDeployment
 from harness_common import Environment as BaseEnvironment
 from harness_common import Outcome as BaseOutcome
 from harness_common import Service as BaseService
-from harness_toolbox.environment import KubernetesEnvironment
 
 from perf_harness.metric import Caveat, MetricFamily, MetricSummary
+from perf_harness.records import RequestEvaluation, RequestRecord
 
 if TYPE_CHECKING:
-    # annotation-only: importing drive at runtime would cycle (drive.workload
-    # constructs this module's Outcome/Verdict)
-    from perf_harness.drive.load import LoadProfile
+    # annotation-only: importing drive at runtime would cycle (drive.runner
+    # constructs this module's Outcome)
+    from perf_harness.drive.load import LoadPlan
 
 
 def make_run_id() -> str:
@@ -49,7 +49,7 @@ def make_run_id() -> str:
 
 @dataclass(frozen=True)
 class Sample:
-    """One reading of one Metric at time ``t`` (monotonic seconds into the Trial)."""
+    """One reading of one Metric at time ``t`` (monotonic seconds into the ArmRun)."""
 
     t: float
     value: float
@@ -57,7 +57,7 @@ class Sample:
 
 @dataclass
 class Series:
-    """A named Metric's readings over a Trial — one time-varying signal."""
+    """A named Metric's readings over a ArmRun — one time-varying signal."""
 
     metric: str
     unit: str
@@ -66,15 +66,13 @@ class Series:
 
 @dataclass
 class Outcome(BaseOutcome):
-    """Client-side result of one Workload.fire() — the request-side truth.
+    """Client-side result of one Runner.fire() — the request-side truth.
 
     Two-stage contract: ``fire`` records the *raw observation* (status, timing,
     SSE frame/byte counts, and protocol-specific signals in ``meta``); the
-    *verdict* (``ok`` / ``error_kind``) is then decided by ``Workload.judge`` —
-    NOT by ``fire`` — and written back by the Engine. So ``fire`` may leave
-    ``ok``/``error_kind`` at their defaults; the authoritative values come from
-    judge. Keeping judge a pure function of this raw Outcome means verdicts can
-    be recomputed offline from stored Outcomes without re-firing.
+    independent Judge returns a RequestEvaluation stored by OperationRun ID.
+    Judgment never writes back to this raw Outcome, so the same evidence can be
+    evaluated offline without calling the Service again.
 
     Latency percentiles, throughput and the error taxonomy are aggregated from
     these (not from a server histogram), so they are always available even when
@@ -83,14 +81,11 @@ class Outcome(BaseOutcome):
 
     status: int | None
     duration_ms: float
-    ok: bool = False  # verdict — set by Workload.judge() via the Engine, not by fire()
-    error_kind: str | None = None  # verdict bucket — set by judge(): "ReadTimeout" / "503" / …
     events: int = 0  # SSE frames consumed (0 for non-SSE)
     nbytes: int = 0
     metrics: dict[str, float] = field(
         default_factory=dict
     )  # per_request metric values fire() measured: ttft_ms / first_<event>_ms … (→ MetricStat)
-    dropped: bool = False  # never-sent (open-loop max_inflight shed); NOT a latency sample
     meta: dict = field(
         default_factory=dict
     )  # raw signals fire() records for judge(): exc / saw_done / error_frames / ttft_ms …
@@ -98,17 +93,6 @@ class Outcome(BaseOutcome):
         default_factory=dict
     )  # fired Case's dims; report pivots by these
     case_id: str = ""  # canonical Case.id stamped by the scheduler for cross-run joins
-
-
-@dataclass(frozen=True)
-class Verdict:
-    """The judgement on one Outcome — ``Workload.judge``'s return.
-
-    ``error_kind`` is the report's error bucket; ``None`` iff ``ok``.
-    """
-
-    ok: bool
-    error_kind: str | None = None
 
 
 # The unit of load `Case` now lives in `common.case` — the canonical, harness-neutral case
@@ -123,7 +107,7 @@ class Verdict:
 # ---------------------------------------------------------------------------
 
 
-Environment = KubernetesEnvironment
+Environment = BaseEnvironment
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,7 +133,7 @@ class Service(BaseService):
 
 @dataclass(frozen=True)
 class ResourceProfile:
-    """资源档: the resource budget the Service runs under for one Trial.
+    """资源档: the resource budget the Service runs under for one ArmRun.
 
     Substrate-agnostic data — it does not care whether a HelmDeployer drove it,
     a DockerDeployer did, or a human set it and the harness merely *records* it
@@ -187,11 +171,11 @@ class Arm:
 
     id: str
     resources: ResourceProfile
-    load: LoadProfile
+    load: LoadPlan
 
 
 # ---------------------------------------------------------------------------
-# Per-Trial aggregate — one row of the summary table
+# Per-ArmRun aggregate — one row of the summary table
 # ---------------------------------------------------------------------------
 
 
@@ -199,13 +183,10 @@ class Arm:
 class RequestStats:
     """Request-side aggregate over one Window, or one facet slice within it.
 
-    ``n`` / latency / throughput / error_rate cover only *sent* requests. Open-loop
-    ``client_saturated`` drops (never-sent shed load) are NOT latency samples and
-    are excluded from those — they live in ``n_dropped`` instead, with
-    ``drop_rate`` = dropped / (sent + dropped). A non-trivial ``drop_rate`` means
-    the generator measured below its intended offered load, so the latency
-    percentiles understate reality (coordinated omission) and the Trial's latency
-    is not trustworthy — the report flags it.
+    ``n`` / latency / error_rate describe completed requests in the dispatch cohort.
+    Throughput uses actual completion events in the window, not cohort size.
+    Drops are never latency samples; drop_rate divides drops by planned arrivals.
+    Interrupted requests preserve incomplete evidence and are excluded from latency.
     """
 
     n: int
@@ -216,6 +197,16 @@ class RequestStats:
     p99_ms: float
     error_rate: float
     error_breakdown: dict[str, int]
+    arrived: int = 0
+    dispatched: int = 0
+    completed: int = 0
+    succeeded: int = 0
+    n_interrupted: int = 0
+    arrival_rps: float = 0.0
+    dispatch_rps: float = 0.0
+    success_rps: float = 0.0
+    inflight_peak: int = 0
+    inflight_end: int = 0
     n_dropped: int = 0
     mean_ms: float = 0.0  # mean request latency (feeds the request.duration_ms distribution)
     metrics: dict[str, MetricSummary] = field(
@@ -229,12 +220,12 @@ class RequestStats:
 
     @property
     def drop_rate(self) -> float:
-        total = self.n + self.n_dropped
+        total = self.arrived
         return self.n_dropped / total if total else 0.0
 
 
 # ---------------------------------------------------------------------------
-# Stop model — how a trial ended (every trial ends with one, "deadline" is normal)
+# Stop model — how a arm_run ended (every arm_run ends with one, "deadline" is normal)
 # ---------------------------------------------------------------------------
 
 
@@ -245,17 +236,17 @@ class StopSnapshot:
     the report can answer 'why did it stop' from the trip itself, not by reverse-
     engineering the measurement aggregate. ``None`` on a clean ``deadline`` stop."""
 
-    at_s: float  # seconds into the trial when it tripped
-    sent: int  # requests sent at trip (the breaker's denominator)
+    at_s: float  # seconds into the arm_run when it tripped
+    completed: int  # finished, evaluated requests at the breaker snapshot
     errors: int  # judged failures at trip (the breaker's numerator)
     error_rate: float  # errors / sent at trip
     threshold: float  # the configured abort_on_error_rate it crossed
 
 
 @dataclass(frozen=True)
-class TrialStop:
-    """How one trial ended. EVERY trial has one — ``reason="deadline"`` is the normal
-    end (planned ``steady_s`` reached), other reasons mean it stopped early. The
+class ArmStop:
+    """How one arm_run ended. EVERY arm_run has one — ``reason="deadline"`` is the normal
+    end (planned ``duration_s`` reached), other reasons mean it stopped early. The
     enact census records what was in flight when the load wound down: a cancelled
     in-flight request is ``interrupted`` (NOT a latency sample / error — see
     ``RequestStats``), counted here only.
@@ -271,13 +262,13 @@ class TrialStop:
 
     @property
     def early(self) -> bool:
-        """The trial stopped before its planned window (anything but a deadline end)."""
+        """The arm_run stopped before its planned window (anything but a deadline end)."""
         return self.reason != "deadline"
 
 
 @dataclass(frozen=True)
 class ProbeErrors:
-    """One probe's observation-failure census for a trial — observability health is
+    """One probe's observation-failure census for a arm_run — observability health is
     DATA (a probe that silently fails paints a fake-flat trend). ``failures`` of
     ``ticks`` sampling rounds raised; ``last`` is the most recent error (repr).
     Observational only: it flags summaries (``probe_error`` caveat) and the report,
@@ -288,16 +279,16 @@ class ProbeErrors:
     last: str
 
 
-WindowKind = Literal["measurement", "ramp", "hold", "cooldown"]
+WindowKind = Literal["measurement", "ramp", "hold", "drain", "cooldown"]
 Phase = Literal["setup", "measurement", "deactivate", "cooldown", "cleanup"]
 
 
 @dataclass(frozen=True)
 class PhaseError:
-    """An ordinary exception raised while executing a Trial lifecycle phase.
+    """An ordinary exception raised while executing a ArmRun lifecycle phase.
 
     This is harness execution evidence, not a request ``Outcome``, Probe health,
-    or an SLO result. Keeping it on the Trial lets a failed setup/cleanup still
+    or an SLO result. Keeping it on the ArmRun lets a failed setup/cleanup still
     produce a complete run artifact without inventing request facts.
     """
 
@@ -308,11 +299,11 @@ class PhaseError:
 
 @dataclass
 class Window:
-    """An observed time boundary within a Trial.
+    """An observed time boundary within a ArmRun.
 
     Stage is the load plan; Window is the actual interval used to reduce request
     and resource facts. Its interval is half-open: ``[start_s, end_s)``. ``id`` is
-    unique within a Trial even when display names
+    unique within a ArmRun even when display names
     repeat (for example a spike's two ``hold@base`` legs).
     """
 
@@ -334,49 +325,45 @@ class Window:
 
 
 @dataclass
-class TrialRecord(Execution[Outcome]):
+class ArmRun(Execution[Outcome]):
     """The recorded execution of one Arm, reduced into addressable Windows."""
 
     service: str
     arm: Arm
     windows: list[Window]
     series: dict[str, Series]
-    stop: TrialStop = field(default_factory=TrialStop)
-    """How this trial ended (every trial has one; default ``reason="deadline"`` =
-    normal). When it stopped early (e.g. the error-rate breaker), the trial's numbers
-    are *partial* — throughput especially understates (denominator is the planned
-    window) — so the report flags it from ``stop.reason``/``stop.snapshot`` and reads
+    stop: ArmStop = field(default_factory=ArmStop)
+    """How this arm_run ended (every arm_run has one; default ``reason="deadline"`` =
+    normal). When it stopped early (e.g. the error-rate breaker), the arm_run's numbers
+    are *partial* — throughput describes only the actually observed
+    window — so the report flags it from ``stop.reason``/``stop.snapshot`` and reads
     'it broke at this load', not a clean capacity point."""
-    slo: list[SloCheck] = field(default_factory=list)  # per-run SLO gate, evaluated on this trial
+    slo: list[SloCheck] = field(default_factory=list)  # per-run SLO gate, evaluated on this arm_run
     metrics: dict[str, MetricFamily] = field(default_factory=dict)
     """Unified metric registry: every report-visible metric FAMILY name → its
     family descriptor (no labels — metadata declared once), spanning all kinds:
     ``per_request`` (slice ``RequestStats.metrics``), ``time_sampled``
     (``probe_metrics``) and ``derived`` (builtin ``request.*``). report/SLO read
     value_kind/source/unit from here and address any series as ``<name>{labels}.<stat>``
-    regardless of which pipeline produced it. The MetricStore wraps these trials to
+    regardless of which pipeline produced it. The MetricStore wraps these arm_runs to
     serve those reads."""
-    outcomes: list[tuple[float, Outcome]] = field(default_factory=list, repr=False)
-    """Raw request-side facts: every ``(t, Outcome)`` the drivers recorded, incl.
-    warmup and drops — the request analogue of ``series`` (the time_sampled raw).
-    Summaries above are derived from these at reduce time; they are kept so the
-    persistence layer (``runio``) can write the raw layer (``outcomes.jsonl``) and
-    offline analysis can re-slice / recompute without re-firing."""
+    requests: list[RequestRecord] = field(default_factory=list)
+    evaluations: dict[str, RequestEvaluation] = field(default_factory=dict)
     probe_errors: dict[str, ProbeErrors] = field(default_factory=dict)
-    """Probes that FAILED at least one sampling tick this trial (key = unique probe
+    """Probes that FAILED at least one sampling tick this arm_run (key = unique probe
     name, e.g. ``metrics.chat``). Their summaries carry the ``probe_error`` caveat,
     absent reads resolve to ``Missing("probe_error")`` (≠ "slice没数据"), and the
     validity lens flags them — so a broken /metrics never renders as a calm line."""
     phase_errors: list[PhaseError] = field(default_factory=list)
-    """Exceptions from Trial lifecycle hooks or orchestration, in occurrence order.
+    """Exceptions from ArmRun lifecycle hooks or orchestration, in occurrence order.
 
     A non-empty list makes the Run an execution error. It remains separate from
     request outcomes, Probe observation failures, and SLO evaluation.
     """
 
     def label(self) -> str:
-        """Stable Trial id within a Run; equal to the Arm alignment key."""
-        return self.arm.id
+        """Stable ArmRun id within a Run; equal to the Arm alignment key."""
+        return self.id
 
     @property
     def measurement(self) -> Window:
@@ -392,7 +379,7 @@ SloOp = Literal["lt", "lte", "gt", "gte", "between"]
 
 @dataclass(frozen=True)
 class WindowSelector:
-    """Select Trial Windows by observed semantics, not by metric labels."""
+    """Select ArmRun Windows by observed semantics, not by metric labels."""
 
     kind: WindowKind = "measurement"
     name: str | None = None
@@ -408,7 +395,7 @@ class WindowSelector:
 
 @dataclass(frozen=True)
 class SloAssertion:
-    """One declarative SLO: resolve ``metric`` on a trial and compare via ``op`` to
+    """One declarative SLO: resolve ``metric`` on a arm_run and compare via ``op`` to
     ``threshold``. Metric labels select entities (facet/service); ``window`` selects
     time. One selector may match multiple Windows, yielding one check per Window.
     """
@@ -424,12 +411,12 @@ SloState = Literal["pass", "fail", "skipped"]
 
 @dataclass(frozen=True)
 class SloCheck:
-    """Result of one SloAssertion on one trial — a THREE-state verdict.
+    """Result of one SloAssertion on one arm_run — a THREE-state verdict.
 
     ``skipped`` (``observed is None``) means the metric's slice had no value on this
-    trial: a declared facet value no request carried, or a probe that returned no
+    arm_run: a declared facet value no request carried, or a probe that returned no
     data. The check could NOT be evaluated — and a skip is **not** a pass. It never
-    lets a trial count as confirmed capacity, and under ``strict_slo`` it fails the
+    lets a arm_run count as confirmed capacity, and under ``strict_slo`` it fails the
     run; by default it leaves the run's exit code alone but is surfaced as skipped,
     never silently read as green (Prometheus alerts may no-fire on empty; a CI gate
     must not)."""
@@ -454,16 +441,20 @@ class SloCheck:
 
 @dataclass
 class Run(ExperimentRun):
-    """One execution of an Experiment — its identity plus the per-Trial results.
+    """One execution of an Experiment — its identity plus the per-ArmRun results.
 
     ``Engine.run()`` returns this; ``write_run`` lays it out under
-    ``runs/<experiment>/<run_id>/`` and serialises it to ``run.json``. ``trials``
+    ``runs/<experiment>/<run_id>/`` and serialises it to ``run.json``. ``arm_runs``
     are the cells of the Constraint × Load sweep (the experiment's arms).
-    ``passed`` is the operational run gate: every trial completed its planned
+    ``passed`` is the operational run gate: every arm_run completed its planned
     window and all gated SLOs passed. The CLI maps it to the process exit code for
     CI.
     """
 
     service: str
-    trials: list[TrialRecord]
     passed: bool = True
+
+    @property
+    def arm_runs(self) -> list[ArmRun]:
+        """Typed view of common executions, never a second stored collection."""
+        return cast(list[ArmRun], self.executions)

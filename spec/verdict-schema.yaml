@@ -140,7 +140,7 @@ properties:
           description: 可选，该 check 所属实验 Arm 的跨产物对齐键
         window_id:
           type: string
-          description: 可选，perf check 所属 Trial Window 的唯一标识
+          description: 可选，perf check 所属 ArmRun Window 的唯一标识
         status:
           type: string
           enum: [pass, fail, error, skipped]

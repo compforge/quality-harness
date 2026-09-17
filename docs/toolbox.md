@@ -169,8 +169,8 @@ Python `harness-toolbox[prometheus]` 提供 `PrometheusDataSource`，描述 `/me
 各消费方分别执行查询，返回原始 Prometheus 类型与 labels。
 
 读取频率与范围边界由调用方决定；toolbox 不运行采样循环，也不声明业务指标或 SLO。
-perf 每个 Trial 持有 ClientManager、每轮观测创建 DataLoader，再把查询结果映射为指标。
-这样下一轮可见新数据，新 Trial 不会读到上一轮试验的历史。
+perf 每个 ArmRun 持有 ClientManager、每轮观测创建 DataLoader，再把查询结果映射为指标。
+这样下一轮可见新数据，新 ArmRun 不会读到上一轮试验的历史。
 
 ## 4. 故障注入后端
 

@@ -145,7 +145,7 @@ Finding、Evaluation 与 Measurement。实现可以融合执行、填表和 chec
 
 - **e2e（API 测试）**: canonical CaseSet + CaseRun 四阶段 + sync/async runner + 结构化 assertion / OutcomeMetric。
 - **eval（效果测试）**: `EvalEngine` 驱动大表 + reconciler 填表，per-case async runner + builder + metric set。
-- **perf（压力测试）**: `Engine` 把资源档 × 负载档解析为 Arm，逐 Trial 采样并按 Window 聚合，出容量与资源画像。
+- **perf（压力测试）**: `Engine` 把资源档 × 负载档解析为 Arm，逐 ArmRun 采样并按 Window 聚合，出容量与资源画像。
 - **trace（链路分析）**: raw span 经 assemble 形成 Node Observation / Unit Dataset，detector profile
   通过 detect 追加 Finding，再按 node、trace 或 cohort grain 生成 Worksheet 与报告。
 - **trajectory（轨迹分析）**: Dataset Builder 将 Case、Trajectory Observation 与 annotation 固化为
@@ -214,11 +214,11 @@ checkpoint 等内容及 schema 由各 Harness 持有。`Report` 是一个或多�
   强类型定义，共享的是语义和键，不是一个通用配置袋。
 - **trace_id**：黑盒产物 ↔ 遥测的桥。各 harness 的 run 产物应尽量记录——eval `results.csv`
   已有列、perf `Outcome.meta` 已记、e2e 可放 `Outcome.metadata`；trace 的 `sibling_run`
-  source 靠它把坏 case / 慢 Trial join 到链路归因。
+  source 靠它把坏 case / 慢 ArmRun join 到链路归因。
 - **`runs/<scope>/<run-id>/` + verdict.json**：波次产物的定位骨架（上节），消费方按它
   glob 全收。
 
-perf 在一个 Trial 内还用 `window_id` 对齐时间切片；它是 perf 模型内的局部键，不提升为所有
+perf 在一个 ArmRun 内还用 `window_id` 对齐时间切片；它是 perf 模型内的局部键，不提升为所有
 harness 都必须实现的运行层级。
 
 对齐键断一处，跨平面结论就拼不出来；修改这三组键的形状属于 spec 级变更，需过本文件。

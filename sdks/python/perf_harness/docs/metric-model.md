@@ -1,6 +1,6 @@
 # perf_harness 统一 metric 模型
 
-> 状态：**已实现**（greenfield 重构后收敛为 `metric/` 包：`family` + `store` + `reduce`）。本文是 perf 的**唯一 metric 概念**，也是整个 harness 的**脊柱**：加压 / Probe / Workload 只是 metric 的**生产者**，report / SLO / capacity 只是**消费者**，中间收腰在 `MetricFamily`（族）+ typed `MetricSummary`（值，带 caveats）+ `MetricStore`（读面）上——让 per-request 延迟、资源 gauge、server counter、派生标量走**同一条读取面**，消费方都只认 `<family>{labels}.<stat>`。
+> 状态：**已实现**（greenfield 重构后收敛为 `metric/` 包：`family` + `store` + `reduce`）。本文是 perf 的**唯一 metric 概念**，也是整个 harness 的**脊柱**：加压 / Probe / Runner 只是 metric 的**生产者**，report / SLO / capacity 只是**消费者**，中间收腰在 `MetricFamily`（族）+ typed `MetricSummary`（值，带 caveats）+ `MetricStore`（读面）上——让 per-request 延迟、资源 gauge、server counter、派生标量走**同一条读取面**，消费方都只认 `<family>{labels}.<stat>`。
 > 取向参考 Prometheus 的 *typed metric* + *family/series + label* 思路（类型决定合法操作、label 即维度）。服务端遥测由内嵌 Prombed 按 Prometheus 语义抓取、存储和查询；查询结果再进入本模型（见 §5）。
 
 ---
@@ -11,7 +11,7 @@ perf 的中心不是"加压"，是 **metric**。它是个**收腰（沙漏）**�
 
 ```
 生产者（怎么来的·多样）             [收腰]               消费者（怎么看·多样）
- Workload.fire → 请求侧分布      ┐                      ┌→ report（汇总 / 按 facet / 按 service）
+ Runner.fire → 请求侧分布      ┐                      ┌→ report（汇总 / 按 facet / 按 service）
  Probe.sample  → 资源侧序列      ┼→  MetricFamily       ┼→ SLO gate（CI 退出码）
  reduce 聚合 → request.*                    ┘ + MetricSummary └→ capacity（满足 SLO 的最高档）
                                   + MetricStore
@@ -34,38 +34,68 @@ perf 的中心不是"加压"，是 **metric**。它是个**收腰（沙漏）**�
 
 ```python
 # metric/family.py —— 纯数据 + 纯函数，只依赖 stdlib（不 import model.py → 无环）
-MetricSide      = Literal["request", "resource"]
+MetricSide = Literal["request", "resource"]
 MetricValueKind = Literal["counter", "gauge", "distribution", "scalar"]
-Caveat = Literal["co_biased", "high_drop", "few_samples",
-                 "stale", "counter_reset", "probe_error"]   # 可信度，随值走
+Caveat = Literal[
+    "co_biased", "high_drop", "few_samples", "stale", "counter_reset", "probe_error"
+]  # 可信度，随值走
+
 
 @dataclass(frozen=True)
-class MetricFamily:                # 族：元数据声明一次，NO label（label 在 series 上）
-    name: str                      # ttft_ms / top.mem_mi / request.duration_ms（族名，不含 label）
-    unit: str                      # ms / MiB / count
-    side: MetricSide               # request=按 facet 切片 | resource=按 service 切片（§3.2）
-    value_kind: MetricValueKind    # 决定合法 stat
-    source: str = "client"         # client / http / k8s / server —— 瓶颈归因分组（纯元数据）
-    description: str = ""          # 人话含义；报告 tooltip 用
+class MetricFamily:  # 族：元数据声明一次，NO label（label 在 series 上）
+    name: str  # first_byte_ms / top.mem_mi / request.duration_ms（族名，不含 label）
+    unit: str  # ms / MiB / count
+    side: MetricSide  # request=按 facet 切片 | resource=按 service 切片（§3.2）
+    value_kind: MetricValueKind  # 决定合法 stat
+    source: str = "client"  # client / http / k8s / server —— 瓶颈归因分组（纯元数据）
+    description: str = ""  # 人话含义；报告 tooltip 用
 
-def series_id(name, labels) -> str:    # 具体 series = 族 + labels（Prometheus 记法）
+
+def series_id(name, labels) -> str:  # 具体 series = 族 + labels（Prometheus 记法）
     # 无 label → 'top.cpu_m'；有 → 'top.cpu_m{service="example"}'（label 按 key 排序）
     ...
 
-@dataclass(frozen=True)            # 每个 summary 自带 caveats（CO-bias 的 p99 不会被当干净值读）
-class CounterSummary:       total: float; rate: float|None=None; increase: float|None=None; caveats=frozenset()
+
+@dataclass(frozen=True)  # 每个 summary 自带 caveats（CO-bias 的 p99 不会被当干净值读）
+class CounterSummary:
+    total: float
+    rate: float | None = None
+    increase: float | None = None
+    caveats = frozenset()
+
+
 @dataclass(frozen=True)
-class GaugeSummary:         last: float;  mean: float|None=None; peak: float|None=None;     caveats=frozenset()
+class GaugeSummary:
+    last: float
+    mean: float | None = None
+    peak: float | None = None
+    caveats = frozenset()
+
+
 @dataclass(frozen=True)
-class DistributionSummary:  n: int; mean: float; p50: float; p95: float; p99: float;        caveats=frozenset()
+class DistributionSummary:
+    n: int
+    mean: float
+    p50: float
+    p95: float
+    p99: float
+    caveats = frozenset()
+
+
 @dataclass(frozen=True)
-class ScalarSummary:        value: float;                                                   caveats=frozenset()
+class ScalarSummary:
+    value: float
+    caveats = frozenset()
+
 
 MetricSummary = CounterSummary | GaugeSummary | DistributionSummary | ScalarSummary
 
+
 @dataclass(frozen=True)
-class Missing:                      # query 的"无数据"是个值，不是裸 None
+class Missing:  # query 的"无数据"是个值，不是裸 None
     reason: Literal["no_slice", "no_data", "too_few_samples", "probe_error"]
+
+
 Read = float | Missing
 ```
 
@@ -78,13 +108,13 @@ Read = float | Missing
 | `distribution` | `n` / `mean` / `p50` / `p95` / `p99` |
 | `scalar` | `value` |
 
-**读面 = `MetricStore`**（`metric/store.py`，架在 trials 上，是消费方唯一入口）：
+**读面 = `MetricStore`**（`metric/store.py`，架在 arm_runs 上，是消费方唯一入口）：
 
 ```python
 class MetricStore:
-    def query(self, trial, ref, window=None) -> Read  # 默认 measurement Window
-    def pivot(self, trial, family, by, window=None) -> dict
-    def rows(self) -> list[TrialRecord]               # 扫响应面（找 knee / capacity）
+    def query(self, arm_run, ref, window=None) -> Read  # 默认 measurement Window
+    def pivot(self, arm_run, family, by, window=None) -> dict
+    def rows(self) -> list[ArmRun]               # 扫响应面（找 knee / capacity）
 ```
 
 `query` 先确定 Window（省略时为 measurement），再把 `service` label 路由到资源 metric、facet label 路由到请求 slice、无 label 路由到该 Window 的整体请求统计。底层 `resolve(summaries, ref)` 纯函数从 `{series_id: MetricSummary}` 里取 `getattr(summary, stat)`，缺则返回 `None`（store 转成 `Missing`）。`RequestStats` 仍是请求 slice 的**存储底**，store 是其上的**寻址层**（perf 版 TSDB vs PromQL）。
@@ -92,7 +122,7 @@ class MetricStore:
 寻址示例（一套语法，类型不抹平；service/facet 是 label，Window 单独传入）：
 
 ```text
-ttft_ms.p95                          # request  / distribution
+first_byte_ms.p95                          # request  / distribution
 request.duration_ms{difficulty="complex"}.p99   # request / distribution（facet 切片）
 request.error_rate.value             # request  / scalar
 client.inflight.peak                 # resource / gauge
@@ -113,7 +143,7 @@ prometheus.request_rate{service="example"}.mean  # resource / gauge（PromQL 结
 实体切片即 label（service / facet，统一 `<name>{labels}.<stat>`），
 而**哪些 label 合法由 family 的 `side` 决定**——一位数据，不是按 metric 名特判的散文规则：
 
-- `side="request"`（Outcome 聚合而来：内置 `request.*`、ttft_ms、动态 `first_<event>_ms`）
+- `side="request"`（Outcome 聚合而来：内置 `request.*`、first_byte_ms、动态 `first_<event>_ms`）
   → 可带已声明的 facet label（请求侧能归因到具体请求）。
 - `side="resource"`（Probe 序列，包括 PromQL 查询结果）→ 只能裸或带**资源侧 label**：
   `{service="…"}`；`observe:` 开 `per_pod` 时该服务的 series 变成 `{pod="…",service="…"}`
@@ -143,13 +173,13 @@ resolver 是**统一读面（façade）**，不是替换具体字段。
 借 Prometheus label 思路、但更严：**进 gate 的 facet 必须有静态可审查的 schema**。
 
 ```text
-declared_facets = config.facets  ∪  cases[].facets  ∪  Workload.describe_facets()
+declared_facets = config.facets  ∪  cases[].facets  ∪  Runner.describe_facets()
 ```
 
 - `cases[].facets`：静态 mix 维度，天然可 gate。
 - `facets:`（config，带允许值）：显式声明维度，可用于 runtime facet 的 gate。
-- `Workload.describe_facets() -> list[FacetDescriptor]`：业务 adapter 声明它会盖哪些 runtime facet（如 `heavy`）。
-- `Workload.fire()` 实际盖的**未声明** facet：**只进 report**（探索用），**不允许被 SLO scope 引用**。
+- `Runner.describe_facets() -> list[FacetDescriptor]`：业务 adapter 声明它会盖哪些 runtime facet（如 `heavy`）。
+- `Runner.fire()` 实际盖的**未声明** facet：**只进 report**（探索用），**不允许被 SLO scope 引用**。
 
 这修正了 !56 的局限（当时只验 `cases[].facets`，会误杀合法 runtime facet）。
 
@@ -161,7 +191,7 @@ SLO 配置在**解析期**统一校验，任一不过即 `ValueError`（绝不�
 2. **非法 stat**：`<name>.<stat>` 的 stat 不在该 `value_kind` 的合法集合（§2 表）。
 3. **label 越界**：资源(time_sampled)metric 配 facet label；或 `service` 配请求侧 metric（§3.2 双向规则）。
 4. **未知 label 值**：facet 值不在 declared schema（§3.4）；`service` 值不在 `observe:` 观测集。
-5. **producer 契约**：`Workload.describe()` 只能声明 request 侧 distribution、`Probe.describe()` 只能 resource 侧，谁都不许 shadow builtin `request.*`，同名 family metadata 冲突也报错。Probe 的元数据是单一声明表 `families: dict[name, FamilySpec(unit, value_kind, description)]`——describe/summarize/Engine 共读一份（借 otel-collector mdatagen 的'metric 元数据是一张表'）。
+5. **producer 契约**：`Runner.describe()` 只能声明 request 侧 distribution、`Probe.describe()` 只能 resource 侧，谁都不许 shadow builtin `request.*`，同名 family metadata 冲突也报错。Probe 的元数据是单一声明表 `families: dict[name, FamilySpec(unit, value_kind, description)]`——describe/summarize/Engine 共读一份（借 otel-collector mdatagen 的'metric 元数据是一张表'）。
 6. **per_pod 与 service 级 gate 冲突**：某服务开了 `per_pod` 后只有 `{pod,service}` series、没有 service 级聚合，`{service="…"}` 的 SLO 每轮都会落 skip（而 `strict_slo` 默认 false，等于 CI 门静默失效）→ 解析期报错，让用户在"按 pod 拆"与"service 级 gate"之间显式二选一。
 
 ### 3.6 运行时三态：skip ≠ pass
@@ -178,16 +208,18 @@ SLO 配置在**解析期**统一校验，任一不过即 `ValueError`（绝不�
 
 ### 3.8 观测面与判定面：observational by default, gateable only by explicit SLO
 
-服务暴露的 PromQL 查询结果默认只属于**观测面**：进报告、进响应曲线、进 analyze，但**不进 judge / 熔断 / capacity**。**判定面**只有三个成员——`Workload.judge`（单请求成败，输入签名只有 Outcome，probe 产物结构上到不了它）、错误率熔断（只读 judged outcomes）、run 级 SLO 门。观测数据影响成败的**唯一通道**是 config 里显式写的 SLO 引用（如 `prometheus.error_rate{service="example"}.peak < 0.01`）——opt-in，不是默认。
+服务暴露的 PromQL 查询结果默认只属于**观测面**：进报告、进响应曲线、进 analyze，但**不进 judge / 熔断 / capacity**。**判定面**只有三个成员——`Judge`（单请求成败，输入签名只有 Outcome，probe 产物结构上到不了它）、错误率熔断（只读 judged outcomes）、run 级 SLO 门。观测数据影响成败的**唯一通道**是 config 里显式写的 SLO 引用（如 `prometheus.error_rate{service="example"}.peak < 0.01`）——opt-in，不是默认。
 
-这个边界靠**类型签名**硬约束（不是目录约定）：`judge(outcome) -> Verdict`、`_breaker_snapshot(timed, …)`。`workload` 一个类骑跨两面（`fire` 观测、`judge` 判定）是刻意的两段式设计，不按面拆分。配套的观测可信原则：观测系统自身的故障必须可见（§3.7 的 `probe_error`、`Missing("probe_error")`、validity 红旗）——**宁可断线，不画假趋势**。
+Runner.fire 只记录 Outcome，独立 `Judge(outcome) -> RequestEvaluation` 产生判定，breaker 只读
+完成后的判定计数。资源观测不注入 Judge。观测系统自身故障通过 probe_error、Missing 和分析提示保留，
+不能把采集失败画成平稳趋势。首字节不等于首 token；业务 TTFT 必须由 Runner 识别 token 事件。
 
 ---
 
 ## 4. 模块归属与依赖 DAG（无环）
 
 metric 收腰是一个**包** `metric/`，三个子模块按职责分层：**纯模型** `family.py`（纯数据 +
-纯函数，只依赖 stdlib，**不 import `model.py`**）、**读面** `store.py`（架在 `TrialRecord`
+纯函数，只依赖 stdlib，**不 import `model.py`**）、**读面** `store.py`（架在 `ArmRun`
 上）、**铸币** `reduce.py`（塑形 + caveat，engine 只收原始）。包的 `__init__` 只重导出纯
 family 层（store/reduce import model，进 init 会循环）。
 
@@ -195,8 +227,8 @@ family 层（store/reduce import model，进 init 会循环）。
 
 ```
 metric/family.py  MetricFamily(side/value_kind) / *Summary(+caveats) / Missing / series_id / parse_ref / resolve / LEGAL_STATS / FacetDescriptor
-model.py          Window.{request,by_facet,probe_metrics}          TrialRecord.metrics: dict[str, MetricFamily]
-metric/reduce.py  outcomes → RequestStats(+请求侧分布) + caveat 铸币（pct / unit_of）
+model.py          Window.{request,by_facet,probe_metrics}          ArmRun.metrics: dict[str, MetricFamily]
+metric/reduce.py  requests + OperationRuns + evaluations → RequestStats(+请求侧分布) + caveat 铸币（pct / unit_of）
 observe/          families 表（FamilySpec）→ describe()/summarize()  ← 资源侧生产者
 metric/store.py   MetricStore(query/pivot/rows) + builtin request.* + slice_summaries  ← 消费方唯一读面
 slo.py            evaluate_slo 走 MetricStore.query → 三态；config 解析期 fail-fast（§3.5）
@@ -215,13 +247,13 @@ Prometheus 有 Counter / Gauge / **Histogram** / **Summary**；我们是 Counter
 Prometheus          →  perf_harness
 Counter             →  counter        (total/rate/increase，照搬)
 Gauge               →  gauge          (last/mean/peak，照搬)
-Histogram + Summary →  distribution   (合并：单 trial 内自算分位)
-(无)                 →  scalar         (trial 末派生值)
+Histogram + Summary →  distribution   (合并：单 arm_run 内自算分位)
+(无)                 →  scalar         (arm_run 末派生值)
 ```
 
-边界本质：**Prombed 负责 trial 内的 Prometheus scrape + 短期 TSDB + PromQL；perf metric 负责把查询结果与客户端请求、K8s 资源放进同一张可报告、可静态审查 SLO 的表。**
+边界本质：**Prombed 负责 arm_run 内的 Prometheus scrape + 短期 TSDB + PromQL；perf metric 负责把查询结果与客户端请求、K8s 资源放进同一张可报告、可静态审查 SLO 的表。**
 
-- **Histogram+Summary 合并成 `distribution`**：那俩的分裂是为了跨 scrape 目标聚合（Histogram 查询期 `histogram_quantile`、Summary 预算 φ 不可聚合）。perf 在单 trial 内持有 raw per-request 值自己算分位，**没有 fleet 要聚合**，分裂没意义。
+- **Histogram+Summary 合并成 `distribution`**：那俩的分裂是为了跨 scrape 目标聚合（Histogram 查询期 `histogram_quantile`、Summary 预算 φ 不可聚合）。perf 在单 arm_run 内持有 raw per-request 值自己算分位，**没有 fleet 要聚合**，分裂没意义。
   - **不借名字的真正原因**：借了反而坑懂 Prometheus 的人——`Histogram`/`Summary` 带着"可/不可聚合、分位在哪算"的预期，我们两个都违背；两个 value_kind 合法 stat 还一样 = 没挣到存在。用一张映射表教得更准。
 - **新增 `scalar`**：Prometheus 用 recording rule / 查询表达式表达的派生单值（error_rate/throughput），我们建模成一等类型，让 resolver/SLO 统一对待。
 - **`side` 是我们的轴**：Prometheus 全是时间序列 scrape，没有"每请求"概念（延迟被迫塞 Histogram）。我们保留每请求 raw 值→distribution，对压测更忠实（不丢尾）；request/resource 一位就说清了"谁能按什么切"（§3.2），不需要按来路分三种 kind。
@@ -237,7 +269,7 @@ Prometheus histogram 不进入 perf 的 `histogram` value_kind；consumer 用 Pr
 
 ## 6. Window 与 metric 正交
 
-Stage 是负载计划，Window 是执行后形成的观测边界。measurement、每个实际经过的 ramp/hold、cooldown 都是 Window；请求结果和资源采样在同一 Window 上分别规约，因而一条 SLO 不会用 hold 的请求延迟配上整轮 Trial 的 CPU。
+Stage 是负载计划，Window 是执行后形成的观测边界。measurement、每个实际经过的 ramp/hold、cooldown 都是 Window；请求结果和资源采样在同一 Window 上分别规约，因而一条 SLO 不会用 hold 的请求延迟配上整轮 ArmRun 的 CPU。
 
 Window 有唯一 `id`，展示名可以重复；例如 spike 前后的两个 `hold@base` 是两个 Window。SLO 的 `WindowSelector` 选择时间，metric label 只选择实体。长请求按 dispatch/start 时间归入 Window，避免 `sleep 30s` 因结束较晚被错误记到下一阶段。capacity 只消费完整 hold Window，提前熔断前已经完整跑完的较低 hold 仍可作为容量证据。
 
@@ -284,3 +316,11 @@ pdata/pmetric（OTLP）与本模型独立收敛到同一形状：`Metric`(name/u
 - 加压模型：[`load-model-redesign.md`](load-model-redesign.md)
 - 结果语义 / SLO：[`result-semantics.md`](result-semantics.md)
 - 当前实现锚点：`metric/family.py`（MetricFamily/*Summary/Missing/resolve）· `metric/store.py`（MetricStore）· `metric/reduce.py`（铸币）· `observe/base.py`（Probe/Prombed）· `slo.py` + `config.py`（三态/校验）
+
+## 请求生命周期指标
+
+`request.arrival_rps` 读取计划到达，`request.dispatch_rps` / `request.throughput_rps` /
+`request.success_rps` 分别读取实际发出、完成与成功的事件速率；对应计数与 inflight_peak/end 同样可寻址。
+`request.duration_ms` 使用本窗口 dispatch cohort 的完整耗时，排空后完成的请求不迁移到下一窗口。
+`scheduler_lag_ms` 量化加压器本身延迟；drop/interrupted 没有可用于响应延迟分布的完整样本。
+完整口径见 [结果语义](result-semantics.md)。

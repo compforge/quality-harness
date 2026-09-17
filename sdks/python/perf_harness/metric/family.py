@@ -41,16 +41,18 @@ MetricValueKind = Literal["counter", "gauge", "distribution", "scalar"]
 
 # A summary's self-reported trustworthiness, minted at REDUCE and carried on the
 # value so analysis can't silently read a biased number as clean:
-#   - co_biased     : closed-loop tail latency under-samples slow responses (a trial-level
+#   - co_biased     : closed-loop tail latency under-samples slow responses (a arm_run-level
 #                     property of model=closed) → don't treat as a strict SLO tail.
-#   - high_drop     : open-loop max_inflight shed real load → percentiles understate reality.
+#   - high_drop     : open-loop max_concurrency shed real load → percentiles understate reality.
 #   - few_samples   : the slice has too few observations for stable percentiles.
 #   - stale         : a probe missed enough ticks that the series is patchy.
-#   - counter_reset : a counter went backwards mid-trial (pod restart / exporter reset);
+#   - counter_reset : a counter went backwards mid-arm_run (pod restart / exporter reset);
 #                     increase/rate use positive-delta accumulation but the window is split.
 #   - probe_error   : the producing probe failed at least one tick — the series has holes,
 #                     a flat-looking trend may be an artifact of missed samples.
-Caveat = Literal["co_biased", "high_drop", "few_samples", "stale", "counter_reset", "probe_error"]
+Caveat = Literal[
+    "co_biased", "high_drop", "few_samples", "stale", "counter_reset", "probe_error", "incomplete"
+]
 
 
 @dataclass(frozen=True)
@@ -65,7 +67,7 @@ class MetricFamily:
     request-side series.)
 
     ``description`` is the metric's human meaning, declared at its producer (a
-    Probe's ``describe()``, ``REQUEST_DESCRIPTORS``, or a Workload's ``describe()``)
+    Probe's ``describe()``, ``REQUEST_DESCRIPTORS``, or a Runner's ``describe()``)
     and reused wherever it surfaces (report header tooltip, …).
     """
 
@@ -137,9 +139,9 @@ LEGAL_STATS: dict[MetricValueKind, frozenset[str]] = {
 
 @dataclass(frozen=True)
 class FacetDescriptor:
-    """A facet a Workload declares it may stamp at runtime (so an SLO can gate it via
+    """A facet a Runner declares it may stamp at runtime (so an SLO can gate it via
     a ``{facet="val"}`` label even though it isn't in the static Case mix). See
-    Workload.describe_facets."""
+    Runner.describe_facets."""
 
     name: str
     values: list[str]
@@ -147,12 +149,12 @@ class FacetDescriptor:
 
 @dataclass(frozen=True)
 class Missing:
-    """A ``query`` result when a metric's slice has no value on a trial — a value,
+    """A ``query`` result when a metric's slice has no value on a arm_run — a value,
     NOT ``None``, so a consumer must handle absence explicitly. An SLO maps it to a
     *skipped* check (never silently to pass); the report lists it as skipped.
 
     ``reason``: ``no_slice`` (the labeled slice was never produced — e.g. a facet
-    value no request carried this trial), ``no_data`` (the family exists but the
+    value no request carried this arm_run), ``no_data`` (the family exists but the
     stat wasn't computed, e.g. a counter ``rate`` with <2 samples), ``too_few_samples``
     or ``probe_error``."""
 
@@ -225,8 +227,7 @@ def validate_ref(ref: str, registry: dict[str, MetricFamily]) -> None:
     legal = LEGAL_STATS[fam.value_kind]
     if stat not in legal:
         raise ValueError(
-            f"metric {name!r} is a {fam.value_kind}; stat {stat!r} illegal "
-            f"(legal: {sorted(legal)})"
+            f"metric {name!r} is a {fam.value_kind}; stat {stat!r} illegal (legal: {sorted(legal)})"
         )
 
 

@@ -2,9 +2,9 @@
 
 A run dir (``runs/<experiment>/<run_id>/``) holds three artifact layers:
 
-  raw    ``outcomes.jsonl``（每请求一行的事实，含 warmup/drop）+ ``timeseries.csv``
+  raw    ``requests.jsonl``（每请求一行的事实，含 warmup/drop）+ ``timeseries.csv``
          （probe 每 tick 采样）— append-only facts, never re-derived.
-  model  ``run.json`` — the FULL serialized ``Run``（schema 版本化）: per trial the
+  model  ``run.json`` — the FULL serialized ``Run``（schema 版本化）: per arm_run the
          resources / load（含停止策略）/ stop / SLO 明细、metric registry（family →
          unit/kind/source/description）、每个 Window 的请求/资源 summary。
          内存模型知道的一切，离线同样可寻址。
@@ -12,21 +12,35 @@ A run dir (``runs/<experiment>/<run_id>/``) holds three artifact layers:
          渲染，从模型导出，不是事实来源。
 
 ``write_run_data`` lays down raw + model. ``load_run`` reconstructs the ``Run``
-from a run dir — so ``MetricStore(load_run(d).trials)`` serves the SAME
+from a run dir — so ``MetricStore(load_run(d).arm_runs)`` serves the SAME
 ``<family>{labels}.<stat>`` reads offline that the live process served, and SLO /
-analysis can re-evaluate without re-firing. ``load_outcomes`` streams the raw
-request facts back for re-slicing / recomputing percentiles.
+analysis can re-evaluate without re-firing. ``load_run`` restores all raw request
+records and independent evaluations for re-slicing and recomputing percentiles.
 """
 
 from __future__ import annotations
 
 import csv
 import json
+from dataclasses import asdict, fields
 from pathlib import Path
 
-from harness_common import Artifact, Reducer
+from harness_common import (
+    Artifact,
+    Component,
+    Environment,
+    Forge,
+    HttpOperation,
+    KubernetesWorkload,
+    Operation,
+    OperationRun,
+    Reducer,
+    Repository,
+    Service,
+    Workload,
+)
 
-from perf_harness.drive.load import LoadProfile, Pacing, Schedule, Stage
+from perf_harness.drive.load import LoadPlan, Stage
 from perf_harness.metric import (
     CounterSummary,
     DistributionSummary,
@@ -37,6 +51,8 @@ from perf_harness.metric import (
 )
 from perf_harness.model import (
     Arm,
+    ArmRun,
+    ArmStop,
     Outcome,
     PhaseError,
     ProbeErrors,
@@ -48,14 +64,18 @@ from perf_harness.model import (
     SloAssertion,
     SloCheck,
     StopSnapshot,
-    TrialRecord,
-    TrialStop,
     Window,
     WindowSelector,
 )
+from perf_harness.records import RequestEvaluation, RequestRecord
 
 #: bump when run.json's shape changes incompatibly — offline readers check this first
-RUN_SCHEMA = 4
+RUN_SCHEMA = 5
+
+
+def _record(model, data: dict):
+    """Read known fields while accepting additive fields from another schema-5 writer."""
+    return model(**{f.name: data[f.name] for f in fields(model) if f.name in data})
 
 
 # ---------------------------------------------------------------------------
@@ -85,53 +105,26 @@ def _resources_from(d: dict) -> ResourceProfile:
     )
 
 
-def _load_json(ld: LoadProfile) -> dict:
-    return {
-        "model": ld.model,
-        "label": ld.label(),  # display convenience; derived, ignored on load
-        "schedule": {
-            "start_level": ld.schedule.start_level,
-            "stages": [
-                {"over_s": s.over_s, "to_level": s.to_level, "kind": s.kind, "name": s.name}
-                for s in ld.schedule.stages
-            ],
-        },
-        "pacing": {"kind": ld.pacing.kind, "secs": ld.pacing.secs, "max_secs": ld.pacing.max_secs},
-        "warmup_s": ld.warmup_s,
-        "max_inflight": ld.max_inflight,
-        "abort_on_error_rate": ld.abort_on_error_rate,
-        "breaker_min_n": ld.breaker_min_n,
-        "graceful_stop_s": ld.graceful_stop_s,
-    }
+def _load_json(ld: LoadPlan) -> dict:
+    data = asdict(ld)
+    data["request_rate"] = "inf" if ld.saturated else ld.request_rate
+    data["stages"] = [
+        {**asdict(stage), "request_rate": "inf" if ld.saturated else stage.request_rate}
+        for stage in ld.stages
+    ]
+    return data
 
 
-def _load_from(d: dict) -> LoadProfile:
-    sched = d.get("schedule") or {}
-    pac = d.get("pacing") or {}
-    return LoadProfile(
-        model=d["model"],
-        schedule=Schedule(
-            stages=tuple(
-                Stage(
-                    over_s=float(s["over_s"]),
-                    to_level=float(s["to_level"]),
-                    kind=s.get("kind", "ramp"),
-                    name=s.get("name"),
-                )
-                for s in sched.get("stages", [])
+def _load_from(d: dict) -> LoadPlan:
+    return LoadPlan(
+        **{
+            **d,
+            "request_rate": float(d["request_rate"]),
+            "stages": tuple(
+                Stage(**{**s, "request_rate": float(s["request_rate"])})
+                for s in d.get("stages", [])
             ),
-            start_level=float(sched.get("start_level", 0.0)),
-        ),
-        pacing=Pacing(
-            kind=pac.get("kind", "none"),
-            secs=float(pac.get("secs", 0.0)),
-            max_secs=float(pac.get("max_secs", 0.0)),
-        ),
-        warmup_s=float(d.get("warmup_s", 0.0)),
-        max_inflight=d.get("max_inflight"),
-        abort_on_error_rate=d.get("abort_on_error_rate"),
-        breaker_min_n=int(d.get("breaker_min_n", 20)),
-        graceful_stop_s=float(d.get("graceful_stop_s", 30.0)),
+        }
     )
 
 
@@ -168,16 +161,7 @@ def _summary_from(d: dict) -> MetricSummary:
 
 def _stats_json(s: RequestStats) -> dict:
     return {
-        "n": s.n,
-        "n_ok": s.n_ok,
-        "throughput_rps": s.throughput_rps,
-        "p50_ms": s.p50_ms,
-        "p95_ms": s.p95_ms,
-        "p99_ms": s.p99_ms,
-        "mean_ms": s.mean_ms,
-        "error_rate": s.error_rate,
-        "error_breakdown": dict(s.error_breakdown),
-        "n_dropped": s.n_dropped,
+        **asdict(s),
         "caveats": sorted(s.caveats),
         "metrics": {k: _summary_json(v) for k, v in s.metrics.items()},
     }
@@ -185,18 +169,11 @@ def _stats_json(s: RequestStats) -> dict:
 
 def _stats_from(d: dict) -> RequestStats:
     return RequestStats(
-        n=d["n"],
-        n_ok=d["n_ok"],
-        throughput_rps=d["throughput_rps"],
-        p50_ms=d["p50_ms"],
-        p95_ms=d["p95_ms"],
-        p99_ms=d["p99_ms"],
-        error_rate=d["error_rate"],
-        error_breakdown=dict(d.get("error_breakdown") or {}),
-        n_dropped=d.get("n_dropped", 0),
-        mean_ms=d.get("mean_ms", 0.0),
-        metrics={k: _summary_from(v) for k, v in (d.get("metrics") or {}).items()},
-        caveats=frozenset(d.get("caveats") or []),
+        **{
+            **d,
+            "caveats": frozenset(d.get("caveats", [])),
+            "metrics": {k: _summary_from(v) for k, v in d.get("metrics", {}).items()},
+        }
     )
 
 
@@ -223,7 +200,7 @@ def _family_from(name: str, d: dict) -> MetricFamily:
     )
 
 
-def _stop_json(s: TrialStop) -> dict:
+def _stop_json(s: ArmStop) -> dict:
     out: dict = {
         "reason": s.reason,
         "inflight_at_stop": s.inflight_at_stop,
@@ -234,7 +211,7 @@ def _stop_json(s: TrialStop) -> dict:
         snap = s.snapshot
         out["snapshot"] = {
             "at_s": round(snap.at_s, 2),
-            "sent": snap.sent,
+            "completed": snap.completed,
             "errors": snap.errors,
             "error_rate": round(snap.error_rate, 4),
             "threshold": snap.threshold,
@@ -242,13 +219,13 @@ def _stop_json(s: TrialStop) -> dict:
     return out
 
 
-def _stop_from(d: dict) -> TrialStop:
+def _stop_from(d: dict) -> ArmStop:
     snap = d.get("snapshot")
-    return TrialStop(
+    return ArmStop(
         reason=d.get("reason", "deadline"),
         snapshot=StopSnapshot(
             at_s=snap["at_s"],
-            sent=snap["sent"],
+            completed=snap["completed"],
             errors=snap["errors"],
             error_rate=snap["error_rate"],
             threshold=snap["threshold"],
@@ -299,45 +276,48 @@ def _slo_from(d: dict) -> SloCheck:
     )
 
 
-def _outcome_json(trial_id: str, t: float, o: Outcome) -> dict:
+def _operation_json(call: OperationRun) -> dict:
+    service = call.service
     return {
-        "trial": trial_id,
-        "t": round(t, 3),
-        "case_id": o.case_id,
-        "status": o.status,
-        "duration_ms": o.duration_ms,
-        "ok": o.ok,
-        "error_kind": o.error_kind,
-        "events": o.events,
-        "nbytes": o.nbytes,
-        "dropped": o.dropped,
-        "facets": dict(o.facets),
-        "metrics": dict(o.metrics),
-        "meta": o.meta,
+        "id": call.id,
+        "service": {
+            "name": service.name,
+            "component": asdict(service.component),
+            "environment": {"name": service.environment.name},
+            "workloads": [asdict(w) for w in service.workloads],
+        },
+        "operation": asdict(call.operation),
+        "outcome": asdict(call.outcome),
     }
 
 
-def _outcome_from(d: dict) -> tuple[str, float, Outcome]:
-    return (
-        d["trial"],
-        d["t"],
-        Outcome(
-            status=d.get("status"),
-            duration_ms=d.get("duration_ms", 0.0),
-            case_id=d.get("case_id", ""),
-            ok=d.get("ok", False),
-            error_kind=d.get("error_kind"),
-            events=d.get("events", 0),
-            nbytes=d.get("nbytes", 0),
-            metrics=dict(d.get("metrics") or {}),
-            dropped=d.get("dropped", False),
-            meta=d.get("meta") or {},
-            facets=dict(d.get("facets") or {}),
+def _operation_from(d: dict) -> OperationRun:
+    target = d["service"]
+    component = target["component"]
+    repo = component["repository"]
+    service = Service(
+        name=target["name"],
+        component=Component(
+            name=component["name"],
+            repository=Repository(forge=Forge(**repo["forge"]), path=repo["path"]),
         ),
+        environment=Environment(name=target["environment"]["name"]),
+        workloads=tuple(
+            KubernetesWorkload(**w) if "location" in w else Workload(**w)
+            for w in target.get("workloads", [])
+        ),
+    )
+    operation = (
+        HttpOperation(**d["operation"])
+        if "method" in d["operation"]
+        else Operation(**d["operation"])
+    )
+    return OperationRun(
+        id=d["id"], service=service, operation=operation, outcome=_record(Outcome, d["outcome"])
     )
 
 
-def _trial_json(r: TrialRecord) -> dict:
+def _arm_run_json(r: ArmRun) -> dict:
     return {
         "id": r.label(),
         "service": r.service,
@@ -383,10 +363,10 @@ def _trial_json(r: TrialRecord) -> dict:
     }
 
 
-def _trial_from(d: dict, service: str) -> TrialRecord:
+def _arm_run_from(d: dict, service: str) -> ArmRun:
     arm = d["arm"]
-    return TrialRecord(
-        id=arm["id"],
+    return ArmRun(
+        id=d["id"],
         service=d.get("service", service),
         arm=Arm(
             id=arm["id"],
@@ -444,18 +424,18 @@ def _trial_from(d: dict, service: str) -> TrialRecord:
 # ---------------------------------------------------------------------------
 
 
-def write_timeseries_data(trials: list[TrialRecord], run_dir: str | Path) -> Path:
+def write_timeseries_data(arm_runs: list[ArmRun], run_dir: str | Path) -> Path:
     """Persist the raw probe samples independently of report rendering."""
     path = Path(run_dir) / "timeseries.csv"
     with path.open("w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["trial", "series", "t", "value"])
-        for trial in trials:
-            for key, series in trial.series.items():
+        writer.writerow(["arm_run", "series", "t", "value"])
+        for arm_run in arm_runs:
+            for key, series in arm_run.series.items():
                 for sample in series.samples:
                     # Preserve round-trippable floats in the raw layer. Display
                     # formatting belongs to report views, never persisted facts.
-                    writer.writerow([trial.label(), key, repr(sample.t), repr(sample.value)])
+                    writer.writerow([arm_run.label(), key, repr(sample.t), repr(sample.value)])
     return path
 
 
@@ -475,48 +455,60 @@ def write_run_data(run: Run, run_dir: str | Path) -> dict[str, str]:
         "created_at": run.created_at,
         "service": run.service,
         "passed": run.passed,
-        "n_trials": len(run.trials),
-        "trials": [_trial_json(r) for r in run.trials],
+        "executions": [_arm_run_json(r) for r in run.arm_runs],
     }
     run_json = out / "run.json"
     run_json.write_text(json.dumps(doc, ensure_ascii=False, indent=2))
 
-    outcomes = out / "outcomes.jsonl"
-    with outcomes.open("w") as f:
-        for r in run.trials:
-            tid = r.label()
-            for t, o in r.outcomes:
-                # default=str: meta is a free-form dict (judge signals) — never let one
-                # exotic value lose the whole raw layer
-                f.write(json.dumps(_outcome_json(tid, t, o), ensure_ascii=False, default=str))
-                f.write("\n")
+    requests = out / "requests.jsonl"
+    with requests.open("w") as stream:
+        for execution in run.arm_runs:
+            calls = {call.id: call for call in execution.operation_runs}
+            for record in execution.requests:
+                row = {"arm_run_id": execution.id, "request": asdict(record)}
+                if record.operation_run_id is not None:
+                    row["operation_run"] = _operation_json(calls[record.operation_run_id])
+                stream.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
+    evaluations = out / "evaluations.json"
+    evaluations.write_text(
+        json.dumps(
+            {
+                e.id: {key: asdict(value) for key, value in e.evaluations.items()}
+                for e in run.arm_runs
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
-    timeseries = write_timeseries_data(run.trials, out)
+    timeseries = write_timeseries_data(run.arm_runs, out)
     run.add_artifact("model", "run.json")
-    run.add_artifact("outcomes", "outcomes.jsonl")
+    run.add_artifact("requests", "requests.jsonl")
+    run.add_artifact("evaluations", "evaluations.json")
     run.add_artifact("timeseries", "timeseries.csv")
     return {
         "run.json": str(run_json),
-        "outcomes": str(outcomes),
+        "requests": str(requests),
+        "evaluations": str(evaluations),
         "timeseries": str(timeseries),
     }
 
 
 class PerfReducer(Reducer[Run]):
-    """Persist perf raw/model facts without re-running the workload."""
+    """Persist perf raw/model facts without re-running the runner."""
 
     def reduce(self, run: Run, run_dir: Path) -> list[Artifact]:
         write_run_data(run, run_dir)
-        names = {"model", "outcomes", "timeseries"}
+        names = {"model", "requests", "evaluations", "timeseries"}
         return [artifact for artifact in run.artifacts if artifact.name in names]
 
 
 def load_run(run_dir: str | Path, *, with_series: bool = True) -> Run:
     """Reconstruct a ``Run`` from a run dir — the model layer back in memory, so
-    ``MetricStore(load_run(d).trials)`` serves the same ``<family>{labels}.<stat>``
+    ``MetricStore(load_run(d).arm_runs)`` serves the same ``<family>{labels}.<stat>``
     reads offline. ``with_series`` also reads ``timeseries.csv`` back into each
-    trial's ``series`` (units resolved from the trial's registry); raw outcomes are
-    NOT loaded here (see ``load_outcomes``)."""
+    arm_run's ``series`` (units resolved from the arm_run's registry). Request facts
+    and independent evaluations are always loaded."""
     out = Path(run_dir)
     doc = json.loads((out / "run.json").read_text())
     schema = doc.get("schema")
@@ -526,14 +518,14 @@ def load_run(run_dir: str | Path, *, with_series: bool = True) -> Run:
             f"re-run with a matching perf_harness or read the file directly"
         )
     service = doc.get("service", "")
-    trials = [_trial_from(d, service) for d in doc.get("trials") or []]
+    arm_runs = [_arm_run_from(d, service) for d in doc.get("executions") or []]
 
     ts = out / "timeseries.csv"
     if with_series and ts.exists():
-        by_id = {r.label(): r for r in trials}
+        by_id = {r.label(): r for r in arm_runs}
         with ts.open() as f:
             for row in csv.DictReader(f):
-                r = by_id.get(row["trial"])
+                r = by_id.get(row["arm_run"])
                 if r is None:
                     continue
                 sid = row["series"]
@@ -548,28 +540,26 @@ def load_run(run_dir: str | Path, *, with_series: bool = True) -> Run:
         run_id=doc["run_id"],
         experiment=doc["experiment"],
         created_at=doc.get("created_at", ""),
-        executions=trials,
+        executions=arm_runs,
         service=service,
-        trials=trials,
         passed=bool(doc.get("passed", True)),
     )
     run.add_artifact("model", "run.json")
-    if (out / "outcomes.jsonl").exists():
-        run.add_artifact("outcomes", "outcomes.jsonl")
+    by_id = {execution.id: execution for execution in arm_runs}
+    with (out / "requests.jsonl").open() as stream:
+        for line in stream:
+            row = json.loads(line)
+            execution = by_id[row["arm_run_id"]]
+            execution.requests.append(_record(RequestRecord, row["request"]))
+            if row.get("operation_run") is not None:
+                execution.operation_runs.append(_operation_from(row["operation_run"]))
+    evaluations = json.loads((out / "evaluations.json").read_text())
+    for key, values in evaluations.items():
+        by_id[key].evaluations = {
+            identity: _record(RequestEvaluation, value) for identity, value in values.items()
+        }
+    run.add_artifact("requests", "requests.jsonl")
+    run.add_artifact("evaluations", "evaluations.json")
     if ts.exists():
         run.add_artifact("timeseries", "timeseries.csv")
     return run
-
-
-def load_outcomes(run_dir: str | Path) -> dict[str, list[tuple[float, Outcome]]]:
-    """Read ``outcomes.jsonl`` back: trial id → ``[(t, Outcome), …]`` in record order.
-    The raw request layer — re-slice, recompute percentiles, or re-judge offline."""
-    out: dict[str, list[tuple[float, Outcome]]] = {}
-    path = Path(run_dir) / "outcomes.jsonl"
-    with path.open() as f:
-        for line in f:
-            if not line.strip():
-                continue
-            tid, t, o = _outcome_from(json.loads(line))
-            out.setdefault(tid, []).append((t, o))
-    return out

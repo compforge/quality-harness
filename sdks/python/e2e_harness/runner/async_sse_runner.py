@@ -20,8 +20,8 @@ from e2e_harness.core.config import E2EConfig
 from e2e_harness.runner.async_base import AsyncBaseRunner
 from e2e_harness.runner.base import Outcome, Request
 from e2e_harness.runner.headers import build_headers
-from e2e_harness.runner.line_buffer import LineBuffer
-from e2e_harness.runner.sse_parser import SSEEvent, SSEParser
+from harness_toolbox.line_buffer import LineBuffer
+from harness_toolbox.sse_parser import SSEEvent, SSEParser
 
 OnEvent = Callable[[SSEEvent], None] | Callable[[SSEEvent], Awaitable[None]]
 

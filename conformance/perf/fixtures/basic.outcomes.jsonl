@@ -1,1 +1,0 @@
-{"trial":"default__closed-5c","t":10.25,"case_id":"ordinary_chat","status":200,"duration_ms":7000,"ok":true,"error_kind":null,"events":8,"nbytes":1024,"dropped":false,"facets":{"scenario":"ordinary-chat"},"metrics":{"first_token_ms":6500},"meta":{"trace_id":"0123456789abcdef0123456789abcdef","conversation_id":"conversation-1"},"implementation_note":"ignored by readers"}

@@ -1,7 +1,7 @@
 """Probe — the observation extension point (the other plug-in axis).
 
 A Probe samples one Source on a fixed interval and contributes one or more named
-Metrics; each Metric becomes a time-series within the Trial, and the Probe also
+Metrics; each Metric becomes a time-series within the ArmRun, and the Probe also
 says how to collapse its own series into the summary row (``summarize``).
 
 "Source" is just *which handle on the ProbeContext a Probe reads*: the http
@@ -40,6 +40,7 @@ class ClientStats:
     def __init__(self) -> None:
         self.inflight = 0
         self.sent = 0
+        self.dropped = 0
 
     def start(self) -> None:
         self.inflight += 1
@@ -53,11 +54,11 @@ class ClientStats:
 class ProbeContext:
     """The handles a Probe may read from — each field is a candidate Source.
 
-    ``client`` is the *load* client (also handed to ``Workload.fire``).
+    ``client`` is the *load* client (also handed to ``Runner.fire``).
     ``observer_client`` is a separate client with its own small pool that
     custom HTTP-source probes use to avoid queuing behind load traffic. Falls
     back to ``client`` when unset. DataSource clients (including Prometheus)
-    have their own pools, managed by ``clients`` for this Trial.
+    have their own pools, managed by ``clients`` for this ArmRun.
     """
 
     service: Service
@@ -126,7 +127,7 @@ class Probe(ABC):
 
         The seam that makes a Probe part of the one metric model: its series are
         ``resource`` metrics, addressed ``<name>{labels}.<stat>`` in the report/SLO
-        exactly like the request-side metrics a Workload records on the Outcome. The
+        exactly like the request-side metrics a Runner records on the Outcome. The
         family is label-free (``top.cpu_m``); ``service`` is a label on the concrete
         series (built in the Engine from ``self.labels``), so two service-bound probes
         of the same family dedup to one family entry instead of duplicating metadata.
@@ -207,7 +208,7 @@ class PrometheusProbe(Probe):
 
     Perf owns the observation cadence and final report/SLO model; Prombed owns the
     Prometheus text format, bounded short-term storage and PromQL evaluation.
-    Toolbox owns access and retained observations through a DataSource; the Trial
+    Toolbox owns access and retained observations through a DataSource; the ArmRun
     owns ClientManager so range queries cannot read samples from a previous arm.
     """
 
@@ -326,7 +327,7 @@ async def observe_loop(
     """Sample every probe each ``interval`` until stopped. A failing probe never stops
     observation, but the failure is RECORDED, not swallowed — returns the per-probe
     error census (failures / total ticks / last error) so ``_aggregate`` can flag the
-    affected summaries and the trial. A broken /metrics must not render as calm data."""
+    affected summaries and the arm_run. A broken /metrics must not render as calm data."""
     failures: dict[str, list[str]] = {}
     ticks = 0
     async with ctx.clients:
@@ -343,7 +344,7 @@ async def observe_loop(
                             failures.setdefault(probe.name, []).append(repr(exc))
                             reading = None
                         # synthesize the probe's health as a SERIES (the Prometheus `up` analogue):
-                        # the trial census says THAT observation broke, this says WHEN — §4 can
+                        # the arm_run census says THAT observation broke, this says WHEN — §4 can
                         # chart the outage window instead of a fake-calm gap. 1 ok / 0 failed.
                         store.setdefault((probe.name, "up"), []).append(
                             Sample(t, 0.0 if reading is None else 1.0)

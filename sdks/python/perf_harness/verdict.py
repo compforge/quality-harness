@@ -13,7 +13,7 @@ from pathlib import Path
 
 from harness_common import verdict as _v
 
-from perf_harness.model import Run, SloCheck, TrialRecord
+from perf_harness.model import ArmRun, Run, SloCheck
 
 
 def _check_verdict(c: SloCheck, arm_id: str) -> _v.CheckVerdict:
@@ -34,34 +34,36 @@ def _check_verdict(c: SloCheck, arm_id: str) -> _v.CheckVerdict:
 
 
 def _build(run: Run) -> _v.RunVerdict:
-    """Run → RunVerdict. Early-stopped trials fail before SLO rollup because their
+    """Run → RunVerdict. Early-stopped arm_runs fail before SLO rollup because their
     partial windows cannot verify a load level. Otherwise status follows the recorded
     SLO checks (fail > pass > skipped), deliberately not ``run.passed`` because the
     engine's default skip policy is lenient while persisted evidence must not read
     green when no assertion was verified."""
-    raw: list[SloCheck] = [c for t in run.trials for c in t.slo]
-    error_trials = [t for t in run.trials if t.phase_errors]
-    early = [t for t in run.trials if t.stop.early and not t.phase_errors]
+    raw: list[SloCheck] = [c for t in run.arm_runs for c in t.slo]
+    error_arm_runs = [t for t in run.arm_runs if t.phase_errors]
+    early = [t for t in run.arm_runs if t.stop.early and not t.phase_errors]
     n_pass = sum(1 for c in raw if c.state == "pass")
     n_fail = sum(1 for c in raw if c.state == "fail" and c.observed is not None)
     cooldown_skips = [
         c for c in raw if c.state == "skipped" and c.assertion.window.kind == "cooldown"
     ]
 
-    if error_trials:
+    if error_arm_runs:
         status = "error"
-    elif not run.trials:
+    elif not run.arm_runs:
         status = "skipped"
-    elif early or n_fail or cooldown_skips:
+    elif early or any(t.stop.interrupted for t in run.arm_runs) or n_fail or cooldown_skips:
         status = "fail"
     elif n_pass:
         status = "pass"
     else:
         status = "skipped"  # SLO declared but every check skipped, or no SLO at all
-    if error_trials:
-        reason = _phase_error_reason(error_trials)
+    if error_arm_runs:
+        reason = _phase_error_reason(error_arm_runs)
     elif early:
         reason = _early_stop_reason(early)
+    elif any(t.stop.interrupted for t in run.arm_runs):
+        reason = "requests interrupted before completion"
     elif n_fail:
         reason = _fail_reason([c for c in raw if c.state == "fail" and c.observed is not None])
     elif cooldown_skips:
@@ -74,7 +76,7 @@ def _build(run: Run) -> _v.RunVerdict:
         run.experiment,
         run.run_id,
         [],
-        checks=[_check_verdict(c, trial.arm.id) for trial in run.trials for c in trial.slo],
+        checks=[_check_verdict(c, arm_run.arm.id) for arm_run in run.arm_runs for c in arm_run.slo],
         status=status,
         reason=reason,
         artifact_paths={"run": "run.json", "report": "report.md"},
@@ -90,22 +92,22 @@ def _fail_reason(failed: list[SloCheck]) -> str:
     return f"{len(failed)} SLO failed; first — {detail}"
 
 
-def _early_stop_reason(trials: list[TrialRecord]) -> str:
-    stop = trials[0].stop
+def _early_stop_reason(arm_runs: list[ArmRun]) -> str:
+    stop = arm_runs[0].stop
     detail = stop.reason
     if stop.snapshot is not None:
         snap = stop.snapshot
-        detail += f" at {snap.at_s:.1f}s ({snap.errors}/{snap.sent} errors)"
-    return f"{len(trials)} trial(s) stopped early; first — {detail}"
+        detail += f" at {snap.at_s:.1f}s ({snap.errors}/{snap.completed} errors)"
+    return f"{len(arm_runs)} arm_run(s) stopped early; first — {detail}"
 
 
-def _phase_error_reason(trials: list[TrialRecord]) -> str:
-    first = trials[0].phase_errors[0]
+def _phase_error_reason(arm_runs: list[ArmRun]) -> str:
+    first = arm_runs[0].phase_errors[0]
     detail = f"{first.phase}: {first.error_type}"
     if first.message:
         detail += f": {first.message}"
-    count = sum(len(trial.phase_errors) for trial in trials)
-    return f"{count} trial phase error(s); first — {detail}"
+    count = sum(len(arm_run.phase_errors) for arm_run in arm_runs)
+    return f"{count} arm_run phase error(s); first — {detail}"
 
 
 def build_verdict_doc(run: Run) -> dict:
