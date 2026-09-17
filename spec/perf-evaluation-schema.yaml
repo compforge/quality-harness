@@ -1,0 +1,11 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Perf request evaluations by ArmRun and OperationRun ID
+type: object
+additionalProperties:
+  type: object
+  additionalProperties:
+    type: object
+    required: [ok]
+    properties:
+      ok: {type: boolean}
+      error_kind: {type: [string, 'null']}

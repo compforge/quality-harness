@@ -1,239 +1,223 @@
-import { intensityAt, pacingWait, scheduleDuration, type LoadProfile } from "./load";
-import type { Case } from "@compforge/spec-case/model";
-import type { Arm, Outcome, StopSnapshot, TimedOutcome, TrialStop } from "./model";
-import { defaultJudge, type TrialContext, type Workload } from "./workload";
+import { arrivalTime, saturated, target } from "./load";
+import type {
+  Arm,
+  ArmRun,
+  ArmStop,
+  Case,
+  Outcome,
+  RequestRecord,
+  StopSnapshot,
+} from "./model";
+import type { ArmContext, Runner } from "./runner";
+import type { Judge } from "./judge";
 
-export interface DriveInput {
-  workload: Workload;
-  context: Omit<TrialContext, "signal" | "arm">;
+export async function drive(options: {
+  runner: Runner;
+  judge: Judge;
+  context: ArmContext;
   arm: Arm;
   cases: readonly Case[];
   weights: readonly number[];
+  execution: ArmRun;
   signal?: AbortSignal;
-  now?: () => number;
-}
-
-export interface DriveResult {
-  outcomes: TimedOutcome[];
-  stop: TrialStop;
-  elapsed_s: number;
-}
-
-interface Runtime {
-  t0: number;
-  now: () => number;
-  load: LoadProfile;
-  outcomes: TimedOutcome[];
-  inFlight: number;
-  dispatched: number;
-  forced: boolean;
-  stopScheduling: boolean;
-  requestController: AbortController;
-}
-
-const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
-function pick(cases: readonly Case[], weights: readonly number[]): Case {
-  const total = weights.reduce((sum, value) => sum + value, 0);
-  if (total <= 0) return cases[0]!;
-  let cursor = Math.random() * total;
-  for (let index = 0; index < cases.length; index += 1) {
-    cursor -= weights[index] ?? 0;
-    if (cursor <= 0) return cases[index]!;
-  }
-  return cases.at(-1)!;
-}
-
-function breaker(runtime: Runtime): StopSnapshot | undefined {
-  const threshold = runtime.load.abort_on_error_rate;
-  if (threshold === undefined) return undefined;
-  const sent = runtime.outcomes.filter(({ outcome }) => !outcome.dropped);
-  const minimum = runtime.load.breaker_min_n ?? 20;
-  if (sent.length < minimum) return undefined;
-  const errors = sent.filter(({ outcome }) => !outcome.ok).length;
-  const errorRate = errors / sent.length;
-  if (errorRate < threshold) return undefined;
-  return {
-    at_s: (runtime.now() - runtime.t0) / 1000,
-    sent: sent.length,
-    errors,
-    error_rate: errorRate,
-    threshold,
+}): Promise<{ stop: ArmStop; elapsed_s: number }> {
+  const { runner, judge, context, arm, cases, weights, execution, signal } =
+      options,
+    load = arm.load;
+  const start = performance.now(),
+    now = () => (performance.now() - start) / 1000;
+  const active = new Map<Promise<void>, AbortController>();
+  const errors: unknown[] = [];
+  let completed = 0,
+    failed = 0,
+    volume = 0,
+    due = saturated(load) ? 0 : arrivalTime(load, 0);
+  let reason: ArmStop["reason"] = "deadline",
+    snapshot: StopSnapshot | undefined;
+  let rngState = (load.seed ?? 0) >>> 0;
+  const random = () => {
+    rngState = (Math.imul(1664525, rngState) + 1013904223) >>> 0;
+    return (rngState + 0.5) / 4294967296;
   };
-}
-
-function reserve(runtime: Runtime): boolean {
-  if (runtime.stopScheduling) return false;
-  if (runtime.load.max_requests !== undefined && runtime.dispatched >= runtime.load.max_requests) {
-    runtime.stopScheduling = true;
-    return false;
-  }
-  runtime.dispatched += 1;
-  return true;
-}
-
-async function fireOne(
-  input: DriveInput,
-  runtime: Runtime,
-  trial: Omit<TrialContext, "signal">,
-  selected: Case,
-): Promise<void> {
-  if (!reserve(runtime)) return;
-  const t = (runtime.now() - runtime.t0) / 1000;
-  const started = runtime.now();
-  runtime.inFlight += 1;
-  let outcome: Outcome;
-  try {
-    outcome = await input.workload.fire({ ...trial, case: selected, signal: runtime.requestController.signal });
-  } catch (error) {
-    if (runtime.forced) return;
-    outcome = {
-      status: null,
-      duration_ms: runtime.now() - started,
-      meta: {
-        exc: error instanceof Error ? error.name : "Error",
-        exc_detail: error instanceof Error ? error.message : String(error),
-      },
+  const pick = () => {
+    let value = random() * weights.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < cases.length; i++) {
+      value -= weights[i]!;
+      if (value < 0) return cases[i]!;
+    }
+    return cases[cases.length - 1]!;
+  };
+  function offer(scheduled: number, dropReason?: string): void {
+    const item = pick();
+    const record: RequestRecord = {
+      id: `${execution.id}:${execution.requests.length}`,
+      case_id: item.id,
+      scheduled_at: scheduled,
+      arrived_at: now(),
+      state: "arrived",
+      facets: { ...item.facets },
     };
-  } finally {
-    runtime.inFlight -= 1;
+    execution.requests.push(record);
+    if (dropReason || active.size >= target(load, now())[1]) {
+      record.state = "dropped";
+      record.reason = dropReason ?? "concurrency_limit";
+      record.finished_at = now();
+      return;
+    }
+    const controller = new AbortController();
+    record.dispatched_at = now();
+    record.operation_run_id = record.id;
+    record.state = "dispatched";
+    // Promise callbacks start after the synchronous reservation below.
+    const task = Promise.resolve()
+      .then(async () => {
+        let outcome: Outcome;
+        const fireContext = {
+          ...context,
+          case: item,
+          signal: controller.signal,
+        };
+        let operation = { name: runner.name };
+        try {
+          operation = runner.operation?.(fireContext) ?? operation;
+          outcome = await runner.fire(fireContext);
+        } catch (error) {
+          outcome = {
+            status: null,
+            duration_ms: (now() - record.dispatched_at!) * 1000,
+            meta: controller.signal.aborted
+              ? { interrupted: true }
+              : {
+                  exc: error instanceof Error ? error.name : "Error",
+                  exc_detail: String(error),
+                },
+          };
+        }
+        record.finished_at = now();
+        record.state = controller.signal.aborted ? "interrupted" : "finished";
+        if (record.state === "interrupted") record.reason = "cancelled";
+        outcome = {
+          ...outcome,
+          case_id: item.id,
+          facets: { ...item.facets, ...outcome.facets },
+        };
+        record.facets = outcome.facets!;
+        execution.operation_runs.push({
+          id: record.id,
+          service: context.service,
+          operation,
+          outcome,
+        });
+        if (record.state === "finished") {
+          const evaluation = judge(outcome);
+          execution.evaluations[record.id] = evaluation;
+          completed++;
+          if (!evaluation.ok) failed++;
+        }
+      })
+      .catch((error) => {
+        errors.push(error);
+      })
+      .finally(() => {
+        active.delete(task);
+      });
+    active.set(task, controller);
   }
-  if (runtime.forced) return;
-  const verdict = (input.workload.judge ?? defaultJudge)(outcome);
-  outcome.ok = verdict.ok;
-  outcome.error_kind = verdict.error_kind;
-  outcome.case_id = selected.id;
-  outcome.facets = { ...(selected.facets ?? {}), ...(outcome.facets ?? {}) };
-  runtime.outcomes.push({ t, outcome });
-}
-
-async function windDown(tasks: Set<Promise<void>>, runtime: Runtime): Promise<Pick<TrialStop,
-  "inflight_at_stop" | "interrupted" | "force_cancelled">> {
-  const inflightAtStop = runtime.inFlight;
-  const gracefulMs = Math.max(0, runtime.load.graceful_stop_s ?? 30) * 1000;
-  if (tasks.size && gracefulMs > 0) {
-    await Promise.race([Promise.allSettled([...tasks]), delay(gracefulMs)]);
+  // Resolve on completion or deadline, with no orphaned timers/listeners.
+  async function wait(seconds: number): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let abort: (() => void) | undefined;
+    try {
+      await Promise.race([
+        ...active.keys(),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, Math.max(0, seconds) * 1000);
+        }),
+        new Promise<void>((resolve) => {
+          abort = () => resolve();
+          signal?.addEventListener("abort", abort, { once: true });
+          if (signal?.aborted) resolve();
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      if (abort) signal?.removeEventListener("abort", abort);
+    }
   }
-  const interrupted = runtime.inFlight;
-  if (interrupted > 0) {
-    runtime.forced = true;
-    runtime.requestController.abort(new Error("perf trial graceful stop expired"));
-    await Promise.allSettled([...tasks]);
-  }
-  return {
-    inflight_at_stop: inflightAtStop,
-    interrupted,
-    force_cancelled: interrupted > 0,
-  };
-}
-
-function track(tasks: Set<Promise<void>>, task: Promise<void>): void {
-  tasks.add(task);
-  task.finally(() => tasks.delete(task)).catch(() => undefined);
-}
-
-function stopReason(input: DriveInput, runtime: Runtime, snapshot?: StopSnapshot): TrialStop["reason"] {
-  if (snapshot) return "error_rate";
-  if (input.signal?.aborted) return "aborted";
-  if (runtime.load.max_requests !== undefined && runtime.dispatched >= runtime.load.max_requests) {
-    return "request_limit";
-  }
-  return "deadline";
-}
-
-async function driveClosed(input: DriveInput, runtime: Runtime, trial: Omit<TrialContext, "signal">): Promise<TrialStop> {
-  const tasks = new Set<Promise<void>>();
-  const deadline = runtime.t0 + scheduleDuration(runtime.load.schedule) * 1000;
-  let desired = 0;
-  let nextUserId = 0;
-  let snapshot: StopSnapshot | undefined;
-
-  const user = async (id: number): Promise<void> => {
-    while (!runtime.stopScheduling && runtime.now() < deadline && !input.signal?.aborted) {
-      if (id >= desired) {
-        await delay(20);
+  try {
+    while (now() < load.duration_s && !signal?.aborted) {
+      if (errors.length) throw errors[0];
+      if (
+        load.abort_on_error_rate !== undefined &&
+        completed >= (load.breaker_min_n ?? 20) &&
+        failed / completed >= load.abort_on_error_rate
+      ) {
+        reason = "error_rate";
+        snapshot = {
+          at_s: now(),
+          completed,
+          errors: failed,
+          error_rate: failed / completed,
+          threshold: load.abort_on_error_rate,
+        };
+        break;
+      }
+      if (saturated(load)) {
+        const count = Math.max(0, target(load, now())[1] - active.size);
+        for (let i = 0; i < count; i++) offer(now());
+      } else if (due <= now()) {
+        offer(due);
+        volume += load.arrival === "poisson" ? -Math.log(random()) : 1;
+        due = arrivalTime(load, volume);
+        await new Promise<void>((resolve) => setImmediate(resolve));
         continue;
       }
-      const started = runtime.now();
-      await fireOne(input, runtime, trial, pick(input.cases, input.weights));
-      const waitS = pacingWait(runtime.load.pacing, (runtime.now() - started) / 1000);
-      // Even a zero-think-time user must yield so the supervisor can evaluate
-      // the deadline/breaker instead of an immediately-resolved Workload
-      // monopolising the microtask queue.
-      await delay(waitS * 1000);
+      const delay = Math.max(
+        0,
+        Math.min(
+          0.01,
+          load.duration_s - now(),
+          saturated(load) ? Infinity : due - now(),
+        ),
+      );
+      await wait(delay);
+      // Even immediately completed Runners must let timers and external aborts progress.
+      await new Promise<void>((resolve) => setImmediate(resolve));
     }
-  };
-
-  while (runtime.now() < deadline && !input.signal?.aborted && !runtime.stopScheduling) {
-    snapshot = breaker(runtime);
-    if (snapshot) break;
-    desired = Math.max(0, Math.round(intensityAt(runtime.load.schedule, (runtime.now() - runtime.t0) / 1000)));
-    while (nextUserId < desired) {
-      const task = user(nextUserId);
-      nextUserId += 1;
-      track(tasks, task);
-    }
-    await delay(20);
-  }
-  runtime.stopScheduling = true;
-  return { reason: stopReason(input, runtime, snapshot), snapshot, ...await windDown(tasks, runtime) };
-}
-
-async function driveOpen(input: DriveInput, runtime: Runtime, trial: Omit<TrialContext, "signal">): Promise<TrialStop> {
-  const tasks = new Set<Promise<void>>();
-  const deadline = runtime.t0 + scheduleDuration(runtime.load.schedule) * 1000;
-  let last = runtime.now();
-  let accumulated = 0;
-  let snapshot: StopSnapshot | undefined;
-  while (runtime.now() < deadline && !input.signal?.aborted && !runtime.stopScheduling) {
-    snapshot = breaker(runtime);
-    if (snapshot) break;
-    const now = runtime.now();
-    accumulated += intensityAt(runtime.load.schedule, (now - runtime.t0) / 1000) * ((now - last) / 1000);
-    last = now;
-    while (accumulated >= 1 && !runtime.stopScheduling) {
-      accumulated -= 1;
-      const selected = pick(input.cases, input.weights);
-      if (runtime.load.max_inflight !== undefined && runtime.inFlight >= runtime.load.max_inflight) {
-        if (!reserve(runtime)) break;
-        runtime.outcomes.push({
-          t: (now - runtime.t0) / 1000,
-          outcome: {
-            status: null,
-            duration_ms: 0,
-            ok: false,
-            error_kind: "client_saturated",
-            dropped: true,
-            case_id: selected.id,
-            facets: { ...(selected.facets ?? {}) },
-          },
-        });
-      } else {
-        track(tasks, fireOne(input, runtime, trial, selected));
+    if (signal?.aborted) reason = "aborted";
+    if (reason === "deadline" && !saturated(load)) {
+      while (due < load.duration_s && !signal?.aborted) {
+        offer(due, "scheduler_deadline");
+        volume += load.arrival === "poisson" ? -Math.log(random()) : 1;
+        due = arrivalTime(load, volume);
+        await new Promise<void>((resolve) => setImmediate(resolve));
       }
     }
-    await delay(10);
+    const elapsed_s = reason === "deadline" ? load.duration_s : now();
+    const inflight_at_stop = active.size;
+    const drainDeadline = now() + (load.drain_timeout_s ?? 30);
+    while (!signal?.aborted && active.size && now() < drainDeadline)
+      await wait(drainDeadline - now());
+    if (signal?.aborted) reason = "aborted";
+    for (const controller of active.values()) controller.abort();
+    // Runner must cooperate with cancellation; do not close its clients while work remains.
+    await Promise.all(active.keys());
+    if (errors.length) throw errors[0];
+    const interrupted = execution.requests.filter(
+      (r) => r.state === "interrupted",
+    ).length;
+    return {
+      stop: {
+        reason,
+        snapshot,
+        inflight_at_stop,
+        interrupted,
+        force_cancelled: interrupted > 0,
+      },
+      elapsed_s,
+    };
+  } finally {
+    for (const controller of active.values()) controller.abort();
+    await Promise.all(active.keys());
   }
-  runtime.stopScheduling = true;
-  return { reason: stopReason(input, runtime, snapshot), snapshot, ...await windDown(tasks, runtime) };
-}
-
-export async function drive(input: DriveInput): Promise<DriveResult> {
-  const now = input.now ?? (() => performance.now());
-  const runtime: Runtime = {
-    t0: now(),
-    now,
-    load: input.arm.load,
-    outcomes: [],
-    inFlight: 0,
-    dispatched: 0,
-    forced: false,
-    stopScheduling: false,
-    requestController: new AbortController(),
-  };
-  const trial = { ...input.context, arm: input.arm };
-  const stop = input.arm.load.model === "closed"
-    ? await driveClosed(input, runtime, trial)
-    : await driveOpen(input, runtime, trial);
-  return { outcomes: runtime.outcomes, stop, elapsed_s: (now() - runtime.t0) / 1000 };
 }

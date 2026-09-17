@@ -71,7 +71,7 @@ environment prepare → 前提校验与证据 → Harness 执行（含 Case 清�
 ```
 
 环境共享层只调用一个领域执行回调，不识别 Case。E2E 的 CasePlan / Go Definition、perf 的
-Trial setup / deactivate / cleanup 继续决定用例的准备、清理和时机。回调必须等待自己的
+ArmRun setup / deactivate / cleanup 继续决定用例的准备、清理和时机。回调必须等待自己的
 任务与清理全部结束，才能归还环境；共享环境资源由 EnvironmentFixture 持有。
 
 各阶段有独立预算。prepare 失败、前提不满足或未知会阻止领域执行，仍运行环境清理；
@@ -123,7 +123,7 @@ profile 名和部署声明不能代替真实探测；要求拒绝 ptrace 的测�
 
 - common 拥有 Environment、可选 Host、中立事实及环境生命周期编排；具体 I/O 由项目回调与 toolbox 实现。
 - toolbox 提供主机命令、事实采集及 Kubernetes 操作，使用调用方的超时和资源边界。
-- 各 Harness 拥有自己的 Case / Trial 生命周期、领域判断与产物出口；E2E 另检查 Case 特有的环境前提。
+- 各 Harness 拥有自己的 Case / ArmRun 生命周期、领域判断与产物出口；E2E 另检查 Case 特有的环境前提。
 - 项目拥有环境配置、部署 fixture、权限 profiles、行为断言和清理。
 
 toolbox 的 Host 命令支持 local / SSH，Helm 等命令行工具使用这条路径。

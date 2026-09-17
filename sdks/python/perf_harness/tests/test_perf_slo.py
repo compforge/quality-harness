@@ -2,25 +2,25 @@ import pytest
 
 from perf_harness.cli import main
 from perf_harness.config import load_experiment
-from perf_harness.drive.load import LoadProfile, Schedule, Stage
-from perf_harness.drive.workload import MockWorkload
+from perf_harness.drive.load import LoadPlan, Stage
+from perf_harness.drive.runner import MockRunner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.metric import GaugeSummary, MetricFamily
 from perf_harness.model import (
     Arm,
+    ArmRun,
+    ArmStop,
     RequestStats,
     ResourceProfile,
     Service,
     SloAssertion,
-    TrialRecord,
-    TrialStop,
     Window,
     WindowSelector,
 )
 from perf_harness.slo import evaluate_slo, slo_aware_capacity
 
 
-def _trial(level: float, p99: float, *, err: float = 0.0, n_dropped: int = 0) -> TrialRecord:
+def _arm_run(level: float, p99: float, *, err: float = 0.0, n_dropped: int = 0) -> ArmRun:
     stats = RequestStats(
         n=100,
         n_ok=int(round(100 * (1 - err))),
@@ -33,8 +33,8 @@ def _trial(level: float, p99: float, *, err: float = 0.0, n_dropped: int = 0) ->
         n_dropped=n_dropped,
     )
     resources = ResourceProfile(workers=2)
-    load = LoadProfile(model="open", schedule=Schedule.ramp_hold(level, 0.0, 1.0))
-    return TrialRecord(
+    load = LoadPlan(request_rate=level, max_concurrency=128, duration_s=(0.0 + 1.0))
+    return ArmRun(
         id=f"{resources.label()}|{load.label()}",
         service="s",
         arm=Arm(f"{resources.label()}|{load.label()}", resources, load),
@@ -50,14 +50,14 @@ def _trial(level: float, p99: float, *, err: float = 0.0, n_dropped: int = 0) ->
 
 
 def test_slo_pass_and_fail():
-    t = _trial(40, p99=100)
+    t = _arm_run(40, p99=100)
     assert evaluate_slo(t, [SloAssertion("p99_ms", "lt", 200)])[0].passed
     c = evaluate_slo(t, [SloAssertion("p99_ms", "lt", 50)])[0]
     assert not c.passed and c.observed == 100
 
 
 def test_slo_between_and_gte():
-    t = _trial(40, p99=100)
+    t = _arm_run(40, p99=100)
     assert evaluate_slo(t, [SloAssertion("throughput_rps", "gte", 40)])[0].passed
     assert evaluate_slo(t, [SloAssertion("p99_ms", "between", (50, 150))])[0].passed
     assert not evaluate_slo(t, [SloAssertion("p99_ms", "between", (0, 50))])[0].passed
@@ -65,19 +65,19 @@ def test_slo_between_and_gte():
 
 def test_slo_window_level_selects_matching_hold():
     a = SloAssertion("p99_ms", "lt", 2000, window=WindowSelector(kind="hold", level=40))
-    assert evaluate_slo(_trial(10, 100), [a])[0].skipped
-    assert not evaluate_slo(_trial(40, 5000), [a])[0].passed
+    assert evaluate_slo(_arm_run(10, 100), [a])[0].skipped
+    assert not evaluate_slo(_arm_run(40, 5000), [a])[0].passed
 
 
 def test_slo_missing_label_slice_is_skipped():
     # a facet label whose value no run produced → SKIPPED (three-state): not a failure,
     # but not a pass either — a skip never counts as green
-    c = evaluate_slo(_trial(40, 100), [SloAssertion('p99_ms{difficulty="x"}', "lt", 1)])[0]
+    c = evaluate_slo(_arm_run(40, 100), [SloAssertion('p99_ms{difficulty="x"}', "lt", 1)])[0]
     assert c.observed is None and c.skipped and not c.passed
 
 
 def test_cooldown_slo_reads_exact_resource_series_labels():
-    t = _trial(40, p99=100)
+    t = _arm_run(40, p99=100)
     sid = 'metrics.task_count{service="worker",state="running",task_type="batch"}'
     t.metrics = {
         "metrics.task_count": MetricFamily(
@@ -104,7 +104,7 @@ def test_cooldown_slo_reads_exact_resource_series_labels():
 
 
 def test_slo_facet_label_reads_the_facet_slice():
-    t = _trial(40, p99=100)  # overall p99 = 100
+    t = _arm_run(40, p99=100)  # overall p99 = 100
     simple = RequestStats(
         n=10,
         n_ok=10,
@@ -125,67 +125,63 @@ def test_slo_facet_label_reads_the_facet_slice():
 
 def test_slo_aware_capacity_is_highest_passing_level():
     a = SloAssertion("p99_ms", "lt", 2000, window=WindowSelector(kind="hold"))
-    t10, t20, t40 = _trial(10, 100), _trial(20, 100), _trial(40, 5000)
+    t10, t20, t40 = _arm_run(10, 100), _arm_run(20, 100), _arm_run(40, 5000)
     t10.slo = evaluate_slo(t10, [a])
     t20.slo = evaluate_slo(t20, [a])
-    t20.stop = TrialStop(reason="error_rate")
+    t20.stop = ArmStop(reason="error_rate")
     next(window for window in t20.windows if window.kind == "hold").complete = False
     t40.slo = evaluate_slo(t40, [a])
-    # 20 passes its SLO on the partial sample, but only the complete 10-level trial
+    # 20 passes its SLO on the partial sample, but only the complete 10-level arm_run
     # confirms capacity.
-    assert slo_aware_capacity([t10, t20, t40]) == {"w2": 10}
+    assert slo_aware_capacity([t10, t20, t40]) == {"w2|rate": 10}
 
 
-def test_slo_aware_capacity_uses_passing_holds_in_multi_stage_trial():
-    t = _trial(40, 5000)
-    load = LoadProfile(
-        model="open",
-        schedule=Schedule(
-            stages=(
-                Stage(1, 10, "hold"),
-                Stage(1, 40, "hold"),
-            )
-        ),
+def test_slo_aware_capacity_uses_passing_holds_in_multi_stage_arm_run():
+    t = _arm_run(40, 5000)
+    load = LoadPlan(
+        request_rate=10,
+        max_concurrency=128,
+        duration_s=2,
+        stages=(Stage(1, 10, 128), Stage(1, 40, 128)),
     )
     t.arm = Arm(t.arm.id, t.arm.resources, load)
     t.windows = [
         t.measurement,
         Window(
-            "stage-0", "hold@10", "hold", 0.0, 1.0, True, 10, _trial(10, 100).measurement.request
+            "stage-0", "hold@10", "hold", 0.0, 1.0, True, 10, _arm_run(10, 100).measurement.request
         ),
         Window(
-            "stage-1", "hold@40", "hold", 1.0, 2.0, True, 40, _trial(40, 5000).measurement.request
+            "stage-1", "hold@40", "hold", 1.0, 2.0, True, 40, _arm_run(40, 5000).measurement.request
         ),
     ]
     t.slo = evaluate_slo(
         t, [SloAssertion("p99_ms", "lt", 2000, window=WindowSelector(kind="hold"))]
     )
 
-    assert slo_aware_capacity([t]) == {"w2": 10}
+    assert slo_aware_capacity([t]) == {"w2|rate": 10}
 
 
 def test_slo_aware_capacity_does_not_treat_multi_stage_peak_as_capacity():
-    t = _trial(40, 100)
-    load = LoadProfile(
-        model="open",
-        schedule=Schedule(
-            stages=(
-                Stage(1, 10, "hold"),
-                Stage(1, 40, "hold"),
-            )
-        ),
+    t = _arm_run(40, 100)
+    load = LoadPlan(
+        request_rate=10,
+        max_concurrency=128,
+        duration_s=2,
+        stages=(Stage(1, 10, 128), Stage(1, 40, 128)),
     )
     t.arm = Arm(t.arm.id, t.arm.resources, load)
     t.slo = evaluate_slo(t, [SloAssertion("p99_ms", "lt", 2000)])
 
-    assert slo_aware_capacity([t]) == {"w2": None}
+    assert slo_aware_capacity([t]) == {"w2|rate": None}
 
 
 def test_slo_aware_capacity_applies_global_resource_slo_to_each_hold():
-    t = _trial(40, 100)
-    load = LoadProfile(
-        model="open",
-        schedule=Schedule(stages=(Stage(1, 10, "hold"), Stage(1, 40, "hold"))),
+    t = _arm_run(40, 100)
+    load = LoadPlan(
+        request_rate=10,
+        max_concurrency=128,
+        duration_s=2,
+        stages=(Stage(1, 10, 128), Stage(1, 40, 128)),
     )
     t.arm = Arm(t.arm.id, t.arm.resources, load)
     t.windows = [
@@ -211,7 +207,7 @@ def test_slo_aware_capacity_applies_global_resource_slo_to_each_hold():
         ],
     )
 
-    assert slo_aware_capacity([t]) == {"w2": None}
+    assert slo_aware_capacity([t]) == {"w2|rate": None}
 
 
 # ---- config parse + fail-fast ----
@@ -219,7 +215,7 @@ def test_slo_aware_capacity_applies_global_resource_slo_to_each_hold():
 _BASE = """
 service: { name: s, base_url: "http://x" }
 resources: [ {} ]
-workload: { name: mock }
+runner: { name: mock }
 """
 
 
@@ -235,7 +231,7 @@ def test_parse_slo_and_abort(tmp_path):
         "slo:\n"
         "  - { metric: p99_ms, lt: 2000 }\n"
         "  - { metric: error_rate, lt: 0.01, window: {kind: hold, level: 40} }\n"
-        "load: { model: open, levels: [40], steady_s: 0.1 }\n"
+        "load: { request_rate: 40, max_concurrency: 128, duration_s: 0.1 }\n"
     )
     exp, _ = load_experiment(_write(tmp_path, extra))
     assert exp.abort_on_fail
@@ -249,7 +245,7 @@ def test_parse_cooldown_slo(tmp_path):
         "cooldown_s: 1\n"
         "slo:\n"
         "  - { metric: client.inflight.last, window: {kind: cooldown}, lte: 0 }\n"
-        "load: { model: open, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     )
     exp, _ = load_experiment(_write(tmp_path, extra))
     assert exp.slo[0].window.kind == "cooldown"
@@ -269,7 +265,7 @@ def test_cooldown_slo_accepts_resource_series_labels(tmp_path):
         "slo:\n"
         '  - { metric: \'prometheus.task_count{service="worker",'
         'task_type="batch",state="running"}.last\', window: {kind: cooldown}, lte: 0 }\n'
-        "load: { model: open, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     )
     exp, _ = load_experiment(_write(tmp_path, extra))
     assert exp.slo[0].window.kind == "cooldown"
@@ -289,14 +285,14 @@ def test_cooldown_slo_rejects_unknown_resource_label(tmp_path):
         "slo:\n"
         '  - { metric: \'prometheus.task_count{service="worker",'
         'task_tipe="batch",state="running"}.last\', window: {kind: cooldown}, lte: 0 }\n'
-        "load: { model: open, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="unknown labels.*task_tipe"):
         load_experiment(_write(tmp_path, extra))
 
 
 def test_cooldown_slo_skips_stale_or_failed_probe_data():
-    t = _trial(40, p99=100)
+    t = _arm_run(40, p99=100)
     sid = 'metrics.task_count{service="worker",state="running",task_type="batch"}'
     t.metrics = {
         "metrics.task_count": MetricFamily(
@@ -316,7 +312,7 @@ def test_cooldown_slo_skips_stale_or_failed_probe_data():
 def test_request_slo_unknown_facet_key_still_fails_fast(tmp_path):
     extra = (
         "slo: [ { metric: 'p99_ms{unknown=\"x\"}', lte: 100 } ]\n"
-        "load: { model: open, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="facet unknown=x unknown"):
         load_experiment(_write(tmp_path, extra))
@@ -325,7 +321,7 @@ def test_request_slo_unknown_facet_key_still_fails_fast(tmp_path):
 def test_cooldown_slo_requires_cooldown(tmp_path):
     extra = (
         "slo: [ { metric: client.inflight.last, window: {kind: cooldown}, lte: 0 } ]\n"
-        "load: { model: open, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="requires cooldown_s"):
         load_experiment(_write(tmp_path, extra))
@@ -335,7 +331,7 @@ def test_cooldown_slo_rejects_request_metric(tmp_path):
     extra = (
         "cooldown_s: 1\n"
         "slo: [ { metric: p99_ms, window: {kind: cooldown}, lte: 100 } ]\n"
-        "load: { model: open, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="resource-side time-sampled"):
         load_experiment(_write(tmp_path, extra))
@@ -344,22 +340,20 @@ def test_cooldown_slo_rejects_request_metric(tmp_path):
 def test_bad_slo_window_fails_fast(tmp_path):
     extra = (
         "slo: [ { metric: p99_ms, window: {kind: recovery}, lte: 100 } ]\n"
-        "load: { model: open, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="slo.window"):
         load_experiment(_write(tmp_path, extra))
 
 
 def test_bad_slo_metric_fails_fast(tmp_path):
-    extra = (
-        "slo: [ { metric: latency, lt: 1 } ]\nload: { model: open, levels: [1], steady_s: 0.1 }\n"
-    )
+    extra = "slo: [ { metric: latency, lt: 1 } ]\nload: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     with pytest.raises(ValueError, match="slo.metric"):
         load_experiment(_write(tmp_path, extra))
 
 
 def test_slo_needs_exactly_one_op(tmp_path):
-    extra = "slo: [ { metric: p99_ms } ]\nload: { model: open, levels: [1], steady_s: 0.1 }\n"
+    extra = "slo: [ { metric: p99_ms } ]\nload: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     with pytest.raises(ValueError, match="exactly one"):
         load_experiment(_write(tmp_path, extra))
 
@@ -370,10 +364,11 @@ def test_slo_needs_exactly_one_op(tmp_path):
 def _exp(slo, *, abort=False) -> Experiment:
     return Experiment(
         service=Service("mock", base_url="http://127.0.0.1:0"),
-        workload=MockWorkload(base_ms=2),
+        runner=MockRunner(base_ms=2),
         resources=[ResourceProfile()],
         loads=[
-            LoadProfile(model="closed", schedule=Schedule.ramp_hold(lv, 0.0, 0.15)) for lv in (2, 4)
+            LoadPlan(request_rate=float("inf"), max_concurrency=lv, duration_s=(0.0 + 0.15))
+            for lv in (2, 4)
         ],
         slo=slo,
         abort_on_fail=abort,
@@ -382,8 +377,8 @@ def _exp(slo, *, abort=False) -> Experiment:
 
 async def test_engine_run_passes_and_fails_on_slo():
     ok = await Engine(_exp([SloAssertion("p99_ms", "lt", 100000)])).run()
-    assert ok.passed and len(ok.trials) == 2
-    assert all(all(check.passed for check in trial.slo) for trial in ok.trials)
+    assert ok.passed and len(ok.arm_runs) == 2
+    assert all(all(check.passed for check in arm_run.slo) for arm_run in ok.arm_runs)
 
     bad = await Engine(_exp([SloAssertion("p99_ms", "lt", 1)])).run()  # 1ms is unmeetable
     assert not bad.passed
@@ -392,7 +387,7 @@ async def test_engine_run_passes_and_fails_on_slo():
 async def test_engine_abort_on_fail_stops_sweep():
     run = await Engine(_exp([SloAssertion("p99_ms", "lt", 1)], abort=True)).run()
     assert not run.passed
-    assert len(run.trials) == 1  # stopped after the first failing trial
+    assert len(run.arm_runs) == 1  # stopped after the first failing arm_run
 
 
 # ---- CLI exit code (CI gate) ----
@@ -401,6 +396,33 @@ async def test_engine_abort_on_fail_stops_sweep():
 def test_cli_exit_code_reflects_slo(tmp_path):
     cfg = _write(
         tmp_path,
-        "slo: [ { metric: p99_ms, lt: 1 } ]\nload: { model: closed, levels: [2], steady_s: 0.1 }\n",
+        "slo: [ { metric: p99_ms, lt: 1 } ]\nload: { request_rate: inf, max_concurrency: 2, duration_s: 0.1 }\n",
     )
     assert main(["run", cfg, "--out", str(tmp_path / "runs"), "--mock"]) == 1
+
+
+def test_capacity_never_compares_rate_and_concurrency_units():
+    from dataclasses import replace
+
+    rate, concurrency = _arm_run(4, p99=100), _arm_run(8, p99=100)
+    concurrency.arm = replace(
+        concurrency.arm,
+        load=LoadPlan(
+            request_rate=float("inf"),
+            max_concurrency=8,
+            duration_s=1,
+        ),
+    )
+    for execution in [rate, concurrency]:
+        execution.slo = evaluate_slo(
+            execution,
+            [
+                SloAssertion(
+                    "p99_ms",
+                    "lt",
+                    1000,
+                    window=WindowSelector(kind="hold"),
+                )
+            ],
+        )
+    assert slo_aware_capacity([rate, concurrency]) == {"w2|rate": 4, "w2|concurrency": 8}

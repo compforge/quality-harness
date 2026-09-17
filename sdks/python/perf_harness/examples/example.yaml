@@ -1,11 +1,11 @@
 # Example sizing sweep against an already-deployed service, observed via k8s and
 # an embedded Prometheus runtime. Run from your consumer project (the one that does
-# register_workload("example", ...)). Semantics live in the docs — this file is a
+# register_runner("example", ...)). Semantics live in the docs — this file is a
 # template to copy, not a manual:
 #   load shape / breaker / graceful stop → docs/load-model-redesign.md
 #   SLO refs / labels / skip semantics   → docs/result-semantics.md + metric-model.md
 name: example-sizing              # experiment name → runs/<name>/<run_id>/ (runs accumulate)
-# extensions: [my_project.perf]   # imports register_workload/register_probe side effects
+# extensions: [my_project.perf]   # imports register_runner/register_probe side effects
 
 service:                          # 压谁 + 怎么到达
   name: example
@@ -25,11 +25,11 @@ service:                          # 压谁 + 怎么到达
 #   chart_path: ./manifests/example
 #   base_values: ./manifests/example/values.yaml
 
-resources:                        # 资源档（网格第一轴）；无 deployer 时仅标注 trial
+resources:                        # 资源档（网格第一轴）；无 deployer 时仅标注 arm_run
   - { workers: 2, memory: 2Gi }
   - { workers: 4, memory: 2Gi }
 
-workload:                         # 协议适配 — register_workload("example", ...) in your project
+runner:                         # 协议适配 — register_runner("example", ...) in your project
   name: example
   path: /api/v1/run
   headers_file: ./headers.json    # X-Proxy-Tenant-ID / X-Proxy-User-ID
@@ -42,20 +42,12 @@ cases:
   - { id: simple,  weight: 70, facets: {difficulty: simple},  input_file: ./simple.json }
   - { id: complex, weight: 30, facets: {difficulty: complex}, input_file: ./complex.json }
 
-load:                             # 负载档（网格第二轴）
-  model: closed                   # closed = N 并发用户; open = 到达率 rps（配 max_inflight）
-  levels: [5, 10, 20, 40]         # 容量扫描：每档一个 ramp→hold arm
-  ramp_s: 20
-  steady_s: 120
-  # pacing: { kind: constant_pacing, secs: 1 }   # closed 的 think-time（省略=背靠背）
-  # abort_on_error_rate: 0.10     # within-trial 熔断：这一档压崩了就停它（safety net）
-  # graceful_stop_s: 30           # 停时 drain 在途的窗口（0 = 硬停）
-  # --- 或显式 shape（单 arm，可阶梯/尖刺）---
-  # model: open
-  # max_inflight: 200
-  # stages:
-  #   - { ramp_to: 10, over_s: 30 }
-  #   - { hold: 10, for_s: 120 }
+load:
+  request_rate: inf
+  max_concurrency: 6
+  duration_s: 3
+  drain_timeout_s: 5
+
 
 observe:                          # 资源观测：Service 自身 + 下游 Service
   - name: example
@@ -97,4 +89,4 @@ runs_dir: ./runs                  # each run → runs/example-sizing/<run_id>/
 #   - { metric: ttft_ms.p95,       lt: 2000 }
 #   - { metric: 'p99_ms{difficulty="complex"}',     lt: 30000 }
 #   - { metric: 'prometheus.latency_p95_s{service="example"}.peak', lt: 2 }
-# abort_on_fail: false            # between-trial SLO 门：一档压完不达标即停 sweep
+# abort_on_fail: false            # between-arm_run SLO 门：一档压完不达标即停 sweep

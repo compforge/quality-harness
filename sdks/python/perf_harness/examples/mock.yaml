@@ -9,13 +9,13 @@ service:
     repository: { forge: github, path: compforge/quality-harness }
     name: mock
   environment: { name: local }
-  base_url: http://127.0.0.1:0     # never dialled — MockWorkload sleeps instead
-                                   # (no deployer = already-deployed; resources only label trials)
+  base_url: http://127.0.0.1:0     # never dialled — MockRunner sleeps instead
+                                   # (no deployer = already-deployed; resources only label arm_runs)
 
 resources:
   - { workers: 2 }
 
-workload:
+runner:
   name: mock                       # the protocol adapter (here: the built-in mock)
 
 # Reuse the canonical CaseSet. `cases` only selects/reorders cases and assigns
@@ -25,11 +25,12 @@ cases:
   - { id: hello,  weight: 70 }
   - { id: caocao, weight: 30 }
 
-load:                              # how hard, over time (LoadProfile)
-  model: closed                    # closed = N concurrent users / open = arrival rps
-  levels: [3, 6]                   # capacity sweep: one ramp→hold arm per level
-  ramp_s: 1
-  steady_s: 3
+load:
+  request_rate: inf
+  max_concurrency: 6
+  duration_s: 3
+  drain_timeout_s: 5
+
 
 # client (inflight/sent) is always recorded; no `probes:` / `observe:` needed offline
 observe_interval_s: 0.5

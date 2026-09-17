@@ -32,3 +32,5 @@ src/
 - Service 关联不改变 DataSource 身份；根执行持有回收权，消费者只借用客户端。
 - 消费方扩展 Service 和 Environment，不复制其身份模型；静态声明不执行发现，也不证明目标存在。
 - 保持 Node ESM 发布产物可用；使用 `make lint`、`make test` 验证，版本独立维护。
+
+`src/execution.ts` 定义 ExperimentRun → Execution → OperationRun → Outcome 的公共事实骨架；领域只扩展自己的执行数据，不在 common 放调度器或 Judge。

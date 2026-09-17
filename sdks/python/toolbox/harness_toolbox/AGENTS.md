@@ -9,6 +9,8 @@
 
 ```text
 harness_toolbox/
+├── http.py         # 可借用 HTTP 池与 ClientProvider
+├── sse.py          # 有界 SSE 观察；共享 line_buffer/sse_parser，不含业务判定
 ├── client.py       # common 生命周期类型的兼容导出
 ├── environment.py  # 可访问 KubernetesEnvironment 与配置解析
 ├── address.py      # IP/DNS/环境内 Service 地址候选与解析失败

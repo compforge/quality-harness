@@ -1,57 +1,46 @@
 # @compforge/perf-harness
 
-TypeScript implementation of the repository's language-neutral Perf Harness contract. It runs
-open- or closed-loop load profiles, preserves per-request outcomes and correlation IDs, and emits
-the shared model/raw artifacts described by `spec/perf-contract.md`.
+Bounded request-rate and concurrency scheduling, with separate raw facts and judgments.
+Service, Execution and OperationRun reuse `@compforge/harness-common`; Cases reuse spec-case.
 
 ```ts
-import { loadCaseSet } from "@compforge/spec-case/model";
-import { Engine, rampHold, writeRunData, type Workload } from "@compforge/perf-harness";
+import { Engine, writeRunData, type Runner } from "@compforge/perf-harness";
 
-const caseSet = loadCaseSet("./cases/chat.yaml");
-
-const workload: Workload = {
-  fire: async ({ signal }) => {
-    const started = performance.now();
-    const response = await fetch("http://service/api/run", { method: "POST", signal });
-    return { status: response.status, duration_ms: performance.now() - started };
+const runner: Runner = {
+  name: "chat",
+  async fire({ signal }) {
+    const start = performance.now();
+    const response = await fetch("http://service/chat", {method: "POST", signal});
+    await response.arrayBuffer(); // occupy the slot through the complete response
+    return {status: response.status, duration_ms: performance.now() - start};
   },
 };
-
 const run = await new Engine({
-  name: "service-capacity",
+  name: "chat-capacity",
   service: {
-    name: "service",
-    component: {
-      repository: { forge: { name: "github" }, path: "org/product" },
-      name: "api",
-    },
-    environment: { name: "dev" },
-    base_url: "http://service",
+    name: "chat", component: {name: "api", repository: {forge: {name: "github"}, path: "org/chat"}},
+    environment: {name: "dfx"}, workloads: [],
   },
-  workload,
-  caseSet,
-  caseMix: [{ id: "ordinary_chat", weight: 4 }, { id: "knowledge_chat", weight: 1 }],
-  resources: [{}],
-  loads: [rampHold("closed", 20, 10, 60)],
+  runner,
+  loads: [{request_rate: 4, max_concurrency: 32, duration_s: 60, drain_timeout_s: 180}],
 }).run();
-
-writeRunData(run, "./runs/service-capacity");
+writeRunData(run, "./runs/chat-capacity/local");
 ```
 
-`caseSet` is the canonical asset loaded by spec-case. `caseMix` may only select its stable case ids
-and assign load-plan weights; input, facets, sources and per-face judgment remain owned by the
-CaseSet and cannot be overridden by the Perf experiment.
+Finite rates drop arrivals when full, without a pending queue. `Infinity` replenishes available slots.
+A decreasing cap does not cancel existing calls. Each Runner must cooperate with AbortSignal and fully
+consume its response; use a streaming parser with bounded buffers for real SSE. A separate `judge`
+function evaluates raw Outcomes; the default checks transport/status, not business completion.
 
-Service-specific request and SSE semantics stay in the consumer's `Workload`. Each `fire` handles
-exactly one dispatch and must be safe for concurrent calls; the Workload must not start its own load
-loop. Resource-side
-Prometheus/Kubernetes observation stays with the consumer as well; Doctor, for example, reuses its
-existing Prombed-backed `doctor metric` collection.
+`caseSet` and `caseMix` select canonical Case IDs and experiment-local weights. `run.executions` holds
+ArmRuns; each actual invocation owns one OperationRun/Outcome. Dispatch-cohort latency includes drained
+responses, while completion throughput uses actual completion timestamps.
 
-`writeRunData` writes the shared `run.json`, `outcomes.jsonl`, and `verdict.json` artifacts. The
-implementation supports open/closed load, ramp/hold schedules, closed-loop pacing, request/inflight
-safety limits and an error-rate breaker. Resource probes and rendered reports remain consumer-owned.
-Until the
-TypeScript API exposes SLO checks, a normally completed run has verdict status `skipped`: it was observed,
-not judged. Error-rate or abort stops produce a failing verdict.
+Schema 5 artifacts: `run.json`, `requests.jsonl`, `evaluations.json`, `timeseries.csv`, `verdict.json`.
+`loadRun` reads them offline. The TypeScript SDK does not provide resource probes, rendered reports or
+SLO evaluation. Its successful execution verdict is `skipped`; phase errors, early stops and interrupted
+calls fail. Python provides the richer reporting and SLO layer using the same persisted facts.
+
+Development from `sdks/typescript`: `bun install --frozen-lockfile`, then build `common` before
+`perf-harness`. Run `bun test`, `bun run typecheck`, and `bun run build` in each package.
+See [shared contract](../../../spec/perf-contract.md).

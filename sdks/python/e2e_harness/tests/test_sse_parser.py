@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from e2e_harness.runner.sse_parser import SSEEvent, SSEParser
+from harness_toolbox.sse_parser import SSEEvent, SSEParser
 
 
 def _events(parser: SSEParser, lines: list[str]) -> list[SSEEvent]:

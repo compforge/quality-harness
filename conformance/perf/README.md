@@ -1,13 +1,12 @@
 # Perf conformance
 
-这里的 fixture 是 Perf Harness 跨语言契约的可执行样例，不属于 Python 或 TypeScript 任一实现。
-每种语言实现至少要证明自己能读取公共 fixture，并保持以下语义：
+公共 fixture 表达 schema 5 的一次完成调用和一次未发出的 drop，供 Python/TypeScript 共同读取。
+`basic.run.json` 只有 Execution/Arm/Window 投影；`basic.requests.jsonl` 保存调度记录与唯一原始
+OperationRun/Outcome；`basic.evaluations.json` 单独保存判定。
 
-- `trial` / `arm.id` 是同一次 Trial 的稳定对齐键；
-- Outcome 的 `t` 是 dispatch 相对 Trial 起点的秒数；
-- `metrics` 保存每请求指标，`meta` 保存 `trace_id` 等遥测关联键；
-- 未知可选字段不会导致 reader 失败。
+实现必须保留 arm_run_id / operation_run_id / case_id 与 trace_id，恢复 inf 速率，接受可空时刻，
+并能从同一事实重算 dispatch cohort 延迟与实际事件吞吐。未发出请求不能生成虚构 Outcome。
 
-fixture 的字段定义见 [`../../spec/perf-contract.md`](../../spec/perf-contract.md)、
-[`../../spec/perf-run-schema.yaml`](../../spec/perf-run-schema.yaml) 和
-[`../../spec/perf-outcome-schema.yaml`](../../spec/perf-outcome-schema.yaml)。
+契约见 [perf-contract](../../spec/perf-contract.md)，schema 见
+[Run](../../spec/perf-run-schema.yaml)、[Request](../../spec/perf-request-schema.yaml)、
+[Evaluation](../../spec/perf-evaluation-schema.yaml)。

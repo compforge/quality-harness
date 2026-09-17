@@ -236,7 +236,7 @@ class PodCountProbe(_K8sProbe):
 class ResourceLimitsProbe(_K8sProbe):
     """The container's configured resource **request/limit** (from the pod spec) — the
     allotment, vs ``top``'s usage. The probe re-reads the selected pod set each
-    tick because replicas may change during a trial; caching the initial set
+    tick because replicas may change during a arm_run; caching the initial set
     would make autoscaling curves report stale aggregate limits.
 
     Despite the name it emits BOTH ``request`` and ``limit`` (k8s calls the block

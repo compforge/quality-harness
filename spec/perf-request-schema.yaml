@@ -1,0 +1,44 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Perf schema 5 request record
+type: object
+required: [arm_run_id, request]
+properties:
+  arm_run_id: {type: string, minLength: 1}
+  request:
+    type: object
+    required: [id, case_id, scheduled_at, arrived_at, state, facets]
+    properties:
+      id: {type: string, minLength: 1}
+      case_id: {type: string}
+      scheduled_at: {type: number, minimum: 0}
+      arrived_at: {type: number, minimum: 0}
+      dispatched_at: {type: [number, 'null'], minimum: 0}
+      finished_at: {type: [number, 'null'], minimum: 0}
+      state: {enum: [arrived, dispatched, finished, dropped, interrupted]}
+      reason: {type: [string, 'null']}
+      operation_run_id: {type: [string, 'null']}
+      facets: {type: object, additionalProperties: {type: string}}
+  operation_run:
+    oneOf:
+      - {type: 'null'}
+      - type: object
+        required: [id, service, operation, outcome]
+        properties:
+          id: {type: string, minLength: 1}
+          service:
+            type: object
+            required: [name, component, environment, workloads]
+          operation: {type: object, required: [name]}
+          outcome:
+            type: object
+            required: [status, duration_ms]
+            properties:
+              status: {type: [integer, 'null']}
+              duration_ms: {type: number, minimum: 0}
+              metrics: {type: object, additionalProperties: {type: number}}
+              meta: {type: object}
+            not:
+              anyOf:
+                - {required: [ok]}
+                - {required: [error_kind]}
+                - {required: [dropped]}

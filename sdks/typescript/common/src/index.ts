@@ -10,3 +10,4 @@ export * from "./component.js";
 export * from "./host.js";
 export * from "./environment.js";
 export * from "./service.js";
+export * from "./execution.js";

@@ -1,8 +1,8 @@
 """CLI — ``python -m perf_harness.cli run <config.yaml>`` / ``analyze`` / ``report``.
 
 ``run``: each run lands under ``<runs_dir>/<run_id>/`` (report + csvs + the model
-layer run.json/outcomes.jsonl); repeated runs accumulate instead of clobbering.
-``--mock`` swaps in MockWorkload for an offline smoke; ``--run-id`` names the run.
+layer run.json/requests.jsonl); repeated runs accumulate instead of clobbering.
+``--mock`` swaps in MockRunner for an offline smoke; ``--run-id`` names the run.
 
 ``analyze``: deterministic observations over a finished run dir (reads the model
 layer, never the HTML) — the mechanical part of a perf analysis, pre-chewed.
@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("config")
     run.add_argument("--out", default=None, help="override runs_dir")
     run.add_argument("--run-id", default=None, help="name this run (default: timestamp)")
-    run.add_argument("--mock", action="store_true", help="use MockWorkload (offline smoke)")
+    run.add_argument("--mock", action="store_true", help="use MockRunner (offline smoke)")
     an = sub.add_parser("analyze", help="deterministic observations over a run dir")
     an.add_argument("run_dir", help="runs/<experiment>/<run_id>/ (needs run.json)")
     rep = sub.add_parser("report", help="re-render report artifacts from a run dir")
@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
                 else _parse_facet_order(raw.get("facets"))
             )
         loaded = load_run(run_dir)
-        paths = write_report(loaded.trials, str(run_dir), facet_order=facet_order)
+        paths = write_report(loaded.arm_runs, str(run_dir), facet_order=facet_order)
         print(f"re-rendered from model layer: {paths['report']}")
         print(f"  html: {paths['report_html']}")
         return 0
@@ -82,10 +82,10 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"experiment {run_result.experiment} · run {run_result.run_id} "
-        f"— {len(run_result.trials)} trial(s)"
+        f"— {len(run_result.arm_runs)} arm_run(s)"
     )
     print(f"  → {paths['run_dir']}")
-    for r in run_result.trials:
+    for r in run_result.arm_runs:
         if r.phase_errors:
             error = r.phase_errors[0]
             print(
@@ -102,18 +102,18 @@ def main(argv: list[str] | None = None) -> int:
     print(f"report: {paths['report']}")
     if paths.get("report_html"):
         print(f"  html: {paths['report_html']}")
-    errors = [r for r in run_result.trials if r.phase_errors]
-    early = [r for r in run_result.trials if r.stop.early and not r.phase_errors]
+    errors = [r for r in run_result.arm_runs if r.phase_errors]
+    early = [r for r in run_result.arm_runs if r.stop.early and not r.phase_errors]
     if errors:
-        print(f"run: ERROR ({len(errors)} trial(s) had phase errors)")
+        print(f"run: ERROR ({len(errors)} arm_run(s) had phase errors)")
     elif early:
         reasons = ", ".join(sorted({r.stop.reason for r in early}))
-        print(f"run: FAIL ({len(early)} trial(s) stopped early: {reasons})")
-    elif run_result.trials and any(r.slo for r in run_result.trials):
-        skipped = sum(1 for r in run_result.trials for c in r.slo if c.observed is None)
+        print(f"run: FAIL ({len(early)} arm_run(s) stopped early: {reasons})")
+    elif run_result.arm_runs and any(r.slo for r in run_result.arm_runs):
+        skipped = sum(1 for r in run_result.arm_runs for c in r.slo if c.observed is None)
         note = f" ({skipped} skipped — metric/slice absent; check label typos)" if skipped else ""
         print(f"SLO: {'PASS' if run_result.passed else 'FAIL'}{note}")
-    # non-zero exit on an incomplete trial or SLO failure → CI gate
+    # non-zero exit on an incomplete arm_run or SLO failure → CI gate
     return 0 if run_result.passed else 1
 
 

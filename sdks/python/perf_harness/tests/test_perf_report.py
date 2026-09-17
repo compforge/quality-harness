@@ -1,9 +1,11 @@
 from pathlib import Path
 
-from perf_harness.drive.load import LoadProfile, Schedule
+from perf_harness.drive.load import LoadPlan
 from perf_harness.metric import CounterSummary, GaugeSummary
 from perf_harness.model import (
     Arm,
+    ArmRun,
+    ArmStop,
     PhaseError,
     RequestStats,
     ResourceProfile,
@@ -12,8 +14,6 @@ from perf_harness.model import (
     SloAssertion,
     SloCheck,
     StopSnapshot,
-    TrialRecord,
-    TrialStop,
     Window,
     WindowSelector,
 )
@@ -33,11 +33,11 @@ def _stats(n=100, n_ok=95, err=0.05, breakdown=None) -> RequestStats:
     )
 
 
-def _trial(level=10) -> TrialRecord:
+def _arm_run(level=10) -> ArmRun:
     resources = ResourceProfile(workers=2, memory="2Gi")
-    load = LoadProfile(model="closed", schedule=Schedule.ramp_hold(level, 0.0, 1.0))
+    load = LoadPlan(request_rate=float("inf"), max_concurrency=level, duration_s=(0.0 + 1.0))
     stats = _stats()
-    return TrialRecord(
+    return ArmRun(
         id=f"{resources.label()}|{load.label()}",
         service="example",
         arm=Arm(f"{resources.label()}|{load.label()}", resources, load),
@@ -68,8 +68,8 @@ def _trial(level=10) -> TrialRecord:
 
 
 def test_write_report_emits_artifacts(tmp_path):
-    trial = _trial()
-    trial.windows.append(
+    arm_run = _arm_run()
+    arm_run.windows.append(
         Window(
             "cooldown",
             "cooldown",
@@ -80,12 +80,12 @@ def test_write_report_emits_artifacts(tmp_path):
             probe_metrics={"top.mem_mi": GaugeSummary(last=0, mean=10, peak=20)},
         )
     )
-    paths = write_report([trial], str(tmp_path))
+    paths = write_report([arm_run], str(tmp_path))
     for key in ("summary", "by_facet", "windows", "timeseries", "report"):
         assert Path(paths[key]).exists()
 
     summary = Path(paths["summary"]).read_text().splitlines()
-    assert len(summary) == 2  # header + 1 trial
+    assert len(summary) == 2  # header + 1 arm_run
     assert "top.mem_mi.peak" in summary[0]
 
     md = Path(paths["report"]).read_text()
@@ -105,9 +105,9 @@ def test_write_report_emits_artifacts(tmp_path):
 
 
 def test_report_flags_knee(tmp_path):
-    low = _trial(level=5)
+    low = _arm_run(level=5)
     low.measurement.request.error_rate = 0.0
-    high = _trial(level=40)
+    high = _arm_run(level=40)
     high.measurement.request.error_rate = 0.11
     paths = write_report([low, high], str(tmp_path))
     md = Path(paths["report"]).read_text()
@@ -115,33 +115,33 @@ def test_report_flags_knee(tmp_path):
 
 
 def test_report_rejects_early_stop_as_capacity(tmp_path):
-    trial = _trial(level=10)
-    trial.stop = TrialStop(
+    arm_run = _arm_run(level=10)
+    arm_run.stop = ArmStop(
         reason="error_rate",
         snapshot=StopSnapshot(
             at_s=34.0,
-            sent=50,
+            completed=50,
             errors=7,
             error_rate=0.14,
             threshold=0.1,
         ),
     )
     assertion = SloAssertion("p99_ms", "lt", 1000)
-    trial.slo = [SloCheck(assertion, observed=400, state="pass")]
+    arm_run.slo = [SloCheck(assertion, observed=400, state="pass")]
 
-    paths = write_report([trial], str(tmp_path))
+    paths = write_report([arm_run], str(tmp_path))
     md = Path(paths["report"]).read_text()
-    assert "Run 判定（trial 完整性 + SLO）" in md
+    assert "Run 判定（arm_run 完整性 + SLO）" in md
     assert "FAIL" in md and "部分窗口不能确认" in md
     assert "SLO-aware 容量" in md and "—（无档达标）" in md
 
 
 def test_report_distinguishes_phase_error_from_load_failure(tmp_path):
-    trial = _trial(level=10)
-    trial.stop = TrialStop(reason="aborted")
-    trial.phase_errors = [PhaseError("setup", "RuntimeError", "target unavailable")]
+    arm_run = _arm_run(level=10)
+    arm_run.stop = ArmStop(reason="aborted")
+    arm_run.phase_errors = [PhaseError("setup", "RuntimeError", "target unavailable")]
 
-    paths = write_report([trial], str(tmp_path))
+    paths = write_report([arm_run], str(tmp_path))
     md = Path(paths["report"]).read_text()
     assert "ERROR" in md
     assert "setup: RuntimeError: target unavailable" in md
@@ -149,13 +149,13 @@ def test_report_distinguishes_phase_error_from_load_failure(tmp_path):
 
 
 def test_report_names_actual_window_and_fails_closed_on_cooldown_skip(tmp_path):
-    trial = _trial(level=10)
+    arm_run = _arm_run(level=10)
     assertion = SloAssertion(
         "client.inflight.last", "lte", 0, window=WindowSelector(kind="cooldown")
     )
-    trial.slo = [SloCheck(assertion, observed=None, state="skipped", window_id="cooldown")]
+    arm_run.slo = [SloCheck(assertion, observed=None, state="skipped", window_id="cooldown")]
 
-    paths = write_report([trial], str(tmp_path))
+    paths = write_report([arm_run], str(tmp_path))
     md = Path(paths["report"]).read_text()
     assert "FAIL" in md
     assert "client.inflight.last [window=cooldown]" in md
@@ -165,18 +165,18 @@ def test_report_names_actual_window_and_fails_closed_on_cooldown_skip(tmp_path):
 def test_facet_order_sorts_ordinal(tmp_path):
     # ordered facet: simple before complex, despite alpha order complex < simple
     paths = write_report(
-        [_trial()], str(tmp_path), facet_order={"difficulty": ["simple", "complex"]}
+        [_arm_run()], str(tmp_path), facet_order={"difficulty": ["simple", "complex"]}
     )
     md = Path(paths["report"]).read_text()
     assert md.index("| simple ") < md.index("| complex ")
 
 
-def _svc_trial(level: float) -> TrialRecord:
-    """A trial with service-LABELED resource series + count gauges, the real-config
+def _svc_arm_run(level: float) -> ArmRun:
+    """A arm_run with service-LABELED resource series + count gauges, the real-config
     shape: §3 response curves and §4 per-service sections key off these."""
     from perf_harness.metric import MetricFamily, series_id
 
-    r = _trial(level=level)
+    r = _arm_run(level=level)
     cpu = series_id("top.cpu_m", {"service": "chat"})
     lim = series_id("limits.cpu_limit", {"service": "chat"})
     r.measurement.probe_metrics = {
@@ -203,7 +203,7 @@ def _svc_trial(level: float) -> TrialRecord:
 def test_response_curves_section_per_service(tmp_path):
     # ≥2 levels → §3 exists: entry sub-section (err/latency vs level) + one sub-section
     # per service whose cpu curve carries the flat limit reference line
-    paths = write_report([_svc_trial(5), _svc_trial(40)], str(tmp_path))
+    paths = write_report([_svc_arm_run(5), _svc_arm_run(40)], str(tmp_path))
     html = Path(paths["report_html"]).read_text()
     assert "3. 压力响应曲线" in html
     # each Heading group is its own nested collapsible <details class="sub">
@@ -214,14 +214,14 @@ def test_response_curves_section_per_service(tmp_path):
 
 
 def test_response_curves_omitted_for_single_level(tmp_path):
-    paths = write_report([_svc_trial(5)], str(tmp_path))
+    paths = write_report([_svc_arm_run(5)], str(tmp_path))
     html = Path(paths["report_html"]).read_text()
     assert "压力响应曲线" not in html  # one point is not a curve
-    assert "4. 时间序列" in html  # the within-trial section still renders
+    assert "4. 时间序列" in html  # the within-arm_run section still renders
 
 
 def test_timeseries_section_left_resource_right_pressure(tmp_path):
-    paths = write_report([_svc_trial(5)], str(tmp_path))
+    paths = write_report([_svc_arm_run(5)], str(tmp_path))
     html = Path(paths["report_html"]).read_text()
     # per-service chart: left = usage + limit line, right = dashed pressure
     # (inflight + the actual send rate derived from client.sent)
@@ -231,7 +231,7 @@ def test_timeseries_section_left_resource_right_pressure(tmp_path):
     assert '"name": "client.sent"' in html
 
 
-def _biz_trial(level: float) -> TrialRecord:
+def _biz_arm_run(level: float) -> ArmRun:
     """Service-labeled BUSINESS metrics: a scraped counter + a derived scalar — the
     observation-plane signals that must ride §3 curves / §4 rate charts like resources."""
     from perf_harness.metric import (
@@ -241,7 +241,7 @@ def _biz_trial(level: float) -> TrialRecord:
         series_id,
     )
 
-    r = _svc_trial(level)
+    r = _svc_arm_run(level)
     errs = series_id("metrics.sse_errors", {"service": "chat"})
     mean = series_id("sse_ttft_mean_s", {"service": "chat"})
     r.measurement.probe_metrics[errs] = CounterSummary(
@@ -261,7 +261,7 @@ def _biz_trial(level: float) -> TrialRecord:
 
 
 def test_response_curves_include_business_metrics(tmp_path):
-    paths = write_report([_biz_trial(5), _biz_trial(40)], str(tmp_path))
+    paths = write_report([_biz_arm_run(5), _biz_arm_run(40)], str(tmp_path))
     html = Path(paths["report_html"]).read_text()
     # scraped counter → "计数速率 vs 档位"; derived scalar → its own mean curve
     assert "chat · 计数速率 — " in html and "metrics.sse_errors.rate" in html
@@ -274,8 +274,8 @@ def test_response_curves_group_by_label_fanout_under_one_service(tmp_path):
     # LINES in the one chart under the service's own heading
     from perf_harness.metric import CounterSummary, MetricFamily, series_id
 
-    def trial(level: float) -> TrialRecord:
-        r = _svc_trial(level)
+    def arm_run(level: float) -> ArmRun:
+        r = _svc_arm_run(level)
         for path, mult in (("/v1/a", 1.0), ("/v1/b", 3.0)):
             sid = series_id("metrics.ctl_requests", {"path": path, "service": "control"})
             r.measurement.probe_metrics[sid] = CounterSummary(
@@ -286,7 +286,7 @@ def test_response_curves_group_by_label_fanout_under_one_service(tmp_path):
         )
         return r
 
-    paths = write_report([trial(5), trial(40)], str(tmp_path))
+    paths = write_report([arm_run(5), arm_run(40)], str(tmp_path))
     html = Path(paths["report_html"]).read_text()
     # one heading for the service — no per-path "control/…" headings
     assert '<details class="sub" open><summary>control</summary>' in html
@@ -299,10 +299,10 @@ def test_response_curves_group_by_label_fanout_under_one_service(tmp_path):
 
 
 def test_timeseries_plots_counter_as_tick_rate(tmp_path):
-    paths = write_report([_biz_trial(5)], str(tmp_path))
+    paths = write_report([_biz_arm_run(5)], str(tmp_path))
     html = Path(paths["report_html"]).read_text()
-    # within-trial: the cumulative counter renders as a per-tick rate line
-    assert "chat · 计数速率 — w2/2Gi|closed/5c" in html
+    # within-arm_run: the cumulative counter renders as a per-tick rate line
+    assert "chat · 计数速率 — w2/2Gi|concurrency/5/c5" in html
 
 
 def test_limits_reference_lines_pin_their_color(tmp_path):
@@ -310,8 +310,8 @@ def test_limits_reference_lines_pin_their_color(tmp_path):
     # the pinned palette is report-side display policy, not family metadata
     from perf_harness.metric import MetricFamily
 
-    trials = [_svc_trial(5), _svc_trial(40)]
-    for t in trials:
+    arm_runs = [_svc_arm_run(5), _svc_arm_run(40)]
+    for t in arm_runs:
         t.metrics["limits.cpu_limit"] = MetricFamily(
             "limits.cpu_limit",
             "millicores",
@@ -319,7 +319,7 @@ def test_limits_reference_lines_pin_their_color(tmp_path):
             "gauge",
             "k8s",
         )
-    paths = write_report(trials, str(tmp_path))
+    paths = write_report(arm_runs, str(tmp_path))
     html = Path(paths["report_html"]).read_text()
     # pinned on both the §3 curve and the §4 timeseries charts (itemStyle + lineStyle)
     assert html.count('"color": "#d62728"') >= 4
@@ -330,7 +330,7 @@ def test_chart_legend_carries_metric_meaning(tmp_path):
     # reveal the family's declared description (via the injected tip formatter)
     from perf_harness.metric import MetricFamily
 
-    t = _biz_trial(5)
+    t = _biz_arm_run(5)
     t.metrics["metrics.sse_errors"] = MetricFamily(
         "metrics.sse_errors",
         "count",

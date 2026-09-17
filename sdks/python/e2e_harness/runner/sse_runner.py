@@ -18,7 +18,7 @@ Outcome shape:
                    }
     raw            full raw response bytes
 
-The line/event parser lives in ``runner/sse_parser.py`` so async streaming
+The line/event parser lives in ``harness_toolbox/sse_parser.py`` so async streaming
 callers can reuse the same state machine without re-implementing it.
 """
 
@@ -32,8 +32,8 @@ import httpx
 from e2e_harness.core.config import E2EConfig
 from e2e_harness.runner.base import BaseRunner, Outcome, Request
 from e2e_harness.runner.headers import build_headers
-from e2e_harness.runner.line_buffer import LineBuffer
-from e2e_harness.runner.sse_parser import SSEEvent, SSEParser
+from harness_toolbox.line_buffer import LineBuffer
+from harness_toolbox.sse_parser import SSEEvent, SSEParser
 
 
 class SSERunner(BaseRunner):

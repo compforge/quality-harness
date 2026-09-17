@@ -1,20 +1,20 @@
-"""analysis lenses — deterministic observations over hand-built trials (precise
+"""analysis lenses — deterministic observations over hand-built arm_runs (precise
 numbers), plus the analyze_run end-to-end over a written run dir."""
 
 from perf_harness.analysis import analyze, analyze_run, render_text
 from perf_harness.analysis.base import by_resources, linfit
-from perf_harness.drive.load import LoadProfile, Schedule
+from perf_harness.drive.load import LoadPlan
 from perf_harness.metric import GaugeSummary, MetricFamily, series_id
 from perf_harness.model import (
     Arm,
+    ArmRun,
+    ArmStop,
     PhaseError,
     RequestStats,
     ResourceProfile,
     Run,
     Sample,
     Series,
-    TrialRecord,
-    TrialStop,
     Window,
 )
 
@@ -25,7 +25,7 @@ _REGISTRY = {
         "limits.cpu_request", "millicores", "resource", "gauge", "k8s"
     ),
     "limits.cpu_limit": MetricFamily("limits.cpu_limit", "millicores", "resource", "gauge", "k8s"),
-    "ttft_ms": MetricFamily("ttft_ms", "ms", "per_request", "distribution", "client"),
+    "first_byte_ms": MetricFamily("first_byte_ms", "ms", "per_request", "distribution", "client"),
 }
 
 
@@ -36,7 +36,7 @@ def _stats(n, rps, p50, p95, p99, caveats=frozenset()) -> RequestStats:
     )  # fmt: skip
 
 
-def _trial(level, stats, cpu_peaks: dict[str, float], breaker=None) -> TrialRecord:
+def _arm_run(level, stats, cpu_peaks: dict[str, float], breaker=None) -> ArmRun:
     pm = {}
     for svc, peak in cpu_peaks.items():
         pm[series_id("top.cpu_m", {"service": svc})] = GaugeSummary(
@@ -49,13 +49,14 @@ def _trial(level, stats, cpu_peaks: dict[str, float], breaker=None) -> TrialReco
             last=2000, mean=2000, peak=2000
         )
     resources = ResourceProfile(workers=2)
-    load = LoadProfile(
-        model="closed",
-        schedule=Schedule.ramp_hold(level, 0.0, 45.0),
+    load = LoadPlan(
+        request_rate=float("inf"),
+        max_concurrency=level,
+        duration_s=(0.0 + 45.0),
         abort_on_error_rate=breaker,
         breaker_min_n=10,
     )
-    return TrialRecord(
+    return ArmRun(
         id=f"{resources.label()}|{load.label()}",
         service="chat",
         arm=Arm(f"{resources.label()}|{load.label()}", resources, load),
@@ -80,12 +81,12 @@ def _trial(level, stats, cpu_peaks: dict[str, float], breaker=None) -> TrialReco
 def _sweep() -> Run:
     """2/4/8 sweep shaped like the real dev press: linear 2→4, knee at 8, planit cpu
     hotter than chat, sub-100 n everywhere, p95==p99 at level 2."""
-    trials = [
-        _trial(2, _stats(17, 0.38, 5691, 6901, 6901), {"chat": 123, "planit": 120}, 0.10),
-        _trial(4, _stats(34, 0.76, 6045, 7359, 7445), {"chat": 147, "planit": 224}, 0.10),
-        _trial(8, _stats(52, 1.16, 7620, 9258, 10292), {"chat": 228, "planit": 362}, 0.10),
+    arm_runs = [
+        _arm_run(2, _stats(17, 0.38, 5691, 6901, 6901), {"chat": 123, "planit": 120}, 0.10),
+        _arm_run(4, _stats(34, 0.76, 6045, 7359, 7445), {"chat": 147, "planit": 224}, 0.10),
+        _arm_run(8, _stats(52, 1.16, 7620, 9258, 10292), {"chat": 228, "planit": 362}, 0.10),
     ]
-    return Run("rid", "exp", "t", "chat", trials)
+    return Run("rid", "exp", "t", "chat", executions=arm_runs)
 
 
 def _titles(obs, analyzer=None, kind=None):
@@ -132,7 +133,7 @@ def test_resource_headroom_slope_and_extrapolation():
 
 def test_resource_flags_idle_service():
     run = _sweep()
-    for t in run.trials:  # executor pinned at 5m across all levels
+    for t in run.arm_runs:  # executor pinned at 5m across all levels
         t.measurement.probe_metrics[series_id("top.cpu_m", {"service": "executor"})] = GaugeSummary(
             last=5, mean=5, peak=5
         )
@@ -146,9 +147,9 @@ def test_resource_flags_idle_service():
 def test_resource_flags_memory_growth():
     run = _sweep()
     sid = series_id("top.mem_mi", {"service": "chat"})
-    run.trials[-1].series[sid] = Series(
+    run.arm_runs[-1].series[sid] = Series(
         metric=sid, unit="MiB", samples=[Sample(0.0, 1000.0), Sample(50.0, 1200.0)]
-    )  # +20% within one trial
+    )  # +20% within one arm_run
     flags = _titles(analyze(run), "resource", "flag")
     assert any("增长" in t and "soak" in t for t in flags)
 
@@ -163,11 +164,11 @@ def test_latency_adequacy_flags_but_no_false_divergence():
 
 
 def test_latency_flags_real_tail_divergence():
-    trials = [
-        _trial(2, _stats(200, 1.0, 1000, 1400, 1500), {"chat": 100}),
-        _trial(8, _stats(200, 3.0, 1100, 3500, 8000), {"chat": 200}),
+    arm_runs = [
+        _arm_run(2, _stats(200, 1.0, 1000, 1400, 1500), {"chat": 100}),
+        _arm_run(8, _stats(200, 3.0, 1100, 3500, 8000), {"chat": 200}),
     ]
-    flags = _titles(analyze(Run("r", "e", "t", "chat", trials)), "latency", "flag")
+    flags = _titles(analyze(Run("r", "e", "t", "chat", executions=arm_runs)), "latency", "flag")
     # p50 +10% but p99 +433% → tail diverges far faster than the median
     assert any("尾部发散" in t for t in flags)
 
@@ -195,7 +196,7 @@ def test_validity_flags_probe_errors():
     from perf_harness.model import ProbeErrors
 
     run = _sweep()
-    run.trials[-1].probe_errors = {
+    run.arm_runs[-1].probe_errors = {
         "metrics.chat": ProbeErrors(failures=3, ticks=10, last="HTTPStatusError('500')")
     }
     flags = _titles(analyze(run), "validity", "flag")
@@ -204,12 +205,12 @@ def test_validity_flags_probe_errors():
 
 def test_phase_error_is_diagnostic_not_a_curve_point():
     run = _sweep()
-    broken = run.trials[1]
-    broken.stop = TrialStop(reason="aborted")
+    broken = run.arm_runs[1]
+    broken.stop = ArmStop(reason="aborted")
     broken.measurement.complete = False
     broken.phase_errors = [PhaseError("setup", "RuntimeError", "testbed unavailable")]
 
-    grouped = by_resources(run.trials)
+    grouped = by_resources(run.arm_runs)
     assert broken not in grouped[0][1]
 
     flags = _titles(analyze(run), "validity", "flag")
@@ -220,10 +221,10 @@ def test_phase_error_is_diagnostic_not_a_curve_point():
 def test_phase_error_after_complete_measurement_preserves_curve_point():
     for phase in ("deactivate", "cooldown", "cleanup"):
         run = _sweep()
-        completed = run.trials[1]
+        completed = run.arm_runs[1]
         completed.phase_errors = [PhaseError(phase, "RuntimeError", f"{phase} failed")]
 
-        grouped = by_resources(run.trials)
+        grouped = by_resources(run.arm_runs)
         assert completed in grouped[0][1]
 
         flags = _titles(analyze(run), "validity", "flag")

@@ -13,7 +13,7 @@ from e2e_harness.core.config import E2EConfig, Service
 from e2e_harness.runner.async_json_runner import AsyncJSONRunner
 from e2e_harness.runner.async_sse_runner import AsyncSSERunner
 from e2e_harness.runner.base import Request
-from e2e_harness.runner.line_buffer import LineBuffer
+from harness_toolbox.line_buffer import LineBuffer
 
 
 # --------------------------------------------------------------------------- LineBuffer

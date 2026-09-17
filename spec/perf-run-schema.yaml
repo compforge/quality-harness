@@ -2,157 +2,412 @@ $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://compforge.dev/schemas/perf-run-schema.yaml
 title: Perf Harness Run
 type: object
-required: [schema, run_id, experiment, created_at, service, passed, n_trials, trials]
+required:
+- schema
+- run_id
+- experiment
+- created_at
+- service
+- passed
+- executions
 properties:
-  schema: {type: integer, const: 4}
-  run_id: {type: string, minLength: 1}
-  experiment: {type: string, minLength: 1}
-  created_at: {type: string}
-  service: {type: string, minLength: 1}
-  passed: {type: boolean}
-  n_trials: {type: integer, minimum: 0}
-  trials: {type: array, items: {$ref: '#/$defs/trial'}}
+  schema:
+    type: integer
+    const: 5
+  run_id:
+    type: string
+    minLength: 1
+  experiment:
+    type: string
+    minLength: 1
+  created_at:
+    type: string
+  service:
+    type: string
+    minLength: 1
+  passed:
+    type: boolean
+  executions:
+    type: array
+    items:
+      $ref: '#/$defs/arm_run'
 additionalProperties: true
-
 $defs:
   resources:
     type: object
     properties:
-      cpu: {type: [string, 'null']}
-      memory: {type: [string, 'null']}
-      workers: {type: [integer, 'null'], minimum: 1}
-      replicas: {type: integer, minimum: 1}
-      extra: {type: object, additionalProperties: {type: string}}
+      cpu:
+        type:
+        - string
+        - 'null'
+      memory:
+        type:
+        - string
+        - 'null'
+      workers:
+        type:
+        - integer
+        - 'null'
+        minimum: 1
+      replicas:
+        type: integer
+        minimum: 1
+      extra:
+        type: object
+        additionalProperties:
+          type: string
     additionalProperties: true
   stage:
     type: object
-    required: [over_s, to_level, kind]
+    required:
+    - duration_s
+    - request_rate
+    - max_concurrency
+    - kind
     properties:
-      over_s: {type: number, minimum: 0}
-      to_level: {type: number, minimum: 0}
-      kind: {enum: [ramp, hold]}
-      name: {type: [string, 'null']}
-    additionalProperties: true
+      duration_s:
+        type: number
+        exclusiveMinimum: 0
+      request_rate: &id001
+        oneOf:
+        - type: number
+          minimum: 0
+        - const: inf
+      max_concurrency:
+        type: integer
+        minimum: 1
+      kind:
+        enum:
+        - ramp
+        - hold
+      name:
+        type:
+        - string
+        - 'null'
   load:
     type: object
-    required: [model, schedule, pacing, warmup_s, breaker_min_n, graceful_stop_s]
+    required:
+    - request_rate
+    - max_concurrency
+    - duration_s
     properties:
-      model: {enum: [open, closed]}
-      schedule:
-        type: object
-        required: [start_level, stages]
-        properties:
-          start_level: {type: number, minimum: 0}
-          stages: {type: array, minItems: 1, items: {$ref: '#/$defs/stage'}}
-        additionalProperties: true
-      pacing:
-        type: object
-        required: [kind, secs, max_secs]
-        properties:
-          kind: {enum: [none, constant, between, constant_pacing]}
-          secs: {type: number, minimum: 0}
-          max_secs: {type: number, minimum: 0}
-        additionalProperties: true
-      warmup_s: {type: number, minimum: 0}
-      max_inflight: {type: [integer, 'null'], minimum: 1}
-      max_requests: {type: [integer, 'null'], minimum: 1}
-      abort_on_error_rate: {type: [number, 'null'], exclusiveMinimum: 0, maximum: 1}
-      breaker_min_n: {type: integer, minimum: 1}
-      graceful_stop_s: {type: number, minimum: 0}
-    additionalProperties: true
+      request_rate: *id001
+      max_concurrency:
+        type: integer
+        minimum: 1
+      duration_s:
+        type: number
+        exclusiveMinimum: 0
+      stages:
+        type: array
+        items:
+          $ref: '#/$defs/stage'
+      arrival:
+        enum:
+        - constant
+        - poisson
+      seed:
+        type: integer
+      warmup_s:
+        type: number
+        minimum: 0
+      drain_timeout_s:
+        type: number
+        minimum: 0
+      breaker_min_n:
+        type: integer
+        minimum: 1
+      abort_on_error_rate:
+        type:
+        - number
+        - 'null'
+        exclusiveMinimum: 0
+        maximum: 1
   distribution:
     type: object
-    required: [kind, n, mean, p50, p95, p99, caveats]
+    required:
+    - kind
+    - n
+    - mean
+    - p50
+    - p95
+    - p99
+    - caveats
     properties:
-      kind: {const: distribution}
-      n: {type: integer, minimum: 0}
-      mean: {type: number}
-      p50: {type: number}
-      p95: {type: number}
-      p99: {type: number}
-      caveats: {type: array, items: {type: string}, uniqueItems: true}
+      kind:
+        const: distribution
+      n:
+        type: integer
+        minimum: 0
+      mean:
+        type: number
+      p50:
+        type: number
+      p95:
+        type: number
+      p99:
+        type: number
+      caveats:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
     additionalProperties: true
   request_stats:
     type: object
-    required: [n, n_ok, throughput_rps, p50_ms, p95_ms, p99_ms, mean_ms, error_rate,
-               error_breakdown, n_dropped, caveats, metrics]
+    required:
+    - n
+    - n_ok
+    - throughput_rps
+    - p50_ms
+    - p95_ms
+    - p99_ms
+    - mean_ms
+    - error_rate
+    - error_breakdown
+    - n_dropped
+    - caveats
+    - metrics
+    - arrived
+    - dispatched
+    - completed
+    - succeeded
+    - n_interrupted
+    - inflight_peak
+    - inflight_end
+    - arrival_rps
+    - dispatch_rps
+    - success_rps
     properties:
-      n: {type: integer, minimum: 0}
-      n_ok: {type: integer, minimum: 0}
-      throughput_rps: {type: number, minimum: 0}
-      p50_ms: {type: number, minimum: 0}
-      p95_ms: {type: number, minimum: 0}
-      p99_ms: {type: number, minimum: 0}
-      mean_ms: {type: number, minimum: 0}
-      error_rate: {type: number, minimum: 0, maximum: 1}
-      error_breakdown: {type: object, additionalProperties: {type: integer, minimum: 0}}
-      n_dropped: {type: integer, minimum: 0}
-      caveats: {type: array, items: {type: string}, uniqueItems: true}
-      metrics: {type: object, additionalProperties: {$ref: '#/$defs/distribution'}}
+      n:
+        type: integer
+        minimum: 0
+      n_ok:
+        type: integer
+        minimum: 0
+      throughput_rps:
+        type: number
+        minimum: 0
+      p50_ms:
+        type: number
+        minimum: 0
+      p95_ms:
+        type: number
+        minimum: 0
+      p99_ms:
+        type: number
+        minimum: 0
+      mean_ms:
+        type: number
+        minimum: 0
+      error_rate:
+        type: number
+        minimum: 0
+        maximum: 1
+      error_breakdown:
+        type: object
+        additionalProperties:
+          type: integer
+          minimum: 0
+      n_dropped:
+        type: integer
+        minimum: 0
+      caveats:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
+      metrics:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/distribution'
+      arrived:
+        type: integer
+        minimum: 0
+      dispatched:
+        type: integer
+        minimum: 0
+      completed:
+        type: integer
+        minimum: 0
+      succeeded:
+        type: integer
+        minimum: 0
+      n_interrupted:
+        type: integer
+        minimum: 0
+      inflight_peak:
+        type: integer
+        minimum: 0
+      inflight_end:
+        type: integer
+        minimum: 0
+      arrival_rps:
+        type: number
+        minimum: 0
+      dispatch_rps:
+        type: number
+        minimum: 0
+      success_rps:
+        type: number
+        minimum: 0
     additionalProperties: true
   window:
     type: object
-    required: [id, name, kind, start_s, end_s, complete, request, by_case, by_facet, probe_metrics]
+    required:
+    - id
+    - name
+    - kind
+    - start_s
+    - end_s
+    - complete
+    - request
+    - by_case
+    - by_facet
+    - probe_metrics
     properties:
-      id: {type: string, minLength: 1}
-      name: {type: string, minLength: 1}
-      kind: {enum: [measurement, ramp, hold, cooldown]}
-      start_s: {type: number, minimum: 0}
-      end_s: {type: number, minimum: 0}
-      complete: {type: boolean}
-      target_level: {type: [number, 'null'], minimum: 0}
+      id:
+        type: string
+        minLength: 1
+      name:
+        type: string
+        minLength: 1
+      kind:
+        enum:
+        - measurement
+        - ramp
+        - hold
+        - drain
+        - cooldown
+      start_s:
+        type: number
+        minimum: 0
+      end_s:
+        type: number
+        minimum: 0
+      complete:
+        type: boolean
+      target_level:
+        type:
+        - number
+        - 'null'
+        minimum: 0
       request:
-        oneOf: [{$ref: '#/$defs/request_stats'}, {type: 'null'}]
+        oneOf:
+        - $ref: '#/$defs/request_stats'
+        - type: 'null'
       by_case:
         type: object
-        additionalProperties: {$ref: '#/$defs/request_stats'}
+        additionalProperties:
+          $ref: '#/$defs/request_stats'
       by_facet:
         type: object
         additionalProperties:
           type: object
-          additionalProperties: {$ref: '#/$defs/request_stats'}
-      probe_metrics: {type: object}
+          additionalProperties:
+            $ref: '#/$defs/request_stats'
+      probe_metrics:
+        type: object
     additionalProperties: true
   stop:
     type: object
-    required: [reason, inflight_at_stop, interrupted, force_cancelled]
+    required:
+    - reason
+    - inflight_at_stop
+    - interrupted
+    - force_cancelled
     properties:
-      reason: {enum: [deadline, error_rate, request_limit, aborted]}
-      snapshot: {type: [object, 'null']}
-      inflight_at_stop: {type: integer, minimum: 0}
-      interrupted: {type: integer, minimum: 0}
-      force_cancelled: {type: boolean}
+      reason:
+        enum:
+        - deadline
+        - error_rate
+        - request_limit
+        - aborted
+      snapshot:
+        type:
+        - object
+        - 'null'
+      inflight_at_stop:
+        type: integer
+        minimum: 0
+      interrupted:
+        type: integer
+        minimum: 0
+      force_cancelled:
+        type: boolean
     additionalProperties: true
   phase_error:
     type: object
-    required: [phase, error_type, message]
+    required:
+    - phase
+    - error_type
+    - message
     properties:
-      phase: {enum: [setup, measurement, deactivate, cooldown, cleanup]}
-      error_type: {type: string, minLength: 1}
-      message: {type: string}
+      phase:
+        enum:
+        - setup
+        - measurement
+        - deactivate
+        - cooldown
+        - cleanup
+      error_type:
+        type: string
+        minLength: 1
+      message:
+        type: string
     additionalProperties: true
-  trial:
+  arm_run:
     type: object
-    required: [id, service, arm, stop, slo, registry, windows, probe_errors]
+    required:
+    - id
+    - service
+    - arm
+    - stop
+    - slo
+    - registry
+    - windows
+    - probe_errors
     properties:
-      id: {type: string, minLength: 1}
-      service: {type: string, minLength: 1}
-      started_at: {type: string}
-      finished_at: {type: string}
+      id:
+        type: string
+        minLength: 1
+      service:
+        type: string
+        minLength: 1
+      started_at:
+        type: string
+      finished_at:
+        type: string
       arm:
         type: object
-        required: [id, resources, load]
+        required:
+        - id
+        - resources
+        - load
         properties:
-          id: {type: string, minLength: 1}
-          resources: {$ref: '#/$defs/resources'}
-          load: {$ref: '#/$defs/load'}
+          id:
+            type: string
+            minLength: 1
+          resources:
+            $ref: '#/$defs/resources'
+          load:
+            $ref: '#/$defs/load'
         additionalProperties: true
-      stop: {$ref: '#/$defs/stop'}
-      slo: {type: array}
-      registry: {type: object}
-      windows: {type: array, minItems: 1, items: {$ref: '#/$defs/window'}}
-      probe_errors: {type: object}
+      stop:
+        $ref: '#/$defs/stop'
+      slo:
+        type: array
+      registry:
+        type: object
+      windows:
+        type: array
+        minItems: 1
+        items:
+          $ref: '#/$defs/window'
+      probe_errors:
+        type: object
       phase_errors:
         type: array
-        items: {$ref: '#/$defs/phase_error'}
+        items:
+          $ref: '#/$defs/phase_error'
     additionalProperties: true

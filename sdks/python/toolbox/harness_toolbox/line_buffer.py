@@ -11,7 +11,7 @@ with replacement for malformed bytes (SSE wire is text and recoverable).
 
 from __future__ import annotations
 
-from typing import Iterator
+from collections.abc import Iterator
 
 
 class LineBuffer:
@@ -36,6 +36,10 @@ class LineBuffer:
             if line.endswith(b"\r"):
                 line = line[:-1]
             yield line.decode("utf-8", errors="replace")
+
+    @property
+    def pending_bytes(self) -> int:
+        return len(self._buf)
 
     def flush(self) -> str | None:
         """Return any trailing bytes that did not end with ``\\n``, or ``None``."""

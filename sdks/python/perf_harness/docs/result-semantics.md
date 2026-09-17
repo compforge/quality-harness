@@ -1,83 +1,41 @@
-# 结果、Window 与 SLO 语义
+# Perf 结果语义
 
-## 理念 / 概念
+## 事实与判定
 
-perf 的实验层级是：
+Runner 只返回原始 Outcome；独立 Judge 返回 RequestEvaluation，按 OperationRun ID 保存。
+HTTP/SSE 状态、完成事件与 trace_id 留在 Outcome；ok/error_kind 不写回事实。
+未发出的 drop 只有 RequestRecord。已经发出但被取消的调用保留 OperationRun 与 interrupted 标记，
+不执行 Judge、不进入延迟样本。请求异常保留真实经过时长；生命周期异常另记 phase_errors。
 
-```text
-Experiment → Arm → TrialRecord → Window → metric slice
-```
+## Window
 
-- **Arm** 是参与比较的命名配置，由一个 `ResourceProfile` 和一个 `LoadProfile` 组成；
-  `arm_id` 是 run 内对齐键。
-- **TrialRecord** 是某个 Arm 的一次真实执行记录，不叫 Result，因为它同时保存 raw facts、
-  stop、SLO 与可重算的聚合。
-- **Stage** 是 `Schedule` 中计划的负载控制段。
-- **Window** 是实际观测边界。request 与 resource 都用同一个半开区间 `[start_s, end_s)` 聚合；
-  `window_id` 在 Trial 内唯一，`name` 只负责展示，因此 spike 中两个同名 baseline hold 不会合并。
+所有边界使用相对 ArmRun 发压起点的秒数与半开区间 `[start_s, end_s)`：
 
-metric label 只表达实体维度，如 `{difficulty="complex"}`、`{service="worker"}`；时间维度只由
-Window 表达。这样资源指标和请求指标能在同一时间边界上比较，也不会把 `stage` 混入业务 facet。
+| 指标 | 归属口径 |
+|---|---|
+| arrived / arrival_rps / dropped | 计划到达时刻；包括截止后登记的 scheduler_deadline |
+| dispatched / dispatch_rps | 实际调用开始时刻 |
+| completed / throughput_rps | 实际完成时刻，含成功与失败 |
+| succeeded / success_rps | 实际完成时刻，且 Judge 通过 |
+| n / n_ok / error_rate / 延迟 | 本窗 dispatch 的请求 cohort；排空后完成的请求仍归本窗 |
+| inflight_peak / inflight_end | 真实调用起止事件，包含上个窗口尚未完成的请求 |
+| scheduler_lag_ms | arrived_at - scheduled_at；量化加压器处理到达的延迟 |
 
-## 流程
+measurement 排除 warmup；Stage 形成 ramp/hold 窗口；drain 单独展示停止发压后的完成事件；
+cooldown 是 deactivate 之后的资源观察。不能用 cohort 样本数除以窗口时长冒充完成吞吐。
+nearest-rank 百分位使用 `ceil(q*n)-1`；无完成样本时，延迟/错误率 SLO 返回 Missing 而不是零值通过。
 
-1. `Experiment.resolved_arms()` 把资源轴 × 负载轴展开为 Arm。
-2. scheduler 按 Schedule 发压。每个 Outcome 记录**发射时刻**；长请求即使在下一 Stage 完成，
-   仍属于发射时所在 Window。
-3. Engine 在 warmup、Stage、提前停止和 cooldown 的实际边界上建立 Window：
-   `measurement` 与各 `ramp` / `hold` 可重叠，cooldown 独立。
-4. reducer 对每个 Window 同时归约 Outcome 和 Probe series，写入 `TrialRecord.windows`。
-5. `MetricStore.query(trial, ref, window)` 统一读取；run.json schema 4 保存 Arm、Window 与归约结果，
-   `load_run()` 可离线重放报告和 SLO。
+## 判定与可信度
 
-## 关键设计
+错误率 breaker 控制本 ArmRun 的停止；`abort_on_fail` 控制 Arm 之间是否继续。
+phase_errors 使 verdict=error；提前停止或 interrupted 使 run 失败；否则按显式 SLO 汇总。
+无 SLO 的正常执行只证明完成了测试，verdict=skipped，不表示容量达标。
+缺数据的 SLO 为 skipped；`strict_slo` 决定是否阻断，cooldown 缺数据默认阻断。
 
-### SLO：label 选实体，WindowSelector 选时间
+capacity 只读取完整 hold 窗口：有已完成请求、无丢弃/中断/缺失判定，且该窗口匹配的 SLO 全部通过。
+其含义是“本轮该配置已观测通过”，不能由短时实验外推长期稳定容量。
+inf 的响应相关补充会产生 coordinated omission；有限速率达到并发上限时也会遗漏慢请求群体。
+`co_biased`、`high_drop`、`incomplete` 和 `few_samples` 随 summary 保存，不只出现在报告文案中。
 
-```yaml
-slo:
-  - { metric: error_rate, window: {kind: hold}, lt: 0.01 }
-  - { metric: p99_ms, window: {kind: hold, level: 40}, lte: 800 }
-  - { metric: 'p99_ms{difficulty="complex"}', lt: 1200 }
-  - { metric: 'prometheus.active{service="worker"}.last',
-      window: {kind: cooldown}, lte: 0 }
-```
-
-省略 `window` 等价于 `{kind: measurement}`。selector 支持 `kind`，并可用 `name` / `level`
-继续收窄；一个 selector 命中多个 Window 时，一条 assertion 展开成多个 `SloCheck`，每条 check
-记录自己的 `window_id`。
-
-读不到 metric 或 slice 时状态是 `skipped`，不是 pass。默认运行门对普通 skip 宽松，
-`strict_slo` 将其视为失败；cooldown skip 始终失败，因为回收门禁没有观测值不能算恢复成功。
-
-### Capacity：只认 complete hold Window
-
-SLO-aware capacity 按资源档选择最高的、`complete=true` 且该 Window 上所有 check 均通过的
-hold。提前停止时，当前 partial hold 不计容量；在它之前已经完整结束的较低 hold 仍是有效证据。
-measurement 的跨 Stage 平均不能替代 hold 结论。
-
-### 请求归窗按发射时间
-
-Outcome 在请求完成后才可写全，但归属时间在 dispatch 前捕获。若按完成时间归窗，`sleep 30s`
-会从低档 hold 漂到高档 hold，扭曲两档的吞吐、延迟和容量判断。drop 没有执行过程，直接使用
-arrival time。
-
-### 停止与三层判定
-
-- per-request：`Workload.judge(Outcome) → Verdict`；
-- per-Window：`RequestStats` / resource summaries；
-- per-run：SLO check 的 pass / fail / skipped。
-
-`TrialStop` 记录 deadline、breaker 快照和在途请求 census。drop（未发）与 cancel（未完成）
-都不是延迟事实；提前停止会使 run 失败，但不会抹掉已完成 Window 的历史证据。
-
-### 阶段异常也是执行事实
-
-`setup / measurement / deactivate / cooldown / cleanup` 抛出的普通异常写入
-`TrialRecord.phase_errors`，而不是伪造成一次失败请求、Probe failure 或 SLO fail。这样即使
-setup 阶段尚未发出任何请求，Harness 仍能持久化空的 partial measurement Window、run/report 和
-状态为 `error` 的 `verdict.json`；调用方可以从 phase、异常类型和消息判断是环境准备失败还是发压阶段
-失败。cleanup 会照常尝试，其异常作为同一 Trial 的后续 phase error 保留，不覆盖主异常。
-Phase error 始终让 run 失败并停止后续 sweep，但不抹掉已完成的当前 measurement：只有
-`measurement.complete=false` 的异常 Trial 才不进入容量、资源和延迟曲线；deactivate、cooldown 或
-cleanup 阶段失败时，已完成的 measurement 仍是有效事实。
+离线重算应保留 requests.jsonl 原样，只更新 evaluations 与相应 Window/SLO 投影；报告是这些投影的
+下游，不再接触被测服务。当前 perf 使用自己的请求判定表，不宣称已实现通用 EvaluationRun/Worksheet 存储。

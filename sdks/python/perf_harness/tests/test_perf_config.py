@@ -2,34 +2,34 @@ import pytest
 
 from perf_harness.config import load_experiment
 from perf_harness.deploy import HelmDeployer
-from perf_harness.drive.workload import MockWorkload
+from perf_harness.drive.runner import MockRunner
 from perf_harness.engine import Engine
 
 _MIX = """
 service: { name: chat, base_url: "http://x:8001" }
 resources: [ { workers: 2 } ]
-workload: { name: mock }
+runner: { name: mock }
 facets: { difficulty: { values: [simple, complex], ordered: true } }
 cases:
   - { id: a, weight: 70, facets: {difficulty: simple}, input: {ms: 3} }
   - { id: b, weight: 30, facets: {difficulty: complex}, input: {ms: 25} }
-load: { model: closed, levels: [2, 4], ramp_s: 0, steady_s: 1 }
+load: { request_rate: inf, max_concurrency: 2, duration_s: 1 }
 output_dir: /tmp/x
 """
 
 _SINGLE = """
 service: { name: chat, base_url: "http://x" }
 resources: [ {} ]
-workload: { name: mock }
+runner: { name: mock }
 payload: { ms: 5 }
-load: { model: closed, levels: [1], ramp_s: 0, steady_s: 0.5 }
+load: { request_rate: inf, max_concurrency: 1, duration_s: 0.5 }
 """
 
 _BREAKER = """
 service: { name: chat, base_url: "http://x" }
 resources: [ {} ]
-workload: { name: mock }
-load: { model: closed, levels: [2, 4], steady_s: 1, abort_on_error_rate: 0.1, breaker_min_n: 5 }
+runner: { name: mock }
+load: { request_rate: inf, max_concurrency: 2, duration_s: 1, abort_on_error_rate: 0.1, breaker_min_n: 5 }
 """
 
 
@@ -37,9 +37,9 @@ def test_config_parses_circuit_breaker(tmp_path):
     cfg = tmp_path / "c.yaml"
     cfg.write_text(_BREAKER)
     exp, _ = load_experiment(str(cfg))
-    # both load arms carry the mid-trial circuit-breaker config
+    # both load arms carry the mid-arm_run circuit-breaker config
     assert all(ld.abort_on_error_rate == 0.1 and ld.breaker_min_n == 5 for ld in exp.loads)
-    assert all(ld.graceful_stop_s == 30.0 for ld in exp.loads)  # default drain window
+    assert all(ld.drain_timeout_s == 30.0 for ld in exp.loads)  # default drain window
 
 
 def test_config_builds_helm_deployer_from_common_deployment_model(tmp_path):
@@ -55,8 +55,8 @@ def test_config_builds_helm_deployer_from_common_deployment_model(tmp_path):
         "  base_url: http://chat\n"
         "deployer: {type: helm, release: chat, chart_path: ./chart}\n"
         "resources: [{}]\n"
-        "workload: {name: mock}\n"
-        "load: {model: closed, levels: [1], steady_s: 0.1}\n"
+        "runner: {name: mock}\n"
+        "load: {request_rate: inf, max_concurrency: 1, duration_s: 0.1}\n"
     )
 
     experiment, _ = load_experiment(str(cfg), mock=True)
@@ -72,15 +72,15 @@ def test_config_builds_helm_deployer_from_common_deployment_model(tmp_path):
         "abort_on_error_rate: 0",  # would trip healthy traffic at min_n
         "abort_on_error_rate: 1.5",  # never trips
         "breaker_min_n: 0",  # no statistical floor
-        "graceful_stop_s: -1",  # bypasses drain, not an explicit hard stop
+        "drain_timeout_s: -1",  # bypasses drain, not an explicit hard stop
     ],
 )
 def test_config_rejects_bad_stop_policy(tmp_path, bad):
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
         "service: { name: s, base_url: 'http://x' }\n"
-        "resources: [ {} ]\nworkload: { name: mock }\n"
-        f"load: {{ model: closed, levels: [1], steady_s: 0.1, {bad} }}\n"
+        "resources: [ {} ]\nrunner: { name: mock }\n"
+        f"load: {{ request_rate: inf, max_concurrency: 1, duration_s: 0.1, {bad} }}\n"
     )
     with pytest.raises(ValueError):
         load_experiment(str(cfg))
@@ -90,10 +90,10 @@ def test_config_rejects_unsupported_max_requests(tmp_path):
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
         "service: { name: s, base_url: 'http://x' }\n"
-        "resources: [ {} ]\nworkload: { name: mock }\n"
-        "load: { model: closed, levels: [1], steady_s: 0.1, max_requests: 10 }\n"
+        "resources: [ {} ]\nrunner: { name: mock }\n"
+        "load: { request_rate: inf, max_concurrency: 1, duration_s: 0.1, max_requests: 10 }\n"
     )
-    with pytest.raises(ValueError, match="max_requests is not supported"):
+    with pytest.raises(ValueError, match="unknown load fields"):
         load_experiment(str(cfg))
 
 
@@ -104,8 +104,8 @@ def test_load_experiment_parses_cases_and_facets(tmp_path):
 
     assert out == "/tmp/x"
     assert experiment.name == "chat"  # config has no `name:` → service slug
-    assert experiment.workload.name == "mock"
-    assert len(experiment.loads) == 2  # two levels
+    assert experiment.runner.name == "mock"
+    assert len(experiment.loads) == 1  # two levels
     assert {c.id for c in experiment.cases} == {"a", "b"}
     assert experiment.cases[0].facets == {"difficulty": "simple"}
     # weight rides the config ENTRY (experiment usage) — the Case object stays clean
@@ -136,7 +136,7 @@ def test_load_experiment_references_canonical_caseset(tmp_path):
         "cases:\n"
         "  - {id: complex, weight: 30}\n"
         "  - {id: simple, weight: 70}\n"
-        "load: { model: closed, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: inf, max_concurrency: 1, duration_s: 0.1 }\n"
     )
 
     experiment, _ = load_experiment(str(cfg))
@@ -160,7 +160,7 @@ def test_canonical_caseset_selection_does_not_override_case_data(tmp_path):
         _BASE + "caseset: ./cases.yaml\n"
         "cases:\n"
         "  - {id: simple, request_json: {ms: 9}}\n"
-        "load: { model: closed, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: inf, max_concurrency: 1, duration_s: 0.1 }\n"
     )
 
     with pytest.raises(ValueError, match="only `id`.*`weight`"):
@@ -175,7 +175,7 @@ def test_canonical_caseset_fails_fast_on_unknown_selection(tmp_path):
     cfg.write_text(
         _BASE + "caseset: ./cases.yaml\n"
         "cases: [{id: missing}]\n"
-        "load: { model: closed, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: inf, max_concurrency: 1, duration_s: 0.1 }\n"
     )
 
     with pytest.raises(ValueError, match="not found"):
@@ -205,7 +205,7 @@ def test_load_experiment_backcompat_single_payload(tmp_path):
 _BASE = """
 service: { name: s, base_url: "http://x" }
 resources: [ {} ]
-workload: { name: mock }
+runner: { name: mock }
 """
 
 
@@ -216,12 +216,12 @@ def _write(tmp_path, load_block: str):
 
 
 def test_invalid_model_fails_fast(tmp_path):
-    with pytest.raises(ValueError, match="load.model"):
+    with pytest.raises(ValueError, match="unknown load fields"):
         load_experiment(_write(tmp_path, "load: { model: opn, levels: [1], steady_s: 0.1 }"))
 
 
 def test_invalid_pacing_kind_fails_fast(tmp_path):
-    with pytest.raises(ValueError, match="pacing.kind"):
+    with pytest.raises(ValueError, match="unknown load fields"):
         load_experiment(
             _write(
                 tmp_path,
@@ -232,14 +232,14 @@ def test_invalid_pacing_kind_fails_fast(tmp_path):
 
 def test_stages_and_levels_mutually_exclusive(tmp_path):
     block = "load: { model: open, levels: [1], stages: [ { hold: 1, for_s: 1 } ] }"
-    with pytest.raises(ValueError, match="not both"):
+    with pytest.raises(ValueError, match="unknown load fields"):
         load_experiment(_write(tmp_path, block))
 
 
 def test_all_zero_weights_fail_fast(tmp_path):
     extra = (
         "cases:\n  - { id: a, weight: 0 }\n  - { id: b, weight: 0 }\n"
-        "load: { model: closed, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: inf, max_concurrency: 1, duration_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="every case at 0"):
         load_experiment(_write(tmp_path, extra))
@@ -249,7 +249,7 @@ def test_top_level_mix_is_a_migration_error(tmp_path):
     # the old top-level mix: must point at inline weight, not silently parse
     extra = (
         "cases:\n  - { id: a }\nmix: { a: 2 }\n"
-        "load: { model: closed, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: inf, max_concurrency: 1, duration_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="`weight:`"):
         load_experiment(_write(tmp_path, extra))
@@ -259,7 +259,7 @@ def test_slo_facet_label_typo_fails_fast(tmp_path):
     extra = (
         "cases:\n  - { id: a, facets: {difficulty: simple} }\n"
         "slo: [ { metric: 'p99_ms{difficulty=\"complx\"}', lt: 1 } ]\n"
-        "load: { model: open, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="facet difficulty=complx unknown"):
         load_experiment(_write(tmp_path, extra))
@@ -268,8 +268,8 @@ def test_slo_facet_label_typo_fails_fast(tmp_path):
 def test_slo_window_name_typo_fails_fast(tmp_path):
     extra = (
         "slo: [ { metric: p99_ms, window: {kind: hold, name: 'hold@99'}, lt: 1 } ]\n"
-        "load:\n  model: open\n  stages:\n"
-        "    - { hold: 10, for_s: 0.1 }\n    - { hold: 20, for_s: 0.1 }\n"
+        "load:\n  request_rate: 10\n  max_concurrency: 32\n  duration_s: 0.2\n  stages:\n"
+        "    - {request_rate: 10, max_concurrency: 32, duration_s: 0.1}\n    - {request_rate: 20, max_concurrency: 32, duration_s: 0.1}\n"
     )
     with pytest.raises(ValueError, match="matches no configured stage"):
         load_experiment(_write(tmp_path, extra))
@@ -278,7 +278,7 @@ def test_slo_window_name_typo_fails_fast(tmp_path):
 def test_slo_legacy_scope_key_rejected(tmp_path):
     extra = (
         'slo: [ { metric: p99_ms, lt: 1, scope: "overall" } ]\n'
-        "load: { model: open, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="slo.scope was removed"):
         load_experiment(_write(tmp_path, extra))
@@ -287,28 +287,28 @@ def test_slo_legacy_scope_key_rejected(tmp_path):
 _UNREGISTERED = """
 service: { name: s, base_url: "http://x" }
 resources: [ {} ]
-workload: { name: chat }
-load: { model: closed, levels: [1], steady_s: 0.1 }
+runner: { name: chat }
+load: { request_rate: inf, max_concurrency: 1, duration_s: 0.1 }
 """
 
 
-def test_mock_bypasses_unregistered_workload(tmp_path):
+def test_mock_bypasses_unregistered_runner(tmp_path):
     cfg = tmp_path / "u.yaml"
     cfg.write_text(_UNREGISTERED)
-    with pytest.raises(ValueError, match="unknown workload"):
+    with pytest.raises(ValueError, match="unknown runner"):
         load_experiment(str(cfg))  # real path needs `chat` registered
     exp, _ = load_experiment(str(cfg), mock=True)  # mock skips the registry
-    assert isinstance(exp.workload, MockWorkload)
+    assert isinstance(exp.runner, MockRunner)
 
 
-def test_extension_module_registers_workload_and_probe(tmp_path, monkeypatch):
+def test_extension_module_registers_runner_and_probe(tmp_path, monkeypatch):
     module = tmp_path / "perf_consumer_ext.py"
     module.write_text(
         "from perf_harness import (\n"
-        "    FamilySpec, Outcome, Probe, Workload, register_probe, register_workload\n"
+        "    FamilySpec, Outcome, Probe, Runner, register_probe, register_runner\n"
         ")\n"
-        "class ExtensionWorkload(Workload):\n"
-        "    name = 'extension-workload'\n"
+        "class ExtensionRunner(Runner):\n"
+        "    name = 'extension-runner'\n"
         "    async def fire(self, ctx):\n"
         "        return Outcome(status=200, duration_ms=1.0)\n"
         "class ExtensionProbe(Probe):\n"
@@ -321,7 +321,7 @@ def test_extension_module_registers_workload_and_probe(tmp_path, monkeypatch):
         "        self.answer = cfg.options['answer']\n"
         "    async def sample(self, ctx):\n"
         "        return {'value': float(self.answer)}\n"
-        "register_workload('extension-workload', lambda cfg: ExtensionWorkload())\n"
+        "register_runner('extension-runner', lambda cfg: ExtensionRunner())\n"
         "register_probe('extension-probe', ExtensionProbe)\n"
     )
     monkeypatch.syspath_prepend(str(tmp_path))
@@ -330,14 +330,14 @@ def test_extension_module_registers_workload_and_probe(tmp_path, monkeypatch):
         "extensions: [perf_consumer_ext]\n"
         "service: { name: s, base_url: 'http://x' }\n"
         "resources: [ {} ]\n"
-        "workload: { name: extension-workload }\n"
-        "load: { model: closed, levels: [1], steady_s: 0.1 }\n"
+        "runner: { name: extension-runner }\n"
+        "load: { request_rate: inf, max_concurrency: 1, duration_s: 0.1 }\n"
         "observe:\n"
         "  - name: s\n"
         "    probes: [ { name: extension-probe, answer: 42 } ]\n"
     )
     exp, _ = load_experiment(str(cfg))
-    assert exp.workload.name == "extension-workload"
+    assert exp.runner.name == "extension-runner"
     probe = next(p for p in exp.probes if p.name == "extension-probe.s")
     assert probe.answer == 42 and probe.labels == {"service": "s"}
 
@@ -357,7 +357,7 @@ def test_slo_multi_facet_label_rejected(tmp_path):
     extra = (
         "cases:\n  - { id: a, facets: {difficulty: simple, lang: zh} }\n"
         'slo: [ { metric: \'p99_ms{difficulty="simple",lang="zh"}\', lt: 1 } ]\n'
-        "load: { model: open, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="at most one facet slice"):
         load_experiment(_write(tmp_path, extra))
@@ -367,7 +367,7 @@ def test_slo_undeclared_per_request_metric_rejected(tmp_path):
     # a dynamic first_<event>_ms reaches the report but cannot gate (fail-fast)
     extra = (
         "slo: [ { metric: first_answer_ms.p95, lt: 1 } ]\n"
-        "load: { model: open, levels: [1], steady_s: 0.1 }\n"
+        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="not a declared metric"):
         load_experiment(_write(tmp_path, extra))
@@ -375,8 +375,30 @@ def test_slo_undeclared_per_request_metric_rejected(tmp_path):
 
 def test_slo_framework_ttft_is_declared(tmp_path):
     extra = (
-        "slo: [ { metric: ttft_ms.p95, lt: 2000 } ]\n"
-        "load: { model: open, levels: [1], steady_s: 0.1 }\n"
+        "slo: [ { metric: first_byte_ms.p95, lt: 2000 } ]\n"
+        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
     )
-    exp, _ = load_experiment(_write(tmp_path, extra))  # ttft_ms is framework-declared
-    assert exp.slo[0].metric == "ttft_ms.p95"
+    exp, _ = load_experiment(_write(tmp_path, extra))  # first_byte_ms is framework-declared
+    assert exp.slo[0].metric == "first_byte_ms.p95"
+
+
+def test_named_judge_and_common_workload(tmp_path):
+    from harness_common import KubernetesWorkload
+
+    from perf_harness import RequestEvaluation, register_judge
+
+    def judge(outcome):
+        return RequestEvaluation(False, "business")
+
+    register_judge("fixture-business", judge)
+    path = _write(
+        tmp_path,
+        "judge: fixture-business\n"
+        "service:\n  name: mock\n  base_url: http://mock\n  workloads:\n"
+        "    - name: api\n      namespace: test\n"
+        "      location: {kind: resource, resource_kind: Deployment, name: chat}\n"
+        "load: {request_rate: 4, max_concurrency: 32, duration_s: 60}\n",
+    )
+    experiment, _ = load_experiment(path)
+    assert experiment.judge is judge
+    assert isinstance(experiment.service.workloads[0], KubernetesWorkload)

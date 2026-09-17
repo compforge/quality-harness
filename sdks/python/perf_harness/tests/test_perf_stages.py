@@ -1,89 +1,88 @@
 import asyncio
-import time
 
-import httpx
-from spec_case.model import Case
+import pytest
 
-from perf_harness.drive.load import LoadProfile, Schedule, Stage
-from perf_harness.drive.scheduler import _fire
-from perf_harness.drive.workload import MockWorkload, TrialContext, Workload
-from perf_harness.engine import Engine, Experiment
-from perf_harness.model import Outcome, ResourceProfile, Service
-from perf_harness.observe import ClientStats, ProbeContext
-
-
-def test_stage_name_overrides_auto_label():
-    assert Stage(over_s=1, to_level=10, kind="hold", name="warm").label == "warm"
-    assert Stage(over_s=1, to_level=10, kind="hold").label == "hold@10"
+from perf_harness import (
+    Engine,
+    Experiment,
+    LoadPlan,
+    Outcome,
+    ResourceProfile,
+    Runner,
+    Service,
+    Stage,
+)
 
 
-async def test_engine_reduces_one_window_per_stage():
-    sched = Schedule(
-        stages=(
-            Stage(over_s=0.01, to_level=20, kind="ramp"),
-            Stage(over_s=0.5, to_level=20, kind="hold"),
-            Stage(over_s=0.01, to_level=40, kind="ramp"),
-            Stage(over_s=0.5, to_level=40, kind="hold"),
-        )
+def test_ramp_uses_explicit_units_and_integrated_arrival_clock():
+    load = LoadPlan(
+        request_rate=0,
+        max_concurrency=2,
+        duration_s=3,
+        stages=(Stage(2, 20, 4, "ramp"), Stage(1, 20, 4)),
     )
-    exp = Experiment(
-        service=Service("mock", base_url="http://127.0.0.1:0"),
-        workload=MockWorkload(base_ms=2),
-        resources=[ResourceProfile(workers=2)],
-        loads=[LoadProfile(model="open", schedule=sched)],  # warmup_s defaults to 0
-    )
-    r = (await Engine(exp).run()).trials[0]
-    holds = {window.name: window for window in r.windows if window.kind == "hold"}
-    assert set(holds) == {"hold@20", "hold@40"}
-    assert holds["hold@40"].request.n > holds["hold@20"].request.n
-    assert holds["hold@40"].request.throughput_rps > holds["hold@20"].request.throughput_rps
+    assert load.target(1) == (10, 3)
+    assert load.arrival_time(5) == pytest.approx(1)
+    assert load.arrival_time(20) == pytest.approx(2)
+    assert load.arrival_time(30) == pytest.approx(2.5)
+    assert load.arrival_time(40) == float("inf")
 
 
-async def test_single_stage_run_still_has_a_hold_window():
-    exp = Experiment(
-        service=Service("mock", base_url="http://127.0.0.1:0"),
-        workload=MockWorkload(base_ms=2),
-        resources=[ResourceProfile(workers=2)],
-        loads=[LoadProfile(model="closed", schedule=Schedule.ramp_hold(3, 0.0, 0.3))],
-    )
-    r = (await Engine(exp).run()).trials[0]
-    holds = [window for window in r.windows if window.kind == "hold"]
-    assert len(holds) == 1 and holds[0].id == "stage-0"
+async def test_downscale_drains_instead_of_cancelling_and_preserves_windows():
+    active = peak = cancelled = 0
 
-
-async def test_repeated_stage_names_remain_distinct_windows():
-    exp = Experiment(
-        service=Service("mock", base_url="http://127.0.0.1:0"),
-        workload=MockWorkload(base_ms=2),
-        resources=[ResourceProfile()],
-        loads=[LoadProfile(model="open", schedule=Schedule.spike(5, 20, 0.2, 0.01, 0.2))],
-    )
-    trial = (await Engine(exp).run()).trials[0]
-    baseline = [window for window in trial.windows if window.name == "hold@5"]
-    assert [window.id for window in baseline] == ["stage-0", "stage-4"]
-
-
-async def test_long_request_is_attributed_by_dispatch_time():
-    class SlowWorkload(Workload):
+    class Slow(Runner):
         async def fire(self, ctx):
-            await asyncio.sleep(0.05)
-            return Outcome(status=200, duration_ms=50)
+            nonlocal active, peak, cancelled
+            active += 1
+            peak = max(peak, active)
+            try:
+                await asyncio.sleep(0.08)
+            except asyncio.CancelledError:
+                cancelled += 1
+                raise
+            finally:
+                active -= 1
+            return Outcome(status=200, duration_ms=80)
 
-    async with httpx.AsyncClient() as client:
-        ctx = ProbeContext(
-            service=Service(base_url="http://127.0.0.1:0"),
-            client=client,
-            t0=time.monotonic(),
-            stats=ClientStats(),
-        )
-        trial = TrialContext(
-            service=ctx.service,
-            client=client,
-            run_id="run",
-            resources=ResourceProfile(),
-            load=LoadProfile(model="closed", schedule=Schedule.ramp_hold(1, 0.0, 0.1)),
-        )
-        timed = []
-        await _fire(SlowWorkload(), trial, ctx, Case(id="slow", input={}), timed)
+    load = LoadPlan(
+        request_rate=float("inf"),
+        max_concurrency=4,
+        duration_s=0.12,
+        stages=(
+            Stage(0.02, float("inf"), 4, name="same"),
+            Stage(0.10, float("inf"), 1, name="same"),
+        ),
+        drain_timeout_s=0.2,
+    )
+    arm = (
+        await Engine(
+            Experiment(
+                service=Service("mock"), runner=Slow(), resources=[ResourceProfile()], loads=[load]
+            )
+        ).run()
+    ).arm_runs[0]
+    assert peak == 4 and active == 0 and cancelled == 0
+    assert [w.id for w in arm.windows if w.kind == "hold"] == ["stage-0", "stage-1"]
+    assert len([r for r in arm.requests if r.dispatched_at < 0.02]) == 4
+    assert not [r for r in arm.requests if 0.02 <= r.dispatched_at < 0.075]
+    first = next(w for w in arm.windows if w.id == "stage-0")
+    assert first.request.n == 4 and first.request.completed == 0 and first.request.inflight_end == 4
+    assert arm.measurement.request.n > arm.measurement.request.completed
+    assert next(w for w in arm.windows if w.kind == "drain").request.completed > 0
 
-    assert timed[0][0] < 0.02
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"max_concurrency": 0},
+        {"max_concurrency": 1.5},
+        {"request_rate": float("nan")},
+        {"duration_s": 0},
+        {"warmup_s": 2},
+        {"drain_timeout_s": -1},
+    ],
+)
+def test_invalid_load_rejected(changes):
+    with pytest.raises(ValueError):
+        LoadPlan(**{"request_rate": 4, "max_concurrency": 2, "duration_s": 1, **changes})

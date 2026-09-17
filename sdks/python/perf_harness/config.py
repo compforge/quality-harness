@@ -19,7 +19,9 @@ from harness_common import (
     Deployer,
     Environment,
     Forge,
+    KubernetesWorkload,
     Repository,
+    Workload,
 )
 from harness_common.overlay import Overlay
 from harness_toolbox.environment import KubernetesEnvironment, parse_environment
@@ -27,9 +29,10 @@ from spec_case.facets import FacetSchema
 from spec_case.model import Case, CaseSet, load_caseset, validate
 
 from perf_harness.deploy import HelmDeployer
-from perf_harness.drive.load import LoadModel, LoadProfile, Pacing, PacingKind, Schedule, Stage
-from perf_harness.drive.workload import MockWorkload, Workload, build_workload
+from perf_harness.drive.load import LoadPlan, Stage
+from perf_harness.drive.runner import MockRunner, Runner, build_runner
 from perf_harness.engine import Experiment
+from perf_harness.judge import build_judge
 from perf_harness.metric import MetricFamily, parse_ref, validate_ref
 from perf_harness.metric.store import PER_REQUEST_DESCRIPTORS, REQUEST_DESCRIPTORS, SLO_METRICS
 from perf_harness.model import (
@@ -56,8 +59,6 @@ from perf_harness.observe import (
 )
 
 # valid enum values, derived from the Literal types so they can't drift
-_LOAD_MODELS = get_args(LoadModel)
-_PACING_KINDS = get_args(PacingKind)
 _SLO_OPS = get_args(SloOp)
 _WINDOW_KINDS = get_args(WindowKind)
 
@@ -78,7 +79,7 @@ _K8S_PROBES = {"top", "rss", "restart", "limits", "pods"}
 def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     """Parse a run file → (Experiment, runs_dir). One config = one named experiment.
 
-    ``mock=True`` swaps in ``MockWorkload`` instead of resolving the workload
+    ``mock=True`` swaps in ``MockRunner`` instead of resolving the runner
     registry. Declared extension modules are still imported so custom probes and
     config validation use the same path as a real run.
     """
@@ -96,8 +97,8 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     service = _parse_service(subj)
     deployer = _parse_deployer(raw.get("deployer"), service)
 
-    wl_cfg = raw["workload"]
-    workload = MockWorkload() if mock else build_workload(wl_cfg["name"], wl_cfg)
+    wl_cfg = raw["runner"]
+    runner = MockRunner() if mock else build_runner(wl_cfg["name"], wl_cfg)
 
     if "constraints" in raw:
         raise ValueError(
@@ -127,10 +128,10 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     cooldown_s = float(raw.get("cooldown_s", 0.0))
     if cooldown_s < 0:
         raise ValueError("cooldown_s must be >= 0")
-    _validate_producers(probes, workload)
-    registry = _static_registry(probes, workload)
+    _validate_producers(probes, runner)
+    registry = _static_registry(probes, runner)
     facet_schema = caseset.facet_schema if caseset else FacetSchema.from_raw(raw.get("facets"))
-    declared_facets = _declared_facet_pairs(facet_schema, cases, workload)
+    declared_facets = _declared_facet_pairs(facet_schema, cases, runner)
     # observed services close the `{service="…"}` label value space (the family-keyed
     # registry no longer carries a per-service entry to check against)
     declared_services = {p.labels["service"] for p in probes if "service" in p.labels}
@@ -163,7 +164,8 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     experiment = Experiment(
         service=service,
         deployer=deployer,
-        workload=workload,
+        runner=runner,
+        judge=build_judge(raw.get("judge", "default")),
         resources=resources,
         loads=loads,
         probes=probes,
@@ -351,6 +353,10 @@ def _parse_service(c: dict, fallback_environment: Environment | None = None) -> 
             name=str(component.get("name") or name),
         ),
         environment=environment,
+        workloads=tuple(
+            KubernetesWorkload(**w) if "location" in w else Workload(**w)
+            for w in c.get("workloads", [])
+        ),
         base_url=str(c.get("base_url", "")).rstrip("/"),
         headers={str(k): str(v) for k, v in (c.get("headers") or {}).items()},
         namespace=str(c.get("namespace", "")),
@@ -511,7 +517,7 @@ def _parse_prometheus_queries(items: object, service: str) -> list[PrometheusQue
 
 def _parse_deployer(c: dict | None, service: Service) -> Deployer[Deployment] | None:
     """``deployer:`` → a Deployer, or None (the common case: the
-    service is already deployed; ``resources:`` entries merely label the trials)."""
+    service is already deployed; ``resources:`` entries merely label the arm_runs)."""
     if not c:
         return None
     kind = c.get("type", "helm")
@@ -552,110 +558,24 @@ def _parse_resources(c: dict) -> ResourceProfile:
     )
 
 
-def _parse_loads(c: dict) -> list[LoadProfile]:
-    """``load:`` block → the Experiment's Load arms.
+def _parse_loads(c: dict | list[dict]) -> list[LoadPlan]:
+    from dataclasses import fields
 
-    Two ways to express the schedule, mutually exclusive:
-      - ``stages:`` → one arm with an explicit shape (a step/spike curve).
-      - ``levels:``/``level:`` (+ ``ramp_s``/``steady_s``) → one ramp→hold arm
-        per level, the common capacity sweep. Here ``warmup_s`` defaults to the
-        ramp window (the ramp is the warmup).
-    Common across both: ``model`` (open/closed), ``pacing`` (closed), and
-    ``max_inflight`` (open).
-    """
-    if "max_requests" in c:
-        raise ValueError("load.max_requests is not supported by the Python implementation")
-
-    model = c.get("model", "closed")
-    if model not in _LOAD_MODELS:
-        raise ValueError(f"load.model must be one of {_LOAD_MODELS}, got {model!r}")
-    if c.get("stages") and ("levels" in c or "level" in c):
-        raise ValueError("load: set either `stages` or `levels`/`level`, not both")
-    pacing = _parse_pacing(c.get("pacing"))
-    max_inflight = c.get("max_inflight")
-    # mid-trial circuit breaker (open + closed): stop the arm early once the cumulative
-    # error rate crosses this fraction — distinct from the between-trial abort_on_fail SLO
-    aoer = c.get("abort_on_error_rate")
-    abort_on_error_rate = float(aoer) if aoer is not None else None
-    breaker_min_n = int(c.get("breaker_min_n", 20))
-    graceful_stop_s = float(c.get("graceful_stop_s", 30.0))  # drain window before cancel
-    # fail-fast on a nonsensical stop policy (a misconfigured breaker is worse than none:
-    # 0 trips healthy traffic, >1 never trips, min_n<1 has no statistical floor)
-    if abort_on_error_rate is not None and not 0 < abort_on_error_rate <= 1:
-        raise ValueError(f"load.abort_on_error_rate must be in (0, 1]; got {abort_on_error_rate}")
-    if breaker_min_n < 1:
-        raise ValueError(f"load.breaker_min_n must be >= 1; got {breaker_min_n}")
-    if graceful_stop_s < 0:
-        raise ValueError(
-            f"load.graceful_stop_s must be >= 0 (0 = hard stop); got {graceful_stop_s}"
+    items = c if isinstance(c, list) else [c]
+    result = []
+    allowed = {f.name for f in fields(LoadPlan)}
+    for item in items:
+        unknown = set(item) - allowed
+        if unknown:
+            raise ValueError(f"unknown load fields: {sorted(unknown)}")
+        values = dict(item)
+        values["request_rate"] = float(values["request_rate"])
+        values["stages"] = tuple(
+            Stage(**{**stage, "request_rate": float(stage["request_rate"])})
+            for stage in values.get("stages", [])
         )
-
-    if c.get("stages"):
-        schedule = _parse_schedule(c["stages"], float(c.get("start_level", 0.0)))
-        return [
-            LoadProfile(
-                model=model,
-                schedule=schedule,
-                pacing=pacing,
-                warmup_s=float(c.get("warmup_s", 0.0)),
-                max_inflight=max_inflight,
-                abort_on_error_rate=abort_on_error_rate,
-                breaker_min_n=breaker_min_n,
-                graceful_stop_s=graceful_stop_s,
-            )
-        ]
-
-    levels = c.get("levels") or [c.get("level", 10)]
-    ramp_s = float(c.get("ramp_s", 20.0))
-    steady_s = float(c.get("steady_s", 120.0))
-    warmup_s = float(c.get("warmup_s", ramp_s))
-    return [
-        LoadProfile(
-            model=model,
-            schedule=Schedule.ramp_hold(float(lv), ramp_s, steady_s),
-            pacing=pacing,
-            warmup_s=warmup_s,
-            max_inflight=max_inflight,
-            abort_on_error_rate=abort_on_error_rate,
-            breaker_min_n=breaker_min_n,
-            graceful_stop_s=graceful_stop_s,
-        )
-        for lv in levels
-    ]
-
-
-def _parse_pacing(p: dict | None) -> Pacing:
-    if not p:
-        return Pacing()
-    kind = p.get("kind", "none")
-    if kind not in _PACING_KINDS:
-        raise ValueError(f"load.pacing.kind must be one of {_PACING_KINDS}, got {kind!r}")
-    return Pacing(
-        kind=kind,
-        secs=float(p.get("secs", 0.0)),
-        max_secs=float(p.get("max_secs", 0.0)),
-    )
-
-
-def _parse_schedule(stages: list[dict], start_level: float) -> Schedule:
-    """``stages:`` list → Schedule. Each item is ``{ramp_to, over_s}`` or
-    ``{hold, for_s}``."""
-    out: list[Stage] = []
-    for s in stages:
-        name = s.get("name")
-        if "ramp_to" in s:
-            out.append(
-                Stage(
-                    over_s=float(s["over_s"]), to_level=float(s["ramp_to"]), kind="ramp", name=name
-                )
-            )
-        elif "hold" in s:
-            out.append(
-                Stage(over_s=float(s["for_s"]), to_level=float(s["hold"]), kind="hold", name=name)
-            )
-        else:
-            raise ValueError(f"stage needs `ramp_to`+`over_s` or `hold`+`for_s`: {s!r}")
-    return Schedule(stages=tuple(out), start_level=start_level)
+        result.append(LoadPlan(**values))
+    return result
 
 
 def _parse_slo(items: list[dict] | None) -> list[SloAssertion]:
@@ -700,9 +620,9 @@ def _parse_slo(items: list[dict] | None) -> list[SloAssertion]:
     return out
 
 
-def _validate_producers(probes: list[Probe], workload: Workload) -> None:
+def _validate_producers(probes: list[Probe], runner: Runner) -> None:
     """Fail-fast (config time) on a producer that declares a metric family wrongly:
-    a Workload may only declare ``request``-side distributions; a Probe only
+    a Runner may only declare ``request``-side distributions; a Probe only
     ``resource``-side families; no producer may shadow a builtin ``request.*`` family;
     and a family re-declared by two producers must agree on its metadata. Keeps the
     side → who-produces-it invariant honest (the report/SLO trust ``describe()``)."""
@@ -719,13 +639,13 @@ def _validate_producers(probes: list[Probe], workload: Workload) -> None:
             )
         seen[fam.name] = fam
 
-    for m in workload.describe():
+    for m in runner.describe():
         if m.side != "request" or m.value_kind != "distribution":
             raise ValueError(
-                f"Workload.describe() may only declare request-side distributions; got "
+                f"Runner.describe() may only declare request-side distributions; got "
                 f"side={m.side!r} value_kind={m.value_kind!r} for {m.name!r}"
             )
-        _claim(m, "Workload.describe()")
+        _claim(m, "Runner.describe()")
     for p in probes:
         for d in p.describe():
             if d.side != "resource":
@@ -736,9 +656,9 @@ def _validate_producers(probes: list[Probe], workload: Workload) -> None:
             _claim(d, f"Probe {type(p).__name__}.describe()")
 
 
-def _static_registry(probes: list[Probe], workload: Workload) -> dict[str, MetricFamily]:
+def _static_registry(probes: list[Probe], runner: Runner) -> dict[str, MetricFamily]:
     """Statically-knowable metric FAMILIES for SLO validation: builtin ``request.*`` +
-    each Probe's ``describe()`` + the Workload's declared per-request metrics. Keyed
+    each Probe's ``describe()`` + the Runner's declared per-request metrics. Keyed
     by family name so metadata is stored once rather than once per service."""
     reg: dict[str, MetricFamily] = {
         d.name: d for d in (*REQUEST_DESCRIPTORS, *PER_REQUEST_DESCRIPTORS)
@@ -756,17 +676,15 @@ def _static_registry(probes: list[Probe], workload: Workload) -> dict[str, Metri
             description="probe health (1 ok / 0 failed) — mean 即观测可用率",
             labels=frozenset(p.labels),
         )
-    reg.update({d.name: d for d in workload.describe()})
+    reg.update({d.name: d for d in runner.describe()})
     return reg
 
 
-def _declared_facet_pairs(
-    facet_schema: FacetSchema, cases: list[Case], workload: Workload
-) -> set[str]:
+def _declared_facet_pairs(facet_schema: FacetSchema, cases: list[Case], runner: Runner) -> set[str]:
     """``k=v`` facet pairs an SLO scope may gate: the static Case mix + the
-    Workload's declared runtime facets + any ``facets:`` block values."""
+    Runner's declared runtime facets + any ``facets:`` block values."""
     pairs = {f"{k}={v}" for c in cases for k, v in c.facets.items()}
-    for fd in workload.describe_facets():
+    for fd in runner.describe_facets():
         pairs.update(f"{fd.name}={v}" for v in fd.values)
     for key, spec in facet_schema.facets.items():
         pairs.update(f"{key}={v}" for v in spec.values or [])
@@ -778,7 +696,7 @@ def _validate_slo(
     registry: dict[str, MetricFamily],
     declared_facets: set[str],
     declared_services: set[str],
-    loads: list[LoadProfile],
+    loads: list[LoadPlan],
     per_pod_only: set[tuple[str, str]] = frozenset(),  # (family, service) with no aggregate
     *,
     cooldown_s: float = 0.0,
@@ -792,7 +710,7 @@ def _validate_slo(
       - request side — facet labels select a slice: at most ONE (the report is
         a marginal pivot, not a cube) and its value must be one a run produces.
     ``value_kind`` gates the stat either way (``validate_ref``)."""
-    planned = [stage for load in loads for stage in load.schedule.stages]
+    planned = [stage for load in loads for stage in load.planned_stages]
     for a in slo:
         name, labels, stat = parse_ref(a.metric)
         fam = registry.get(name)
@@ -803,7 +721,7 @@ def _validate_slo(
             if a.window.name is not None:
                 candidates = [stage for stage in candidates if stage.label == a.window.name]
             if a.window.level is not None:
-                candidates = [stage for stage in candidates if stage.to_level == a.window.level]
+                candidates = [stage for stage in candidates if stage.level == a.window.level]
             if not candidates:
                 raise ValueError(f"slo.window {a.window!r} matches no configured stage")
         elif a.window.name is not None or a.window.level is not None:
@@ -875,16 +793,16 @@ def _validate_slo(
             validate_ref(a.metric, registry)  # stat legal for the family's value_kind
             if fam.side == "resource" and slice_labels:
                 raise ValueError(
-                    f"slo.metric {name!r} is a resource-side metric — trial-global, "
+                    f"slo.metric {name!r} is a resource-side metric — arm_run-global, "
                     f"can't be sliced by {sorted(slice_labels)}"
                 )
         else:
             # an SLO gate must fail-fast, not silently skip a typo → the metric must be
-            # DECLARED (builtin / probe / framework ttft_ms / Workload.describe()).
+            # DECLARED (builtin / probe / framework ttft_ms / Runner.describe()).
             # A dynamic per-request metric still reaches the report/CSV — just can't gate.
             raise ValueError(
                 f"slo.metric {a.metric!r}: {name!r} is not a declared metric — only declared "
-                "metrics can gate (declare a per-request metric via Workload.describe(); a "
+                "metrics can gate (declare a per-request metric via Runner.describe(); a "
                 "dynamic first_<event>_ms reaches the report but can't gate)"
             )
 

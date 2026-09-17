@@ -8,7 +8,7 @@ Probe side, ``Probe.summarize`` (a Series → gauge/counter). This module is req
 
 Caveats are minted here and ride on the summary, so a number's trustworthiness
 travels with it (a CO-biased p99 can't later be read as clean):
-  - ``co_biased``   : closed-loop tail under-samples slow responses (trial-level).
+  - ``co_biased``   : closed-loop tail under-samples slow responses (arm_run-level).
   - ``high_drop``   : open-loop saturation shed real load (slice-level).
   - ``few_samples`` : too few observations for a stable percentile (per-distribution).
 """
@@ -26,7 +26,7 @@ from perf_harness.metric import (
     MetricSummary,
     MetricValueKind,
 )
-from perf_harness.model import Outcome, RequestStats, Sample
+from perf_harness.model import ArmRun, RequestStats, Sample
 
 # Below this many observations a distribution's percentiles are too noisy to trust.
 FEW_SAMPLES = 30
@@ -57,86 +57,122 @@ def time_series_summary(samples: list[Sample], value_kind: MetricValueKind) -> M
     return None
 
 
-def request_stats(outcomes: list[Outcome], steady_s: float, *, closed: bool) -> RequestStats:
-    """Collapse already-judged Outcomes into one Window's request-side stats.
-
-    The input may be the whole Window or one facet slice. ``ok``/``error_kind``
-    were set by ``judge`` upstream.
-
-    Never-sent ``client_saturated`` drops are partitioned out FIRST: a drop has no
-    real latency, so folding its 0ms into the percentiles would drag p50/p99 down
-    (and inflate throughput) exactly when the SUT is slow — textbook coordinated
-    omission. Drops are counted in ``n_dropped`` only; latency/throughput/errors are
-    over sent requests. ``closed`` flags the trial's load model so the slice's
-    latency carries the ``co_biased`` caveat."""
-    sent = [o for o in outcomes if not o.dropped]
-    n_dropped = sum(1 for o in outcomes if o.dropped)
-    n = len(sent)
-    n_ok = sum(1 for o in sent if o.ok)
-    durs = sorted(o.duration_ms for o in sent)
-    breakdown: Counter[str] = Counter()
-    for o in sent:
-        if not o.ok:
-            breakdown[o.error_kind or "unknown"] += 1
-    drop_rate = n_dropped / (n + n_dropped) if (n + n_dropped) else 0.0
-
-    caveats: set[Caveat] = set()
-    if closed and n:
-        caveats.add("co_biased")  # closed-loop tail latency is optimistic
-    if drop_rate >= HIGH_DROP:
-        caveats.add("high_drop")  # shed load → latency/throughput understate reality
-    if 0 < n < FEW_SAMPLES:
+def reduce_requests(
+    execution: ArmRun,
+    start: float,
+    end: float,
+    *,
+    case_id: str | None = None,
+    facet: tuple[str, str] | None = None,
+) -> RequestStats:
+    records = [
+        r
+        for r in execution.requests
+        if (case_id is None or r.case_id == case_id)
+        and (facet is None or r.facets.get(facet[0]) == facet[1])
+    ]
+    by_id = {o.id: o.outcome for o in execution.operation_runs}
+    cohort = [r for r in records if r.dispatched_at is not None and start <= r.dispatched_at < end]
+    finished = [r for r in cohort if r.state == "finished"]
+    outcomes = [by_id[r.operation_run_id] for r in finished]
+    evaluations = [execution.evaluations.get(r.operation_run_id) for r in finished]
+    durs = sorted(o.duration_ms for o in outcomes)
+    n, n_ok = len(finished), sum(e is not None and e.ok for e in evaluations)
+    arrived = [r for r in records if start <= r.scheduled_at < end]
+    completions = [
+        r
+        for r in records
+        if r.state == "finished" and r.finished_at is not None and start <= r.finished_at < end
+    ]
+    succeeded = sum(
+        execution.evaluations.get(r.operation_run_id) is not None
+        and execution.evaluations[r.operation_run_id].ok
+        for r in completions
+    )
+    dropped = sum(r.state == "dropped" for r in arrived)
+    interrupted = sum(r.state == "interrupted" for r in cohort)
+    caveats = set()
+    if execution.arm.load.saturated and n:
+        caveats.add("co_biased")
+    if dropped:
+        caveats.add("high_drop")
+    if interrupted or any(e is None for e in evaluations):
+        caveats.add("incomplete")
+    if n < 30:
         caveats.add("few_samples")
-
+    metrics = {}
+    values = {
+        key: sorted(o.metrics[key] for o in outcomes if key in o.metrics)
+        for key in {k for o in outcomes for k in o.metrics}
+    }
+    values["scheduler_lag_ms"] = sorted((r.arrived_at - r.scheduled_at) * 1000 for r in arrived)
+    for key, vs in values.items():
+        if vs:
+            metrics[key] = DistributionSummary(
+                n=len(vs),
+                mean=sum(vs) / len(vs),
+                p50=pct(vs, 0.5),
+                p95=pct(vs, 0.95),
+                p99=pct(vs, 0.99),
+                caveats=frozenset(caveats),
+            )
+    # Inflight is event-based, including requests dispatched before this window.
+    events = []
+    current = sum(
+        r.dispatched_at is not None
+        and r.dispatched_at < start
+        and (r.finished_at is None or r.finished_at >= start)
+        for r in records
+    )
+    peak = current
+    for r in records:
+        if r.dispatched_at is not None and start <= r.dispatched_at < end:
+            events.append((r.dispatched_at, 1))
+        if (
+            r.dispatched_at is not None
+            and r.finished_at is not None
+            and start <= r.finished_at < end
+        ):
+            events.append((r.finished_at, -1))
+    for _, delta in sorted(events):
+        current += delta
+        peak = max(peak, current)
+    dt = max(end - start, 1e-9)
+    breakdown = Counter(
+        (e.error_kind or "unknown") if e else "unjudged"
+        for e in evaluations
+        if e is None or not e.ok
+    )
     return RequestStats(
         n=n,
         n_ok=n_ok,
-        throughput_rps=(n / steady_s) if steady_s > 0 else 0.0,
-        p50_ms=pct(durs, 0.50),
+        throughput_rps=len(completions) / dt,
+        p50_ms=pct(durs, 0.5),
         p95_ms=pct(durs, 0.95),
         p99_ms=pct(durs, 0.99),
-        error_rate=((n - n_ok) / n) if n else 0.0,
+        mean_ms=sum(durs) / n if n else 0,
+        error_rate=(n - n_ok) / n if n else 0,
         error_breakdown=dict(breakdown),
-        n_dropped=n_dropped,
-        mean_ms=(sum(durs) / len(durs)) if durs else 0.0,
-        metrics=metric_stats(sent, closed=closed),
+        n_dropped=dropped,
+        n_interrupted=interrupted,
+        arrived=len(arrived),
+        dispatched=len(cohort),
+        completed=len(completions),
+        succeeded=succeeded,
+        arrival_rps=len(arrived) / dt,
+        dispatch_rps=len(cohort) / dt,
+        success_rps=succeeded / dt,
+        inflight_peak=peak,
+        inflight_end=current,
+        metrics=metrics,
         caveats=frozenset(caveats),
     )
 
 
-def metric_stats(sent: list[Outcome], *, closed: bool) -> dict[str, MetricSummary]:
-    """Per_request metric distributions: each ``Outcome.metrics`` key (ttft_ms /
-    first_<event>_ms …) → DistributionSummary over the requests that carried it. Only
-    sent (non-dropped) outcomes contribute — a drop measured nothing. Each carries
-    ``co_biased`` (closed-loop) and ``few_samples`` (thin) as warranted."""
-    keys = {k for o in sent for k in o.metrics}
-    out: dict[str, MetricSummary] = {}
-    for k in keys:
-        vals = sorted(o.metrics[k] for o in sent if k in o.metrics)
-        if not vals:
-            continue
-        caveats: set[Caveat] = set()
-        if closed:
-            caveats.add("co_biased")
-        if len(vals) < FEW_SAMPLES:
-            caveats.add("few_samples")
-        out[k] = DistributionSummary(
-            n=len(vals),
-            mean=sum(vals) / len(vals),
-            p50=pct(vals, 0.50),
-            p95=pct(vals, 0.95),
-            p99=pct(vals, 0.99),
-            caveats=frozenset(caveats),
-        )
-    return out
+def pct(values: list[float], q: float) -> float:
+    import math
 
-
-def pct(sorted_vals: list[float], q: float) -> float:
-    """Nearest-rank percentile of an ascending list (0.0 when empty)."""
-    if not sorted_vals:
-        return 0.0
-    idx = min(len(sorted_vals) - 1, int(q * len(sorted_vals)))
-    return sorted_vals[idx]
+    return values[max(0, math.ceil(q * len(values)) - 1)] if values else 0.0
 
 
 def unit_of(metric_name: str) -> str:

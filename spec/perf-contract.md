@@ -1,115 +1,81 @@
 # Perf Harness 跨语言契约
 
-本契约是 Python、TypeScript 及后续语言实现共同遵守的稳定边界。任何一种语言实现都不是另一种
-语言的 canonical implementation；实现可以按消费场景覆盖不同 feature，但同名概念、调度语义、
-对齐键和落盘字段必须以本文件及 schema 为准。
+Python 与 TypeScript 共享本契约；各语言保持惯用 API，功能覆盖可以不同。本次 schema 5 不兼容旧产物。
 
-## 核心名词
+## 事实骨架
 
-```text
-Experiment 比较一组 Arm
-Arm = ResourceProfile × LoadProfile 的命名配置
-Trial = Arm 的一次真实执行
-Stage = 计划中的负载控制段
-Window = 实际观测与归约边界
-Outcome = 一次已发请求的原始事实
-Verdict = Workload 对 Outcome 的纯判定
-```
+`ExperimentRun.executions → ArmRun (Execution) → OperationRun → Outcome`。
+Arm 是 ResourceProfile × LoadPlan 的具名配置；一次 ArmRun 固定目标 Service/Workload、Arm 与 Case 选择，
+组织加压器产生的 N 次调用。Run 不直接管理全部调用。common 拥有骨架、身份与 Workload 语义；
+perf 的协议适配器称 Runner，避免把它与运行平台承载单元 Workload 混用。
 
-按 quality-harness Kernel 语义，Outcome 和 Probe sample 是 Observation。Perf 必须为每张分析表声明一个
-Unit grain：request、window、run 是不同 Unit，不能混成同一行。raw/model Run facts 构成可离线复用
-Dataset；每次 EvaluationRun 直接记录所选 Workload judge、SLO 与 analysis 组件及其配置，并形成
-对应 Worksheet。更换 SLO、gate 或分析透镜不得重新发压。具体顶层定义见
-[`../docs/kernel.md`](../docs/kernel.md#dataset-与反复评估)。
+Case/CaseSet 归 spec-case；实验只选择 Case 并设置本次使用的权重，不修改资产。
+简单 Case 一次触发对应一个 OperationRun；这不是对所有领域多步骤 Case 的限制。
+`arm.id` 在 Experiment 内稳定；`ArmRun.id` 带 run identity；`OperationRun.id` 在 ArmRun 内唯一。
+RequestRecord 以 operation_run_id 引用实际调用；drop 没有 OperationRun。Outcome 仅存一份。
+Service 持有 common Component/Repository/Forge/Environment/Workload 身份；落盘只保存非敏感身份，
+不持久化访问凭据、HTTP headers、kubeconfig 内容或执行期客户端。
 
-- `case_id` 标识稳定输入资产；同一 Case 进入不同 Arm 时保持不变。
-- `arm_id` 是 Experiment 内对照配置的稳定键。
-- `window_id` 是 Trial 内时间切片的局部键。
-- `trace_id` 等遥测关联键进入 `Outcome.meta`，不得只存在于人类报告。
+## 调度契约
 
-## Case 与加压边界
+LoadPlan 必填 `request_rate`、`max_concurrency`、`duration_s`。有限速率独立于响应时间；
+满并发立即记录 drop，reason=concurrency_limit，无 pending queue，也不创建等待连接的请求 Task。
+`request_rate=inf` 按 slot 补充。并发覆盖完整请求生命周期，包括 SSE 完整读取。
 
-Case / CaseSet 是稳定的输入资产，canonical schema 由 spec-case 维护。Case 可以声明 `id`、`input`、
-`facets`、`requires`、`judge`、`binding` 等测试语义，但不携带环境地址、凭证、并发度或流量权重。
-Harness 只消费执行所需的最小 runtime view（至少 `id` / `input`，可带 `facets`），不复制或重新定义
-Case schema。
+Stage 显式声明 duration_s/request_rate/max_concurrency/kind；hold 直接取本段值，ramp 从上一值
+线性变化，并发向下取整且至少为 1。降并发不取消已有请求。各段时长之和等于 duration_s；
+单个 LoadPlan 不混合有限速率与 inf。有限速率支持 constant/poisson，时钟按累计到达量反解。
+第一条计划到达从 t=0 开始；seed 保证本语言内重复性，不要求语言间相同随机序列。
 
-一次 Perf Experiment 可以从一个 CaseSet 选择一个或多个 Case，并在本次 Experiment 的 `case mix`
-里声明权重。权重属于本次加压计划，而不是 Case 资产。Harness 负责按 mix 选择 Case、调度 dispatch、
-控制并发/到达率、停止和归约，并在 `Window.by_case` 产出逐 Case 统计。
+到期停止发压，最多等待 drain_timeout_s，然后取消并 join 剩余请求，再释放客户端。
+因调度器卡顿而错过截止的计划到达记为 scheduler_deadline 丢弃，不得在截止后补发。
+活跃任务数有界，历史证据内存随总请求数增长。Runner 必须支持取消，不能偷偷创建自己的加压循环。
 
-具体服务协议由 Workload/driver 实现。一次 Trial 的 Service、资源、负载与 run id 形成共享且不可变的
-TrialContext；Harness 每次 dispatch 只调用一次 `fire(FireContext)`，其中 FireContext 在 TrialContext
-之上组合本次 Case。driver 负责把 Case input 变成一次 HTTP/SSE 等请求并返回一次 Outcome，必须支持
-Harness 发起的并发调用，不能修改共享 TrialContext 或在内部再启动隐藏的加压循环。这样，同一个 Case
-runner 可被 Perf、单 Case 调试或其它 Case Harness 入口复用，而调度策略仍只有一个权威实现。各语言
-可以用嵌套或扁平类型表达 FireContext，但字段语义和生命周期必须一致。
+## Runner、Judge 与生命周期
 
-完整 Perf 是高影响验证，只能在合适环境和明确授权下运行。运行窗口、凭据、目标 revision 与发布
-门禁由部署领域持有；Harness 提供 CLI、API 或 Job 入口，不表示可以绕过这些约束。
+Runner.operation 标识服务能力，fire 执行一次调用并返回原始 Outcome；独立纯 Judge 返回
+RequestEvaluation，按 OperationRun ID 保存，不回写 Outcome。默认 Judge 只判断传输/HTTP 状态；
+SSE 业务完成规则由 consumer 显式声明。Outcome.meta 可记录 trace_id、message_id、完成事件等原始信号。
+first_byte_ms 只表示首字节，不能自动命名 TTFT；业务 token 时刻由 Runner 识别。
 
-## 负载语义
+生命周期：setup → 发压 → drain/cancel → deactivate → cooldown → cleanup → 释放客户端。
+Python 资源观察覆盖发压、排空、停用与 cooldown；TypeScript 资源观察仍由消费方负责。
+普通生命周期异常记录 phase_errors，终止 sweep，verdict=error；控制流取消允许继续向调用方传播。
+每个实际中断请求保留独立事实，不执行 Judge，不把短暂取消耗时混入延迟样本。
 
-- `closed` 表示 N 个虚拟用户循环 `fire → pacing → fire`，强度单位是并发用户数。
-- `open` 表示独立于响应时间的到达过程，强度单位是 request/s。
-- `Schedule` 由连续 Stage 组成；`ramp` 从进入该段的强度线性变化到 `to_level`，`hold`
-  在整段保持 `to_level`。
-- 请求按 dispatch 时刻进入 Window。不得按完成时刻把慢请求移动到后一个 Stage/Window。
-- 未发出的 drop 和停止时被强制中断的在途请求不是延迟样本。
-- `abort_on_error_rate` 是 Trial 内保护被测系统的熔断，不等同于 run 级 SLO。
-- `max_requests`、`max_inflight` 是安全边界；执行入口不支持某项时必须显式拒绝对应运行配置，不能静默
-  忽略。离线 reader 仍按产物契约忽略自己不认识的可选字段，以便读取其它实现的 IR。
+## 时间与统计
 
-## Workload 与判定
+所有时刻是相对 ArmRun 发压起点的秒数；Window 使用半开区间 `[start_s,end_s)`。
 
-服务协议通过 Workload 扩展：
+- arrived / arrival_rps / n_dropped 按 scheduled_at 的到达计划归窗；arrived_at 保留实际处理时刻。
+- dispatched / dispatch_rps 按实际 dispatched_at 归窗。
+- completed / throughput_rps / succeeded / success_rps 按实际 finished_at 归窗，只含 finished 请求。
+- n / n_ok / error_rate / latency 按 dispatch cohort 归窗，包含排空后才完成的 Outcome。
+- inflight_peak/end 由实际调用起止事件求得，包括前一个窗口带入的请求。
+- scheduler_lag_ms = (arrived_at - scheduled_at) × 1000。
 
-1. `fire(FireContext)` 只记录 HTTP/SSE、耗时、业务 ID 和异常等原始 `Outcome`，即 request Observation；
-2. `judge(outcome)` 是单请求成功/失败的唯一权威，必须是纯函数；
-3. Trial 生命周期固定为 `setup → measurement → deactivate → cleanup`，cleanup 总会尝试执行。
+measurement 排除 warmup；ramp/hold 对齐 Stage；drain 独立记录停止发压后的完成事件；
+cooldown 表达 deactivate 后的资源观察。nearest-rank 百分位索引为 `ceil(q*n)-1`。
+丢弃、中断不进入延迟分布；无完成样本的延迟/错误率 SLO 为缺数据。
+co_biased/high_drop/incomplete/few_samples 等可信度标记必须随 summary 保存。
 
-生命周期普通异常不是请求 Outcome、Probe failure 或 SLO fail。Harness 应把异常按发生顺序记录到
-Trial 的可选 `phase_errors`，每项至少包含 `phase`、`error_type` 和 `message`；未进入或未完整执行
-measurement 时使用 `stop.reason=aborted`。这类 Trial 的 run gate 必须失败，`verdict.json` 状态为
-`error`，但 Harness 仍应写出 run、raw、report 与 verdict 产物。进程取消、键盘中断等控制流异常可以
-继续向调用方传播。出现 phase error 后必须结束当前 sweep，不能把可能受残留状态污染的后续 Arm
-当作可比较的性能 Observation。Phase error 仍让 run gate 失败，但不抹掉已完成的当前 measurement；
-当前 Trial 是否能进入性能曲线由 `measurement.complete` 决定，而不是由 phase 名称决定。
+Python capacity 只读取有请求、无丢弃/中断/未判定且匹配 SLO 全通过的完整 hold。
+无 SLO 的正常运行 verdict=skipped，不表示容量通过。TypeScript 当前不提供 SLO 评估与 HTML 报告。
+离线可更换 Judge、重算统计与 SLO；重渲染报告不重新发压或判定。当前 perf 请求判定表是领域投影，
+未实现通用 EvaluationRun/Worksheet 的全量持久化，不把设计目标写成已实现能力。
 
-资源观测与请求判定正交。Prombed、Prometheus、Kubernetes 等 Probe 可以由具体实现、消费方或
-[Harness 工具箱](../docs/toolbox.md)提供；其缺失不能改变 Outcome 的原始事实。
+## 产物
 
-## Window 与统计
+| 文件 | 契约 |
+|---|---|
+| run.json | schema=5，executions 数组；无重复的 arm_runs/outcomes 存储 |
+| requests.jsonl | 每行 arm_run_id + request + 可选 operation_run（拥有唯一原始 Outcome） |
+| evaluations.json | ArmRun ID → OperationRun ID → RequestEvaluation |
+| timeseries.csv | arm_run,series,t,value 的资源采样 |
+| verdict.json | 统一 verdict-schema.yaml；执行异常 error，提前停止/中断 fail |
 
-每个 Trial 至少形成一个 `measurement` Window，并可形成对应 Stage 的 `ramp` / `hold` Window。
-Window 使用半开区间 `[start_s, end_s)`。请求延迟、吞吐、错误率及 per-request metric 都从该区间
-内 dispatch 的 Outcome 归约；资源时序也使用同一边界。
-
-百分位采用 nearest-rank 约定：升序数组索引为 `min(n - 1, floor(q * n))`。样本不足、closed-loop
-coordinated omission、drop 等可信度信息随 summary 放在 `caveats`，不能只写在报告文案。
-
-## 产物契约
-
-独立 Harness runner 的一次运行默认落在 `runs/<experiment>/<run-id>/`。被 Doctor 这类上层诊断 Bundle
-嵌入时，上层可以直接提供本次 run 目录；以下三件产物仍必须同目录，并使用相对路径互相引用：
-
-```text
-run.json          # 模型层：Run / Trial / Window / 聚合统计
-outcomes.jsonl    # raw：每行一个请求事实，包含 case_id / arm(trial) / t / meta
-verdict.json      # 跨 harness 判定出口，沿用 verdict-schema.yaml
-```
-
-- `run.json` 遵守 [`perf-run-schema.yaml`](perf-run-schema.yaml)。
-- `outcomes.jsonl` 每一行遵守 [`perf-outcome-schema.yaml`](perf-outcome-schema.yaml)。
-- 字段使用 snake_case，方便跨语言直接交换。
-- reader 必须忽略未知字段；删除字段或改变既有字段语义时提升 `schema` 主版本。
-- `phase_errors` 是可选的加法字段，因此 schema 仍为 3；旧 reader 可忽略，支持它的实现必须保留
-  phase 与异常摘要，不能把执行异常降格为请求错误或 SLO fail。
-- 实现私有数据只能放新增可选字段，不能改变共享字段含义。
-
-## 一致性与 feature 覆盖
-
-跨语言一致性要求的是契约，而不是代码逐行翻译或 feature 同步发布。每个实现应在自己的 README
-声明支持的 load model、Probe 和 renderer；对已支持 feature 产出的公共 IR 必须通过 `conformance/perf`
-fixture 校验。公共 fixture 是契约的可执行样例：各实现都读取它，不能由某个实现的临时输出反向定义
-契约。新增共享名词先修改本契约与 schema，再分别实现。
+JSON 中无限速率写为字符串 `inf`；有限速率为 number。可空请求时刻允许缺省或 null。
+Reader 必须恢复原始关联与完整请求记录；支持当前 schema 的可选扩展字段，不接受旧主 schema。
+跨语言共同 fixture 位于 [conformance/perf](../conformance/perf/README.md)。字段定义见
+[Run schema](perf-run-schema.yaml)、[Request schema](perf-request-schema.yaml) 与
+[Evaluation schema](perf-evaluation-schema.yaml)。

@@ -1,4 +1,4 @@
-"""runio — the model layer on disk: run.json full serialization, outcomes.jsonl raw
+"""runio — the model layer on disk: run.json full serialization, requests.jsonl raw
 layer, and load_run/load_outcomes reconstructing the model (and thus a working
 MetricStore) offline. The report/CSVs are derived views; THESE are the analysis
 contract, so the round-trip must be lossless for everything the store can address."""
@@ -10,15 +10,15 @@ from pathlib import Path
 import pytest
 from spec_case.model import Case
 
-from perf_harness.drive.load import LoadProfile, Schedule
-from perf_harness.drive.workload import Workload
+from perf_harness.drive.load import LoadPlan
+from perf_harness.drive.runner import Runner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.metric import series_id
 from perf_harness.metric.store import MetricStore
 from perf_harness.model import Outcome, ResourceProfile, Service, SloAssertion, WindowSelector
 from perf_harness.observe import FamilySpec, Probe
 from perf_harness.report import write_run
-from perf_harness.runio import RUN_SCHEMA, load_outcomes, load_run
+from perf_harness.runio import RUN_SCHEMA, load_run
 from perf_harness.slo import evaluate_slo
 
 PERF_FIXTURES = Path(__file__).parents[4] / "conformance" / "perf" / "fixtures"
@@ -40,22 +40,23 @@ class _FakeTop(Probe):
         return {"cpu_m": 123.0}
 
 
-class _WL(Workload):
+class _WL(Runner):
     name = "w"
 
     async def fire(self, ctx):
-        return Outcome(status=200, duration_ms=10.0, events=1, metrics={"ttft_ms": 5.0})
+        return Outcome(status=200, duration_ms=10.0, events=1, metrics={"first_byte_ms": 5.0})
 
 
 async def _run(tmp_path):
     exp = Experiment(
         service=Service("chat", base_url="http://127.0.0.1:0"),
-        workload=_WL(),
+        runner=_WL(),
         resources=[ResourceProfile(workers=2, memory="2Gi")],
         loads=[
-            LoadProfile(
-                model="closed",
-                schedule=Schedule.ramp_hold(2, 0.0, 0.3),
+            LoadPlan(
+                request_rate=float("inf"),
+                max_concurrency=2,
+                duration_s=(0.0 + 0.3),
                 abort_on_error_rate=0.5,
                 breaker_min_n=5,
             )
@@ -85,9 +86,9 @@ async def test_run_json_is_the_full_model(tmp_path):
     run, run_dir = await _run(tmp_path)
     doc = json.loads((run_dir / "run.json").read_text())
     assert doc["schema"] == RUN_SCHEMA
-    t = doc["trials"][0]
+    t = doc["executions"][0]
     # everything the live model knows is on disk: identity, config, verdicts, metadata
-    assert t["id"] == run.trials[0].label()
+    assert t["id"] == run.arm_runs[0].label()
     assert t["arm"]["resources"]["workers"] == 2
     assert t["arm"]["resources"]["memory"] == "2Gi"
     assert t["arm"]["load"]["abort_on_error_rate"] == 0.5
@@ -101,8 +102,8 @@ async def test_run_json_is_the_full_model(tmp_path):
     }
     windows = {window["id"]: window for window in t["windows"]}
     assert "cooldown" in windows
-    assert t["registry"]["ttft_ms"]["unit"] == "ms"  # metric metadata persisted
-    assert windows["measurement"]["request"]["n"] == run.trials[0].measurement.request.n
+    assert t["registry"]["first_byte_ms"]["unit"] == "ms"  # metric metadata persisted
+    assert windows["measurement"]["request"]["n"] == run.arm_runs[0].measurement.request.n
     assert "a" in windows["measurement"]["by_case"]
     assert "simple" in windows["measurement"]["by_facet"]["difficulty"]
     sid = series_id("top.cpu_m", {"service": "chat"})
@@ -113,22 +114,23 @@ async def test_run_json_is_the_full_model(tmp_path):
 async def test_load_run_round_trips_the_store(tmp_path):
     run, run_dir = await _run(tmp_path)
     loaded = load_run(run_dir)
-    assert loaded.run_id == run.run_id and len(loaded.trials) == 1
+    assert loaded.run_id == run.run_id and len(loaded.arm_runs) == 1
     assert loaded.artifact_paths() == {
         "model": "run.json",
-        "outcomes": "outcomes.jsonl",
+        "requests": "requests.jsonl",
+        "evaluations": "evaluations.json",
         "timeseries": "timeseries.csv",
     }
-    live, offline = run.trials[0], loaded.trials[0]
+    live, offline = run.arm_runs[0], loaded.arm_runs[0]
     # the offline MetricStore answers the SAME addressed reads as the live one
     refs = [
         "request.error_rate.value",
         "request.duration_ms.p99",
-        "ttft_ms.p95",
+        "first_byte_ms.p95",
         'duration_ms{difficulty="simple"}.p50',
         'top.cpu_m{service="chat"}.peak',
     ]
-    ls, os_ = MetricStore(run.trials), MetricStore(loaded.trials)
+    ls, os_ = MetricStore(run.arm_runs), MetricStore(loaded.arm_runs)
     for ref in refs:
         assert ls.query(live, ref) == os_.query(offline, ref), ref
     # series came back from timeseries.csv with the family's unit
@@ -149,31 +151,30 @@ async def test_load_run_round_trips_the_store(tmp_path):
     assert evaluate_slo(offline, [offline.slo[-1].assertion])[0].passed
 
 
-async def test_outcomes_jsonl_is_the_request_raw_layer(tmp_path):
-    run, run_dir = await _run(tmp_path)
-    live = run.trials[0]
-    by_trial = load_outcomes(run_dir)
-    rows = by_trial[live.label()]
-    # one record per recorded fire, in order, incl. warmup (raw layer ≥ post-warmup n)
-    assert len(rows) == len(live.outcomes) >= live.measurement.request.n
-    t0, o0 = rows[0]
-    assert o0.status == 200 and o0.ok and o0.case_id == "a"
-    assert o0.facets == {"difficulty": "simple"}
-    assert o0.metrics["ttft_ms"] == 5.0  # per_request raw values survive
+async def test_request_facts_and_evaluations_round_trip_separately(tmp_path):
+    run, directory = await _run(tmp_path)
+    live = run.arm_runs[0]
+    loaded = load_run(directory).arm_runs[0]
+    assert loaded.requests == live.requests
+    assert loaded.evaluations == live.evaluations
+    assert [c.outcome for c in loaded.operation_runs] == [c.outcome for c in live.operation_runs]
+    assert len(loaded.requests) == len(live.operation_runs)
+    rows = [json.loads(line) for line in (directory / "requests.jsonl").read_text().splitlines()]
+    assert all("ok" not in row["operation_run"]["outcome"] for row in rows)
+    assert all("evaluation" not in row for row in rows)
 
 
 def test_reads_language_neutral_conformance_fixture(tmp_path):
-    shutil.copy(PERF_FIXTURES / "basic.run.json", tmp_path / "run.json")
-    shutil.copy(PERF_FIXTURES / "basic.outcomes.jsonl", tmp_path / "outcomes.jsonl")
-
+    for source, target in [
+        ("basic.run.json", "run.json"),
+        ("basic.requests.jsonl", "requests.jsonl"),
+        ("basic.evaluations.json", "evaluations.json"),
+    ]:
+        shutil.copy(PERF_FIXTURES / source, tmp_path / target)
     run = load_run(tmp_path, with_series=False)
-    trial = run.trials[0]
-    assert trial.label() == "default__closed-5c"
-    assert trial.measurement.request.metrics["first_token_ms"].p95 == 6500
-
-    outcome = load_outcomes(tmp_path)[trial.label()][0][1]
-    assert outcome.metrics["first_token_ms"] == 6500
-    assert outcome.meta["trace_id"] == "0123456789abcdef0123456789abcdef"
+    call = run.arm_runs[0].operation_runs[0]
+    assert call.outcome.meta["trace_id"] == "0123456789abcdef0123456789abcdef"
+    assert run.arm_runs[0].requests[1].state == "dropped"
 
 
 async def test_load_run_rejects_unknown_schema(tmp_path):
@@ -216,9 +217,9 @@ async def test_probe_errors_round_trip(tmp_path):
 
     exp = Experiment(
         service=Service("chat", base_url="http://127.0.0.1:0"),
-        workload=_WL(),
+        runner=_WL(),
         resources=[ResourceProfile()],
-        loads=[LoadProfile(model="closed", schedule=Schedule.ramp_hold(1, 0.0, 0.2))],
+        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.2))],
         probes=[_Down()],
         observe_interval_s=0.05,
         name="pe",
@@ -226,12 +227,12 @@ async def test_probe_errors_round_trip(tmp_path):
     run = await Engine(exp, run_id="20260101-000001").run()
     write_run(run, str(tmp_path))
     loaded = load_run(tmp_path / "pe" / "20260101-000001")
-    pe = loaded.trials[0].probe_errors["metrics.chat"]
+    pe = loaded.arm_runs[0].probe_errors["metrics.chat"]
     assert pe.failures >= 1 and pe.ticks >= pe.failures and "down" in pe.last
 
 
 async def test_setup_error_still_writes_complete_run_artifacts(tmp_path):
-    class _BrokenSetup(Workload):
+    class _BrokenSetup(Runner):
         async def setup(self, ctx):
             raise RuntimeError("target unavailable")
 
@@ -240,25 +241,25 @@ async def test_setup_error_still_writes_complete_run_artifacts(tmp_path):
 
     exp = Experiment(
         service=Service("chat", base_url="http://127.0.0.1:0"),
-        workload=_BrokenSetup(),
+        runner=_BrokenSetup(),
         resources=[ResourceProfile()],
-        loads=[LoadProfile(model="closed", schedule=Schedule.ramp_hold(1, 0.0, 0.1))],
+        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.1))],
         name="setup-error",
     )
     run = await Engine(exp, run_id="20260101-000002").run()
     paths = write_run(run, str(tmp_path))
     run_dir = Path(paths["run_dir"])
 
-    assert {"run.json", "outcomes.jsonl", "report.md", "verdict.json"} <= {
+    assert {"run.json", "requests.jsonl", "report.md", "verdict.json"} <= {
         path.name for path in run_dir.iterdir()
     }
     doc = json.loads((run_dir / "run.json").read_text())
     assert doc["passed"] is False
-    assert doc["trials"][0]["phase_errors"] == [
+    assert doc["executions"][0]["phase_errors"] == [
         {"phase": "setup", "error_type": "RuntimeError", "message": "target unavailable"}
     ]
     loaded = load_run(run_dir)
-    assert loaded.trials[0].phase_errors == run.trials[0].phase_errors
+    assert loaded.arm_runs[0].phase_errors == run.arm_runs[0].phase_errors
 
     verdict = json.loads((run_dir / "verdict.json").read_text())
     assert verdict["status"] == "error"
@@ -279,6 +280,26 @@ async def test_model_and_verdict_survive_report_renderer_failure(tmp_path, monke
         write_run(run, str(tmp_path / "failed-render"))
 
     run_dir = tmp_path / "failed-render" / run.experiment / run.run_id
-    assert {"run.json", "outcomes.jsonl", "timeseries.csv", "verdict.json"} <= {
+    assert {"run.json", "requests.jsonl", "timeseries.csv", "verdict.json"} <= {
         path.name for path in run_dir.iterdir()
     }
+
+
+async def test_reader_accepts_optional_fields_and_null_call(tmp_path):
+    run, directory = await _run(tmp_path)
+    path = directory / "requests.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    rows[0]["request"]["future_optional"] = "ignored"
+    dropped = dict(
+        rows[0]["request"],
+        id="dropped-fixture",
+        operation_run_id=None,
+        dispatched_at=None,
+        state="dropped",
+        reason="concurrency_limit",
+    )
+    rows.append({"arm_run_id": run.arm_runs[0].id, "request": dropped, "operation_run": None})
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    restored = load_run(directory)
+    assert restored.arm_runs[0].requests[-1].state == "dropped"
+    assert len(restored.arm_runs[0].operation_runs) == len(run.arm_runs[0].operation_runs)

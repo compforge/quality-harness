@@ -473,13 +473,16 @@ provides-extras = ["llm"]
 
 [[package]]
 name = "harness-toolbox"
-version = "0.5.0"
+version = "0.5.1"
 source = { editable = "toolbox" }
 dependencies = [
     { name = "harness-common" },
 ]
 
 [package.optional-dependencies]
+http = [
+    { name = "httpx" },
+]
 kube = [
     { name = "kubernetes-asyncio" },
 ]
@@ -499,13 +502,14 @@ prometheus = [
 requires-dist = [
     { name = "asyncmy", marker = "extra == 'mysql'", specifier = ">=0.2.9,<1" },
     { name = "harness-common", editable = "common" },
+    { name = "httpx", marker = "extra == 'http'", specifier = ">=0.27,<1" },
     { name = "httpx", marker = "extra == 'opensearch'", specifier = ">=0.27,<1" },
     { name = "httpx", marker = "extra == 'prometheus'", specifier = ">=0.27,<1" },
     { name = "kubernetes-asyncio", marker = "extra == 'kube'", specifier = ">=36.1,<37" },
     { name = "prombed", marker = "extra == 'prometheus'", git = "https://github.com/compforge/prombed?subdirectory=python" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'mysql'", specifier = ">=2.0,<3" },
 ]
-provides-extras = ["prometheus", "kube", "opensearch", "mysql"]
+provides-extras = ["http", "prometheus", "kube", "opensearch", "mysql"]
 
 [[package]]
 name = "httpcore"
@@ -1081,12 +1085,12 @@ wheels = [
 
 [[package]]
 name = "quality-harness"
-version = "0.2.23"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "atif" },
     { name = "harness-common" },
-    { name = "harness-toolbox", extra = ["prometheus"] },
+    { name = "harness-toolbox", extra = ["http", "prometheus"] },
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -1120,8 +1124,8 @@ dev = [
 requires-dist = [
     { name = "atif", specifier = ">=1.7,<1.8" },
     { name = "harness-common", editable = "common" },
+    { name = "harness-toolbox", extras = ["http", "prometheus"], editable = "toolbox" },
     { name = "harness-toolbox", extras = ["kube"], marker = "extra == 'kube'", editable = "toolbox" },
-    { name = "harness-toolbox", extras = ["prometheus"], editable = "toolbox" },
     { name = "httpx", specifier = ">=0.27,<1.0" },
     { name = "kubernetes-asyncio", marker = "extra == 'dev'", specifier = ">=36.1,<37" },
     { name = "pyarrow", marker = "extra == 'trace-corpus'", specifier = ">=14,<22" },
