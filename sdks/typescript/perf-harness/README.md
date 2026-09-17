@@ -22,12 +22,16 @@ const run = await new Engine({
     environment: {name: "dfx"}, workloads: [],
   },
   runner,
-  loads: [{request_rate: 4, max_concurrency: 32, duration_s: 60, drain_timeout_s: 180}],
+  loads: [{request_rate: 4, max_inflight: 32, hold_s: 60, cooldown_timeout_s: 180}],
 }).run();
 writeRunData(run, "./runs/chat-capacity/local");
 ```
 
-Finite rates drop arrivals when full, without a pending queue. `Infinity` replenishes available slots.
+Warmup doubles the rate from 1 every 5 seconds until the target rate or inflight cap is reached.
+Hold lasts `hold_s` seconds (default 60) and replenishes vacancies at the configured target rate.
+A full inflight cap pauses the source without queued or dropped arrivals. `Infinity` starts directly
+in hold and replenishes available slots. Cooldown waits for calls to finish, then cancels and joins
+remaining calls at `cooldown_timeout_s` (default 180).
 A decreasing cap does not cancel existing calls. Each Runner must cooperate with AbortSignal and fully
 consume its response; use a streaming parser with bounded buffers for real SSE. A separate `judge`
 function evaluates raw Outcomes; the default checks transport/status, not business completion.
@@ -36,7 +40,7 @@ function evaluates raw Outcomes; the default checks transport/status, not busine
 ArmRuns; each actual invocation owns one OperationRun/Outcome. Dispatch-cohort latency includes drained
 responses, while completion throughput uses actual completion timestamps.
 
-Schema 5 artifacts: `run.json`, `requests.jsonl`, `evaluations.json`, `timeseries.csv`, `verdict.json`.
+Schema 6 artifacts: `run.json`, `requests.jsonl`, `evaluations.json`, `timeseries.csv`, `verdict.json`.
 `loadRun` reads them offline. The TypeScript SDK does not provide resource probes, rendered reports or
 SLO evaluation. Its successful execution verdict is `skipped`; phase errors, early stops and interrupted
 calls fail. Python provides the richer reporting and SLO layer using the same persisted facts.

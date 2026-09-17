@@ -65,7 +65,7 @@ def analyze(run: Run, store=None) -> list[AnalysisNote]:  # noqa: ARG001 — uni
                 AnalysisNote(
                     "validity",
                     "flag",
-                    f"[{tid}] {s.interrupted} 个在途请求被强制 cancel（drain 窗口不够）",
+                    f"[{tid}] {s.interrupted} 个在途请求被强制 cancel（cooldown 等待超时）",
                     {"arm_run": tid, "interrupted": s.interrupted},
                 )
             )
@@ -75,7 +75,7 @@ def analyze(run: Run, store=None) -> list[AnalysisNote]:  # noqa: ARG001 — uni
         ld = r.arm.load
         if ld.abort_on_error_rate is not None and r.measurement.request.throughput_rps > 0:
             t_arm = ld.breaker_min_n / r.measurement.request.throughput_rps
-            window = ld.duration_s
+            window = r.measurement.duration_s
             if window and t_arm / window > BREAKER_WINDOW_SHARE:
                 out.append(
                     AnalysisNote(

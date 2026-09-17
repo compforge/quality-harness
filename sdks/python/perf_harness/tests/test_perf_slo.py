@@ -2,7 +2,7 @@ import pytest
 
 from perf_harness.cli import main
 from perf_harness.config import load_experiment
-from perf_harness.drive.load import LoadPlan, Stage
+from perf_harness.drive.load import LoadPlan, Stage, Warmup
 from perf_harness.drive.runner import MockRunner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.metric import GaugeSummary, MetricFamily
@@ -33,7 +33,9 @@ def _arm_run(level: float, p99: float, *, err: float = 0.0, n_dropped: int = 0) 
         n_dropped=n_dropped,
     )
     resources = ResourceProfile(workers=2)
-    load = LoadPlan(request_rate=level, max_concurrency=128, duration_s=(0.0 + 1.0))
+    load = LoadPlan(
+        warmup=Warmup(step_s=0), request_rate=level, max_inflight=128, hold_s=(0.0 + 1.0)
+    )
     return ArmRun(
         id=f"{resources.label()}|{load.label()}",
         service="s",
@@ -139,9 +141,10 @@ def test_slo_aware_capacity_is_highest_passing_level():
 def test_slo_aware_capacity_uses_passing_holds_in_multi_stage_arm_run():
     t = _arm_run(40, 5000)
     load = LoadPlan(
+        warmup=Warmup(step_s=0),
         request_rate=10,
-        max_concurrency=128,
-        duration_s=2,
+        max_inflight=128,
+        hold_s=2,
         stages=(Stage(1, 10, 128), Stage(1, 40, 128)),
     )
     t.arm = Arm(t.arm.id, t.arm.resources, load)
@@ -164,9 +167,10 @@ def test_slo_aware_capacity_uses_passing_holds_in_multi_stage_arm_run():
 def test_slo_aware_capacity_does_not_treat_multi_stage_peak_as_capacity():
     t = _arm_run(40, 100)
     load = LoadPlan(
+        warmup=Warmup(step_s=0),
         request_rate=10,
-        max_concurrency=128,
-        duration_s=2,
+        max_inflight=128,
+        hold_s=2,
         stages=(Stage(1, 10, 128), Stage(1, 40, 128)),
     )
     t.arm = Arm(t.arm.id, t.arm.resources, load)
@@ -178,9 +182,10 @@ def test_slo_aware_capacity_does_not_treat_multi_stage_peak_as_capacity():
 def test_slo_aware_capacity_applies_global_resource_slo_to_each_hold():
     t = _arm_run(40, 100)
     load = LoadPlan(
+        warmup=Warmup(step_s=0),
         request_rate=10,
-        max_concurrency=128,
-        duration_s=2,
+        max_inflight=128,
+        hold_s=2,
         stages=(Stage(1, 10, 128), Stage(1, 40, 128)),
     )
     t.arm = Arm(t.arm.id, t.arm.resources, load)
@@ -231,7 +236,7 @@ def test_parse_slo_and_abort(tmp_path):
         "slo:\n"
         "  - { metric: p99_ms, lt: 2000 }\n"
         "  - { metric: error_rate, lt: 0.01, window: {kind: hold, level: 40} }\n"
-        "load: { request_rate: 40, max_concurrency: 128, duration_s: 0.1 }\n"
+        "load: { request_rate: 40, max_inflight: 128, hold_s: 0.1 }\n"
     )
     exp, _ = load_experiment(_write(tmp_path, extra))
     assert exp.abort_on_fail
@@ -245,7 +250,7 @@ def test_parse_cooldown_slo(tmp_path):
         "cooldown_s: 1\n"
         "slo:\n"
         "  - { metric: client.inflight.last, window: {kind: cooldown}, lte: 0 }\n"
-        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
+        "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
     )
     exp, _ = load_experiment(_write(tmp_path, extra))
     assert exp.slo[0].window.kind == "cooldown"
@@ -265,7 +270,7 @@ def test_cooldown_slo_accepts_resource_series_labels(tmp_path):
         "slo:\n"
         '  - { metric: \'prometheus.task_count{service="worker",'
         'task_type="batch",state="running"}.last\', window: {kind: cooldown}, lte: 0 }\n'
-        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
+        "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
     )
     exp, _ = load_experiment(_write(tmp_path, extra))
     assert exp.slo[0].window.kind == "cooldown"
@@ -285,7 +290,7 @@ def test_cooldown_slo_rejects_unknown_resource_label(tmp_path):
         "slo:\n"
         '  - { metric: \'prometheus.task_count{service="worker",'
         'task_tipe="batch",state="running"}.last\', window: {kind: cooldown}, lte: 0 }\n'
-        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
+        "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="unknown labels.*task_tipe"):
         load_experiment(_write(tmp_path, extra))
@@ -312,48 +317,50 @@ def test_cooldown_slo_skips_stale_or_failed_probe_data():
 def test_request_slo_unknown_facet_key_still_fails_fast(tmp_path):
     extra = (
         "slo: [ { metric: 'p99_ms{unknown=\"x\"}', lte: 100 } ]\n"
-        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
+        "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="facet unknown=x unknown"):
         load_experiment(_write(tmp_path, extra))
 
 
-def test_cooldown_slo_requires_cooldown(tmp_path):
+def test_cooldown_slo_is_available_without_extra_observation(tmp_path):
     extra = (
         "slo: [ { metric: client.inflight.last, window: {kind: cooldown}, lte: 0 } ]\n"
-        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
+        "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
     )
-    with pytest.raises(ValueError, match="requires cooldown_s"):
-        load_experiment(_write(tmp_path, extra))
+    experiment, _ = load_experiment(_write(tmp_path, extra))
+    assert experiment.slo[0].window.kind == "cooldown"
 
 
 def test_cooldown_slo_rejects_request_metric(tmp_path):
     extra = (
         "cooldown_s: 1\n"
         "slo: [ { metric: p99_ms, window: {kind: cooldown}, lte: 100 } ]\n"
-        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
+        "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
     )
-    with pytest.raises(ValueError, match="resource-side time-sampled"):
+    with pytest.raises(ValueError, match="completion or inflight"):
         load_experiment(_write(tmp_path, extra))
 
 
 def test_bad_slo_window_fails_fast(tmp_path):
     extra = (
         "slo: [ { metric: p99_ms, window: {kind: recovery}, lte: 100 } ]\n"
-        "load: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
+        "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
     )
     with pytest.raises(ValueError, match="slo.window"):
         load_experiment(_write(tmp_path, extra))
 
 
 def test_bad_slo_metric_fails_fast(tmp_path):
-    extra = "slo: [ { metric: latency, lt: 1 } ]\nload: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
+    extra = "slo: [ { metric: latency, lt: 1 } ]\nload: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
     with pytest.raises(ValueError, match="slo.metric"):
         load_experiment(_write(tmp_path, extra))
 
 
 def test_slo_needs_exactly_one_op(tmp_path):
-    extra = "slo: [ { metric: p99_ms } ]\nload: { request_rate: 1, max_concurrency: 128, duration_s: 0.1 }\n"
+    extra = (
+        "slo: [ { metric: p99_ms } ]\nload: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
+    )
     with pytest.raises(ValueError, match="exactly one"):
         load_experiment(_write(tmp_path, extra))
 
@@ -367,7 +374,12 @@ def _exp(slo, *, abort=False) -> Experiment:
         runner=MockRunner(base_ms=2),
         resources=[ResourceProfile()],
         loads=[
-            LoadPlan(request_rate=float("inf"), max_concurrency=lv, duration_s=(0.0 + 0.15))
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=lv,
+                hold_s=(0.0 + 0.15),
+            )
             for lv in (2, 4)
         ],
         slo=slo,
@@ -396,7 +408,7 @@ async def test_engine_abort_on_fail_stops_sweep():
 def test_cli_exit_code_reflects_slo(tmp_path):
     cfg = _write(
         tmp_path,
-        "slo: [ { metric: p99_ms, lt: 1 } ]\nload: { request_rate: inf, max_concurrency: 2, duration_s: 0.1 }\n",
+        "slo: [ { metric: p99_ms, lt: 1 } ]\nload: { request_rate: inf, max_inflight: 2, hold_s: 0.1 }\n",
     )
     assert main(["run", cfg, "--out", str(tmp_path / "runs"), "--mock"]) == 1
 
@@ -408,9 +420,10 @@ def test_capacity_never_compares_rate_and_concurrency_units():
     concurrency.arm = replace(
         concurrency.arm,
         load=LoadPlan(
+            warmup=Warmup(step_s=0),
             request_rate=float("inf"),
-            max_concurrency=8,
-            duration_s=1,
+            max_inflight=8,
+            hold_s=1,
         ),
     )
     for execution in [rate, concurrency]:
@@ -428,4 +441,4 @@ def test_capacity_never_compares_rate_and_concurrency_units():
     capacity = slo_aware_capacity([rate, concurrency])
     assert len(capacity) == 2
     assert next(value for label, value in capacity.items() if "|request_rate (" in label) == 4
-    assert next(value for label, value in capacity.items() if "|max_concurrency (" in label) == 8
+    assert next(value for label, value in capacity.items() if "|max_inflight (" in label) == 8

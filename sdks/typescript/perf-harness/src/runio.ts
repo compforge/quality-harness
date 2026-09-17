@@ -5,7 +5,7 @@ import { serializeLoadPlan } from "./load";
 
 export function serializeRun(run: Run): Record<string, unknown> {
   return {
-    schema: 5,
+    schema: 6,
     run_id: run.run_id,
     experiment: run.experiment,
     created_at: run.created_at,
@@ -114,7 +114,7 @@ export function writeRunData(run: Run, directory: string) {
 /** Load facts and evaluations without contacting the tested service. */
 export function loadRun(directory: string): Run {
   const data = JSON.parse(readFileSync(join(directory, "run.json"), "utf8"));
-  if (data.schema !== 5)
+  if (data.schema !== 6)
     throw new Error(`unsupported perf schema ${data.schema}`);
   const evaluations = JSON.parse(
     readFileSync(join(directory, "evaluations.json"), "utf8"),

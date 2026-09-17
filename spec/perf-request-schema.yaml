@@ -1,5 +1,5 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-title: Perf schema 5 request record
+title: Perf schema 6 request record
 type: object
 required: [arm_run_id, request]
 properties:

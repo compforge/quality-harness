@@ -8,7 +8,7 @@ import pytest
 from perf_harness.analysis import analyze, analyze_run, render_text
 from perf_harness.analysis.base import linfit
 from perf_harness.comparison import comparison_groups
-from perf_harness.drive.load import LoadPlan, Stage
+from perf_harness.drive.load import LoadPlan, Stage, Warmup
 from perf_harness.metric import GaugeSummary, MetricFamily, series_id
 from perf_harness.model import (
     Arm,
@@ -55,9 +55,10 @@ def _arm_run(level, stats, cpu_peaks: dict[str, float], breaker=None) -> ArmRun:
         )
     resources = ResourceProfile(workers=2)
     load = LoadPlan(
+        warmup=Warmup(step_s=0),
         request_rate=float("inf"),
-        max_concurrency=level,
-        duration_s=(0.0 + 45.0),
+        max_inflight=level,
+        hold_s=(0.0 + 45.0),
         abort_on_error_rate=breaker,
         breaker_min_n=10,
     )
@@ -240,7 +241,7 @@ def test_phase_error_after_complete_measurement_preserves_curve_point():
 
 def _rate_arm(rate, cap, cpu):
     result = _arm_run(cap, _stats(200, rate, 10, 20, 30), {"chat": cpu})
-    load = LoadPlan(request_rate=rate, max_concurrency=cap, duration_s=45)
+    load = LoadPlan(warmup=Warmup(step_s=0), request_rate=rate, max_inflight=cap, hold_s=45)
     result.arm = Arm(f"rate-{rate}-cap-{cap}", result.arm.resources, load)
     result.id = result.arm.id
     return result
@@ -262,7 +263,7 @@ def test_two_dimensional_load_slices_are_shared_by_analysis_report_and_capacity(
         _rate_arm(20, 10, 200),
     ]
     groups = comparison_groups(rows)
-    assert [[r.arm.load.max_concurrency for r in group] for _, group in groups] == [
+    assert [[r.arm.load.max_inflight for r in group] for _, group in groups] == [
         [1, 1],
         [10, 10],
     ]
@@ -282,15 +283,15 @@ def test_two_dimensional_load_slices_are_shared_by_analysis_report_and_capacity(
         r.slo = [SloCheck(SloAssertion("p99_ms", "lt", 100), 30, "pass", "hold")]
     capacities = slo_aware_capacity(rows)
     assert len(capacities) == 2 and list(capacities.values()) == [20, 20]
-    assert any("max_concurrency=1|" in label for label in capacities)
-    assert any("max_concurrency=10|" in label for label in capacities)
+    assert any("max_inflight=1|" in label for label in capacities)
+    assert any("max_inflight=10|" in label for label in capacities)
     paths = write_report(rows, str(tmp_path))
     html = Path(paths["report_html"]).read_text()
     assert "request_rate (requests/s)" in html
-    assert "peak_request_rate" in html and "peak_max_concurrency" in html
+    assert "peak_request_rate" in html and "peak_max_inflight" in html
     with Path(paths["summary"]).open() as stream:
         summary = list(csv.DictReader(stream))
-    assert [(r["peak_request_rate"], r["peak_max_concurrency"]) for r in summary] == [
+    assert [(r["peak_request_rate"], r["peak_max_inflight"]) for r in summary] == [
         ("10", "1"),
         ("20", "1"),
         ("10", "10"),
@@ -303,9 +304,9 @@ def test_two_dimensional_load_slices_are_shared_by_analysis_report_and_capacity(
     [
         {"arrival": "poisson"},
         {"seed": 2},
-        {"warmup_s": 1},
-        {"duration_s": 46},
-        {"drain_timeout_s": 1},
+        {"warmup": Warmup(step_s=1)},
+        {"hold_s": 46},
+        {"cooldown_timeout_s": 1},
         {"abort_on_error_rate": 0.1},
         {"stages": (Stage(20, 20, 1), Stage(25, 20, 10))},
         {"request_rate": 0, "stages": (Stage(45, 20, 10, "ramp"),)},

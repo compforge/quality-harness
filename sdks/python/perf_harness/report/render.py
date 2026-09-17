@@ -58,7 +58,7 @@ from perf_harness.slo import slo_aware_capacity
 
 # service is constant across a report's rows (one Experiment = one Service) and is
 # already in the title — so it's not a table column.
-_KEY_COLS = ["resources", "peak_request_rate", "peak_max_concurrency"]
+_KEY_COLS = ["resources", "peak_request_rate", "peak_max_inflight"]
 _STAT_COLS = ["n", "ok", "rps", "err%", "drop%", "p50_ms", "p95_ms", "p99_ms", "err_top"]
 
 # header hover tooltips for the built-in request-side stat columns (metric/probe
@@ -129,7 +129,7 @@ def _key_cells(r: ArmRun) -> list[str]:
     return [
         r.arm.resources.label(),
         "inf" if r.arm.load.saturated else f"{r.arm.load.peak_level:g}",
-        str(r.arm.load.peak_concurrency),
+        str(r.arm.load.peak_inflight),
     ]
 
 
@@ -298,7 +298,7 @@ def _key_layout(results: list[ArmRun]) -> tuple[list[tuple[str, str]], list[str]
             consts.append((col, next(iter(vals))))
         else:
             var_cols.append(col)
-    var_cols.extend(["peak_request_rate", "peak_max_concurrency"])
+    var_cols.extend(["peak_request_rate", "peak_max_inflight"])
     return consts, var_cols
 
 
@@ -306,7 +306,7 @@ def _key_cells_var(r: ArmRun, var_cols: list[str]) -> list[str]:
     m = {
         "constraint": r.arm.resources.label(),
         "peak_request_rate": "inf" if r.arm.load.saturated else f"{r.arm.load.peak_level:g}",
-        "peak_max_concurrency": str(r.arm.load.peak_concurrency),
+        "peak_max_inflight": str(r.arm.load.peak_inflight),
     }
     return [m[c] for c in var_cols]
 
@@ -495,6 +495,8 @@ def write_report(
                 "end_s",
                 "complete",
                 "target_level",
+                "limited_s",
+                "end_reason",
                 *_STAT_COLS,
                 *mcols,
                 *window_probe_cols,
@@ -523,6 +525,8 @@ def write_report(
                         window.end_s,
                         window.complete,
                         window.target_level,
+                        window.limited_s,
+                        window.end_reason,
                         *request_cells,
                         *metric_cells,
                         *(_fmt(probe_values.get(column)) for column in window_probe_cols),
@@ -736,7 +740,7 @@ def _build_doc(
         sec1.blocks.append(
             Prose(
                 f"⚠ 客户端饱和（drop ≥ {_SATURATION_FLAG * 100:.0f}%，该档延迟/吞吐不可信，"
-                f"压力机蹭到 max_concurrency）：{sat_txt}"
+                f"压力机蹭到 max_inflight）：{sat_txt}"
             )
         )
     errors = [r for r in results if r.phase_errors]
@@ -777,7 +781,7 @@ def _build_doc(
     report.sections.append(sec2)
 
     # §2b observed Window breakdown
-    windowed = [r for r in results if any(w.kind in ("ramp", "hold") for w in r.windows)]
+    windowed = [r for r in results if any(w.kind in ("warmup", "ramp", "hold") for w in r.windows)]
     if windowed:
         sec2b = Section("2b. 按 Window 拆（schedule 的实际观测边界）")
         sec2b.blocks.append(
@@ -797,7 +801,7 @@ def _build_doc(
                     *_display_metric_cells(window.request, metric_keys),
                 ]
                 for window in r.windows
-                if window.kind in ("ramp", "hold") and window.request is not None
+                if window.kind in ("warmup", "ramp", "hold") and window.request is not None
             ]
             sec2b.blocks.append(Prose(_arm_run_id(r)))
             sec2b.blocks.append(
@@ -840,7 +844,7 @@ def _response_section(results: list[ArmRun]) -> Section | None:
     sec = Section("3. 压力响应曲线（指标随档位）")
     sec.blocks.append(
         Prose(
-            "x 轴为 request_rate 或 max_concurrency，另一轴与到达方式、阶段形态等条件固定。"
+            "x 轴为 request_rate 或 max_inflight，另一轴与到达方式、阶段形态等条件固定。"
             "条件不同则分组；无法形成可比曲线时只保留各 Arm 的结果。请求侧小节看入口的错误率与延迟"
             "随压力的变化；每个服务一小节，看它的资源用量逼近自己 request/limit 的速度"
             "（平线即参考线）。悬停图例可见各指标含义。"
@@ -1173,7 +1177,7 @@ def _render_md(
                 lines.append("")
 
     # §2b observed Window breakdown
-    windowed = [r for r in results if any(w.kind in ("ramp", "hold") for w in r.windows)]
+    windowed = [r for r in results if any(w.kind in ("warmup", "ramp", "hold") for w in r.windows)]
     if windowed:
         lines.append("## 2b. 按 Window 拆（schedule 的实际观测边界）")
         lines.append("")
@@ -1189,7 +1193,7 @@ def _render_md(
             lines.append("| " + " | ".join(hdr) + " |")
             lines.append("|" + "|".join(["---"] * len(hdr)) + "|")
             for window in r.windows:
-                if window.kind not in ("ramp", "hold") or window.request is None:
+                if window.kind not in ("warmup", "ramp", "hold") or window.request is None:
                     continue
                 cells = [
                     window.id,

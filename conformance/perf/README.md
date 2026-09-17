@@ -1,6 +1,6 @@
 # Perf conformance
 
-公共 fixture 表达 schema 5 的一次完成调用和一次未发出的 drop，供 Python/TypeScript 共同读取。
+公共 fixture 表达 schema 6 的一次完成调用和一次未发出的 drop，供 Python/TypeScript 共同读取。
 `basic.run.json` 只有 Execution/Arm/Window 投影；`basic.requests.jsonl` 保存调度记录与唯一原始
 OperationRun/Outcome；`basic.evaluations.json` 单独保存判定。
 
@@ -14,3 +14,5 @@ OperationRun/Outcome；`basic.evaluations.json` 单独保存判定。
 `judge-failure.json` 是 Python/TypeScript 共同执行的生命周期场景：Judge 在 measurement 或 drain
 期间失败时，已完成请求、measurement 边界、停止原因、在途数量、中断清点和重载结果必须一致。
 取消处理刻意延迟，以验证清理耗时不会进入 measurement。
+
+`phased-load.json` 由两种语言共同验证未触顶升速、提前触顶后按目标速率补位，以及实际 hold 时长。

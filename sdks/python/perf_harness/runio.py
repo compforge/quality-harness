@@ -40,7 +40,7 @@ from harness_common import (
     Workload,
 )
 
-from perf_harness.drive.load import LoadPlan, Stage
+from perf_harness.drive.load import LoadPlan, Stage, Warmup
 from perf_harness.metric import (
     CounterSummary,
     DistributionSummary,
@@ -70,11 +70,11 @@ from perf_harness.model import (
 from perf_harness.records import RequestEvaluation, RequestRecord
 
 #: bump when run.json's shape changes incompatibly — offline readers check this first
-RUN_SCHEMA = 5
+RUN_SCHEMA = 6
 
 
 def _record(model, data: dict):
-    """Read known fields while accepting additive fields from another schema-5 writer."""
+    """Read known fields while accepting additive fields from another schema-6 writer."""
     return model(**{f.name: data[f.name] for f in fields(model) if f.name in data})
 
 
@@ -120,6 +120,7 @@ def _load_from(d: dict) -> LoadPlan:
         **{
             **d,
             "request_rate": float(d["request_rate"]),
+            "warmup": Warmup(**d.get("warmup", {})),
             "stages": tuple(
                 Stage(**{**s, "request_rate": float(s["request_rate"])})
                 for s in d.get("stages", [])
@@ -338,6 +339,8 @@ def _arm_run_json(r: ArmRun) -> dict:
                 "end_s": window.end_s,
                 "complete": window.complete,
                 "target_level": window.target_level,
+                "end_reason": window.end_reason,
+                "limited_s": window.limited_s,
                 "request": _stats_json(window.request) if window.request is not None else None,
                 "by_case": {
                     case_id: _stats_json(stats) for case_id, stats in window.by_case.items()
@@ -382,6 +385,8 @@ def _arm_run_from(d: dict, service: str) -> ArmRun:
                 end_s=float(window["end_s"]),
                 complete=bool(window["complete"]),
                 target_level=window.get("target_level"),
+                end_reason=window.get("end_reason"),
+                limited_s=float(window.get("limited_s", 0)),
                 request=_stats_from(window["request"]) if window.get("request") else None,
                 by_case={
                     case_id: _stats_from(stats)

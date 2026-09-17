@@ -10,7 +10,7 @@ from spec_case.model import Case
 
 from perf_harness import Engine, Experiment, Service
 from perf_harness.config import load_experiment
-from perf_harness.drive.load import LoadPlan
+from perf_harness.drive.load import LoadPlan, Warmup
 from perf_harness.drive.runner import Runner, stream_sse
 from perf_harness.metric import MetricFamily
 from perf_harness.model import Outcome, ResourceProfile, SloAssertion
@@ -38,7 +38,14 @@ async def _one_arm_run():
         service=Service("m", base_url="http://127.0.0.1:0"),
         runner=_MetricWL(),
         resources=[ResourceProfile(workers=2)],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=3, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=3,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
         probes=[ClientProbe()],
     )
     return (await Engine(exp).run()).arm_runs[0]
@@ -85,7 +92,14 @@ async def test_runner_describe_overrides_inference_partially():
         service=Service("d", base_url="http://127.0.0.1:0"),
         runner=_DeclaringWL(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=2, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=2,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
     )
     reg = (await Engine(exp).run()).arm_runs[0].metrics
     # declared descriptor wins (suffix would give unit="" / source=client)
@@ -144,7 +158,14 @@ async def test_facet_table_carries_per_request_metrics(tmp_path):
         service=Service("m", base_url="http://127.0.0.1:0"),
         runner=_MetricWL(),
         resources=[ResourceProfile(workers=2)],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=3, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=3,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
         cases=[Case(id="a", input={}, facets={"difficulty": "simple"})],
     )
     r = (await Engine(exp).run()).arm_runs[0]
@@ -180,7 +201,7 @@ def test_config_accepts_per_request_metric_slo(tmp_path):
         'service: { name: s, base_url: "http://x" }\n'
         "resources: [ {} ]\n"
         "runner: { name: mock }\n"
-        "load: { request_rate: inf, max_concurrency: 1, duration_s: 0.2 }\n"
+        "load: { request_rate: inf, max_inflight: 1, hold_s: 0.2 }\n"
         "slo:\n"
         "  - { metric: first_byte_ms.p95, lt: 2000 }\n"
         "  - { metric: error_rate, lt: 0.01 }\n"
@@ -231,7 +252,7 @@ def test_config_rejects_bad_metric_stat(tmp_path):
         'service: { name: s, base_url: "http://x" }\n'
         "resources: [ {} ]\n"
         "runner: { name: mock }\n"
-        "load: { request_rate: inf, max_concurrency: 1, duration_s: 0.2 }\n"
+        "load: { request_rate: inf, max_inflight: 1, hold_s: 0.2 }\n"
         "slo:\n"
         "  - { metric: first_byte_ms.p42, lt: 1 }\n"  # p42 is not a real stat
     )

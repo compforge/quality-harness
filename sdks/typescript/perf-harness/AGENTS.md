@@ -14,12 +14,12 @@ Prometheus、Kubernetes 等资源观测由消费方通过 Prombed 或自己的�
 | 文件 | 职责 |
 |---|---|
 | `model.ts` | CaseSet 选择 overlay、Outcome、ArmRun、Run 等纯数据名词 |
-| `load.ts` | request_rate、max_concurrency 与 Stage |
+| `load.ts` | request_rate、max_inflight 与 Stage |
 | `runner.ts` | 服务协议扩展契约 |
 | `scheduler.ts` | 发压、熔断、并发上限与停止语义 |
 | `reduce.ts` | Outcome 到 Window/RequestStats 的归约 |
 | `engine.ts` | Experiment 与 Arm/ArmRun 编排 |
-| `runio.ts` | 跨语言 schema 5 对齐的 raw/model 产物 |
+| `runio.ts` | 跨语言 schema 6 对齐的 raw/model 产物 |
 
 ## 关键约定
 

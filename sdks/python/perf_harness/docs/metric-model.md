@@ -319,7 +319,7 @@ pdata/pmetric（OTLP）与本模型独立收敛到同一形状：`Metric`(name/u
 
 ## 请求生命周期指标
 
-`request.arrival_rps` 读取计划到达，`request.dispatch_rps` / `request.throughput_rps` /
+`request.arrival_rps` 读取源头实际接受的发起机会，`request.dispatch_rps` / `request.throughput_rps` /
 `request.success_rps` 分别读取实际发出、完成与成功的事件速率；对应计数与 inflight_peak/end 同样可寻址。
 `request.duration_ms` 使用本窗口 dispatch cohort 的完整耗时，排空后完成的请求不迁移到下一窗口。
 `scheduler_lag_ms` 量化加压器本身延迟；drop/interrupted 没有可用于响应延迟分布的完整样本。

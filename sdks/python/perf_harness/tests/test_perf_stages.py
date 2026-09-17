@@ -12,13 +12,15 @@ from perf_harness import (
     Service,
     Stage,
 )
+from perf_harness.drive.load import Warmup
 
 
 def test_ramp_uses_explicit_units_and_integrated_arrival_clock():
     load = LoadPlan(
+        warmup=Warmup(step_s=0),
         request_rate=0,
-        max_concurrency=2,
-        duration_s=3,
+        max_inflight=2,
+        hold_s=3,
         stages=(Stage(2, 20, 4, "ramp"), Stage(1, 20, 4)),
     )
     assert load.target(1) == (10, 3)
@@ -46,14 +48,15 @@ async def test_downscale_drains_instead_of_cancelling_and_preserves_windows():
             return Outcome(status=200, duration_ms=80)
 
     load = LoadPlan(
+        warmup=Warmup(step_s=0),
         request_rate=float("inf"),
-        max_concurrency=4,
-        duration_s=0.12,
+        max_inflight=4,
+        hold_s=0.12,
         stages=(
             Stage(0.02, float("inf"), 4, name="same"),
             Stage(0.10, float("inf"), 1, name="same"),
         ),
-        drain_timeout_s=0.2,
+        cooldown_timeout_s=0.2,
     )
     arm = (
         await Engine(
@@ -69,20 +72,22 @@ async def test_downscale_drains_instead_of_cancelling_and_preserves_windows():
     first = next(w for w in arm.windows if w.id == "stage-0")
     assert first.request.n == 4 and first.request.completed == 0 and first.request.inflight_end == 4
     assert arm.measurement.request.n > arm.measurement.request.completed
-    assert next(w for w in arm.windows if w.kind == "drain").request.completed > 0
+    assert next(w for w in arm.windows if w.kind == "cooldown").request.completed > 0
 
 
 @pytest.mark.parametrize(
     "changes",
     [
-        {"max_concurrency": 0},
-        {"max_concurrency": 1.5},
+        {"max_inflight": 0},
+        {"max_inflight": 1.5},
         {"request_rate": float("nan")},
-        {"duration_s": 0},
-        {"warmup_s": 2},
-        {"drain_timeout_s": -1},
+        {"hold_s": 0},
+        {"cooldown_timeout_s": -1},
     ],
 )
 def test_invalid_load_rejected(changes):
     with pytest.raises(ValueError):
-        LoadPlan(**{"request_rate": 4, "max_concurrency": 2, "duration_s": 1, **changes})
+        LoadPlan(
+            warmup=Warmup(step_s=0),
+            **{"request_rate": 4, "max_inflight": 2, "hold_s": 1, **changes},
+        )

@@ -13,7 +13,7 @@ HTTP/SSE 状态、完成事件与 trace_id 留在 Outcome；ok/error_kind 不写
 
 | 指标 | 归属口径 |
 |---|---|
-| arrived / arrival_rps / dropped | 计划到达时刻；包括截止后登记的 scheduler_deadline |
+| arrived / arrival_rps / dropped | 源头实际接受的发起机会；满在途暂停期间不虚构请求 |
 | dispatched / dispatch_rps | 实际调用开始时刻 |
 | completed / throughput_rps | 实际完成时刻，含成功与失败 |
 | succeeded / success_rps | 实际完成时刻，且 Judge 通过 |
@@ -21,8 +21,8 @@ HTTP/SSE 状态、完成事件与 trace_id 留在 Outcome；ok/error_kind 不写
 | inflight_peak / inflight_end | 真实调用起止事件，包含上个窗口尚未完成的请求 |
 | scheduler_lag_ms | arrived_at - scheduled_at；量化加压器处理到达的延迟 |
 
-measurement 排除 warmup；Stage 形成 ramp/hold 窗口；drain 单独展示停止发压后的完成事件；
-cooldown 是 deactivate 之后的资源观察。不能用 cohort 样本数除以窗口时长冒充完成吞吐。
+measurement 从首个实际 hold 开始；Stage 形成实际 warmup/ramp/hold 窗口；
+cooldown 展示停止发压后的完成事件和资源观测。不能用 cohort 样本数除以窗口时长冒充完成吞吐。
 nearest-rank 百分位使用 `ceil(q*n)-1`；无完成样本时，延迟/错误率 SLO 返回 Missing 而不是零值通过。
 
 ## 判定与可信度
@@ -33,6 +33,7 @@ phase_errors 使 verdict=error；提前停止或 interrupted 使 run 失败；�
 缺数据的 SLO 为 skipped；`strict_slo` 决定是否阻断，cooldown 缺数据默认阻断。
 
 capacity 只读取完整 hold 窗口：有已完成请求、无丢弃/中断/缺失判定，且该窗口匹配的 SLO 全部通过。
+有限速率下 limited_s > 0 的窗口不确认目标速率容量。
 其含义是“本轮该配置已观测通过”，不能由短时实验外推长期稳定容量。
 inf 的响应相关补充会产生 coordinated omission；有限速率达到并发上限时也会遗漏慢请求群体。
 `co_biased`、`high_drop`、`incomplete` 和 `few_samples` 随 summary 保存，不只出现在报告文案中。

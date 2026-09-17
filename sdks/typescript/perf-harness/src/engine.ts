@@ -233,7 +233,7 @@ export class Engine {
       };
       try {
         await this.#experiment.runner.setup?.(execution.runner);
-        execution.enter("measurement");
+        execution.enter("warmup");
         await this.#experiment.onArmStart?.(execution.runner, started);
         await drive({
           state: execution.drive,
@@ -246,13 +246,16 @@ export class Engine {
           weights: this.#weights,
           signal: this.#experiment.signal,
         });
-        execution.enter("deactivate");
+        execution.enter("cooldown");
         await this.#experiment.runner.deactivate?.(execution.runner);
       } catch (error) {
         if (this.#experiment.signal?.aborted) {
           execution.hasFatalError = true;
           execution.fatalError = error;
-        } else execution.record(error);
+        } else {
+          if (execution.phase === "warmup" || execution.phase === "hold") execution.enter(execution.drive.phase ?? execution.phase);
+          execution.record(error);
+        }
       } finally {
         this.#experiment.signal?.removeEventListener("abort", abort);
         try {
@@ -281,6 +284,7 @@ export class Engine {
       arm_run.windows = buildWindows(
         arm_run,
         execution.drive.measurement_end_s ?? 0,
+        execution.drive,
       );
       arm_run.stop = execution.drive.stop;
       arm_run.phase_errors = execution.phaseErrors;
@@ -291,7 +295,7 @@ export class Engine {
       if (arm_run.phase_errors.length) break;
     }
     return {
-      schema: 5,
+      schema: 6,
       run_id: this.#runId,
       experiment: this.#experiment.name ?? "perf",
       created_at: created.toISOString(),

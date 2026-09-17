@@ -4,7 +4,7 @@ import yaml
 from harness_common import Experiment as BaseExperiment
 from harness_common import ExperimentRun
 
-from perf_harness.drive.load import LoadPlan
+from perf_harness.drive.load import LoadPlan, Warmup
 from perf_harness.drive.runner import MockRunner, Runner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.model import (
@@ -30,7 +30,14 @@ async def test_write_run_lays_out_experiment_dir(tmp_path):
         service=_subject(),
         runner=MockRunner(base_ms=2),
         resources=[ResourceProfile(workers=2)],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=2, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=2,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
         name="chat-sizing",
     )
     engine = Engine(experiment, run_id="20260101-000000")
@@ -85,7 +92,14 @@ async def test_run_id_reaches_fire(tmp_path):
         service=_subject(),
         runner=RecordingRunner(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=1, duration_s=(0.0 + 0.1))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=1,
+                hold_s=(0.0 + 0.1),
+            )
+        ],
     )
     await Engine(experiment, run_id="RID-123").run()
     assert seen and all(r == "RID-123" for r in seen)

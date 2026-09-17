@@ -1,0 +1,92 @@
+[
+  {
+    "name": "rate_reached_without_filling",
+    "load": {
+      "request_rate": 4,
+      "max_inflight": 100,
+      "hold_s": 60,
+      "warmup": {
+        "step_s": 5
+      }
+    },
+    "steps": [
+      {
+        "at": 0,
+        "inflight": 0,
+        "rate": 1,
+        "phase": "warmup"
+      },
+      {
+        "at": 5,
+        "inflight": 1,
+        "rate": 2,
+        "phase": "warmup"
+      },
+      {
+        "at": 10,
+        "inflight": 1,
+        "rate": 4,
+        "phase": "hold"
+      },
+      {
+        "at": 69,
+        "inflight": 0,
+        "rate": 4,
+        "phase": "hold"
+      },
+      {
+        "at": 70,
+        "inflight": 0,
+        "rate": 4,
+        "phase": "cooldown"
+      }
+    ],
+    "hold_start_s": 10,
+    "end_s": 70
+  },
+  {
+    "name": "cap_ends_warmup_but_does_not_freeze_refill_rate",
+    "load": {
+      "request_rate": 8,
+      "max_inflight": 2,
+      "hold_s": 60,
+      "warmup": {
+        "step_s": 5
+      }
+    },
+    "steps": [
+      {
+        "at": 0,
+        "inflight": 0,
+        "rate": 1,
+        "phase": "warmup"
+      },
+      {
+        "at": 1,
+        "inflight": 2,
+        "rate": 8,
+        "phase": "hold"
+      },
+      {
+        "at": 2,
+        "inflight": 1,
+        "rate": 8,
+        "phase": "hold"
+      },
+      {
+        "at": 60,
+        "inflight": 2,
+        "rate": 8,
+        "phase": "hold"
+      },
+      {
+        "at": 61,
+        "inflight": 2,
+        "rate": 8,
+        "phase": "cooldown"
+      }
+    ],
+    "hold_start_s": 1,
+    "end_s": 61
+  }
+]

@@ -1,6 +1,6 @@
 """Comparable sweep slices shared by analysis and reports.
 
-The scan axis is request_rate for finite arrivals, max_concurrency for saturated
+The scan axis is request_rate for finite arrivals, max_inflight for saturated
 loads. Everything else stays fixed, including the other axis's complete schedule.
 This is a projection of existing Arm facts, not an additional experiment model.
 """
@@ -15,11 +15,11 @@ from perf_harness.model import ArmRun
 
 
 def scan_axis(r: ArmRun) -> str:
-    return "max_concurrency" if r.arm.load.saturated else "request_rate"
+    return "max_inflight" if r.arm.load.saturated else "request_rate"
 
 
 def axis_label(r: ArmRun) -> str:
-    return "max_concurrency (requests)" if r.arm.load.saturated else "request_rate (requests/s)"
+    return "max_inflight (requests)" if r.arm.load.saturated else "request_rate (requests/s)"
 
 
 def comparison_conditions(r: ArmRun) -> dict:
@@ -38,7 +38,7 @@ def comparison_conditions(r: ArmRun) -> dict:
             "kind": stage.kind,
             "duration_s": stage.duration_s,
             "request_rate": "inf" if load.saturated else stage.request_rate,
-            "max_concurrency": stage.max_concurrency,
+            "max_inflight": stage.max_inflight,
         }
         for stage in load.planned_stages
     ]
@@ -60,6 +60,8 @@ def comparison_groups(
     """
     groups: dict[str, list[ArmRun]] = {}
     for r in arm_runs:
+        if not include_partial and not r.arm.load.saturated and r.measurement.limited_s > 0:
+            continue
         if not include_partial and r.phase_errors and not r.measurement.complete:
             continue
         key = json.dumps(comparison_conditions(r), sort_keys=True, separators=(",", ":"))
@@ -70,7 +72,7 @@ def comparison_groups(
         fixed = (
             "request_rate=inf"
             if r.arm.load.saturated
-            else f"max_concurrency={r.arm.load.peak_concurrency}"
+            else f"max_inflight={r.arm.load.peak_inflight}"
         )
         # The full key determines membership; the short hash is display-only.
         label = (

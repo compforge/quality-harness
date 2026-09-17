@@ -90,7 +90,7 @@ export interface RequestStats {
   metrics: Record<string, DistributionSummary>;
 }
 
-export type WindowKind = "measurement" | "ramp" | "hold" | "drain" | "cooldown";
+export type WindowKind = "measurement" | "warmup" | "ramp" | "hold" | "cooldown";
 
 export interface Window {
   id: string;
@@ -100,6 +100,8 @@ export interface Window {
   end_s: number;
   complete: boolean;
   target_level?: number;
+  end_reason?: string;
+  limited_s?: number;
   request?: RequestStats;
   by_case: Record<string, RequestStats>;
   by_facet: Record<string, Record<string, RequestStats>>;
@@ -123,7 +125,7 @@ export interface ArmStop {
 }
 
 export type Phase =
-  "setup" | "measurement" | "deactivate" | "cooldown" | "cleanup";
+  "setup" | "warmup" | "hold" | "cooldown" | "cleanup";
 
 export interface PhaseError {
   phase: Phase;
@@ -161,7 +163,7 @@ export interface ArmRun extends Execution<Outcome> {
 }
 
 export interface Run extends ExperimentRun<ArmRun> {
-  schema: 5;
+  schema: 6;
   service: string;
   passed: boolean;
 }

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from perf_harness.drive.load import LoadPlan
+from perf_harness.drive.load import LoadPlan, Warmup
 from perf_harness.metric import CounterSummary, GaugeSummary
 from perf_harness.model import (
     Arm,
@@ -35,7 +35,9 @@ def _stats(n=100, n_ok=95, err=0.05, breakdown=None) -> RequestStats:
 
 def _arm_run(level=10) -> ArmRun:
     resources = ResourceProfile(workers=2, memory="2Gi")
-    load = LoadPlan(request_rate=float("inf"), max_concurrency=level, duration_s=(0.0 + 1.0))
+    load = LoadPlan(
+        warmup=Warmup(step_s=0), request_rate=float("inf"), max_inflight=level, hold_s=(0.0 + 1.0)
+    )
     stats = _stats()
     return ArmRun(
         id=f"{resources.label()}|{load.label()}",

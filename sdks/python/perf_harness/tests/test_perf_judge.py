@@ -1,4 +1,4 @@
-from perf_harness.drive.load import LoadPlan
+from perf_harness.drive.load import LoadPlan, Warmup
 from perf_harness.drive.runner import Runner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.judge import default_judge
@@ -62,7 +62,14 @@ async def test_engine_buckets_judged_errors():
         service=Service("x", base_url="http://127.0.0.1:0"),
         runner=_Failing(),
         resources=[ResourceProfile()],
-        loads=[LoadPlan(request_rate=float("inf"), max_concurrency=2, duration_s=(0.0 + 0.2))],
+        loads=[
+            LoadPlan(
+                warmup=Warmup(step_s=0),
+                request_rate=float("inf"),
+                max_inflight=2,
+                hold_s=(0.0 + 0.2),
+            )
+        ],
     )
     r = (await Engine(exp).run()).arm_runs[0]
     assert r.measurement.request.n > 0

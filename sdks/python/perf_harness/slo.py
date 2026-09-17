@@ -74,6 +74,7 @@ def slo_aware_capacity(arm_runs: list[ArmRun]) -> dict[str, float | None]:
                 if (
                     window.kind != "hold"
                     or not window.complete
+                    or (not arm_run.arm.load.saturated and window.limited_s > 0)
                     or window.target_level is None
                     or window.request is None
                     or window.request.n == 0

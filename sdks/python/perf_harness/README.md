@@ -18,9 +18,9 @@ cases:
   - {id: cao-cao, input: {question: 介绍下曹操}}
 load:
   request_rate: 4
-  max_concurrency: 32
-  duration_s: 60
-  drain_timeout_s: 180
+  max_inflight: 32
+  hold_s: 60
+  cooldown_timeout_s: 180
 slo:
   - {metric: error_rate, lt: 0.01}
   - {metric: p99_ms, lt: 180000}
@@ -30,7 +30,7 @@ slo:
 consumer 在 `my_project.perf` 注册 Runner 和可选独立 Judge。Runner 完整消费一次响应；SSE 的
 HTTP 200 不等于业务完成，Judge 应读取 Runner 保存的完成事件。框架默认 Judge 只判断传输与状态码。
 
-`request_rate` 与 `max_concurrency` 独立：有限速率满并发即丢弃，不排队；`inf` 表示按并发补充。
+`request_rate` 与 `max_inflight` 独立：满在途暂停发起，有空位按目标速率补充，不排队；`inf` 表示按并发补充。
 `load` 可为配置列表，与 `resources` 展开网格。资源档在未配置 Deployer 时只作标注。
 可用 `caseset: ./cases.yaml` 引用 canonical CaseSet，再用 `cases: [{id: ..., weight: ...}]` 选择。
 
@@ -47,7 +47,7 @@ python -m perf_harness.cli report <run_dir>
 
 | 产物 | 内容 |
 |---|---|
-| run.json | schema 5：Execution、Arm、Window 与归约结果 |
+| run.json | schema 6：Execution、Arm、Window 与归约结果 |
 | requests.jsonl | 调度记录与关联 OperationRun 的唯一原始 Outcome |
 | evaluations.json | 按 OperationRun ID 保存的独立请求判定 |
 | timeseries.csv | Probe 原始采样 |
