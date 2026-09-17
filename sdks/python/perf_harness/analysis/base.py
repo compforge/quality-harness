@@ -17,8 +17,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from perf_harness.model import ArmRun
-
 
 @dataclass(frozen=True)
 class AnalysisNote:
@@ -26,24 +24,6 @@ class AnalysisNote:
     kind: Literal["fact", "flag"]  # flag = caveat or attention point, fact = computed truth
     title: str  # one human-readable line
     evidence: dict[str, object] = field(default_factory=dict)  # the numbers backing the title
-
-
-def by_resources(arm_runs: list[ArmRun]) -> list[tuple[str, list[ArmRun]]]:
-    """Group arm_runs by resource-profile label, each group sorted by peak level — the
-    'sweep curves' every lens walks (x = load level within one profile).
-
-    A phase error invalidates a curve point only when measurement is incomplete.
-    Errors from later lifecycle work still fail the run and stop the sweep, but
-    they do not erase a complete measurement that was already observed.
-    """
-    groups: dict[str, list[ArmRun]] = {}
-    for r in arm_runs:
-        if r.phase_errors and not r.measurement.complete:
-            continue
-        groups.setdefault(f"{r.arm.resources.label()}|{r.arm.load.mode}", []).append(r)
-    return [
-        (label, sorted(rs, key=lambda r: r.arm.load.peak_level)) for label, rs in groups.items()
-    ]
 
 
 def linfit(points: list[tuple[float, float]]) -> tuple[float, float] | None:

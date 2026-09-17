@@ -5,10 +5,11 @@ import {
   type CaseSet,
 } from "@compforge/spec-case/model";
 import { defaultJudge, type Judge } from "./judge";
-import { drive } from "./scheduler";
+import { drive, type DriveState } from "./scheduler";
 import { buildWindows } from "./reduce";
 import {
   loadLabel,
+  serializeLoadPlan,
   resourceLabel,
   validateLoadPlan,
   type LoadPlan,
@@ -88,6 +89,28 @@ function runId(now = new Date()): string {
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
+function armFingerprint(resources: ResourceProfile, load: LoadPlan): string {
+  // Object insertion order and omitted defaults do not create a different Arm.
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object")
+      return Object.fromEntries(
+        Object.entries(value)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, item]) => [key, canonical(item)]),
+      );
+    return value;
+  };
+  const config = {
+    resources: { replicas: 1, extra: {}, ...resources },
+    load: serializeLoadPlan(load),
+  };
+  return createHash("sha256")
+    .update(JSON.stringify(canonical(config)))
+    .digest("hex")
+    .slice(0, 8);
+}
+
 function arms(experiment: Experiment): Arm[] {
   const resources = experiment.resources?.length ? experiment.resources : [{}];
   const expanded = resources.flatMap((resource) =>
@@ -100,10 +123,10 @@ function arms(experiment: Experiment): Arm[] {
   const counts = new Map<string, number>();
   for (const item of expanded)
     counts.set(item.base, (counts.get(item.base) ?? 0) + 1);
-  return expanded.map((item) => {
+  const resolved = expanded.map((item) => {
     const suffix =
       counts.get(item.base)! > 1
-        ? `@${createHash("sha256").update(JSON.stringify(item)).digest("hex").slice(0, 8)}`
+        ? `@${armFingerprint(item.resources, item.load)}`
         : "";
     return {
       id: `${item.base}${suffix}`,
@@ -111,6 +134,11 @@ function arms(experiment: Experiment): Arm[] {
       load: item.load,
     };
   });
+  const ids = resolved.map((arm) => arm.id);
+  // One Arm executes once per Run. A content hash cannot identify a repetition.
+  if (new Set(ids).size !== ids.length)
+    throw new Error(`duplicate arm id: ${ids.join(", ")}`);
+  return resolved;
 }
 
 function phaseError(phase: Phase, error: unknown): PhaseError {
@@ -123,6 +151,14 @@ function phaseError(phase: Phase, error: unknown): PhaseError {
 
 class ArmExecutionContext {
   phase: Phase = "setup";
+  readonly drive: DriveState = {
+    stop: {
+      reason: "aborted",
+      inflight_at_stop: 0,
+      interrupted: 0,
+      force_cancelled: false,
+    },
+  };
   readonly phaseErrors: PhaseError[] = [];
   hasFatalError = false;
   fatalError: unknown;
@@ -160,7 +196,8 @@ export class Engine {
   async run(): Promise<Run> {
     const created = new Date();
     const arm_runs: ArmRun[] = [];
-    for (const arm of arms(this.#experiment)) {
+    const resolvedArms = arms(this.#experiment);
+    for (const arm of resolvedArms) {
       if (this.#experiment.signal?.aborted) break;
       const started = new Date();
       const controller = new AbortController();
@@ -194,12 +231,12 @@ export class Engine {
         requests: [],
         evaluations: {},
       };
-      let driven: Awaited<ReturnType<typeof drive>> | undefined;
       try {
         await this.#experiment.runner.setup?.(execution.runner);
         execution.enter("measurement");
         await this.#experiment.onArmStart?.(execution.runner, started);
-        driven = await drive({
+        await drive({
+          state: execution.drive,
           judge: this.#experiment.judge ?? defaultJudge,
           execution: result,
           runner: this.#experiment.runner,
@@ -239,16 +276,13 @@ export class Engine {
       }
 
       const finished = new Date();
-      const stop = driven?.stop ?? {
-        reason: "aborted" as const,
-        inflight_at_stop: 0,
-        interrupted: 0,
-        force_cancelled: false,
-      };
       const arm_run = result;
       arm_run.finished_at = finished.toISOString();
-      arm_run.windows = buildWindows(arm_run, driven?.elapsed_s ?? 0);
-      arm_run.stop = stop;
+      arm_run.windows = buildWindows(
+        arm_run,
+        execution.drive.measurement_end_s ?? 0,
+      );
+      arm_run.stop = execution.drive.stop;
       arm_run.phase_errors = execution.phaseErrors;
       arm_runs.push(arm_run);
       await this.#experiment.onArmFinish?.(arm_run);
@@ -263,7 +297,7 @@ export class Engine {
       created_at: created.toISOString(),
       service: this.#experiment.service.name,
       passed:
-        arm_runs.length === arms(this.#experiment).length &&
+        arm_runs.length === resolvedArms.length &&
         arm_runs.every(
           (arm_run) =>
             !arm_run.phase_errors.length &&

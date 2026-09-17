@@ -11,7 +11,14 @@ import type {
 import type { ArmContext, Runner } from "./runner";
 import type { Judge } from "./judge";
 
+// Owned by the ArmRun lifecycle, so exceptions cannot discard already observed facts.
+export interface DriveState {
+  measurement_end_s?: number;
+  stop: ArmStop;
+}
+
 export async function drive(options: {
+  state: DriveState;
   runner: Runner;
   judge: Judge;
   context: ArmContext;
@@ -20,9 +27,18 @@ export async function drive(options: {
   weights: readonly number[];
   execution: ArmRun;
   signal?: AbortSignal;
-}): Promise<{ stop: ArmStop; elapsed_s: number }> {
-  const { runner, judge, context, arm, cases, weights, execution, signal } =
-      options,
+}): Promise<void> {
+  const {
+      runner,
+      judge,
+      context,
+      arm,
+      cases,
+      weights,
+      execution,
+      signal,
+      state,
+    } = options,
     load = arm.load;
   const start = performance.now(),
     now = () => (performance.now() - start) / 1000;
@@ -193,31 +209,38 @@ export async function drive(options: {
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
     }
-    const elapsed_s = reason === "deadline" ? load.duration_s : now();
-    const inflight_at_stop = active.size;
+    state.measurement_end_s = reason === "deadline" ? load.duration_s : now();
+    state.stop = {
+      reason,
+      snapshot,
+      inflight_at_stop: active.size,
+      interrupted: 0,
+      force_cancelled: false,
+    };
     const drainDeadline = now() + (load.drain_timeout_s ?? 30);
     while (!signal?.aborted && active.size && now() < drainDeadline)
       await wait(drainDeadline - now());
-    if (signal?.aborted) reason = "aborted";
+    if (signal?.aborted) state.stop.reason = "aborted";
     for (const controller of active.values()) controller.abort();
     // Runner must cooperate with cancellation; do not close its clients while work remains.
     await Promise.all(active.keys());
     if (errors.length) throw errors[0];
-    const interrupted = execution.requests.filter(
-      (r) => r.state === "interrupted",
-    ).length;
-    return {
-      stop: {
-        reason,
-        snapshot,
-        inflight_at_stop,
-        interrupted,
-        force_cancelled: interrupted > 0,
-      },
-      elapsed_s,
-    };
   } finally {
+    // Capture the transition BEFORE cancellation/join; cleanup latency is not measurement.
+    if (state.measurement_end_s === undefined) {
+      state.measurement_end_s = Math.min(now(), load.duration_s);
+      state.stop = {
+        reason: "aborted",
+        inflight_at_stop: active.size,
+        interrupted: 0,
+        force_cancelled: false,
+      };
+    }
     for (const controller of active.values()) controller.abort();
     await Promise.all(active.keys());
+    state.stop.interrupted = execution.requests.filter(
+      (r) => r.state === "interrupted",
+    ).length;
+    state.stop.force_cancelled = state.stop.interrupted > 0;
   }
 }

@@ -8,7 +8,8 @@ sweeps: offered vs achieved rate + drops is the saturation signal.
 
 from __future__ import annotations
 
-from perf_harness.analysis.base import AnalysisNote, by_resources
+from perf_harness.analysis.base import AnalysisNote
+from perf_harness.comparison import comparison_groups
 from perf_harness.metric import parse_ref
 from perf_harness.metric.store import MetricStore
 from perf_harness.model import ArmRun, Run
@@ -19,7 +20,7 @@ KNEE_DROP = 0.15
 
 def analyze(run: Run, store: MetricStore) -> list[AnalysisNote]:
     out: list[AnalysisNote] = []
-    for label, rs in by_resources(run.arm_runs):
+    for label, rs in comparison_groups(run.arm_runs):
         if len(rs) < 2:
             continue
         if rs[0].arm.load.saturated:

@@ -1,0 +1,24 @@
+[
+  {
+    "name": "judge_during_measurement",
+    "duration_s": 1,
+    "first_response_s": 0.02,
+    "cancellation_delay_s": 0.08,
+    "drain_timeout_s": 0.15,
+    "stop_reason": "aborted",
+    "measurement_complete": false,
+    "inflight_at_stop": 1,
+    "completed": 1
+  },
+  {
+    "name": "judge_during_drain",
+    "duration_s": 0.03,
+    "first_response_s": 0.08,
+    "cancellation_delay_s": 0.02,
+    "drain_timeout_s": 0.15,
+    "stop_reason": "deadline",
+    "measurement_complete": true,
+    "inflight_at_stop": 2,
+    "completed": 0
+  }
+]

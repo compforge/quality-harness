@@ -6,6 +6,7 @@ import asyncio
 import random
 import time
 from contextlib import suppress
+from dataclasses import dataclass, field, replace
 
 from harness_common import Operation, OperationRun
 from spec_case.model import Case
@@ -17,6 +18,14 @@ from perf_harness.observe.base import ProbeContext
 from perf_harness.records import RequestRecord
 
 
+@dataclass
+class DriveState:
+    """ArmRun-owned facts that survive scheduler and Judge exceptions."""
+
+    measurement_end_s: float | None = None
+    stop: ArmStop = field(default_factory=lambda: ArmStop(reason="aborted"))
+
+
 async def drive(
     runner: Runner,
     judge: Judge,
@@ -25,7 +34,8 @@ async def drive(
     cases: list[Case],
     weights: list[float],
     execution: ArmRun,
-) -> ArmStop:
+    state: DriveState,
+) -> None:
     load = context.load
     rng = random.Random(load.seed)
     arrival_rng = random.Random(load.seed)
@@ -161,23 +171,23 @@ async def drive(
                 volume += arrival_rng.expovariate(1) if load.arrival == "poisson" else 1
                 due = load.arrival_time(volume)
                 await asyncio.sleep(0)
-        inflight = ctx.stats.inflight
+        state.measurement_end_s = load.duration_s if reason == "deadline" else snapshot.at_s
+        state.stop = ArmStop(reason=reason, snapshot=snapshot, inflight_at_stop=ctx.stats.inflight)
         if active:
             await asyncio.wait(active, timeout=load.drain_timeout_s)
     finally:
+        # Freeze the boundary before cancellation/join; a failing Judge in drain must
+        # neither extend measurement nor erase the completed calls and stop census.
+        if state.measurement_end_s is None:
+            state.measurement_end_s = min(now(), load.duration_s)
+            state.stop = ArmStop(reason="aborted", inflight_at_stop=ctx.stats.inflight)
         # Join cancellations before returning ownership of clients or environment resources.
         remaining = list(active)
         for task in remaining:
             task.cancel()
         if remaining:
             await asyncio.gather(*remaining, return_exceptions=True)
+        interrupted = sum(r.state == "interrupted" for r in execution.requests)
+        state.stop = replace(state.stop, interrupted=interrupted, force_cancelled=bool(interrupted))
     if failures:
         raise failures[0]
-    interrupted = sum(r.state == "interrupted" for r in execution.requests)
-    return ArmStop(
-        reason=reason,
-        snapshot=snapshot,
-        inflight_at_stop=inflight,
-        interrupted=interrupted,
-        force_cancelled=bool(interrupted),
-    )

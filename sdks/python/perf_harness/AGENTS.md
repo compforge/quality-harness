@@ -39,6 +39,7 @@ perf_harness/
 ├── slo.py · verdict.py   # run 级门（三态）；跨 harness verdict.json 出口
 ├── runio.py        # raw/model 两层落盘 + load_run（离线重建）
 ├── report/         # 视图层：render（md/html/csv）+ palette（配色=显示策略，不进模型）
+├── comparison.py   # 分析 / 容量 / 报告共用的扫描轴与固定条件分组
 └── analysis/       # 四个确定性透镜（capacity/resource/latency/validity）→ AnalysisNote
 ```
 
@@ -48,6 +49,7 @@ perf_harness/
 
 - **metric 是收腰**：producer 产 metric、分析/报告读 metric，只经 `MetricStore` 按 `<family>{labels}.<stat>` 寻址；service / facet 是实体 label，时间只由 Window 选择，不能再伪装成 metric label。模型细节见 `docs/metric-model.md`。
 - **Stage ≠ Window**：Stage 是计划的负载控制段；Window 是实际观测边界，延迟按发射时刻归窗，吞吐按真实事件时刻计数，request/resource 使用同一 start/end。重复 stage 名仍有不同 `window_id`。
+- **比较先固定条件**：有限速率扫 request_rate，饱和发压扫 max_concurrency；另一轴与调度形态等条件不同就分组，分析 / 容量 / 报告共用 comparison。
 - **加压是 x 轴不是 metric**：响应面 `metric = f(Arm, Window, slice)`；Arm 是命名配置，ArmRun 是该 Arm 的一次真实执行。
 
 ### 扩展点（业务接入只碰这两个）

@@ -303,3 +303,17 @@ async def test_reader_accepts_optional_fields_and_null_call(tmp_path):
     restored = load_run(directory)
     assert restored.arm_runs[0].requests[-1].state == "dropped"
     assert len(restored.arm_runs[0].operation_runs) == len(run.arm_runs[0].operation_runs)
+
+
+async def test_reader_rejects_ambiguous_execution_identity(tmp_path):
+    import json
+
+    import pytest
+
+    _, run_dir = await _run(tmp_path)
+    path = run_dir / "run.json"
+    model = json.loads(path.read_text())
+    model["executions"].append(model["executions"][0])
+    path.write_text(json.dumps(model))
+    with pytest.raises(ValueError, match="duplicate ArmRun id"):
+        load_run(run_dir)

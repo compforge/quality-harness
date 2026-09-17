@@ -1,9 +1,14 @@
 """analysis lenses — deterministic observations over hand-built arm_runs (precise
 numbers), plus the analyze_run end-to-end over a written run dir."""
 
+from dataclasses import replace
+
+import pytest
+
 from perf_harness.analysis import analyze, analyze_run, render_text
-from perf_harness.analysis.base import by_resources, linfit
-from perf_harness.drive.load import LoadPlan
+from perf_harness.analysis.base import linfit
+from perf_harness.comparison import comparison_groups
+from perf_harness.drive.load import LoadPlan, Stage
 from perf_harness.metric import GaugeSummary, MetricFamily, series_id
 from perf_harness.model import (
     Arm,
@@ -210,7 +215,7 @@ def test_phase_error_is_diagnostic_not_a_curve_point():
     broken.measurement.complete = False
     broken.phase_errors = [PhaseError("setup", "RuntimeError", "testbed unavailable")]
 
-    grouped = by_resources(run.arm_runs)
+    grouped = comparison_groups(run.arm_runs)
     assert broken not in grouped[0][1]
 
     flags = _titles(analyze(run), "validity", "flag")
@@ -224,10 +229,112 @@ def test_phase_error_after_complete_measurement_preserves_curve_point():
         completed = run.arm_runs[1]
         completed.phase_errors = [PhaseError(phase, "RuntimeError", f"{phase} failed")]
 
-        grouped = by_resources(run.arm_runs)
+        grouped = comparison_groups(run.arm_runs)
         assert completed in grouped[0][1]
 
         flags = _titles(analyze(run), "validity", "flag")
         assert any(
             "执行异常" in title and phase in title and "保留性能曲线点" in title for title in flags
         )
+
+
+def _rate_arm(rate, cap, cpu):
+    result = _arm_run(cap, _stats(200, rate, 10, 20, 30), {"chat": cpu})
+    load = LoadPlan(request_rate=rate, max_concurrency=cap, duration_s=45)
+    result.arm = Arm(f"rate-{rate}-cap-{cap}", result.arm.resources, load)
+    result.id = result.arm.id
+    return result
+
+
+def test_two_dimensional_load_slices_are_shared_by_analysis_report_and_capacity(tmp_path):
+    import csv
+    from pathlib import Path
+
+    from perf_harness.model import SloAssertion, SloCheck
+    from perf_harness.report import write_report
+    from perf_harness.report.render import _curve_groups
+    from perf_harness.slo import slo_aware_capacity
+
+    rows = [
+        _rate_arm(10, 1, 110),
+        _rate_arm(20, 1, 120),
+        _rate_arm(10, 10, 100),
+        _rate_arm(20, 10, 200),
+    ]
+    groups = comparison_groups(rows)
+    assert [[r.arm.load.max_concurrency for r in group] for _, group in groups] == [
+        [1, 1],
+        [10, 10],
+    ]
+    assert _curve_groups(rows) == groups
+    run = Run("two-axes", "exp", "t", "chat", executions=rows)
+    slopes = [o for o in analyze(run) if "points" in o.evidence and "slope_per_level" in o.evidence]
+    assert sorted(o.evidence["slope_per_level"] for o in slopes) == [1, 10]
+    assert all(o.evidence["conditions"]["scan_axis"] == "request_rate" for o in slopes)
+    assert all("requests/s" in o.title and "并发触" not in o.title for o in slopes)
+    # A cap-only sweep at the same rate is a set of points, not a rate curve.
+    same_rate = [rows[1], rows[3]]
+    assert _curve_groups(same_rate) == []
+    assert not any("points" in o.evidence for o in analyze(replace(run, executions=same_rate)))
+    for r in rows:
+        hold = replace(r.measurement, id="hold", kind="hold", target_level=r.arm.load.request_rate)
+        r.windows.append(hold)
+        r.slo = [SloCheck(SloAssertion("p99_ms", "lt", 100), 30, "pass", "hold")]
+    capacities = slo_aware_capacity(rows)
+    assert len(capacities) == 2 and list(capacities.values()) == [20, 20]
+    assert any("max_concurrency=1|" in label for label in capacities)
+    assert any("max_concurrency=10|" in label for label in capacities)
+    paths = write_report(rows, str(tmp_path))
+    html = Path(paths["report_html"]).read_text()
+    assert "request_rate (requests/s)" in html
+    assert "peak_request_rate" in html and "peak_max_concurrency" in html
+    with Path(paths["summary"]).open() as stream:
+        summary = list(csv.DictReader(stream))
+    assert [(r["peak_request_rate"], r["peak_max_concurrency"]) for r in summary] == [
+        ("10", "1"),
+        ("20", "1"),
+        ("10", "10"),
+        ("20", "10"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"arrival": "poisson"},
+        {"seed": 2},
+        {"warmup_s": 1},
+        {"duration_s": 46},
+        {"drain_timeout_s": 1},
+        {"abort_on_error_rate": 0.1},
+        {"stages": (Stage(20, 20, 1), Stage(25, 20, 10))},
+        {"request_rate": 0, "stages": (Stage(45, 20, 10, "ramp"),)},
+    ],
+)
+def test_fixed_conditions_and_full_stage_history_are_not_erased(changes):
+    first, second = _rate_arm(10, 10, 10), _rate_arm(20, 10, 20)
+    second.arm = replace(second.arm, load=replace(second.arm.load, **changes))
+    assert len(comparison_groups([first, second])) == 2
+
+
+def test_comparison_uses_resource_values_not_only_display_labels():
+    first, second = _rate_arm(10, 10, 10), _rate_arm(20, 10, 20)
+    second.arm = replace(
+        second.arm, resources=replace(second.arm.resources, extra={"env": "other"})
+    )
+    assert len(comparison_groups([first, second])) == 2
+
+
+def test_proportional_stage_shapes_remain_comparable():
+    first, second = _rate_arm(10, 10, 10), _rate_arm(20, 10, 20)
+    for r in [first, second]:
+        rate = r.arm.load.request_rate
+        r.arm = replace(
+            r.arm,
+            load=replace(
+                r.arm.load,
+                request_rate=0,
+                stages=(Stage(20, rate, 10, "ramp"), Stage(25, rate, 10)),
+            ),
+        )
+    assert len(comparison_groups([first, second])) == 1

@@ -133,7 +133,7 @@ def test_slo_aware_capacity_is_highest_passing_level():
     t40.slo = evaluate_slo(t40, [a])
     # 20 passes its SLO on the partial sample, but only the complete 10-level arm_run
     # confirms capacity.
-    assert slo_aware_capacity([t10, t20, t40]) == {"w2|rate": 10}
+    assert list(slo_aware_capacity([t10, t20, t40]).values()) == [10]
 
 
 def test_slo_aware_capacity_uses_passing_holds_in_multi_stage_arm_run():
@@ -158,7 +158,7 @@ def test_slo_aware_capacity_uses_passing_holds_in_multi_stage_arm_run():
         t, [SloAssertion("p99_ms", "lt", 2000, window=WindowSelector(kind="hold"))]
     )
 
-    assert slo_aware_capacity([t]) == {"w2|rate": 10}
+    assert list(slo_aware_capacity([t]).values()) == [10]
 
 
 def test_slo_aware_capacity_does_not_treat_multi_stage_peak_as_capacity():
@@ -172,7 +172,7 @@ def test_slo_aware_capacity_does_not_treat_multi_stage_peak_as_capacity():
     t.arm = Arm(t.arm.id, t.arm.resources, load)
     t.slo = evaluate_slo(t, [SloAssertion("p99_ms", "lt", 2000)])
 
-    assert slo_aware_capacity([t]) == {"w2|rate": None}
+    assert list(slo_aware_capacity([t]).values()) == [None]
 
 
 def test_slo_aware_capacity_applies_global_resource_slo_to_each_hold():
@@ -207,7 +207,7 @@ def test_slo_aware_capacity_applies_global_resource_slo_to_each_hold():
         ],
     )
 
-    assert slo_aware_capacity([t]) == {"w2|rate": None}
+    assert list(slo_aware_capacity([t]).values()) == [None]
 
 
 # ---- config parse + fail-fast ----
@@ -425,4 +425,7 @@ def test_capacity_never_compares_rate_and_concurrency_units():
                 )
             ],
         )
-    assert slo_aware_capacity([rate, concurrency]) == {"w2|rate": 4, "w2|concurrency": 8}
+    capacity = slo_aware_capacity([rate, concurrency])
+    assert len(capacity) == 2
+    assert next(value for label, value in capacity.items() if "|request_rate (" in label) == 4
+    assert next(value for label, value in capacity.items() if "|max_concurrency (" in label) == 8

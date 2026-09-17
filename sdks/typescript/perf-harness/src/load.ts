@@ -151,3 +151,21 @@ export function resourceLabel(
       .join("/") || "default"
   );
 }
+
+// Normalized configuration shared by identity hashing and persisted Arm facts.
+export function serializeLoadPlan(load: LoadPlan) {
+  return {
+    ...load,
+    request_rate: load.request_rate === Infinity ? "inf" : load.request_rate,
+    stages: (load.stages ?? []).map((s) => ({
+      ...s,
+      request_rate: s.request_rate === Infinity ? "inf" : s.request_rate,
+    })),
+    arrival: load.arrival ?? "constant",
+    seed: load.seed ?? 0,
+    warmup_s: load.warmup_s ?? 0,
+    abort_on_error_rate: load.abort_on_error_rate ?? null,
+    breaker_min_n: load.breaker_min_n ?? 20,
+    drain_timeout_s: load.drain_timeout_s ?? 30,
+  };
+}

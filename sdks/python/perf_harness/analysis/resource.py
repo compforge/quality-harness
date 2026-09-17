@@ -10,7 +10,8 @@ memory growth (leak smell needs a longer soak, but a fast climb shows here).
 
 from __future__ import annotations
 
-from perf_harness.analysis.base import AnalysisNote, by_resources, linfit, pct
+from perf_harness.analysis.base import AnalysisNote, linfit, pct
+from perf_harness.comparison import axis_label, comparison_conditions, comparison_groups
 from perf_harness.metric.store import MetricStore
 from perf_harness.model import ArmRun, Run
 
@@ -31,7 +32,7 @@ _BOUNDS = {
 
 def analyze(run: Run, store: MetricStore) -> list[AnalysisNote]:
     out: list[AnalysisNote] = []
-    for label, rs in by_resources(run.arm_runs):
+    for label, rs in comparison_groups(run.arm_runs):
         top = rs[-1]  # headroom is judged at the hottest level of the sweep
         for family in _usage_families(top):
             unit = top.metrics[family].unit
@@ -137,13 +138,14 @@ def _slope(
     ev: dict[str, object] = {
         "service": svc, "family": family,
         "slope_per_level": round(slope, 2), "points": points,
+        "conditions": comparison_conditions(rs[0]),
     }  # fmt: skip
-    parts = [f"斜率 {slope:.1f}{unit}/level"]
+    parts = [f"斜率 {slope:.1f}{unit} / {axis_label(rs[0])}"]
     for bound, name in ((req, "request"), (lim, "limit")):
         if bound and top_peak < bound:
             at = (bound - intercept) / slope
             ev[f"level_at_{name}"] = round(at, 1)
-            parts.append(f"线性外推 ~{at:.0f} 并发触 {name}({bound:g}{unit})")
+            parts.append(f"线性外推 {axis_label(rs[0])} ~{at:.0f} 触 {name}({bound:g}{unit})")
     return [
         AnalysisNote(
             "resource",

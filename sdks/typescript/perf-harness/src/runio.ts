@@ -1,24 +1,8 @@
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Run, ArmRun } from "./model";
-import type { LoadPlan } from "./load";
+import { serializeLoadPlan } from "./load";
 
-function loadJson(load: LoadPlan) {
-  return {
-    ...load,
-    request_rate: load.request_rate === Infinity ? "inf" : load.request_rate,
-    stages: (load.stages ?? []).map((s) => ({
-      ...s,
-      request_rate: s.request_rate === Infinity ? "inf" : s.request_rate,
-    })),
-    arrival: load.arrival ?? "constant",
-    seed: load.seed ?? 0,
-    warmup_s: load.warmup_s ?? 0,
-    abort_on_error_rate: load.abort_on_error_rate ?? null,
-    breaker_min_n: load.breaker_min_n ?? 20,
-    drain_timeout_s: load.drain_timeout_s ?? 30,
-  };
-}
 export function serializeRun(run: Run): Record<string, unknown> {
   return {
     schema: 5,
@@ -33,7 +17,7 @@ export function serializeRun(run: Run): Record<string, unknown> {
       arm: {
         id: e.arm.id,
         resources: e.arm.resources,
-        load: loadJson(e.arm.load),
+        load: serializeLoadPlan(e.arm.load),
       },
       windows: e.windows,
       stop: e.stop,
@@ -159,6 +143,10 @@ export function loadRun(directory: string): Run {
     evaluations: evaluations[e.id],
   }));
   const byId = new Map(executions.map((e) => [e.id, e]));
+  if (byId.size !== executions.length)
+    throw new Error(
+      "duplicate ArmRun id in run.json; request ownership is ambiguous",
+    );
   for (const line of readFileSync(join(directory, "requests.jsonl"), "utf8")
     .split("\n")
     .filter(Boolean)) {
