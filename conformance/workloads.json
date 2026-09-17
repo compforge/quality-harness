@@ -1,6 +1,6 @@
 {
   "workloads": [
-    {"name":"agent","platform":"kubernetes","namespace":"apps","location":{"kind":"resource","resource_kind":"Deployment","name":"hibot-agent"},"container":"app"},
+    {"name":"agent","description":"Agent execution runtime","platform":"kubernetes","namespace":"apps","location":{"kind":"resource","resource_kind":"Deployment","name":"hibot-agent"},"container":"app"},
     {"name":"worker","platform":"kubernetes","namespace":"jobs","location":{"kind":"service","name":"worker-svc"}},
     {"name":"sandbox","platform":"kubernetes","location":{"kind":"labels","labels":{"app":"sandbox","owner":"harness"}}}
   ],

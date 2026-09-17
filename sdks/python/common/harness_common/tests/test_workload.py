@@ -50,6 +50,9 @@ def test_workload_declaration_can_be_shared_by_services():
 
 def test_workload_location_and_container_have_distinct_roles():
     api = declaration(FIXTURE["workloads"][0])
+    assert api.description == "Agent execution runtime"
+    assert replace(api, description="Another explanation") == api
+    assert declaration(FIXTURE["workloads"][1]).description is None
     assert replace(api, namespace="other") != api
     assert (
         replace(api, location={**api.location, "resource_kind": "StatefulSet"}) != api

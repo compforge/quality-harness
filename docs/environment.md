@@ -44,6 +44,8 @@ Python 使用单调时钟秒数 deadline / remaining_s；TypeScript 使用 perfo
 毫秒数 deadlineMs / remainingMs，不使用墙钟时间。TypeScript 的 EnvironmentContext<E> 保留
 common Environment 的具体扩展类型；Service<E> 引用同一环境，不为客户端访问重建环境模型。
 具体可访问环境实现 ClientProvider 的 client_key / create_client；DataSource 扩展同一契约。
+DataSource 和 Workload 的可选 `description` 为发现与展示补充用途、职责或数据范围；不参与客户端复用、
+Workload 身份或定位规则，也不表示目标已部署或可访问。说明只能包含可公开展示的元数据，不包含凭据。
 调用方直接 clients.get(environment) 或 clients.get(datasource)，共用初始化、复用和释放机制。
 通用 Environment 保留身份声明；具体 KubernetesEnvironment 及配置解析归 toolbox。
 不引入只有 init/dispose 的 EnvironmentClient 基类，也不为 HostEnvironment 虚构客户端。

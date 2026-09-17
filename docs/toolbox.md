@@ -12,6 +12,7 @@ Python 位于 `sdks/python/toolbox`，独立分发为 `harness-toolbox`。
 - **Client**：拥有协议资源和操作，负责初始化与幂等销毁，包括初始化失败后的部分资源清理。
 - **ClientProvider**：通过 client_key / clientKey 标识客户端配置，以 create_client / createClient 构造 Client；构造阶段不执行外部访问。
 - **DataSource**：具有数据来源语义的 ClientProvider，例如数据库、日志和指标，不代表所有环境操作。
+  可选 `description` 用于说明来源用途与数据范围，供能力发现和报告展示；不得包含凭据，也不参与客户端复用身份。
 - **ClientManager**：在一次根执行中按 ClientProvider key 复用初始化中的异步任务和成功的 Client。
   初始化失败完成清理后允许重试；结束时取消并等待进行中的初始化，再按依赖顺序逆序销毁。
 - **ConnectionSource**：解析协议连接信息，并声明适用的 Transport；环境配置语义由调用方提供。

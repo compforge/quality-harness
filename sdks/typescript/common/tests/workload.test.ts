@@ -14,6 +14,8 @@ test("shared declaration variants keep logical and physical names separate", () 
   expect(fixture.workloads.map(value => value.location.kind)).toEqual(["resource", "service", "labels"]);
   const agent = fixture.workloads[0];
   expect(agent.name).toBe("agent");
+  expect(agent.description).toBe("Agent execution runtime");
+  expect(fixture.workloads[1].description).toBeUndefined();
   if (agent.location.kind !== "resource") throw new Error("expected resource fixture");
   expect(agent.location.name).toBe("hibot-agent");
   expect(fixture.workloads[2].namespace).toBeUndefined();
