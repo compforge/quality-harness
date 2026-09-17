@@ -12,9 +12,11 @@ from dataclasses import dataclass, field, replace
 from importlib.resources import files
 from typing import TYPE_CHECKING
 
+from harness_common import DataSource
+
 from harness_toolbox._mysql_values import decode_value, encode_value
 from harness_toolbox.address import address_candidates
-from harness_toolbox.client import ClientProvider, data_source_key
+from harness_toolbox.client import _ClientBorrower, client_key
 from harness_toolbox.diagnostics import _AccessRecorder, _transport_name
 from harness_toolbox.errors import (
     ErrorKind,
@@ -61,7 +63,7 @@ class QueryResult:
 
 
 @dataclass(frozen=True)
-class MySQLDataSource:
+class MySQLDataSource(DataSource["MySQLClient"]):
     connection: ConnectionSource[MySQLTarget]
     concurrency: int = 4
     timeout_s: float = 60
@@ -69,8 +71,8 @@ class MySQLDataSource:
     max_rows: int = 10000
 
     @property
-    def key(self) -> str:
-        return data_source_key(
+    def client_key(self) -> str:
+        return client_key(
             "mysql",
             [
                 self.connection.key,
@@ -83,7 +85,7 @@ class MySQLDataSource:
             ],
         )
 
-    def create_client(self, clients: ClientProvider) -> MySQLClient:
+    def create_client(self, clients: _ClientBorrower) -> MySQLClient:
         return MySQLClient(self, clients)
 
 
@@ -197,7 +199,7 @@ def _connection_network_error(error: BaseException) -> bool:
 
 
 class MySQLClient:
-    def __init__(self, source: MySQLDataSource, clients: ClientProvider | None = None) -> None:
+    def __init__(self, source: MySQLDataSource, clients: _ClientBorrower | None = None) -> None:
         if (
             min(source.concurrency, source.timeout_s, source.connect_timeout_s, source.max_rows)
             <= 0

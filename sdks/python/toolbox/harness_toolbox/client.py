@@ -3,6 +3,7 @@
 from harness_common.client import Client as Client
 from harness_common.client import ClientManager as ClientManager
 from harness_common.client import ClientProvider as ClientProvider
-from harness_common.client import DataSource as DataSource
-from harness_common.client import ServiceDataSource as ServiceDataSource
-from harness_common.client import data_source_key as data_source_key
+from harness_common.client import _ClientBorrower as _ClientBorrower
+from harness_common.client import client_key as client_key
+from harness_common.datasource import DataSource as DataSource
+from harness_common.datasource import ServiceDataSource as ServiceDataSource

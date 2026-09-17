@@ -1,7 +1,7 @@
 """Execution-scoped, asynchronous client ownership.
 
-DataSource keys describe configuration, not object identity. Consumers receive a
-ClientProvider; only the root execution owns and disposes the ClientManager.
+ClientProvider keys describe configuration, not object identity. Consumers receive a
+_ClientBorrower; only the root execution owns and disposes the ClientManager.
 """
 
 from __future__ import annotations
@@ -9,10 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from dataclasses import dataclass
-from typing import Generic, Protocol, TypeVar, cast
-
-from harness_common.service import Service
+from typing import Protocol, TypeVar, cast
 
 
 class Client(Protocol):
@@ -23,30 +20,24 @@ class Client(Protocol):
 C = TypeVar("C", bound=Client, covariant=True)
 
 
-class DataSource(Protocol[C]):
-    @property
-    def key(self) -> str: ...
-    def create_client(self, clients: ClientProvider) -> C: ...
+class ClientProvider(Protocol[C]):
+    """Keyed client construction, independent of data or environment semantics.
 
-
-@dataclass(frozen=True)
-class ServiceDataSource(Generic[C]):
-    """One access association, not a platform resource or a client owner.
-
-    A Service can have zero or many associations; the same source can be shared
-    by multiple Services. Platform workload mappings belong to deployment config.
-    Use clients.get(binding.source) so logical identity never fragments client reuse.
+    @spec Both environment and data clients share lifecycle ownership.
+    @rule client_key covers implementation, target, credentials and capacity policy.
+    Construction is pure; initialize owns I/O, and the root owns disposal.
     """
 
-    service: Service
-    source: DataSource[C]
+    @property
+    def client_key(self) -> str: ...
+    def create_client(self, clients: _ClientBorrower) -> C: ...
 
 
-class ClientProvider(Protocol):
-    async def get(self, source: DataSource[C]) -> C: ...
+class _ClientBorrower(Protocol):
+    async def get(self, provider: ClientProvider[C]) -> C: ...
 
 
-def data_source_key(protocol: str, configuration: object) -> str:
+def client_key(protocol: str, configuration: object) -> str:
     """Hash JSON-compatible configuration, including credentials, without exposing it."""
     canonical = json.dumps(
         configuration, sort_keys=True, separators=(",", ":"), allow_nan=False
@@ -57,7 +48,7 @@ def data_source_key(protocol: str, configuration: object) -> str:
 class ClientManager:
     """Share initialized clients within one event loop and close them at root exit.
 
-    Initialize dependencies through the supplied provider before publishing a
+    Initialize dependencies through the supplied borrower before publishing a
     client as ready. Reverse readiness order then closes consumers first.
     Join all command work before leaving the root context: borrowed clients are
     invalid after disposal. Managers cannot be reopened or shared across loops.
@@ -70,14 +61,14 @@ class ClientManager:
         self._cleanup_errors: list[BaseException] = []
         self._unclean: set[str] = set()
 
-    async def get(self, source: DataSource[C]) -> C:
+    async def get(self, provider: ClientProvider[C]) -> C:
         if self._disposal is not None:
             raise RuntimeError("client manager is disposed")
-        key = source.key
+        key = provider.client_key
         task = self._pending.get(key)
         if task is None:
             # Store before the task can run; factories can themselves request dependencies.
-            task = asyncio.create_task(self._initialize(source))
+            task = asyncio.create_task(self._initialize(provider))
             self._pending[key] = task
             task.add_done_callback(lambda done: self._settled(key, done))
         # A cancelled consumer must not cancel initialization needed by other consumers.
@@ -88,8 +79,8 @@ class ClientManager:
         if failed and key not in self._unclean and self._pending.get(key) is task:
             del self._pending[key]
 
-    async def _initialize(self, source: DataSource[Client]) -> Client:
-        client = source.create_client(self)
+    async def _initialize(self, provider: ClientProvider[Client]) -> Client:
+        client = provider.create_client(self)
         try:
             await client.initialize()
             self._ready.append(client)
@@ -99,7 +90,7 @@ class ClientManager:
                 await client.dispose()
             except BaseException as cleanup:
                 self._cleanup_errors.append(cleanup)
-                self._unclean.add(source.key)
+                self._unclean.add(provider.client_key)
                 raise BaseExceptionGroup(
                     "client initialization and cleanup failed", [error, cleanup]
                 ) from None

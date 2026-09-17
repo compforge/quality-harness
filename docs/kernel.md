@@ -50,8 +50,12 @@ e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共
 | **Verdict** | 对一次 Run 的可机器消费判定。人、CI 和 agent 开发循环都通过它判断是否通过、为何失败，以及下一步应读哪些证据。 |
 
 Service 是逻辑运行服务，不与 Kubernetes Service 或其它平台资源一一对应。Service.workloads 声明由哪些
-Workload 承载，部署配置为这一关系提供事实；映射变化不改变逻辑 Service 身份。DataSource 与
-EnvironmentFixture 管理共享环境资源，领域执行回调内部的 Case / Trial 生命周期归各 Harness；见 [Environment](environment.md)。
+Workload 承载，部署配置为这一关系提供事实；映射变化不改变逻辑 Service 身份。
+Workload 内含定位描述，执行期发现 WorkloadInstance；身份与访问边界见 [Workload](workload.md)。
+EnvironmentContext 绑定执行期环境、借用客户端入口与预算；EnvironmentFixture 编排共享环境资源，
+领域执行回调内部的 Case / Trial 生命周期归各 Harness；见 [Environment](environment.md)。
+ClientProvider 通过客户端标识与构造方法显式连接可访问 Environment 和 DataSource；
+DataSource 仅表达数据来源语义，ClientManager 统一接收两者。
 Transport 管理各类基础设施访问通道，ClientManager 管理执行期客户端；见 [toolbox](toolbox.md)。
 
 这些名字定义共同语义。Python Harness 共享 `harness_common` 中的身份基类；不同语言保持惯用 API，

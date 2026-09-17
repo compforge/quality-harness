@@ -1,6 +1,6 @@
 # Harness Toolbox
 
-Client, DataSource and ClientManager are owned by the sibling TypeScript package
+Client, ClientProvider, DataSource, EnvironmentContext and ClientManager are owned by the sibling TypeScript package
 `@compforge/harness-common`. Toolbox provides protocol implementations and transports;
 its lifecycle entrypoints re-export the same common symbols.
 
@@ -12,20 +12,77 @@ The package supports Node.js 22+ and Bun. Install with `npm install @compforge/h
 Protocol adapters have separate entry points; importing lifecycle or transport contracts does
 not load database or Kubernetes drivers.
 
-A `DataSource` identifies a reusable client and constructs it. The `Client` owns initialization
+## Workload discovery
+
+Borrow a KubernetesClient through KubernetesEnvironment and the shared ClientManager lifecycle, then call
+`client.resolveWorkload(workload, environmentId)`. The ID is a stable target identity from your
+environment registry, not a display name or kubeconfig path. The Workload's namespace overrides the client's default.
+Resource, Service selector and labels locations return all matching Pod incarnations without
+readiness filtering; successful empty discovery returns an empty array. Missing resources,
+selectorless Services and failed access raise KubernetesError.
+
+The resource path uses client-node kubeconfig authentication/TLS and bounded native JSON reads,
+not kubectl error text. Configure request timeout, concurrency and response bytes with the
+client's ResourceLimits constructor argument. Existing exec/port-forward operations remain unchanged.
+See [the shared Workload model](../../../docs/workload.md).
+
+```ts
+import { ClientManager, EnvironmentContext } from "@compforge/harness-toolbox";
+import { KubernetesEnvironment } from "@compforge/harness-toolbox/kubernetes/environment";
+
+const clients = new ClientManager();
+try {
+  const ctx = new EnvironmentContext(
+    new KubernetesEnvironment("dev",
+      { kubeconfig: "/config/cluster", context: "dev", namespace: "app" },
+      { timeoutMs: 10_000, concurrency: 4, maxBytes: 8 * 1024 * 1024 }),
+    clients, performance.now() + 30_000,
+  );
+  const kube = await ctx.clients.get(ctx.environment);
+  const pods = await kube.resolveWorkload({
+    name: "api", platform: "kubernetes",
+    location: { kind: "resource", resource_kind: "Deployment", name: "api" },
+  }, "cluster-a/runtime");
+} finally {
+  await clients.dispose();
+}
+```
+
+The context does not cancel work automatically. Its budget is available as remainingMs;
+the root owns cancellation and must join child work before disposing clients.
+
+Catch ToolboxError from the root entry or `@compforge/harness-toolbox/errors`; use `kind` and
+`code` for decisions. Native `cause` may contain sensitive details and is debug-only.
+
+For coordinated common/toolbox development, install and build common before installing toolbox:
+
+```sh
+# From sdks/typescript/toolbox
+(cd ../common && bun install --frozen-lockfile && make build)
+bun install --frozen-lockfile
+make lint
+make test
+```
+
+The toolbox root override resolves common from `../common` only for local development;
+the published dependency remains a registry version. Publish common before toolbox.
+The Makefile builds common before typechecking or building toolbox.
+
+A `ClientProvider` identifies a reusable client and constructs it; `DataSource` adds data-access semantics.
+Accessible environments implement ClientProvider directly without becoming data sources. The `Client` owns initialization
 and idempotent disposal; a `ClientManager` joins concurrent initialization for the same key and
 closes owned clients when the caller finishes. A `ConnectionSource` resolves connection settings
 and available `Transport` paths. Clients execute protocol operations through those paths.
 
 ```ts
-import { ClientManager, dataSourceKey, type DataSource } from "@compforge/harness-toolbox";
+import { ClientManager, clientKey, type DataSource } from "@compforge/harness-toolbox";
 import { MysqlClient } from "@compforge/harness-toolbox/mysql";
 import { DirectTransport } from "@compforge/harness-toolbox/transport";
 
 const target = { host: "localhost", port: 3306, database: "app", user: "reader", password: "..." };
 const source: DataSource<MysqlClient> = {
-  key: dataSourceKey("mysql", target),
-  createClient: signal => new MysqlClient({
+  clientKey: clientKey("mysql", target),
+  createClient: (_clients, signal) => new MysqlClient({
     resolve: async () => target,
     transports: [new DirectTransport()],
   }, { signal, connectTimeoutMs: 5_000, queryTimeoutMs: 10_000 }),

@@ -5,17 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-
-@dataclass(frozen=True)
-class Options:
-    """Namespace and explicit Kubernetes API resource limits."""
-
-    namespace: str
-    request_timeout_s: float
-    connection_pool_maxsize: int
-    exec_timeout_s: float = 60
-    exec_concurrency: int = 4
-    max_exec_bytes: int = 64 * 1024 * 1024
+from harness_toolbox._kube_options import Options as Options
 
 
 @dataclass(frozen=True)

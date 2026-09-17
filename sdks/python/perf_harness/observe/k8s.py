@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from harness_common import KubernetesEnvironment
+from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.host import command
 
 from perf_harness.metric import series_id

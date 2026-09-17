@@ -2,7 +2,7 @@
 
 ## Ownership and identity
 
-One root operation owns a `ClientManager`. Nested commands receive a `ClientProvider`, reuse its
+One root operation owns a `ClientManager`. Nested commands receive a get-only client view, reuse its
 clients, and join their work before the root exits. A cancelled waiter does not cancel shared
 initialization. Root disposal stops pending initialization, drains it, and disposes ready clients
 in reverse dependency order. A failed initialization is cleaned before retry; failed cleanup keeps
@@ -10,11 +10,11 @@ that identity failed and is reported again at finalize. Disposal does not delete
 
 The manager is local to one Python execution and event loop. It cannot share live connections across
 separately launched scripts. Synchronous CLIs call `asyncio.run` at their outer boundary; domain
-operations remain async and receive the provider explicitly.
+operations remain async and receive the borrower explicitly.
 
-A DataSource key must cover everything that changes reuse: target, protocol, credentials, configuration,
+A ClientProvider client_key must cover everything that changes reuse: target, protocol, credentials, configuration,
 and capacity. ConnectionSource accepts a caller-supplied stable key because environment resolution is
-external. Use `data_source_key` to hash those inputs. Do not key only by a friendly service name when
+external. Use `client_key` to hash those inputs. Do not key only by a friendly service name when
 multiple clusters or credentials can coexist. Configuration and credentials remain fixed for a root
 execution; key new configurations separately.
 
@@ -22,7 +22,7 @@ execution; key new configurations separately.
 
 ```python
 from dataclasses import asdict
-from harness_toolbox import ClientManager, data_source_key
+from harness_toolbox import ClientManager, client_key
 from harness_toolbox.mysql import MySQLDataSource, MySQLTarget
 from harness_toolbox.transport import ConnectionSource, DirectTransport
 
@@ -31,7 +31,7 @@ async def query(clients, settings):
     async def resolve():
         return target
     source = MySQLDataSource(ConnectionSource(
-        data_source_key("db-config", asdict(target)), resolve, (DirectTransport(),)
+        client_key("db-config", asdict(target)), resolve, (DirectTransport(),)
     ))
     database = await clients.get(source)
     return await database.query("SELECT id FROM message WHERE id = %(id)s", {"id": "example"})
@@ -109,7 +109,7 @@ and user requests are never automatically replayed.
 
 ## Kubernetes and logs
 
-KubernetesDataSource owns namespace, API capacity, exec capacity and timeouts. KubernetesClient offers
+KubernetesEnvironment owns namespace, API capacity, exec capacity and timeouts through Options. The underlying native KubernetesClient offers
 Pod create/get/list/delete, readiness/replacement/deletion waits, Event collection, exec, and
 port-forward. Exec returns stdout, stderr and exit code separately. Nonzero process exit is a result;
 connection failure, timeout, and output limit violations are exceptions. Created Pods are explicit
@@ -120,7 +120,8 @@ logs; the client checks identity before and after access and rejects a changed i
 replacement but cannot guarantee an atomic exec against a UID. Port-forward subprocesses belong to the
 Kubernetes client and close at finalize.
 
-PodLogDataSource depends on KubernetesDataSource through the same provider. It owns one capture pool,
+PodLogDataSource accepts KubernetesEnvironment and borrows its local native pool through the manager.
+Host-native log capture is not supported by this datasource. It owns one capture pool,
 one total byte budget and a temporary directory. Physical Pod UID, container, restart count, previous
 selection, and absolute timezone-aware `[since, until)` window identify a capture. Concurrent consumers
 join the same capture; different trace IDs filter its file locally. Truncation is explicit in
@@ -140,23 +141,31 @@ from workload controllers and Pods.
 
 ```python
 from harness_common import KubernetesWorkload
-from harness_toolbox.environment import kubernetes_source
-from harness_toolbox.kube import Options
 
-async def observe(clients, service):
+async def observe(ctx, service, environment_id):
+    # ctx is an EnvironmentContext; the caller selected this operation's environment.
+    kube = await ctx.clients.get(ctx.environment)
     pods = []
     for workload in service.workloads:
         if not isinstance(workload, KubernetesWorkload):
             raise TypeError("This observer requires Kubernetes workloads")
-        source = kubernetes_source(service.environment, Options(workload.namespace, 15, 4))
-        kube = await clients.get(source)
-        pods.extend(await kube.list_workload_pods(workload.kind, workload.name))
+        pods.extend(await kube.resolve_workload(workload, environment=environment_id))
     return pods
 ```
 
 Workload operations are one toolbox capability, alongside database, OpenSearch, process and transport
-operations. Those capabilities do not require Service or Workload objects. ServiceDataSource can
+operations. Those capabilities do not require Service or Workload objects. DataSource specializes
+ClientProvider with data-access semantics; accessible environments implement the same provider contract without becoming data declarations.
+EnvironmentContext borrows a get-only client view and carries a deadline without owning disposal. ServiceDataSource can
 associate logical context with independently configured sources without changing source keys.
+
+resolve_workload uses the declaration's namespace or the client's explicit default, returns all
+matching Pod incarnations, and raises KubernetesError for failed discovery rather than returning an
+empty inventory. Catch ToolboxError.kind/code for reports; its native cause is debug-only.
+The required environment ID comes from the caller's target registry, not the access path or a
+display name. It remains unchanged when kubeconfig, credentials or access Host change for the same
+target. The registry owns the binding between that ID and the selected access configuration.
+clients.get(environment) selects the native/Host resource backend with the same ClientManager ownership.
 
 PodPythonTransport accepts an explicit `container` for multi-container Pods. It is part of the
 transport identity so clients using different containers cannot share a route. Credentials and
@@ -165,12 +174,12 @@ query parameters continue to travel over stdin.
 ## Environment-scoped address selection
 
 Generic client ownership and service associations live in `harness_common`; toolbox
-re-exports the original lifecycle names. `harness_toolbox.environment.kubernetes_source`
-is the Kubernetes-specific factory. The independent packages depend in one direction:
+re-exports the lifecycle names. `harness_toolbox.environment.KubernetesEnvironment`
+is the concrete environment provider. The independent packages depend in one direction:
 `quality-harness` → `harness-toolbox` → `harness-common`.
 
 ```python
-from harness_common import KubernetesEnvironment
+from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.address import AddressPolicy
 
 addresses = AddressPolicy(
@@ -183,7 +192,7 @@ addresses = AddressPolicy(
 # Pass addresses=addresses to ConnectionSource for MySQL or OpenSearch.
 ```
 
-Resolution is lazy and shares Kubernetes clients through the root ClientProvider.
+Resolution is lazy and shares Kubernetes clients through the root ClientManager.
 A Service lookup uses this environment's kubeconfig/context (empty kubeconfig means
 in-cluster identity, never ambient local kubeconfig). A confirmed Service never falls
 back to local short-name DNS. Cross-namespace names use `service.namespace.svc`;

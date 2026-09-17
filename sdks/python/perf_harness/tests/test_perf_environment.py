@@ -2,7 +2,8 @@ import shlex
 from pathlib import Path
 
 import pytest
-from harness_common import Host, HostEnvironment, KubernetesEnvironment
+from harness_common import Host, HostEnvironment
+from harness_toolbox.environment import KubernetesEnvironment
 
 from perf_harness.config import _parse_deployer, _parse_service
 from perf_harness.model import Deployment, ResourceProfile
@@ -22,6 +23,7 @@ def service_config():
             "host": {"name": "devbox", "transport": "ssh", "address": "devbox"},
             "kubeconfig": "/remote/config with spaces",
             "context": "dev-context",
+            "image_registry": "registry.example.com/team",
         },
     }
 
@@ -32,6 +34,7 @@ def test_environment_inheritance_and_explicit_local_override():
     assert root.environment.host == Host("devbox", "ssh", "devbox")
     assert root.base_url == "http://chat:8000"
     downstream = _parse_service({"name": "worker"}, root.environment)
+    assert downstream.environment.image_registry == "registry.example.com/team"
     assert downstream.environment == root.environment
     local = _parse_service(
         {"environment": {"host": None, "kubeconfig": "~/.kube/config"}}, root.environment

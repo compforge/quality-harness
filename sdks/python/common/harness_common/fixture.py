@@ -9,7 +9,8 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Generic, Protocol, TypeVar
 
-from harness_common.client import ClientManager, ClientProvider
+from harness_common.client import ClientManager
+from harness_common.context import EnvironmentContext
 from harness_common.environment import Environment, EnvironmentSnapshot
 
 S = TypeVar("S")
@@ -18,15 +19,10 @@ R = TypeVar("R")
 
 
 @dataclass(frozen=True)
-class EnvironmentContext:
-    environment: Environment
-    clients: ClientProvider
-    phase: str
-    deadline: float
+class FixtureContext(EnvironmentContext):
+    """Fixture phase information extends the neutral environment context."""
 
-    @property
-    def remaining_s(self) -> float:
-        return max(0.0, self.deadline - time.monotonic())
+    phase: str
 
 
 class EnvironmentFixture(Protocol[S_contra]):
@@ -36,8 +32,8 @@ class EnvironmentFixture(Protocol[S_contra]):
     until cleanup returns; only their manager owns final disposal.
     """
 
-    async def prepare(self, ctx: EnvironmentContext, state: S_contra) -> None: ...
-    async def cleanup(self, ctx: EnvironmentContext, state: S_contra) -> None: ...
+    async def prepare(self, ctx: FixtureContext, state: S_contra) -> None: ...
+    async def cleanup(self, ctx: FixtureContext, state: S_contra) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -117,14 +113,16 @@ async def run_environment(
     async def phase(
         name: str,
         budget: float,
-        callback: Callable[[EnvironmentContext], Awaitable[None]],
+        callback: Callable[[FixtureContext], Awaitable[None]],
         *,
         cooperative: bool = False,
     ) -> bool:
         started = time.monotonic()
         error = None
         try:
-            ctx = EnvironmentContext(environment, clients, name, started + budget)
+            ctx = FixtureContext(
+                environment, clients, deadline=started + budget, phase=name
+            )
             if cooperative:
                 await callback(ctx)
                 if ctx.remaining_s <= 0:
@@ -140,7 +138,7 @@ async def run_environment(
             )
         return error is None
 
-    async def prepare(ctx: EnvironmentContext) -> None:
+    async def prepare(ctx: FixtureContext) -> None:
         try:
             await fixture.prepare(ctx, state)
         finally:
@@ -162,7 +160,7 @@ async def run_environment(
     async def execute(ctx: EnvironmentContext) -> None:
         execution.result = await run(ctx, state)
 
-    async def cleanup(ctx: EnvironmentContext) -> None:
+    async def cleanup(ctx: FixtureContext) -> None:
         try:
             await fixture.cleanup(ctx, state)
         finally:

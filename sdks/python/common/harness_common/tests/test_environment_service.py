@@ -9,7 +9,6 @@ from harness_common import (
     ExperimentRun,
     Forge,
     HttpOperation,
-    KubernetesEnvironment,
     Operation,
     OperationRun,
     Outcome,
@@ -73,17 +72,6 @@ def test_repository_is_scoped_by_forge() -> None:
 
 def test_product_is_an_independent_business_identity() -> None:
     assert Product(name="example-product") == Product(name="example-product")
-
-
-def test_kubernetes_environment_extends_environment_with_cluster_access() -> None:
-    environment = KubernetesEnvironment(
-        name="dev",
-        kubeconfig="~/.kube/config",
-        context="dev-cluster",
-    )
-
-    assert isinstance(environment, Environment)
-    assert environment.kubeconfig == "~/.kube/config"
 
 
 def test_http_operation_extends_operation_with_http_contract() -> None:

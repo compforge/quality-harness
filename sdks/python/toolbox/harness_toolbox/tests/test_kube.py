@@ -8,7 +8,8 @@ import pytest
 from kubernetes_asyncio import client as kubernetes
 from kubernetes_asyncio.client.exceptions import ApiException
 
-from harness_toolbox.kube import KubernetesClient, KubernetesDataSource, Options, PodRef
+from harness_toolbox.kube import KubernetesClient, Options, PodRef
+from harness_toolbox.kube.client import _KubernetesAccess
 
 TEST_NAMESPACE = "quality"
 TEST_OPTIONS = Options(
@@ -75,7 +76,7 @@ async def test_list_pods_projects_stable_state_and_sorts() -> None:
             pod("worker-a", "uid-a", unschedulable=True),
         ]
     )
-    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS), api=api)
+    client = KubernetesClient(_KubernetesAccess(TEST_OPTIONS), api=api)
 
     pods = await client.list_pods("app=worker")
 
@@ -99,7 +100,7 @@ async def test_delete_pod_uses_uid_precondition(
     force: bool, expected_grace_period: int | None
 ) -> None:
     api = FakeCoreV1API([pod("worker", "uid-worker")])
-    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS), api=api)
+    client = KubernetesClient(_KubernetesAccess(TEST_OPTIONS), api=api)
     ref = PodRef(name="worker", uid="uid-worker")
 
     if force:
@@ -123,7 +124,7 @@ async def test_wait_replacement_then_ready() -> None:
             pod("worker-new", "uid-new", ready=True),
         ]
     )
-    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS), api=api)
+    client = KubernetesClient(_KubernetesAccess(TEST_OPTIONS), api=api)
     previous = await client.get_pod("worker-old")
 
     replacement = await client.wait_replacement(
@@ -137,7 +138,7 @@ async def test_wait_replacement_then_ready() -> None:
 
 async def test_wait_ready_rejects_reused_name() -> None:
     client = KubernetesClient(
-        KubernetesDataSource(TEST_OPTIONS),
+        _KubernetesAccess(TEST_OPTIONS),
         api=FakeCoreV1API([pod("worker", "uid-new", ready=True)]),
     )
 
@@ -150,7 +151,7 @@ async def test_wait_ready_rejects_reused_name() -> None:
 
 
 async def test_wait_ready_bounds_inflight_kubernetes_request() -> None:
-    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS), api=SlowReadCoreV1API())
+    client = KubernetesClient(_KubernetesAccess(TEST_OPTIONS), api=SlowReadCoreV1API())
 
     with pytest.raises(TimeoutError, match="timed out waiting"):
         await client.wait_ready(
@@ -162,7 +163,7 @@ async def test_wait_ready_bounds_inflight_kubernetes_request() -> None:
 
 async def test_wait_unschedulable() -> None:
     client = KubernetesClient(
-        KubernetesDataSource(TEST_OPTIONS),
+        _KubernetesAccess(TEST_OPTIONS),
         api=FakeCoreV1API([pod("worker", "uid-worker", unschedulable=True)]),
     )
 
@@ -185,7 +186,7 @@ async def test_list_events_scopes_by_uid_and_sorts() -> None:
             event("other", "uid-other", "Ignored", first),
         ]
     )
-    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS), api=api)
+    client = KubernetesClient(_KubernetesAccess(TEST_OPTIONS), api=api)
 
     events = await client.list_events(PodRef(name="worker", uid="uid-worker"))
 
@@ -202,7 +203,7 @@ async def test_list_events_scopes_by_uid_and_sorts() -> None:
 )
 def test_client_rejects_missing_scope_or_limits(options: Options) -> None:
     with pytest.raises(ValueError):
-        KubernetesClient(KubernetesDataSource(options), api=FakeCoreV1API())
+        KubernetesClient(_KubernetesAccess(options), api=FakeCoreV1API())
 
 
 def pod(
@@ -258,7 +259,7 @@ async def test_create_inspect_delete_and_wait_for_exact_instance():
     from harness_toolbox.kube import PodSpec
 
     api = FakeCoreV1API()
-    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS), api=api)
+    client = KubernetesClient(_KubernetesAccess(TEST_OPTIONS), api=api)
     created = await client.create_pod(
         PodSpec("worker", "example/worker:1", requests={"cpu": "100m"})
     )
@@ -280,7 +281,7 @@ async def test_exec_stdin_exit_status_and_uid_check(tmp_path):
     )
     script.chmod(0o755)
     api = FakeCoreV1API([pod("worker", "uid")])
-    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS, kubectl=str(script)), api=api)
+    client = KubernetesClient(_KubernetesAccess(TEST_OPTIONS, kubectl=str(script)), api=api)
     result = await client.execute(PodRef("worker", "uid"), ["cat"], stdin=b"private payload")
     assert (result.stdout, result.stderr, result.exit_code) == (
         b"private payload",
@@ -299,7 +300,7 @@ async def test_exec_omits_stdin_flag_without_input(tmp_path):
     )
     script.chmod(0o755)
     api = FakeCoreV1API([pod("worker", "uid")])
-    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS, kubectl=str(script)), api=api)
+    client = KubernetesClient(_KubernetesAccess(TEST_OPTIONS, kubectl=str(script)), api=api)
 
     result = await client.execute(PodRef("worker", "uid"), ["env"])
 
@@ -313,7 +314,7 @@ async def test_root_disposal_drains_exec(tmp_path):
     script.write_text("#!/usr/bin/env python3\nimport time\ntime.sleep(60)\n")
     script.chmod(0o755)
     client = KubernetesClient(
-        KubernetesDataSource(TEST_OPTIONS, kubectl=str(script)),
+        _KubernetesAccess(TEST_OPTIONS, kubectl=str(script)),
         api=FakeCoreV1API([pod("worker", "uid")]),
     )
     task = asyncio.create_task(client.execute(PodRef("worker", "uid"), ["sleep", "60"]))
@@ -330,7 +331,7 @@ async def test_port_forward_is_owned_by_client(tmp_path):
     )
     script.chmod(0o755)
     client = KubernetesClient(
-        KubernetesDataSource(TEST_OPTIONS, kubectl=str(script)),
+        _KubernetesAccess(TEST_OPTIONS, kubectl=str(script)),
         api=FakeCoreV1API([pod("worker", "uid")]),
     )
     endpoint = await client.port_forward(PodRef("worker", "uid"), 3306)
@@ -349,7 +350,7 @@ async def test_in_cluster_api_and_exec_pin_the_same_identity(monkeypatch):
         client_configuration.ssl_ca_cert = where()
 
     monkeypatch.setattr("harness_toolbox.kube.client.config.load_incluster_config", load)
-    client = KubernetesClient(KubernetesDataSource(TEST_OPTIONS))
+    client = KubernetesClient(_KubernetesAccess(TEST_OPTIONS))
     await client.initialize()
     path = Path(client.access.kubeconfig)
     config = json.loads(path.read_text())

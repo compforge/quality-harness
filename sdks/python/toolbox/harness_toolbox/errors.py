@@ -4,6 +4,8 @@ from enum import StrEnum
 
 
 class ErrorKind(StrEnum):
+    INVALID_ARGUMENT = "invalid_argument"
+    UNSUPPORTED_OPERATION = "unsupported_operation"
     CONNECTION_FAILED = "connection_failed"
     CONNECTION_LOST = "connection_lost"
     TLS_VERIFICATION_FAILED = "tls_verification_failed"
@@ -34,6 +36,10 @@ class ToolboxError(Exception):
 
 class MySQLError(ToolboxError):
     """MySQL access failed."""
+
+
+class KubernetesError(ToolboxError):
+    """Kubernetes discovery or access failed."""
 
 
 class MySQLConnectionError(MySQLError):

@@ -4,14 +4,16 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from harness_common import ClientManager, Environment, KubernetesEnvironment
+from harness_common import ClientManager, Environment
 from kubernetes_asyncio import client as kube_api
 from kubernetes_asyncio.client.exceptions import ApiException
 from sqlalchemy.exc import OperationalError
 
 from harness_toolbox.address import AddressPolicy, address_candidates
+from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.errors import ErrorKind, MySQLConnectionError, OpenSearchRequestError
-from harness_toolbox.kube import KubernetesClient, KubernetesDataSource
+from harness_toolbox.kube import KubernetesClient
+from harness_toolbox.kube.client import _KubernetesAccess
 from harness_toolbox.mysql import MySQLDataSource, MySQLTarget
 from harness_toolbox.opensearch import OpenSearchDataSource, OpenSearchTarget
 from harness_toolbox.transport import ConnectionSource, Endpoint
@@ -50,7 +52,7 @@ def install_kube(monkeypatch, api):
         sources.append(source)
         return KubernetesClient(source, api=api)
 
-    monkeypatch.setattr(KubernetesDataSource, "create_client", create)
+    monkeypatch.setattr(_KubernetesAccess, "create_client", create)
     return sources
 
 
@@ -249,8 +251,8 @@ def test_source_key_includes_context_and_ordered_fallbacks():
             connection=replace(
                 source.connection, addresses=replace(POLICY, environment=replace(ENV, name="alias"))
             ),
-        ).key
-        == source.key
+        ).client_key
+        == source.client_key
     )
     for policy in [
         replace(POLICY, environment=replace(ENV, context="other")),
@@ -258,6 +260,6 @@ def test_source_key_includes_context_and_ordered_fallbacks():
         replace(POLICY, namespace="other"),
     ]:
         assert (
-            replace(source, connection=replace(source.connection, addresses=policy)).key
-            != source.key
+            replace(source, connection=replace(source.connection, addresses=policy)).client_key
+            != source.client_key
         )

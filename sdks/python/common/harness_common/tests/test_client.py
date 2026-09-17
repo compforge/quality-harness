@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from harness_common import ClientManager, data_source_key
+from harness_common import ClientManager, client_key
 
 
 class Probe:
@@ -32,7 +32,7 @@ class Probe:
 
 @dataclass
 class Source:
-    key: str
+    client_key: str
     factory: object
 
     def create_client(self, clients):
@@ -118,10 +118,38 @@ async def test_dependencies_close_after_consumers_even_on_cleanup_error():
 
 
 def test_key_canonicalizes_configuration_and_hides_credentials():
-    assert data_source_key(
-        "db", {"host": "a", "password": "secret"}
-    ) == data_source_key("db", {"password": "secret", "host": "a"})
-    assert "secret" not in data_source_key("db", {"password": "secret"})
-    assert data_source_key("db", {"password": "a"}) != data_source_key(
-        "db", {"password": "b"}
+    assert client_key("db", {"host": "a", "password": "secret"}) == client_key(
+        "db", {"password": "secret", "host": "a"}
     )
+    assert "secret" not in client_key("db", {"password": "secret"})
+    assert client_key("db", {"password": "a"}) != client_key("db", {"password": "b"})
+
+
+async def test_failed_cleanup_poisoned_key_is_reported_at_root_disposal():
+    manager = ClientManager()
+    created = 0
+    cleanup = ValueError("cleanup failed")
+
+    class Broken:
+        async def initialize(self):
+            raise ValueError("initialization failed")
+
+        async def dispose(self):
+            raise cleanup
+
+    def create(_):
+        nonlocal created
+        created += 1
+        return Broken()
+
+    source = Source("broken", create)
+    with pytest.raises(ExceptionGroup) as first:
+        await manager.get(source)
+    with pytest.raises(ExceptionGroup) as retry:
+        await manager.get(source)
+    assert retry.value is first.value
+    assert created == 1
+    for _ in range(2):
+        with pytest.raises(ExceptionGroup) as closing:
+            await manager.dispose()
+        assert closing.value.exceptions == (cleanup,)

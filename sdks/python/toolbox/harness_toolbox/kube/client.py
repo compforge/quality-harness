@@ -13,11 +13,12 @@ from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
 from aiohttp import ClientResponse
+from harness_common import KubernetesWorkload, KubernetesWorkloadInstance
 from kubernetes_asyncio import client as kubernetes
 from kubernetes_asyncio import config
 from kubernetes_asyncio.client.exceptions import ApiException
 
-from harness_toolbox.client import ClientProvider, data_source_key
+from harness_toolbox.client import _ClientBorrower, client_key
 from harness_toolbox.kube.model import (
     Container,
     Event,
@@ -78,28 +79,28 @@ class _AppsV1API(Protocol):
 
 
 @dataclass(frozen=True)
-class KubernetesDataSource:
+class _KubernetesAccess:
     options: Options
     kubeconfig: str | None = None
     context_name: str | None = None
     kubectl: str = "kubectl"
 
     @property
-    def key(self) -> str:
-        return data_source_key(
+    def client_key(self) -> str:
+        return client_key(
             "kubernetes", [asdict(self.options), self.kubeconfig, self.context_name, self.kubectl]
         )
 
-    def create_client(self, clients: ClientProvider) -> KubernetesClient:
+    def create_client(self, clients: _ClientBorrower) -> KubernetesClient:
         return KubernetesClient(self)
 
 
 class KubernetesClient:
-    """Namespace-scoped operations; DataSource + ClientManager own initialization."""
+    """Namespace-scoped operations; ClientProvider + ClientManager own initialization."""
 
     def __init__(
         self,
-        source: KubernetesDataSource,
+        source: _KubernetesAccess,
         *,
         api: _CoreV1API | None = None,
         apps_api: _AppsV1API | None = None,
@@ -326,6 +327,24 @@ class KubernetesClient:
                 f"with selector {selector!r}: {exc}"
             ) from exc
         return sorted((_pod_from(item) for item in result.items), key=lambda pod: pod.name)
+
+    async def resolve_workload(
+        self, workload: KubernetesWorkload, *, environment: str
+    ) -> list[KubernetesWorkloadInstance]:
+        """Resolve with a caller-owned target identity, never an access-config hash."""
+        from dataclasses import replace
+
+        from harness_toolbox.kube.workload import resolve_workload
+
+        namespace = (
+            workload.namespace if workload.namespace is not None else self._options.namespace
+        )
+        resources = (
+            self.resources
+            if namespace == self._options.namespace
+            else KubernetesResources(self._native_api, replace(self._options, namespace=namespace))
+        )
+        return await resolve_workload(resources, workload, namespace, environment)
 
     async def service_addresses(self, name: str) -> tuple[str, ...]:
         """Read Service IPs (or ready headless endpoints) in this client's cluster.

@@ -5,11 +5,12 @@ from dataclasses import replace
 
 import pytest
 from aiohttp import web
-from harness_common import Host, KubernetesEnvironment
+from harness_common import Host, KubernetesWorkload
 from harness_common.client import ClientManager
 from kubernetes_asyncio.client import ApiException
 
-from harness_toolbox.kube import KubernetesResourcesDataSource, Options
+from harness_toolbox.environment import KubernetesEnvironment
+from harness_toolbox.kube import Options
 from harness_toolbox.kube.resource_list import ResourceListDataSource
 
 
@@ -71,6 +72,26 @@ async def source(tmp_path):
         yield ResourceListDataSource(env, Options("test-namespace", 10, 2)), state
     finally:
         await runner.cleanup()
+
+
+@pytest.mark.parametrize("remote", [False, True])
+async def test_workload_resolution_uses_environment_backend(source, monkeypatch, remote):
+    config, state = source
+    if remote:
+        config, _ = remote_source(config, monkeypatch)
+    async with ClientManager() as clients:
+        access = await clients.get(replace(config.environment, options=config.options))
+        workload = KubernetesWorkload(
+            "logical", {"kind": "labels", "labels": {"app": "api"}}, namespace="override"
+        )
+        assert await access.resolve_workload(workload, environment="env") == []
+        assert state["requests"][-1][1] == "/api/v1/namespaces/override/pods"
+        state["deny"] = True
+        from harness_toolbox.errors import ErrorKind, KubernetesError
+
+        with pytest.raises(KubernetesError) as caught:
+            await access.resolve_workload(workload, environment="env")
+        assert caught.value.kind == ErrorKind.PERMISSION_DENIED
 
 
 def remote_source(source, monkeypatch):
@@ -191,9 +212,7 @@ async def test_read_view_borrows_shared_backend(source, monkeypatch, remote):
         config, calls = remote_source(config, monkeypatch)
     async with ClientManager() as clients:
         view = await clients.get(config)
-        resources = await clients.get(
-            KubernetesResourcesDataSource(config.environment, config.options)
-        )
+        resources = await clients.get(replace(config.environment, options=config.options))
         assert view._resources is resources
         await view.list("v1", "Pod")
         await view.dispose()

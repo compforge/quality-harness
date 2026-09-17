@@ -7,7 +7,8 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 
 import httpx
-from harness_common.client import ClientProvider, data_source_key
+from harness_common import DataSource
+from harness_common.client import _ClientBorrower, client_key
 from prombed import Prombed, ScrapeTarget
 
 from harness_toolbox.data_loader import DataLoader
@@ -24,7 +25,7 @@ class PrometheusOptions:
 
 
 @dataclass(frozen=True)
-class PrometheusDataSource:
+class PrometheusDataSource(DataSource["PrometheusClient"]):
     """Endpoint, explicit credentials and capacity; logical service names stay outside."""
 
     url: str
@@ -32,10 +33,10 @@ class PrometheusDataSource:
     options: PrometheusOptions = field(default_factory=PrometheusOptions)
 
     @property
-    def key(self) -> str:
-        return data_source_key("prometheus", asdict(self))
+    def client_key(self) -> str:
+        return client_key("prometheus", asdict(self))
 
-    def create_client(self, clients: ClientProvider) -> PrometheusClient:
+    def create_client(self, clients: _ClientBorrower) -> PrometheusClient:
         return PrometheusClient(self)
 
 
@@ -119,7 +120,7 @@ class PrometheusClient:
         if self._runtime is None or self._closed:
             raise RuntimeError("Prometheus client is closed")
         timestamp = (
-            await scope.read((self._source.key, "scrape"), self._scrape)
+            await scope.read((self._source.client_key, "scrape"), self._scrape)
             if scope is not None
             else await self._scrape()
         )

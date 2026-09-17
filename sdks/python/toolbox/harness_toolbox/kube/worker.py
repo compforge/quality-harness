@@ -14,11 +14,10 @@ import sys
 from contextlib import AsyncExitStack
 from dataclasses import asdict, replace
 
-from harness_common import ClientManager, KubernetesEnvironment
-from harness_common.environment import parse_environment
+from harness_common import ClientManager
 from kubernetes_asyncio.client import ApiException
 
-from harness_toolbox.environment import kubernetes_source
+from harness_toolbox.environment import KubernetesEnvironment, _native_access, parse_environment
 from harness_toolbox.host import command
 from harness_toolbox.kube.model import Options, PodRef
 from harness_toolbox.process import process_scope
@@ -182,7 +181,7 @@ async def _serve() -> None:
         raise ValueError("worker requires a local Kubernetes environment")
     options = Options(**setup["options"])
     async with ClientManager() as clients:
-        client = await clients.get(kubernetes_source(env, options))
+        client = await clients.get(_native_access(env, options))
 
         async def read_logs(ref: dict, *, container: str, max_bytes: int) -> dict:
             data = await client.read_logs(PodRef(**ref), container=container, max_bytes=max_bytes)

@@ -29,7 +29,6 @@ from harness_common.component import Component as Component
 from harness_common.deployment import Deployer as Deployer
 from harness_common.deployment import Deployment as Deployment
 from harness_common.environment import Environment as Environment
-from harness_common.environment import KubernetesEnvironment as KubernetesEnvironment
 from harness_common.environment import HostEnvironment as HostEnvironment
 from harness_common.host import Host as Host
 from harness_common.environment import EnvironmentFacts as EnvironmentFacts
@@ -48,15 +47,20 @@ from harness_common.reducer import Reducer as Reducer
 from harness_common.service import Service as Service
 from harness_common.workload import KubernetesWorkload as KubernetesWorkload
 from harness_common.workload import Workload as Workload
+from harness_common.workload import WorkloadInstance as WorkloadInstance
+from harness_common.workload import (
+    KubernetesWorkloadInstance as KubernetesWorkloadInstance,
+)
 
 from harness_common.client import Client as Client
 from harness_common.client import ClientManager as ClientManager
 from harness_common.client import ClientProvider as ClientProvider
-from harness_common.client import DataSource as DataSource
-from harness_common.client import ServiceDataSource as ServiceDataSource
-from harness_common.client import data_source_key as data_source_key
+from harness_common.datasource import DataSource as DataSource
+from harness_common.datasource import ServiceDataSource as ServiceDataSource
+from harness_common.client import client_key as client_key
 from harness_common.fixture import EnvironmentFixture as EnvironmentFixture
-from harness_common.fixture import EnvironmentContext as EnvironmentContext
+from harness_common.context import EnvironmentContext as EnvironmentContext
+from harness_common.fixture import FixtureContext as FixtureContext
 from harness_common.fixture import EnvironmentBudgets as EnvironmentBudgets
 from harness_common.fixture import EnvironmentRun as EnvironmentRun
 from harness_common.fixture import run_environment as run_environment

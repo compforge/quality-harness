@@ -10,41 +10,33 @@ Install only the protocols you use:
 pip install 'harness-toolbox[kube,opensearch,mysql,prometheus]'
 ```
 
-`harness-common` owns `Client`, `DataSource`, `ClientProvider` and `ClientManager`;
-toolbox re-exports these names. `Client` owns initialization and disposal. A `DataSource` identifies its configuration;
+`harness-common` owns `Client`, `ClientProvider`, `DataSource` and `ClientManager`;
+toolbox re-exports these names. `Client` owns initialization and disposal. A `ClientProvider` identifies its configuration;
 `ClientManager` shares it across concurrent or nested work and cleans up at root exit.
 `ConnectionSource` and `Transport` separate caller-owned configuration from the path used to reach it.
 
 ```python
 import asyncio
 from harness_toolbox import ClientManager
-from harness_toolbox.kube import KubernetesDataSource, Options, PodSpec
+from harness_toolbox.environment import KubernetesEnvironment
+from harness_toolbox.kube import Options
 
 async def main():
-    source = KubernetesDataSource(
+    environment = KubernetesEnvironment(
+        name="quality",
         options=Options(namespace="quality", request_timeout_s=15, connection_pool_maxsize=4),
         kubeconfig="/path/to/kubeconfig",
     )
     async with ClientManager() as clients:
-        kube = await clients.get(source)
-        pod = await kube.create_pod(PodSpec("toolbox-demo", "busybox:1.37",
-                                              command=("sleep", "300")))
-        try:
-            await kube.wait_ready(pod.ref(), timeout_s=60, interval_s=1)
-            result = await kube.execute(pod.ref(), ["echo", "hello"])
-            print(result.stdout.decode(), result.exit_code)
-        finally:
-            await kube.delete_pod(pod.ref())
-            await kube.wait_deleted(pod.ref(), timeout_s=60, interval_s=1)
+        kube = await clients.get(environment)
+        pods = await kube.list("v1", "Pod", label_selector="app=toolbox-demo")
+        print(pods)
 
 asyncio.run(main())
 ```
 
-Existing workloads can be observed with `kube.list_service_pods(name)` or
-`kube.list_deployment_pods(name)`. Both use the resource's label selector, return stable Pod
-observations, and leave readiness/sample selection to the caller. Missing resources raise
-`ResourceNotFoundError`; permission and network errors remain failures. Selectorless resources
-cannot be used to enumerate all Pods accidentally.
+Use manifest create/get/list/delete and bounded Pod logs on the same environment client.
+Consumers own created resources and must explicitly delete them; closing the client only releases access.
 
 The caller chooses cluster, namespace, credentials, SQL, indexes, collection windows, and authorization.
 The package does not read product-specific environment variables or registries. Kubernetes control uses
@@ -54,8 +46,8 @@ kubeconfig/context. Pod Python access additionally requires Python and the proto
 See [lifecycle and connection examples](docs/lifecycle.md) for shared clients, database routes, TLS,
 log budgets, and cancellation behavior.
 
-`list_workload_pods` resolves Deployment, StatefulSet, DaemonSet or an explicit Pod.
-Kubernetes Service endpoints retain their separate `list_service_pods` operation.
+`resolve_workload` resolves explicit Kubernetes workloads by resource, Service selector or labels;
+the caller supplies the stable environment ID for evidence.
 
 Prometheus observations use `PrometheusDataSource` from `harness_toolbox.prometheus`
 (extra `prometheus`). Its client scrapes a `/metrics` endpoint and evaluates PromQL locally

@@ -19,11 +19,10 @@ from harness_common import (
     Deployer,
     Environment,
     Forge,
-    KubernetesEnvironment,
     Repository,
 )
-from harness_common.environment import parse_environment
 from harness_common.overlay import Overlay
+from harness_toolbox.environment import KubernetesEnvironment, parse_environment
 from spec_case.facets import FacetSchema
 from spec_case.model import Case, CaseSet, load_caseset, validate
 
@@ -335,6 +334,8 @@ def _parse_service(c: dict, fallback_environment: Environment | None = None) -> 
     if override.get("kind") in {"generic", "host"}:
         inherited.pop("kubeconfig", None)
         inherited.pop("context", None)
+        inherited.pop("options", None)
+        inherited.pop("image_registry", None)
     environment = parse_environment(inherited | override)
     if isinstance(environment, KubernetesEnvironment) and (
         environment.host is None or environment.host.transport in {"", "local"}
