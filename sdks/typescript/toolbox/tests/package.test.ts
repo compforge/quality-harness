@@ -34,7 +34,7 @@ test("published lifecycle and transport entries run in Node without protocol dri
       assert.equal(ClientManager, Common);
       assert.ok(new KubernetesError('safe', {kind:'permission_denied'}) instanceof ToolboxError);
       let created = 0, closed = 0;
-      const source = { key: 'test', createClient: () => {
+      const source = { clientKey: 'test', createClient: () => {
         created++; return { initialize: async () => {}, dispose: async () => { closed++; } };
       } };
       const manager = new ClientManager();
@@ -44,7 +44,9 @@ test("published lifecycle and transport entries run in Node without protocol dri
       assert.equal(clientKey('config', {a:1,b:2}), clientKey('config', {b:2,a:1}));
       const [a,b] = await Promise.all([manager.get(source), manager.get(source)]);
       assert.equal(a,b); assert.equal(created,1);
-      await manager.dispose(); await manager.dispose(); assert.equal(closed,1);
+      const other = await manager.get({...source, clientKey:'other'});
+      assert.notEqual(a,other); assert.equal(created,2);
+      await manager.dispose(); await manager.dispose(); assert.equal(closed,2);
       assert.deepEqual(await new DirectTransport().connect({host:'localhost',port:1}), {host:'localhost',port:1});
     `], { cwd: root, encoding: "utf8" });
     expect(result.error).toBeUndefined();

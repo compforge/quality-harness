@@ -1,10 +1,12 @@
 import { clientKey, type ClientProvider, type ClientManager } from "../client";
+import type { Environment } from "@compforge/harness-common";
 import { KubernetesClient } from "./client";
 import type { KubectlOptions } from "./executor";
 import type { ResourceLimits } from "./resources";
 
 /** Cluster access is a client provider; the execution owns client lifetime. */
-export class KubernetesEnvironment implements ClientProvider<KubernetesClient> {
+export class KubernetesEnvironment implements Environment, ClientProvider<KubernetesClient> {
+  readonly kind = "kubernetes";
   readonly clientKey: string;
   /** Deployment metadata only; not part of client reuse or access configuration. */
   readonly imageRegistry?: string;
