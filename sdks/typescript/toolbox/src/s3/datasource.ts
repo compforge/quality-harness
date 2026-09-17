@@ -1,4 +1,4 @@
-import { dataSourceKey, type DataSource } from "../datasource";
+import { clientKey, type DataSource, type ClientProvider } from "../datasource";
 import { DirectTransport, type TcpTransport } from "../transport";
 import { S3Client } from "./client";
 import type { S3Limits, S3Target } from "./types";
@@ -15,10 +15,10 @@ export class S3DataSource implements DataSource<S3Client> {
     this.#target = structuredClone(target);
     this.#limits = { ...limits };
     this.#transport = route?.transport ?? new DirectTransport();
-    this.key = dataSourceKey("s3", { target: this.#target, limits: this.#limits,
+    this.key = clientKey("s3", { target: this.#target, limits: this.#limits,
       route: route ? { key: route.key, transport: route.transport.name } : "direct" });
   }
-  createClient(signal: AbortSignal): S3Client {
+  createClient(_clients: ClientProvider, signal: AbortSignal): S3Client {
     return new S3Client({ resolve: async () => this.#target,
       transports: [this.#transport] }, this.#limits, { signal });
   }

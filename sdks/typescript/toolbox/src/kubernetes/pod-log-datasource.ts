@@ -1,4 +1,4 @@
-import { dataSourceKey, type DataSource } from "../datasource";
+import { clientKey, type DataSource, type ClientProvider } from "../datasource";
 import type { ConcurrencyPool } from "../concurrency";
 import { PodLogClient } from "./pod-log-client";
 import type { PodLogByteBudget, PodLogCapturePolicy } from "./log-capture-plan";
@@ -11,8 +11,8 @@ export class PodLogDataSource implements DataSource<PodLogClient> {
     private readonly pool: ConcurrencyPool,
     private readonly budget: PodLogByteBudget,
     private readonly policy: PodLogCapturePolicy,
-  ) { this.key = dataSourceKey("pod-log", target); }
-  createClient(signal: AbortSignal): PodLogClient {
+  ) { this.key = clientKey("pod-log", target); }
+  createClient(_clients: ClientProvider, signal: AbortSignal): PodLogClient {
     return new PodLogClient(this.pool, signal, this.policy, this.budget);
   }
 }

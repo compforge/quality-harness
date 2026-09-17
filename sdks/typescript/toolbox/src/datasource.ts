@@ -1,5 +1,6 @@
-export { dataSourceKey, ClientManager, type Client, type ClientProvider, type DataSource, type ServiceDataSource } from "@compforge/harness-common";
+export { clientKey, ClientManager, EnvironmentContext, type Client, type ClientFactory, type ClientProvider, type DataSource, type ServiceDataSource } from "@compforge/harness-common";
 import type { Transport } from "./transport";
+export { ToolboxError, KubernetesError, type ErrorKind } from "./errors";
 
 /** Resolution owns configuration semantics; transports preserve the resolved target and identity. */
 export interface ConnectionSource<Target> {

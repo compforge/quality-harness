@@ -5,12 +5,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from harness_toolbox import ClientManager
-from harness_toolbox.kube import KubernetesClient, KubernetesDataSource, Options
+from harness_toolbox.kube import KubernetesClient, KubernetesClientFactory, Options
 from harness_toolbox.kube.model import Container, Pod
 from harness_toolbox.pod_log import PodLogDataSource, PodLogTarget
 
 
-class TestKubernetesSource(KubernetesDataSource):
+class TestKubernetesSource(KubernetesClientFactory):
     __test__ = False
 
     def create_client(self, clients):

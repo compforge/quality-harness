@@ -8,8 +8,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
-from harness_toolbox.client import ClientProvider, data_source_key
-from harness_toolbox.kube import KubernetesClient, KubernetesDataSource
+from harness_toolbox.client import ClientProvider, client_key
+from harness_toolbox.kube import KubernetesClient, KubernetesClientFactory
 from harness_toolbox.process import process_scope, read_bounded
 
 
@@ -31,7 +31,7 @@ class PodLogTarget:
 
     @property
     def key(self) -> str:
-        return data_source_key(
+        return client_key(
             "pod-log",
             {**asdict(self), "since": self.since.isoformat(), "until": self.until.isoformat()},
         )
@@ -68,7 +68,7 @@ class PodLogCapture:
 
 @dataclass(frozen=True)
 class PodLogDataSource:
-    kubernetes: KubernetesDataSource
+    kubernetes: KubernetesClientFactory
     concurrency: int = 4
     timeout_s: float = 60
     max_capture_bytes: int = 64 * 1024 * 1024
@@ -76,7 +76,7 @@ class PodLogDataSource:
 
     @property
     def key(self) -> str:
-        return data_source_key(
+        return client_key(
             "pod-logs",
             [
                 self.kubernetes.key,

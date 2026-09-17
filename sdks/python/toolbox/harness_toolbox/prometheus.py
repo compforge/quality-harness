@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 
 import httpx
-from harness_common.client import ClientProvider, data_source_key
+from harness_common.client import ClientProvider, client_key
 from prombed import Prombed, ScrapeTarget
 
 from harness_toolbox.data_loader import DataLoader
@@ -33,7 +33,7 @@ class PrometheusDataSource:
 
     @property
     def key(self) -> str:
-        return data_source_key("prometheus", asdict(self))
+        return client_key("prometheus", asdict(self))
 
     def create_client(self, clients: ClientProvider) -> PrometheusClient:
         return PrometheusClient(self)

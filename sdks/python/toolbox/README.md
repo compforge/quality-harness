@@ -10,18 +10,18 @@ Install only the protocols you use:
 pip install 'harness-toolbox[kube,opensearch,mysql,prometheus]'
 ```
 
-`harness-common` owns `Client`, `DataSource`, `ClientProvider` and `ClientManager`;
-toolbox re-exports these names. `Client` owns initialization and disposal. A `DataSource` identifies its configuration;
+`harness-common` owns `Client`, `ClientFactory`, `DataSource`, `ClientProvider` and `ClientManager`;
+toolbox re-exports these names. `Client` owns initialization and disposal. A `ClientFactory` identifies its configuration;
 `ClientManager` shares it across concurrent or nested work and cleans up at root exit.
 `ConnectionSource` and `Transport` separate caller-owned configuration from the path used to reach it.
 
 ```python
 import asyncio
 from harness_toolbox import ClientManager
-from harness_toolbox.kube import KubernetesDataSource, Options, PodSpec
+from harness_toolbox.kube import KubernetesClientFactory, Options, PodSpec
 
 async def main():
-    source = KubernetesDataSource(
+    source = KubernetesClientFactory(
         options=Options(namespace="quality", request_timeout_s=15, connection_pool_maxsize=4),
         kubeconfig="/path/to/kubeconfig",
     )

@@ -1,3 +1,4 @@
+import time
 from dataclasses import replace
 from unittest.mock import AsyncMock
 
@@ -7,6 +8,7 @@ pytest.importorskip("kubernetes_asyncio")
 
 from harness_common import (
     Component,
+    EnvironmentContext,
     Forge,
     KubernetesEnvironment,
     Repository,
@@ -15,8 +17,9 @@ from harness_common import (
 )
 
 from harness_toolbox import ClientManager
-from harness_toolbox.environment import kubernetes_source
-from harness_toolbox.kube import KubernetesDataSource, Options
+from harness_toolbox.environment import kubernetes_client_factory
+from harness_toolbox.kube import KubernetesClientFactory, Options
+from harness_toolbox.kube.resource_list import ResourceListDataSource
 from harness_toolbox.transport import KubernetesAccess, PortForwardTransport
 
 ENV = KubernetesEnvironment("dev", "/config/dev", "cluster-context")
@@ -25,11 +28,16 @@ SERVICE = Service("business-name", Component(Repository(Forge("git"), "org/repo"
 
 
 def test_reuse_uses_physical_access_not_environment_alias():
-    source = kubernetes_source(ENV, OPTIONS)
-    assert source.key == kubernetes_source(replace(ENV, name="another-label"), OPTIONS).key
-    assert source.key != kubernetes_source(replace(ENV, kubeconfig="/other-cluster"), OPTIONS).key
-    assert source.key != kubernetes_source(replace(ENV, context="other-context"), OPTIONS).key
-    assert source.key != kubernetes_source(ENV, replace(OPTIONS, namespace="other-ns")).key
+    source = kubernetes_client_factory(ENV, OPTIONS)
+    assert source.key == kubernetes_client_factory(replace(ENV, name="another-label"), OPTIONS).key
+    assert (
+        source.key
+        != kubernetes_client_factory(replace(ENV, kubeconfig="/other-cluster"), OPTIONS).key
+    )
+    assert (
+        source.key != kubernetes_client_factory(replace(ENV, context="other-context"), OPTIONS).key
+    )
+    assert source.key != kubernetes_client_factory(ENV, replace(OPTIONS, namespace="other-ns")).key
 
 
 async def test_logical_services_share_access_without_platform_name_assumptions(
@@ -37,13 +45,16 @@ async def test_logical_services_share_access_without_platform_name_assumptions(
 ):
     kube = AsyncMock()
     kube.access = KubernetesAccess(ENV.kubeconfig, OPTIONS.namespace, ENV.context)
-    monkeypatch.setattr(KubernetesDataSource, "create_client", lambda source, clients: kube)
-    source = kubernetes_source(ENV, OPTIONS)
-    first = ServiceDataSource(SERVICE, source)
-    second = ServiceDataSource(replace(SERVICE, name="another-business-service"), source)
+    monkeypatch.setattr(KubernetesClientFactory, "create_client", lambda source, clients: kube)
+    source = kubernetes_client_factory(ENV, OPTIONS)
     async with ClientManager() as clients:
-        client = await clients.get(first.source)
-        assert client is await clients.get(second.source)
+        first = EnvironmentContext(SERVICE.environment, clients, time.monotonic() + 15)
+        other_service = replace(SERVICE, name="another-business-service")
+        second = EnvironmentContext(other_service.environment, clients, first.deadline)
+        client = await first.clients.get(source)
+        assert client is await second.clients.get(
+            kubernetes_client_factory(second.environment, OPTIONS)
+        )
         # A logical Service may have multiple workloads, with entirely different resource names.
         await client.list_deployment_pods("api-workload")
         await client.list_deployment_pods("worker-workload")
@@ -56,8 +67,8 @@ async def test_logical_services_share_access_without_platform_name_assumptions(
 
 
 def test_one_service_can_associate_multiple_independent_sources():
-    source = kubernetes_source(ENV, OPTIONS)
-    other = kubernetes_source(ENV, replace(OPTIONS, namespace="shared-infra"))
+    source = ResourceListDataSource(ENV, OPTIONS)
+    other = ResourceListDataSource(ENV, replace(OPTIONS, namespace="shared-infra"))
     bindings = [ServiceDataSource(SERVICE, source), ServiceDataSource(SERVICE, other)]
     assert all(binding.service == SERVICE for binding in bindings)
     assert bindings[0].source.key != bindings[1].source.key

@@ -1,31 +1,37 @@
 import type { Client } from "./client.js";
-import type { DataSource } from "./datasource.js";
+import type { ClientFactory } from "./client-factory.js";
 
 /** Consumers borrow clients; only the root owner receives the disposal capability. */
 export interface ClientProvider {
-  get<C extends Client>(source: DataSource<C>): Promise<C>;
+  get<C extends Client>(factory: ClientFactory<C>): Promise<C>;
 }
 
-/** @spec One root execution shares successful initialization per identity and closes clients at finalize. */
+/**
+ * @spec One root execution shares successful initialization per identity and closes clients at finalize.
+ * @rule Failed cleanup poisons the identity and remains a root disposal error; it never permits retry.
+ */
 export class ClientManager implements ClientProvider {
   readonly #controller = new AbortController();
   readonly signal: AbortSignal;
   readonly #clients = new Map<string, Promise<Client>>();
   readonly #ready: Client[] = [];
+  readonly #unclean = new Set<string>();
+  readonly #cleanupErrors: unknown[] = [];
   #disposal?: Promise<void>;
 
   constructor(signal?: AbortSignal) {
     this.signal = signal ? AbortSignal.any([signal, this.#controller.signal]) : this.#controller.signal;
   }
 
-  get<C extends Client>(source: DataSource<C>): Promise<C> {
+  get<C extends Client>(factory: ClientFactory<C>): Promise<C> {
     this.signal.throwIfAborted();
-    const existing = this.#clients.get(source.key);
+    const key = factory.key;
+    const existing = this.#clients.get(key);
     if (existing) return existing as Promise<C>;
     // Publish before construction so concurrent callers never dispatch a second factory.
     const pending = Promise.resolve().then(async () => {
       this.signal.throwIfAborted();
-      const client = source.createClient(this.signal);
+      const client = factory.createClient(this, this.signal);
       try {
         await client.initialize();
         this.signal.throwIfAborted();
@@ -33,23 +39,28 @@ export class ClientManager implements ClientProvider {
         return client;
       } catch (error) {
         try { await client.dispose(); }
-        catch (cleanup) { throw new AggregateError([error, cleanup], "Client initialization and cleanup failed"); }
+        catch (cleanup) {
+          this.#unclean.add(key);
+          this.#cleanupErrors.push(cleanup);
+          throw new AggregateError([error, cleanup], "Client initialization and cleanup failed");
+        }
         throw error;
       }
     });
-    this.#clients.set(source.key, pending);
-    void pending.catch(() => { if (this.#clients.get(source.key) === pending) this.#clients.delete(source.key); });
+    this.#clients.set(key, pending);
+    void pending.catch(() => {
+      if (!this.#unclean.has(key) && this.#clients.get(key) === pending) this.#clients.delete(key);
+    });
     return pending;
   }
 
   dispose(): Promise<void> {
     return this.#disposal ??= (async () => {
       this.#controller.abort(new Error("Client manager disposed"));
-      const settled = await Promise.allSettled(this.#clients.values());
+      await Promise.allSettled(this.#clients.values());
       this.#clients.clear();
       // Dependencies must be acquired before their consumers initialize, so reverse readiness is safe.
-      const errors: unknown[] = settled.flatMap(result => result.status === "rejected" && result.reason instanceof AggregateError
-        ? [result.reason] : []);
+      const errors = [...this.#cleanupErrors];
       for (const client of this.#ready.splice(0).reverse()) {
         try { await client.dispose(); } catch (error) { errors.push(error); }
       }

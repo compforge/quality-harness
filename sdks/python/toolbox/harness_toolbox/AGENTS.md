@@ -10,7 +10,7 @@
 ```text
 harness_toolbox/
 ├── client.py       # common 生命周期类型的兼容导出
-├── environment.py  # KubernetesEnvironment → KubernetesDataSource
+├── environment.py  # KubernetesEnvironment → KubernetesClientFactory
 ├── address.py      # IP/DNS/环境内 Service 地址候选与解析失败
 ├── errors.py       # ToolboxError 契约与协议子类；适配器负责转换原生异常
 ├── diagnostics.py  # 客户端连接路径快照，与异常独立
@@ -30,7 +30,7 @@ harness_toolbox/
 ## 关键约定
 
 - 根调用方通过 `async with ClientManager()` 管理执行期，子调用方只接收 ClientProvider。
-- DataSource 创建不做外部 I/O；initialize 完成依赖获取后才发布成功，dispose 必须幂等。
+- ClientFactory 创建不做外部 I/O；DataSource 是其中的数据访问语义。initialize 完成依赖获取后才发布成功，dispose 必须幂等。
 - Service 名称必须用对应 Environment 的 kubeconfig/context 解析，不回退本机短名 DNS；仅初始化阶段切换地址，业务请求不重放。
 - 同 key 的配置、凭据和容量必须一致；失败资源清理完成才允许重试。禁止日志输出凭据和查询内容。
 - 协议依赖仅通过 extras 引入；通用生命周期归 harness-common，只使用标准库。Skill 必须显式安装所用协议 extra。

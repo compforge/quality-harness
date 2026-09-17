@@ -29,6 +29,26 @@ Runner 是执行测试代码的角色，它可以在本机、Host 或 Pod 内运
 目标进程可能拥有不同的文件系统与权限；采集证据时必须保留来源。
 即使部署主机和 Pod 共享 kernel，也不能把部署主机探测到的 ptrace 权限作为 Pod 的事实。
 
+## EnvironmentContext：执行期的环境访问上下文
+
+Environment 是配置与身份声明，不持有连接；EnvironmentContext 绑定本次选定的 Environment、
+借用的 ClientProvider 与截止时间，供 Service、Workload 操作及部署、诊断、测试流程共同使用。
+它不依赖 Fixture，不执行 I/O、不拥有客户端释放权，也不自动取消操作。调用方将剩余预算
+传给具体操作，并在根执行退出前等待子任务结束。
+
+Python 使用单调时钟秒数 deadline / remaining_s；TypeScript 使用 performance.now() 的
+毫秒数 deadlineMs / remainingMs，不使用墙钟时间。TypeScript 的环境类型由消费方泛型提供。
+ClientManager 接收中立的 ClientFactory：环境访问工厂与 DataSource 共用初始化、复用和释放机制。
+不要求 Environment 提供 client()，也不引入只有 init/dispose 的 EnvironmentClient 基类。
+
+Python 的 FixtureContext 在 EnvironmentContext 上增加 phase，供 prepare/cleanup 使用；
+普通环境操作只依赖 EnvironmentContext，不需要知道编排阶段。
+
+EnvironmentContext 不预设运行平台。对本地 Web 服务，HostEnvironment 配合 local Host 表达
+运行位置；项目 Fixture 启动进程并等待就绪，领域执行回调运行 E2E，Fixture 最后停止自己启动的进程。
+ClientManager 仅释放访问该服务的 HTTP 客户端等资源，不因连接释放而停止被测服务。
+因此本地进程、远端主机和 Kubernetes 可以复用执行上下文与编排契约，不要求统一的平台 Client 基类。
+
 ## 环境与 Case 的两层生命周期
 
 Python `harness_common.fixture` 提供 `EnvironmentFixture` 和 `run_environment`。
@@ -100,6 +120,6 @@ profile 名和部署声明不能代替真实探测；要求拒绝 ptrace 的测�
 - 项目拥有环境配置、部署 fixture、权限 profiles、行为断言和清理。
 
 toolbox 的 Host 命令支持 local / SSH，Helm 等命令行工具使用这条路径。
-`KubernetesResourcesDataSource` 按 Environment 选择本地池或 Host-native worker，提供统一的
-原生资源操作。低层 `KubernetesDataSource` 仍只管理当前进程的 API 池，避免误读远端同名
+`KubernetesResourcesClientFactory` 按 Environment 选择本地池或 Host-native worker，提供统一的
+原生资源操作。低层 `KubernetesClientFactory` 仍只管理当前进程的 API 池，避免误读远端同名
 kubeconfig。访问通道与恢复边界见 [工具箱](toolbox.md)。

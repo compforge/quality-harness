@@ -11,7 +11,7 @@ from sqlalchemy.exc import OperationalError
 
 from harness_toolbox.address import AddressPolicy, address_candidates
 from harness_toolbox.errors import ErrorKind, MySQLConnectionError, OpenSearchRequestError
-from harness_toolbox.kube import KubernetesClient, KubernetesDataSource
+from harness_toolbox.kube import KubernetesClient, KubernetesClientFactory
 from harness_toolbox.mysql import MySQLDataSource, MySQLTarget
 from harness_toolbox.opensearch import OpenSearchDataSource, OpenSearchTarget
 from harness_toolbox.transport import ConnectionSource, Endpoint
@@ -50,7 +50,7 @@ def install_kube(monkeypatch, api):
         sources.append(source)
         return KubernetesClient(source, api=api)
 
-    monkeypatch.setattr(KubernetesDataSource, "create_client", create)
+    monkeypatch.setattr(KubernetesClientFactory, "create_client", create)
     return sources
 
 

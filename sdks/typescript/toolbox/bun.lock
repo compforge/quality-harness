@@ -6,7 +6,7 @@
       "name": "@compforge/harness-toolbox",
       "dependencies": {
         "@aws-sdk/client-s3": "3.1133.0",
-        "@compforge/harness-common": "0.0.1",
+        "@compforge/harness-common": "0.1.0",
         "@kubernetes/client-node": "1.4.0",
         "@opensearch-project/opensearch": "3.6.0",
         "@redis/client": "6.1.0",
@@ -21,6 +21,9 @@
         "typescript": "^5.6.0",
       },
     },
+  },
+  "overrides": {
+    "@compforge/harness-common": "file:../common",
   },
   "packages": {
     "@aws-sdk/checksums": ["@aws-sdk/checksums@3.1001.0", "", { "dependencies": { "@aws-sdk/core": "^3.978.0", "@aws-sdk/types": "^3.974.5", "@smithy/core": "^3.33.3", "@smithy/types": "^4.17.2", "tslib": "^2.6.2" } }, "sha512-6uTniZc87q+B5eXouGTl+7Tmc482rEeCcvxpsvREP8EfF0gvloRZ41UOA9sbSJlyy8TbqIBXb3kKfKarEArUQA=="],
@@ -59,7 +62,7 @@
 
     "@aws/lambda-invoke-store": ["@aws/lambda-invoke-store@0.3.0", "", {}, "sha512-sl4Bm6yiMNYrZKkqqDFWN0UfnWhlS8ivKxrYl+6t0gCLrqr8y3B2IqZZbFRkfaVVp7C/baApyh71P+LeE1A2sQ=="],
 
-    "@compforge/harness-common": ["@compforge/harness-common@0.0.1", "", {}, "sha512-1mMk4fgofADWDHEAMbC0hKeG7f9+5yzffdFnvNh0LiB26aJM0Um3mM+s2rAHzVBI7YaeokW1tLB6Q5+2vrAZJg=="],
+    "@compforge/harness-common": ["@compforge/harness-common@file:../common", { "devDependencies": { "@types/bun": "latest", "@types/node": "^22", "typescript": "^5.6.0" } }],
 
     "@jsep-plugin/assignment": ["@jsep-plugin/assignment@1.3.0", "", { "peerDependencies": { "jsep": "^0.4.0||^1.0.0" } }, "sha512-VVgV+CXrhbMI3aSusQyclHkenWSAm95WaiKrMxRFam3JSUiIaQjoMIw2sEs/OX4XifnqeQUN4DYbJjlA8EfktQ=="],
 

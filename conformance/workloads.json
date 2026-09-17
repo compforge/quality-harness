@@ -1,0 +1,25 @@
+{
+  "workloads": [
+    {"name":"agent","platform":"kubernetes","namespace":"apps","location":{"kind":"resource","resource_kind":"Deployment","name":"hibot-agent"},"container":"app"},
+    {"name":"worker","platform":"kubernetes","namespace":"jobs","location":{"kind":"service","name":"worker-svc"}},
+    {"name":"sandbox","platform":"kubernetes","location":{"kind":"labels","labels":{"app":"sandbox","owner":"harness"}}}
+  ],
+  "instances": [
+    {"platform":"kubernetes","environment":"cluster-a/context-a","workload":"agent","namespace":"apps","pod":"agent-0","uid":"uid-1","container":"app"},
+    {"platform":"kubernetes","environment":"cluster-a/context-a","workload":"agent","namespace":"apps","pod":"agent-1","uid":"uid-2","container":"app"}
+  ],
+  "target_bindings": [
+    {"environment":"cluster-a/context-a","access":{"kubeconfig":"/configs/direct","context":"primary"}},
+    {"environment":"cluster-a/context-a","access":{"kubeconfig":"/configs/alternate","context":"alias"}},
+    {"environment":"cluster-b/context-a","access":{"kubeconfig":"/configs/other","context":"primary"}}
+  ],
+  "identity_changes": [
+    {"patch":{"environment":"cluster-b/context-a"},"same":false},
+    {"patch":{"environment":"cluster-a/context-b"},"same":false},
+    {"patch":{"namespace":"other"},"same":false},
+    {"patch":{"pod":"agent-1","uid":"uid-2"},"same":false},
+    {"patch":{"uid":"replacement"},"same":false},
+    {"patch":{"container":"sidecar"},"same":true},
+    {"patch":{"workload":"another-logical-owner"},"same":true}
+  ]
+}

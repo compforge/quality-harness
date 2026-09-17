@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 
 from harness_common import Environment, KubernetesEnvironment
 
-from harness_toolbox.client import ClientProvider, data_source_key
+from harness_toolbox.client import ClientProvider, client_key
 from harness_toolbox.errors import ErrorKind, ToolboxError
 from harness_toolbox.transport import Endpoint
 
@@ -44,7 +44,7 @@ class AddressPolicy:
             if isinstance(self.environment, KubernetesEnvironment)
             else None
         )
-        return data_source_key("address-policy", config)
+        return client_key("address-policy", config)
 
 
 @dataclass(frozen=True)
@@ -94,7 +94,7 @@ async def _hosts(
     assert isinstance(environment, KubernetesEnvironment)
     if clients is None:
         raise ValueError("Kubernetes address resolution requires a ClientProvider")
-    from harness_toolbox.environment import kubernetes_source
+    from harness_toolbox.environment import kubernetes_client_factory
     from harness_toolbox.kube import Options
 
     name, namespace = service
@@ -103,7 +103,7 @@ async def _hosts(
 
     try:
         kube = await clients.get(
-            kubernetes_source(
+            kubernetes_client_factory(
                 environment,
                 Options(
                     namespace=namespace,

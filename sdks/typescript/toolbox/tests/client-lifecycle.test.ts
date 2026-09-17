@@ -4,7 +4,7 @@ import { RedisClient, RedisAccess } from "../src/redis";
 import { OpenSearchClient } from "../src/opensearch";
 import { KubernetesClient } from "../src/kubernetes/client";
 import { DirectTransport, PodPythonTransport } from "../src/transport";
-import { dataSourceKey } from "../src/datasource";
+import { clientKey } from "../src/datasource";
 
 function gate() {
   let release!: () => void;
@@ -92,8 +92,8 @@ test("Kubernetes dispose cancels active operations and waits for them", async ()
 });
 
 test("datasource identity is stable, credential-sensitive, and hides credentials", () => {
-  const key = dataSourceKey("mysql", { host: "db", password: "secret" });
-  expect(key).toBe(dataSourceKey("mysql", { password: "secret", host: "db" }));
-  expect(key).not.toBe(dataSourceKey("mysql", { host: "db", password: "other" }));
+  const key = clientKey("mysql", { host: "db", password: "secret" });
+  expect(key).toBe(clientKey("mysql", { password: "secret", host: "db" }));
+  expect(key).not.toBe(clientKey("mysql", { host: "db", password: "other" }));
   expect(key).not.toContain("secret");
 });

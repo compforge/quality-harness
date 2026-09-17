@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from harness_common import ClientProvider, KubernetesEnvironment, data_source_key
+from harness_common import ClientProvider, KubernetesEnvironment, client_key
 
 from harness_toolbox.data_loader import DataLoader
 from harness_toolbox.kube.environment_resources import (
     KubernetesResourcesClient,
-    KubernetesResourcesDataSource,
+    KubernetesResourcesClientFactory,
 )
 from harness_toolbox.kube.model import Options
 
@@ -21,9 +21,9 @@ class ResourceListDataSource:
 
     @property
     def key(self) -> str:
-        return data_source_key(
+        return client_key(
             "kubernetes-resource-list",
-            KubernetesResourcesDataSource(self.environment, self.options).key,
+            KubernetesResourcesClientFactory(self.environment, self.options).key,
         )
 
     def create_client(self, clients: ClientProvider) -> ResourceListClient:
@@ -41,7 +41,7 @@ class ResourceListClient:
 
     async def initialize(self) -> None:
         self._resources = await self._clients.get(
-            KubernetesResourcesDataSource(self._source.environment, self._source.options)
+            KubernetesResourcesClientFactory(self._source.environment, self._source.options)
         )
 
     async def list(

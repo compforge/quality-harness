@@ -24,17 +24,24 @@ test("published lifecycle and transport entries run in Node without protocol dri
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const result = spawnSync("node", ["--input-type=module", "-e", `
       import assert from 'node:assert/strict';
-      import { ClientManager } from '@compforge/harness-toolbox';
+      import { ClientManager, EnvironmentContext, clientKey } from '@compforge/harness-toolbox';
+      import { ToolboxError } from '@compforge/harness-toolbox';
+      import { KubernetesError } from '@compforge/harness-toolbox/errors';
       import { ClientManager as Subpath } from '@compforge/harness-toolbox/client-manager';
       import { ClientManager as Common } from '@compforge/harness-common';
       import { DirectTransport } from '@compforge/harness-toolbox/transport';
       assert.equal(ClientManager, Subpath);
       assert.equal(ClientManager, Common);
+      assert.ok(new KubernetesError('safe', {kind:'permission_denied'}) instanceof ToolboxError);
       let created = 0, closed = 0;
       const source = { key: 'test', createClient: () => {
         created++; return { initialize: async () => {}, dispose: async () => { closed++; } };
       } };
       const manager = new ClientManager();
+      const ctx = new EnvironmentContext({name:'fixture'}, manager, performance.now() + 1000);
+      assert.ok(ctx.remainingMs > 0);
+      assert.equal(ctx.clients, manager);
+      assert.equal(clientKey('config', {a:1,b:2}), clientKey('config', {b:2,a:1}));
       const [a,b] = await Promise.all([manager.get(source), manager.get(source)]);
       assert.equal(a,b); assert.equal(created,1);
       await manager.dispose(); await manager.dispose(); assert.equal(closed,1);

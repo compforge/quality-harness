@@ -9,8 +9,8 @@ from harness_common.client import ClientManager
 from kubernetes_asyncio.client import ApiException
 
 from harness_toolbox.kube import (
-    KubernetesDataSource,
-    KubernetesResourcesDataSource,
+    KubernetesClientFactory,
+    KubernetesResourcesClientFactory,
     Options,
     PodRef,
 )
@@ -104,7 +104,7 @@ async def cluster(tmp_path, monkeypatch, request):
         async with ClientManager() as clients:
             if remote:
                 resources = await clients.get(
-                    KubernetesResourcesDataSource(
+                    KubernetesResourcesClientFactory(
                         KubernetesEnvironment(
                             "stub", str(config), host=Host("worker", "ssh", "stub")
                         ),
@@ -119,7 +119,7 @@ async def cluster(tmp_path, monkeypatch, request):
                 )
             else:
                 client = await clients.get(
-                    KubernetesDataSource(Options("ns", 2, 2), kubeconfig=str(config))
+                    KubernetesClientFactory(Options("ns", 2, 2), kubeconfig=str(config))
                 )
             yield client, state
     finally:

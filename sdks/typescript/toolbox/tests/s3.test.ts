@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { createServer as createTlsServer } from "node:https";
 import { readFileSync } from "node:fs";
 import { ClientManager } from "../src/client-manager";
+import type { ClientProvider } from "../src/client";
 import { S3Client, S3DataSource, type S3Target } from "../src/s3";
 import { DirectTransport, PortForwardTransport } from "../src/transport";
 
@@ -170,7 +171,7 @@ test("S3 TLS tunnel retains certificate validation and original server identity"
 
 test("S3 failed initialization can be retried by ClientManager", async () => {
   let attempts = 0;
-  const source = { key: "s3-init-retry", createClient: (signal: AbortSignal) => new S3Client({
+  const source = { key: "s3-init-retry", createClient: (_clients: ClientProvider, signal: AbortSignal) => new S3Client({
     resolve: async () => { if (++attempts === 1) throw new Error("resolve failed"); return target("http://localhost:1"); },
     transports: [new DirectTransport()],
   }, limits, { signal }) };

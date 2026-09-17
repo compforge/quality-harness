@@ -6,7 +6,7 @@ from kubernetes_asyncio.client.exceptions import ApiException
 
 from harness_toolbox.kube import (
     KubernetesClient,
-    KubernetesDataSource,
+    KubernetesClientFactory,
     Options,
     ResourceNotFoundError,
 )
@@ -22,7 +22,7 @@ def client():
     core.list_namespaced_pod.return_value = api.V1PodList(
         items=[api.V1Pod(metadata=api.V1ObjectMeta(name="unrelated-prefix", uid="uid-1"))]
     )
-    kube = KubernetesClient(KubernetesDataSource(Options("ns", 7, 4)), api=core, apps_api=apps)
+    kube = KubernetesClient(KubernetesClientFactory(Options("ns", 7, 4)), api=core, apps_api=apps)
     return kube, core, apps
 
 

@@ -1,9 +1,12 @@
-.PHONY: fix lint lint-ci test build
+.PHONY: fix lint lint-ci test build common-build
 
 fix:
 	@true
 
-lint:
+common-build:
+	$(MAKE) -C ../common build
+
+lint: common-build
 	bun run typecheck
 
 lint-ci: lint
@@ -11,5 +14,5 @@ lint-ci: lint
 test: build
 	bun test $(TEST_FILES)
 
-build:
+build: common-build
 	bun run build

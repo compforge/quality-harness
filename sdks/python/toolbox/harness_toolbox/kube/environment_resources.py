@@ -6,9 +6,16 @@ import base64
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING
 
-from harness_common import ClientProvider, KubernetesEnvironment, data_source_key
+from harness_common import (
+    ClientProvider,
+    KubernetesEnvironment,
+    KubernetesWorkload,
+    KubernetesWorkloadInstance,
+    client_key,
+)
 
-from harness_toolbox.environment import kubernetes_source
+from harness_toolbox.environment import kubernetes_client_factory
+from harness_toolbox.errors import ErrorKind, KubernetesError
 from harness_toolbox.kube.model import Container, Options, Pod, PodRef
 from harness_toolbox.kube.resources import wait_deleted
 
@@ -18,14 +25,14 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class KubernetesResourcesDataSource:
+class KubernetesResourcesClientFactory:
     environment: KubernetesEnvironment
     options: Options
 
     @property
     def key(self) -> str:
         host = self.environment.host
-        return data_source_key(
+        return client_key(
             "kubernetes-resources",
             [
                 self.environment.kubeconfig,
@@ -43,7 +50,7 @@ class KubernetesResourcesDataSource:
 class KubernetesResourcesClient:
     """Borrow the local pool or own a remote transport; both use native resources."""
 
-    def __init__(self, source: KubernetesResourcesDataSource, clients: ClientProvider):
+    def __init__(self, source: KubernetesResourcesClientFactory, clients: ClientProvider):
         self._source = source
         self._clients = clients
         self._native: KubernetesClient | None = None
@@ -53,7 +60,7 @@ class KubernetesResourcesClient:
     async def initialize(self) -> None:
         env = self._source.environment
         if env.host is None or env.host.transport == "local":
-            client = await self._clients.get(kubernetes_source(env, self._source.options))
+            client = await self._clients.get(kubernetes_client_factory(env, self._source.options))
             self._native = client
         else:
             from harness_toolbox.kube.worker import KubernetesWorkerTransport
@@ -72,6 +79,33 @@ class KubernetesResourcesClient:
 
     async def create(self, manifest: dict) -> dict:
         return await self._call("create", manifest=manifest)
+
+    async def resolve_workload(
+        self, workload: KubernetesWorkload, *, environment: str
+    ) -> list[KubernetesWorkloadInstance]:
+        """Use the same local/Host backend; namespace overrides retain access policy."""
+        from dataclasses import replace
+
+        from harness_toolbox.kube.workload import resolve_workload
+
+        if self._closed:
+            raise KubernetesError(
+                "Kubernetes resources client is closed", kind=ErrorKind.OPERATION_FAILED
+            )
+        namespace = (
+            workload.namespace if workload.namespace is not None else self._source.options.namespace
+        )
+        if not namespace.strip():
+            raise KubernetesError("Workload namespace is required", kind=ErrorKind.INVALID_ARGUMENT)
+        access = self
+        if namespace != self._source.options.namespace:
+            access = await self._clients.get(
+                KubernetesResourcesClientFactory(
+                    self._source.environment,
+                    replace(self._source.options, namespace=namespace),
+                )
+            )
+        return await resolve_workload(access, workload, namespace, environment)
 
     async def get(self, api_version: str, kind: str, name: str) -> dict:
         return await self._call("get", api_version=api_version, kind=kind, name=name)

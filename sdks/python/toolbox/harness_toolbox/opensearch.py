@@ -13,7 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from harness_toolbox.address import address_candidates
-from harness_toolbox.client import ClientProvider, data_source_key
+from harness_toolbox.client import ClientProvider, client_key
 from harness_toolbox.diagnostics import _AccessRecorder, _transport_name
 from harness_toolbox.errors import (
     ErrorKind,
@@ -44,7 +44,7 @@ class OpenSearchDataSource:
 
     @property
     def key(self) -> str:
-        return data_source_key(
+        return client_key(
             "opensearch",
             [
                 self.connection.key,

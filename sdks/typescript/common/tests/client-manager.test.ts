@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ClientManager } from "../src/client-manager.js";
+import { ClientManager, type ClientProvider } from "../src/client-manager.js";
 import type { Client } from "../src/client.js";
 
 function gate() {
@@ -102,4 +102,64 @@ test("a concurrent retry waits for failed initialization cleanup", async () => {
   await expect(clients.get(source)).rejects.toThrow("offline");
   expect(starts).toBe(2);
   await clients.dispose();
+});
+
+test("failed cleanup poisons the key and remains visible at root disposal", async () => {
+  const clients = new ClientManager();
+  const initialization = new Error("initialization failed");
+  const cleanup = new Error("cleanup failed");
+  let created = 0, closed = 0;
+  const source = { key: "broken", createClient: () => {
+    created++;
+    return {
+      initialize: async () => { throw initialization; },
+      dispose: async () => { closed++; throw cleanup; },
+    };
+  } };
+  let observed: unknown;
+  try { await clients.get(source); } catch (error) { observed = error; }
+  expect(observed).toBeInstanceOf(AggregateError);
+  expect((observed as AggregateError).errors).toEqual([initialization, cleanup]);
+  await expect(clients.get(source)).rejects.toBe(observed);
+  const closing = clients.dispose();
+  expect(clients.dispose()).toBe(closing);
+  await expect(closing).rejects.toMatchObject({ errors: [cleanup] });
+  expect(created).toBe(1);
+  expect(closed).toBe(1);
+});
+
+test("an initialization AggregateError with successful cleanup does not poison disposal", async () => {
+  const clients = new ClientManager();
+  const error = new AggregateError([new Error("connection failed")], "initialization failed");
+  await expect(clients.get({ key: "failed", createClient: () => ({
+    initialize: async () => { throw error; },
+    dispose: async () => {},
+  }) })).rejects.toBe(error);
+  await clients.dispose();
+});
+
+test("factories borrow shared dependencies through their provider and close consumers first", async () => {
+  const clients = new ClientManager();
+  const order: string[] = [];
+  let dependencyStarts = 0;
+  const dependency = { key: "environment", createClient: () => ({
+    initialize: async () => { dependencyStarts++; },
+    dispose: async () => { order.push("environment"); },
+  }) };
+  const borrowed: Client[] = [];
+  const consumer = (key: string) => ({
+    key, createClient: (provider: ClientProvider, signal: AbortSignal) => ({
+      initialize: async () => {
+        signal.throwIfAborted();
+        borrowed.push(await provider.get(dependency));
+      },
+      dispose: async () => { order.push(key); },
+    }),
+  });
+  await Promise.all([clients.get(consumer("db")), clients.get(consumer("log"))]);
+  expect(dependencyStarts).toBe(1);
+  expect(borrowed[0]).toBe(borrowed[1]);
+  await clients.dispose();
+  expect(order.slice(0, 2).sort()).toEqual(["db", "log"]);
+  expect(order[2]).toBe("environment");
 });

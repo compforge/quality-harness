@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Client } from "../client";
-import { dataSourceKey } from "../datasource";
+import { clientKey } from "../client";
 import { ConcurrencyPool } from "../concurrency";
 import { LogCaptureFile } from "./log-capture-file";
 import { logTimestampNanos } from "./log-timestamp";
@@ -52,7 +52,7 @@ export class PodLogClient implements Client {
     this.signal.throwIfAborted();
     if (!this.#directory || this.#disposal) throw new Error("Log capture session is not active");
     // Relative windows move with time. Missing instance identity must never reuse another Pod's evidence.
-    const key = scope.instance && request.sinceTime ? dataSourceKey("pod-log", {
+    const key = scope.instance && request.sinceTime ? clientKey("pod-log", {
       scope,
       pod: request.pod, container: request.container, previous: !!request.previous,
       allContainers: !!request.allContainers, prefix: !!request.prefix, tail: request.tail,

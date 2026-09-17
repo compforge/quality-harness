@@ -12,9 +12,9 @@ The manager is local to one Python execution and event loop. It cannot share liv
 separately launched scripts. Synchronous CLIs call `asyncio.run` at their outer boundary; domain
 operations remain async and receive the provider explicitly.
 
-A DataSource key must cover everything that changes reuse: target, protocol, credentials, configuration,
+A ClientFactory key must cover everything that changes reuse: target, protocol, credentials, configuration,
 and capacity. ConnectionSource accepts a caller-supplied stable key because environment resolution is
-external. Use `data_source_key` to hash those inputs. Do not key only by a friendly service name when
+external. Use `client_key` to hash those inputs. Do not key only by a friendly service name when
 multiple clusters or credentials can coexist. Configuration and credentials remain fixed for a root
 execution; key new configurations separately.
 
@@ -22,7 +22,7 @@ execution; key new configurations separately.
 
 ```python
 from dataclasses import asdict
-from harness_toolbox import ClientManager, data_source_key
+from harness_toolbox import ClientManager, client_key
 from harness_toolbox.mysql import MySQLDataSource, MySQLTarget
 from harness_toolbox.transport import ConnectionSource, DirectTransport
 
@@ -31,7 +31,7 @@ async def query(clients, settings):
     async def resolve():
         return target
     source = MySQLDataSource(ConnectionSource(
-        data_source_key("db-config", asdict(target)), resolve, (DirectTransport(),)
+        client_key("db-config", asdict(target)), resolve, (DirectTransport(),)
     ))
     database = await clients.get(source)
     return await database.query("SELECT id FROM message WHERE id = %(id)s", {"id": "example"})
@@ -109,7 +109,7 @@ and user requests are never automatically replayed.
 
 ## Kubernetes and logs
 
-KubernetesDataSource owns namespace, API capacity, exec capacity and timeouts. KubernetesClient offers
+KubernetesClientFactory owns namespace, API capacity, exec capacity and timeouts. KubernetesClient offers
 Pod create/get/list/delete, readiness/replacement/deletion waits, Event collection, exec, and
 port-forward. Exec returns stdout, stderr and exit code separately. Nonzero process exit is a result;
 connection failure, timeout, and output limit violations are exceptions. Created Pods are explicit
@@ -120,7 +120,7 @@ logs; the client checks identity before and after access and rejects a changed i
 replacement but cannot guarantee an atomic exec against a UID. Port-forward subprocesses belong to the
 Kubernetes client and close at finalize.
 
-PodLogDataSource depends on KubernetesDataSource through the same provider. It owns one capture pool,
+PodLogDataSource depends on KubernetesClientFactory through the same provider. It owns one capture pool,
 one total byte budget and a temporary directory. Physical Pod UID, container, restart count, previous
 selection, and absolute timezone-aware `[since, until)` window identify a capture. Concurrent consumers
 join the same capture; different trace IDs filter its file locally. Truncation is explicit in
@@ -140,23 +140,35 @@ from workload controllers and Pods.
 
 ```python
 from harness_common import KubernetesWorkload
-from harness_toolbox.environment import kubernetes_source
+from harness_toolbox.environment import kubernetes_client_factory
 from harness_toolbox.kube import Options
 
-async def observe(clients, service):
+async def observe(ctx, service, environment_id):
+    # ctx is an EnvironmentContext; the caller selected this operation's environment.
+    factory = kubernetes_client_factory(ctx.environment, Options("default", ctx.remaining_s, 4))
+    kube = await ctx.clients.get(factory)
     pods = []
     for workload in service.workloads:
         if not isinstance(workload, KubernetesWorkload):
             raise TypeError("This observer requires Kubernetes workloads")
-        source = kubernetes_source(service.environment, Options(workload.namespace, 15, 4))
-        kube = await clients.get(source)
-        pods.extend(await kube.list_workload_pods(workload.kind, workload.name))
+        pods.extend(await kube.resolve_workload(workload, environment=environment_id))
     return pods
 ```
 
 Workload operations are one toolbox capability, alongside database, OpenSearch, process and transport
-operations. Those capabilities do not require Service or Workload objects. ServiceDataSource can
+operations. Those capabilities do not require Service or Workload objects. DataSource specializes
+ClientFactory with data-access semantics; environment access factories are not data declarations.
+EnvironmentContext borrows a provider and carries a deadline without owning disposal. ServiceDataSource can
 associate logical context with independently configured sources without changing source keys.
+
+resolve_workload uses the declaration's namespace or the client's explicit default, returns all
+matching Pod incarnations, and raises KubernetesError for failed discovery rather than returning an
+empty inventory. Catch ToolboxError.kind/code for reports; its native cause is debug-only.
+The required environment ID comes from the caller's target registry, not the access path or a
+display name. It remains unchanged when kubeconfig, credentials or access Host change for the same
+target. The registry owns the binding between that ID and the selected access configuration.
+For Environment.host access, use KubernetesResourcesClientFactory and its resolve_workload method;
+it retains the same native/Host resource backend and ClientManager ownership.
 
 PodPythonTransport accepts an explicit `container` for multi-container Pods. It is part of the
 transport identity so clients using different containers cannot share a route. Credentials and
@@ -165,7 +177,7 @@ query parameters continue to travel over stdin.
 ## Environment-scoped address selection
 
 Generic client ownership and service associations live in `harness_common`; toolbox
-re-exports the original lifecycle names. `harness_toolbox.environment.kubernetes_source`
+re-exports the original lifecycle names. `harness_toolbox.environment.kubernetes_client_factory`
 is the Kubernetes-specific factory. The independent packages depend in one direction:
 `quality-harness` → `harness-toolbox` → `harness-common`.
 
