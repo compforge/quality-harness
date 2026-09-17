@@ -1,16 +1,11 @@
 import type { Client } from "./client.js";
-import type { ClientFactory } from "./client-factory.js";
-
-/** Consumers borrow clients; only the root owner receives the disposal capability. */
-export interface ClientProvider {
-  get<C extends Client>(factory: ClientFactory<C>): Promise<C>;
-}
+import type { ClientProvider } from "./client-provider.js";
 
 /**
  * @spec One root execution shares successful initialization per identity and closes clients at finalize.
  * @rule Failed cleanup poisons the identity and remains a root disposal error; it never permits retry.
  */
-export class ClientManager implements ClientProvider {
+export class ClientManager {
   readonly #controller = new AbortController();
   readonly signal: AbortSignal;
   readonly #clients = new Map<string, Promise<Client>>();
@@ -23,15 +18,15 @@ export class ClientManager implements ClientProvider {
     this.signal = signal ? AbortSignal.any([signal, this.#controller.signal]) : this.#controller.signal;
   }
 
-  get<C extends Client>(factory: ClientFactory<C>): Promise<C> {
+  get<C extends Client>(provider: ClientProvider<C>): Promise<C> {
     this.signal.throwIfAborted();
-    const key = factory.key;
+    const key = provider.clientKey;
     const existing = this.#clients.get(key);
     if (existing) return existing as Promise<C>;
-    // Publish before construction so concurrent callers never dispatch a second factory.
+    // Publish before construction so concurrent callers never dispatch a second provider.
     const pending = Promise.resolve().then(async () => {
       this.signal.throwIfAborted();
-      const client = factory.createClient(this, this.signal);
+      const client = provider.createClient(this, this.signal);
       try {
         await client.initialize();
         this.signal.throwIfAborted();

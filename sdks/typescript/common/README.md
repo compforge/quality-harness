@@ -15,15 +15,15 @@ try {
 }
 ```
 
-A ClientFactory key identifies the complete configuration and access policy. Equal keys share client
+A ClientProvider clientKey identifies the complete configuration and access policy. Equal keys share client
 initialization, not query results. Use clientKey to hash configuration without exposing credentials.
 ServiceDataSource associates a consumer-owned Service model with a source without changing its key.
-DataSource extends ClientFactory with data-access semantics; environment access factories use
-ClientFactory directly. Both use the same manager. EnvironmentContext binds a consumer-owned
-environment, borrowed ClientProvider and monotonic deadlineMs (performance.now()).
+DataSource extends ClientProvider with data-access semantics; accessible concrete environments implement
+ClientProvider directly. Both use the same manager. EnvironmentContext binds a consumer-owned
+environment, a get-only client view and monotonic deadlineMs (performance.now()).
 It needs no fixture and owns neither disposal nor cancellation; forward remainingMs into operations.
-Factories receive a ClientProvider and the root AbortSignal. Acquire dependencies through that
-provider during initialize, so concurrent consumers share them and dispose before their dependencies.
+Providers receive a get-only ClientManager view and the root AbortSignal. Acquire dependencies through that
+view during initialize, so concurrent consumers share them and dispose before their dependencies.
 Dependency graphs must be acyclic. A failed initialization permits retry only after successful cleanup;
 failed cleanup poisons that key and is reported again when the root manager is disposed.
 

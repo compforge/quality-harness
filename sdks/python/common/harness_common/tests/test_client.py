@@ -32,7 +32,7 @@ class Probe:
 
 @dataclass
 class Source:
-    key: str
+    client_key: str
     factory: object
 
     def create_client(self, clients):

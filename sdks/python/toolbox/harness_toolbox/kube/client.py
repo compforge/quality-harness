@@ -18,7 +18,7 @@ from kubernetes_asyncio import client as kubernetes
 from kubernetes_asyncio import config
 from kubernetes_asyncio.client.exceptions import ApiException
 
-from harness_toolbox.client import ClientProvider, client_key
+from harness_toolbox.client import _ClientBorrower, client_key
 from harness_toolbox.kube.model import (
     Container,
     Event,
@@ -79,28 +79,28 @@ class _AppsV1API(Protocol):
 
 
 @dataclass(frozen=True)
-class KubernetesClientFactory:
+class _KubernetesAccess:
     options: Options
     kubeconfig: str | None = None
     context_name: str | None = None
     kubectl: str = "kubectl"
 
     @property
-    def key(self) -> str:
+    def client_key(self) -> str:
         return client_key(
             "kubernetes", [asdict(self.options), self.kubeconfig, self.context_name, self.kubectl]
         )
 
-    def create_client(self, clients: ClientProvider) -> KubernetesClient:
+    def create_client(self, clients: _ClientBorrower) -> KubernetesClient:
         return KubernetesClient(self)
 
 
 class KubernetesClient:
-    """Namespace-scoped operations; ClientFactory + ClientManager own initialization."""
+    """Namespace-scoped operations; ClientProvider + ClientManager own initialization."""
 
     def __init__(
         self,
-        source: KubernetesClientFactory,
+        source: _KubernetesAccess,
         *,
         api: _CoreV1API | None = None,
         apps_api: _AppsV1API | None = None,

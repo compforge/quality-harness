@@ -4,16 +4,16 @@ from types import SimpleNamespace
 
 import pytest
 from aiohttp import web
-from harness_common import Host, KubernetesEnvironment
+from harness_common import Host
 from harness_common.client import ClientManager
 from kubernetes_asyncio.client import ApiException
 
+from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.kube import (
-    KubernetesClientFactory,
-    KubernetesResourcesClientFactory,
     Options,
     PodRef,
 )
+from harness_toolbox.kube.client import _KubernetesAccess
 
 
 @pytest.fixture(params=[False, True], ids=["local", "host-worker"])
@@ -104,11 +104,11 @@ async def cluster(tmp_path, monkeypatch, request):
         async with ClientManager() as clients:
             if remote:
                 resources = await clients.get(
-                    KubernetesResourcesClientFactory(
-                        KubernetesEnvironment(
-                            "stub", str(config), host=Host("worker", "ssh", "stub")
-                        ),
-                        Options("ns", 10, 2),
+                    KubernetesEnvironment(
+                        "stub",
+                        str(config),
+                        host=Host("worker", "ssh", "stub"),
+                        options=Options("ns", 10, 2),
                     )
                 )
                 client = SimpleNamespace(
@@ -119,7 +119,7 @@ async def cluster(tmp_path, monkeypatch, request):
                 )
             else:
                 client = await clients.get(
-                    KubernetesClientFactory(Options("ns", 2, 2), kubeconfig=str(config))
+                    _KubernetesAccess(Options("ns", 2, 2), kubeconfig=str(config))
                 )
             yield client, state
     finally:

@@ -22,7 +22,7 @@ class State:
 
 
 class Source:
-    key = "fixture-test"
+    client_key = "fixture-test"
 
     def __init__(self, state):
         self.state = state
@@ -174,7 +174,7 @@ async def test_cleanup_timeout_and_disposal_error_are_independent_of_domain_resu
     state = State()
 
     class BrokenSource:
-        key = "broken-disposal"
+        client_key = "broken-disposal"
 
         def create_client(self, clients):
             class Client:

@@ -23,8 +23,9 @@ import itertools
 import json
 from typing import Any
 
-from harness_common import Component, Forge, KubernetesEnvironment, Repository
+from harness_common import Component, Forge, Repository
 from harness_common import Experiment as BaseExperiment
+from harness_toolbox.environment import KubernetesEnvironment
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from spec_case.model import Case
 

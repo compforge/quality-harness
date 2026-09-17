@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from unittest.mock import patch
 
 from harness_common import (
-    ClientFactory,
+    ClientProvider,
     ClientManager,
     DataSource,
     Environment,
@@ -27,21 +27,31 @@ class Probe:
 
 
 @dataclass
-class Factory:
-    key: str
+class ProbeSource:
+    client_key: str
 
     def create_client(self, clients):
         return Probe()
 
 
-async def test_environment_and_data_factories_share_root_lifecycle_without_fixture():
-    environment_factory: ClientFactory[Probe] = Factory("environment")
-    data_source: DataSource[Probe] = Factory("database")
+@dataclass(frozen=True)
+class ProbeEnvironment(Environment, ClientProvider[Probe]):
+    @property
+    def client_key(self):
+        return "environment:" + self.name
+
+    def create_client(self, clients):
+        return Probe()
+
+
+async def test_environment_and_data_providers_share_root_lifecycle_without_fixture():
+    environment = ProbeEnvironment("test")
+    data_source: DataSource[Probe] = ProbeSource("database")
     async with ClientManager() as clients:
-        ctx = EnvironmentContext(Environment("test"), clients, time.monotonic() + 5)
-        env_client = await ctx.clients.get(environment_factory)
+        ctx = EnvironmentContext(environment, clients, time.monotonic() + 5)
+        env_client = await ctx.clients.get(ctx.environment)
         db_client = await ctx.clients.get(data_source)
-        assert env_client is await ctx.clients.get(Factory("environment"))
+        assert env_client is await ctx.clients.get(ProbeEnvironment("test"))
         assert env_client is not db_client
         assert env_client.ready and db_client.ready
         assert not env_client.closed and not db_client.closed

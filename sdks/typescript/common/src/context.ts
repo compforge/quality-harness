@@ -1,4 +1,4 @@
-import type { ClientProvider } from "./client-manager.js";
+import type { ClientManager } from "./client-manager.js";
 
 /**
  * Execution-scoped environment access, independent of fixture orchestration.
@@ -10,7 +10,7 @@ import type { ClientProvider } from "./client-manager.js";
 export class EnvironmentContext<E> {
   constructor(
     readonly environment: E,
-    readonly clients: ClientProvider,
+    readonly clients: Pick<ClientManager, "get">,
     readonly deadlineMs: number,
   ) {}
 

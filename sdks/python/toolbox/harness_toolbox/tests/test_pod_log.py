@@ -5,12 +5,14 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from harness_toolbox import ClientManager
-from harness_toolbox.kube import KubernetesClient, KubernetesClientFactory, Options
+from harness_toolbox.environment import KubernetesEnvironment
+from harness_toolbox.kube import KubernetesClient, Options
+from harness_toolbox.kube.client import _KubernetesAccess
 from harness_toolbox.kube.model import Container, Pod
 from harness_toolbox.pod_log import PodLogDataSource, PodLogTarget
 
 
-class TestKubernetesSource(KubernetesClientFactory):
+class TestKubernetesSource(_KubernetesAccess):
     __test__ = False
 
     def create_client(self, clients):
@@ -32,7 +34,10 @@ def kube_source(kubectl):
 
 
 @pytest.fixture
-def kubectl(tmp_path):
+def kubectl(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "harness_toolbox.pod_log._native_access", lambda env, options: kube_source(script)
+    )
     script = tmp_path / "kubectl"
     script.write_text("""#!/usr/bin/env python3
 import sys, json, time
@@ -53,7 +58,7 @@ def target():
 
 
 async def test_capture_reused_and_ids_filter_local_absolute_window(kubectl):
-    source = PodLogDataSource(kube_source(kubectl))
+    source = PodLogDataSource(KubernetesEnvironment("test", options=Options("quality", 10, 4)))
     async with ClientManager() as clients:
         logs = await clients.get(source)
         first, second = await asyncio.gather(logs.capture(target()), logs.capture(target()))
@@ -67,7 +72,9 @@ async def test_capture_reused_and_ids_filter_local_absolute_window(kubectl):
 
 
 async def test_global_byte_budget_and_identity_fencing(kubectl):
-    source = PodLogDataSource(kube_source(kubectl), max_total_bytes=50)
+    source = PodLogDataSource(
+        KubernetesEnvironment("test", options=Options("quality", 10, 4)), max_total_bytes=50
+    )
     async with ClientManager() as clients:
         logs = await clients.get(source)
         first, second = await asyncio.gather(
@@ -80,7 +87,7 @@ async def test_global_byte_budget_and_identity_fencing(kubectl):
 
 
 async def test_cancelled_waiter_does_not_cancel_shared_capture(kubectl):
-    source = PodLogDataSource(kube_source(kubectl))
+    source = PodLogDataSource(KubernetesEnvironment("test", options=Options("quality", 10, 4)))
     async with ClientManager() as clients:
         logs = await clients.get(source)
         first = asyncio.create_task(logs.capture(target()))

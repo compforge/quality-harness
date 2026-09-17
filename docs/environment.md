@@ -23,7 +23,11 @@ host:
   address: test-builder
 kubeconfig: /etc/rancher/k3s/k3s.yaml
 context: default
+image_registry: registry.example.com/team  # 可选，仅保存镜像仓库信息
 ```
+
+KubernetesEnvironment 可选的 image_registry（TypeScript 为 imageRegistry）只保存镜像仓库信息，
+当前不校验仓库、不改写镜像、不触发登录或访问，也不参与客户端复用身份。
 
 Runner 是执行测试代码的角色，它可以在本机、Host 或 Pod 内运行。部署主机、Runner、
 目标进程可能拥有不同的文件系统与权限；采集证据时必须保留来源。
@@ -32,14 +36,16 @@ Runner 是执行测试代码的角色，它可以在本机、Host 或 Pod 内运
 ## EnvironmentContext：执行期的环境访问上下文
 
 Environment 是配置与身份声明，不持有连接；EnvironmentContext 绑定本次选定的 Environment、
-借用的 ClientProvider 与截止时间，供 Service、Workload 操作及部署、诊断、测试流程共同使用。
+只含 get 的客户端借用视图与截止时间，供 Service、Workload 操作及部署、诊断、测试流程共同使用。
 它不依赖 Fixture，不执行 I/O、不拥有客户端释放权，也不自动取消操作。调用方将剩余预算
 传给具体操作，并在根执行退出前等待子任务结束。
 
 Python 使用单调时钟秒数 deadline / remaining_s；TypeScript 使用 performance.now() 的
 毫秒数 deadlineMs / remainingMs，不使用墙钟时间。TypeScript 的环境类型由消费方泛型提供。
-ClientManager 接收中立的 ClientFactory：环境访问工厂与 DataSource 共用初始化、复用和释放机制。
-不要求 Environment 提供 client()，也不引入只有 init/dispose 的 EnvironmentClient 基类。
+具体可访问环境实现 ClientProvider 的 client_key / create_client；DataSource 扩展同一契约。
+调用方直接 clients.get(environment) 或 clients.get(datasource)，共用初始化、复用和释放机制。
+通用 Environment 保留身份声明；具体 KubernetesEnvironment 及配置解析归 toolbox。
+不引入只有 init/dispose 的 EnvironmentClient 基类，也不为 HostEnvironment 虚构客户端。
 
 Python 的 FixtureContext 在 EnvironmentContext 上增加 phase，供 prepare/cleanup 使用；
 普通环境操作只依赖 EnvironmentContext，不需要知道编排阶段。
@@ -54,7 +60,7 @@ ClientManager 仅释放访问该服务的 HTTP 客户端等资源，不因连接
 Python `harness_common.fixture` 提供 `EnvironmentFixture` 和 `run_environment`。
 项目先分配自己的 state，再实现异步 `prepare(ctx, state)` 与 `cleanup(ctx, state)`；
 state 保存资源句柄、已采集事实和借用的 Client。准备过程中取得的句柄立即放入 state，
-让部分准备失败时的清理仍能找到资源。ctx 提供所选 Environment、ClientProvider 与阶段剩余时间。
+让部分准备失败时的清理仍能找到资源。ctx 提供所选 Environment、客户端借用视图与阶段剩余时间。
 
 一次执行的顺序为：
 
@@ -120,6 +126,6 @@ profile 名和部署声明不能代替真实探测；要求拒绝 ptrace 的测�
 - 项目拥有环境配置、部署 fixture、权限 profiles、行为断言和清理。
 
 toolbox 的 Host 命令支持 local / SSH，Helm 等命令行工具使用这条路径。
-`KubernetesResourcesClientFactory` 按 Environment 选择本地池或 Host-native worker，提供统一的
-原生资源操作。低层 `KubernetesClientFactory` 仍只管理当前进程的 API 池，避免误读远端同名
+`KubernetesEnvironment.create_client` 选择本地池或 Host-native worker，提供统一的
+原生资源操作。底层连接池 provider 是 toolbox 私有实现，只管理当前进程的 API 池，避免误读远端同名
 kubeconfig。访问通道与恢复边界见 [工具箱](toolbox.md)。

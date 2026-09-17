@@ -2,7 +2,8 @@ import asyncio
 import time
 
 import pytest
-from harness_common import Host, KubernetesEnvironment
+from harness_common import Host
+from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.kube.resource_list import ResourceListClient, ResourceListDataSource
 
 from perf_harness.model import Service

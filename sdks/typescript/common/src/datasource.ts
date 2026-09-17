@@ -1,8 +1,8 @@
 import type { Client } from "./client.js";
-import type { ClientFactory } from "./client-factory.js";
+import type { ClientProvider } from "./client-provider.js";
 
-/** A source of data; environment management factories need only ClientFactory. */
-export interface DataSource<C extends Client> extends ClientFactory<C> {}
+/** A source of data; accessible environments implement ClientProvider directly. */
+export interface DataSource<C extends Client> extends ClientProvider<C> {}
 
 /**
  * @spec A Service association does not own a client or change the source identity.

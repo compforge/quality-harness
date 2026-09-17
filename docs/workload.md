@@ -36,7 +36,7 @@ kubeconfig 路径与凭据不作为公开证据身份。Kubernetes 实例以
 environment、namespace、Pod 名和 UID 区分同名跨环境目标与 Pod 重建。
 toolbox 原样保留该 ID，不从 API 地址、kubeconfig 或 Host 派生它，也不以该 ID 选择连接。
 台账负责将 ID 绑定到本次选定的访问配置；调用方不能把不同目标误标为同一个 ID。
-ClientFactory key 则覆盖访问配置、凭据及容量策略：换访问方式可以换连接，但不应改写证据目标身份。
+ClientProvider key 则覆盖访问配置、凭据及容量策略：换访问方式可以换连接，但不应改写证据目标身份。
 
 workload 字段记录所属逻辑声明名，在 Service 上下文中解释；相同实例被多个声明发现，
 物理身份仍相同，消费者保留各自归属关系。实例不是持续有效的访问保证，操作失败由访问层报告。

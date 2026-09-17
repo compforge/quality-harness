@@ -11,9 +11,10 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
+from harness_common import DataSource
 
 from harness_toolbox.address import address_candidates
-from harness_toolbox.client import ClientProvider, client_key
+from harness_toolbox.client import _ClientBorrower, client_key
 from harness_toolbox.diagnostics import _AccessRecorder, _transport_name
 from harness_toolbox.errors import (
     ErrorKind,
@@ -36,14 +37,14 @@ class OpenSearchTarget:
 
 
 @dataclass(frozen=True)
-class OpenSearchDataSource:
+class OpenSearchDataSource(DataSource["OpenSearchClient"]):
     connection: ConnectionSource[OpenSearchTarget]
     timeout_s: float = 60
     concurrency: int = 8
     max_response_bytes: int = 64 * 1024 * 1024
 
     @property
-    def key(self) -> str:
+    def client_key(self) -> str:
         return client_key(
             "opensearch",
             [
@@ -56,7 +57,7 @@ class OpenSearchDataSource:
             ],
         )
 
-    def create_client(self, clients: ClientProvider) -> OpenSearchClient:
+    def create_client(self, clients: _ClientBorrower) -> OpenSearchClient:
         return OpenSearchClient(self, clients)
 
 
@@ -122,7 +123,9 @@ def _opensearch_error(
 
 
 class OpenSearchClient:
-    def __init__(self, source: OpenSearchDataSource, clients: ClientProvider | None = None) -> None:
+    def __init__(
+        self, source: OpenSearchDataSource, clients: _ClientBorrower | None = None
+    ) -> None:
         if source.concurrency < 1 or source.timeout_s <= 0 or source.max_response_bytes < 1:
             raise ValueError("OpenSearch limits must be positive")
         self._source = source

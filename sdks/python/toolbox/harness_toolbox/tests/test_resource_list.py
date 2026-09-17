@@ -5,11 +5,12 @@ from dataclasses import replace
 
 import pytest
 from aiohttp import web
-from harness_common import Host, KubernetesEnvironment, KubernetesWorkload
+from harness_common import Host, KubernetesWorkload
 from harness_common.client import ClientManager
 from kubernetes_asyncio.client import ApiException
 
-from harness_toolbox.kube import KubernetesResourcesClientFactory, Options
+from harness_toolbox.environment import KubernetesEnvironment
+from harness_toolbox.kube import Options
 from harness_toolbox.kube.resource_list import ResourceListDataSource
 
 
@@ -79,9 +80,7 @@ async def test_workload_resolution_uses_environment_backend(source, monkeypatch,
     if remote:
         config, _ = remote_source(config, monkeypatch)
     async with ClientManager() as clients:
-        access = await clients.get(
-            KubernetesResourcesClientFactory(config.environment, config.options)
-        )
+        access = await clients.get(replace(config.environment, options=config.options))
         workload = KubernetesWorkload(
             "logical", {"kind": "labels", "labels": {"app": "api"}}, namespace="override"
         )
@@ -213,9 +212,7 @@ async def test_read_view_borrows_shared_backend(source, monkeypatch, remote):
         config, calls = remote_source(config, monkeypatch)
     async with ClientManager() as clients:
         view = await clients.get(config)
-        resources = await clients.get(
-            KubernetesResourcesClientFactory(config.environment, config.options)
-        )
+        resources = await clients.get(replace(config.environment, options=config.options))
         assert view._resources is resources
         await view.list("v1", "Pod")
         await view.dispose()

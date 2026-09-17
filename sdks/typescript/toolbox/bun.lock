@@ -6,7 +6,7 @@
       "name": "@compforge/harness-toolbox",
       "dependencies": {
         "@aws-sdk/client-s3": "3.1133.0",
-        "@compforge/harness-common": "0.1.0",
+        "@compforge/harness-common": "0.2.0",
         "@kubernetes/client-node": "1.4.0",
         "@opensearch-project/opensearch": "3.6.0",
         "@redis/client": "6.1.0",

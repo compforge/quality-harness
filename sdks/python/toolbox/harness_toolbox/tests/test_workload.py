@@ -3,14 +3,15 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from harness_common import KubernetesEnvironment, KubernetesWorkload
+from harness_common import KubernetesWorkload
 from kubernetes_asyncio.client.exceptions import ApiException
 
+from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.errors import ErrorKind, KubernetesError
-from harness_toolbox.kube import KubernetesClient, KubernetesClientFactory, Options
+from harness_toolbox.kube import KubernetesClient, Options
+from harness_toolbox.kube.client import _KubernetesAccess
 from harness_toolbox.kube.environment_resources import (
     KubernetesResourcesClient,
-    KubernetesResourcesClientFactory,
 )
 from harness_toolbox.kube.workload import resolve_workload
 
@@ -129,7 +130,7 @@ async def test_selectorless_service_and_invalid_pod_are_not_empty_inventory():
 
 
 async def test_namespace_override_borrows_native_pool():
-    client = KubernetesClient(KubernetesClientFactory(Options("ns", 2, 3)))
+    client = KubernetesClient(_KubernetesAccess(Options("ns", 2, 3)))
     access = resources()
     access.list.return_value = {"items": [pod(namespace="override")]}
     with patch("harness_toolbox.kube.client.KubernetesResources", return_value=access) as factory:
@@ -151,9 +152,7 @@ async def test_environment_override_uses_managed_backend_and_keeps_identity():
     scoped = resources()
     scoped.list.return_value = {"items": [pod(namespace="override")]}
     clients.get.return_value = scoped
-    source = KubernetesResourcesClientFactory(
-        KubernetesEnvironment("env", "/config", "ctx"), Options("ns", 2, 3)
-    )
+    source = KubernetesEnvironment("env", "/config", "ctx", options=Options("ns", 2, 3))
     client = KubernetesResourcesClient(source, clients)
     result = await client.resolve_workload(
         KubernetesWorkload(
@@ -164,7 +163,7 @@ async def test_environment_override_uses_managed_backend_and_keeps_identity():
         environment="env",
     )
     requested = clients.get.call_args.args[0]
-    assert requested.environment == source.environment
+    assert requested == source
     assert requested.options == Options("override", 2, 3)
     assert result[0].namespace == "override"
     assert result[0].environment == "env"
@@ -187,7 +186,7 @@ async def test_timeout_is_not_empty_inventory():
 
 
 async def test_client_uses_default_namespace_and_preserves_container():
-    client = KubernetesClient(KubernetesClientFactory(Options("ns", 2, 3), context_name="ctx"))
+    client = KubernetesClient(_KubernetesAccess(Options("ns", 2, 3), context_name="ctx"))
     client.resources = resources()
     instance = (
         await client.resolve_workload(
@@ -201,7 +200,7 @@ async def test_client_uses_default_namespace_and_preserves_container():
     )[0]
     assert instance.container == "sidecar"
     assert instance.namespace == "ns"
-    other = KubernetesClient(KubernetesClientFactory(Options("ns", 2, 3), context_name="other"))
+    other = KubernetesClient(_KubernetesAccess(Options("ns", 2, 3), context_name="other"))
     other.resources = resources()
     assert (
         instance.environment
@@ -226,17 +225,16 @@ async def test_shared_target_identity_is_independent_of_access_configuration():
     keys = []
     for binding in fixture["target_bindings"]:
         config = binding["access"]
-        factory = KubernetesClientFactory(
+        factory = _KubernetesAccess(
             Options("ns", 2, 3), kubeconfig=config["kubeconfig"], context_name=config["context"]
         )
-        keys.append(factory.key)
+        keys.append(factory.client_key)
         native = KubernetesClient(factory)
         native.resources = resources()
         resolved = await native.resolve_workload(workload, environment=binding["environment"])
         wrapper = KubernetesResourcesClient(
-            KubernetesResourcesClientFactory(
-                KubernetesEnvironment("display-only", config["kubeconfig"], config["context"]),
-                factory.options,
+            KubernetesEnvironment(
+                "display-only", config["kubeconfig"], config["context"], options=factory.options
             ),
             AsyncMock(),
         )

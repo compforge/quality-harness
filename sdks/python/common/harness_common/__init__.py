@@ -29,7 +29,6 @@ from harness_common.component import Component as Component
 from harness_common.deployment import Deployer as Deployer
 from harness_common.deployment import Deployment as Deployment
 from harness_common.environment import Environment as Environment
-from harness_common.environment import KubernetesEnvironment as KubernetesEnvironment
 from harness_common.environment import HostEnvironment as HostEnvironment
 from harness_common.host import Host as Host
 from harness_common.environment import EnvironmentFacts as EnvironmentFacts
@@ -56,7 +55,6 @@ from harness_common.workload import (
 from harness_common.client import Client as Client
 from harness_common.client import ClientManager as ClientManager
 from harness_common.client import ClientProvider as ClientProvider
-from harness_common.client import ClientFactory as ClientFactory
 from harness_common.datasource import DataSource as DataSource
 from harness_common.datasource import ServiceDataSource as ServiceDataSource
 from harness_common.client import client_key as client_key

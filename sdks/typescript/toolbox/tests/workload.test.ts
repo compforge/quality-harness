@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { sameWorkloadInstance, type Workload, type WorkloadInstance } from "@compforge/harness-common";
 import { readFileSync } from "node:fs";
-import { KubernetesClientFactory } from "../src/kubernetes/client-factory";
+import { KubernetesEnvironment } from "../src/kubernetes/environment";
 import { KubernetesClient } from "../src/kubernetes/client";
 import { resolveWorkload } from "../src/kubernetes/workload";
 import type { Resource, ResourceAccess } from "../src/kubernetes/resources";
@@ -75,7 +75,7 @@ test("shared target identity stays independent of connection keys and access ali
   const limits = { timeoutMs: 1000, concurrency: 1, maxBytes: 1024 };
   for (const binding of fixture.target_bindings) {
     const options = { ...binding.access, namespace: "ns" };
-    keys.push(new KubernetesClientFactory(options, limits).key);
+    keys.push(new KubernetesEnvironment("dev", options, limits).clientKey);
     const client = new KubernetesClient(options, undefined, undefined, limits, {
       get: async () => ({ items: [pod()] }),
     });

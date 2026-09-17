@@ -1,18 +1,18 @@
 import { createHash } from "node:crypto";
 import type { Client } from "./client.js";
-import type { ClientProvider } from "./client-manager.js";
+import type { ClientManager } from "./client-manager.js";
 
 /**
  * Keyed construction independent of data or environment semantics.
  * @spec Both environment access and data access share ClientManager ownership.
  * @rule Identity covers implementation, target, credentials and capacity policy.
  */
-export interface ClientFactory<C extends Client> {
-  readonly key: string;
+export interface ClientProvider<C extends Client> {
+  readonly clientKey: string;
   /** Construct only; initialize borrows dependencies through clients before publishing readiness.
    * Dependencies must be acyclic; borrowers never dispose them. No environment model is required.
    */
-  createClient(clients: ClientProvider, signal: AbortSignal): C;
+  createClient(clients: Pick<ClientManager, "get">, signal: AbortSignal): C;
 }
 
 /** Stable configuration identity; credentials never appear in observable keys. */

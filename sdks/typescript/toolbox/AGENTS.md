@@ -26,7 +26,7 @@ toolbox/
 
 ## 关键约定
 
-- 根调用方拥有 ClientManager 和销毁权；子调用方只借用 ClientProvider。按稳定 ClientFactory key 合并初始化，
+- 根调用方拥有 ClientManager 和销毁权；子调用方只接收 ClientManager 的 get 视图。按稳定 ClientProvider key 合并初始化，
   初始化失败完成清理后允许重试，dispose 幂等且等待进行中的工作退出。
 - 中立生命周期实现归同语言的 `../common`；本包依赖 common，不复制实现或反向注入平台概念。
 - 日志并发、字节预算和外部访问期限由调用方显式提供。不同数据源可共享根容量，不能按子调用重建池。

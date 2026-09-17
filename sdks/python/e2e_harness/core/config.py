@@ -15,7 +15,7 @@ from typing import Any
 
 import yaml
 from harness_common import Component, Environment, Forge, Repository
-from harness_common.environment import parse_environment
+from harness_toolbox.environment import parse_environment
 from harness_common import Experiment as BaseExperiment
 from harness_common import Service as BaseService
 

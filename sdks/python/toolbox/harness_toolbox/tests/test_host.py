@@ -1,10 +1,9 @@
 import subprocess
 
 import pytest
-from harness_common.environment import KubernetesEnvironment
 from harness_common.host import Host
 
-from harness_toolbox.environment import kubernetes_client_factory
+from harness_toolbox.environment import KubernetesEnvironment, _native_access
 from harness_toolbox.host import command, observe_local
 from harness_toolbox.kube import Options
 
@@ -29,6 +28,6 @@ def test_remote_kubeconfig_is_not_read_locally():
         "test", "/remote/config", host=Host("builder", "ssh", "builder")
     )
     with pytest.raises(ValueError, match="local cluster access"):
-        kubernetes_client_factory(
+        _native_access(
             environment, Options(namespace="test", request_timeout_s=5, connection_pool_maxsize=2)
         )

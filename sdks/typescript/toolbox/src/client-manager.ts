@@ -1,1 +1,1 @@
-export { ClientManager, type ClientProvider } from "@compforge/harness-common";
+export { ClientManager } from "@compforge/harness-common";

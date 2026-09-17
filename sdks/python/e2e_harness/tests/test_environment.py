@@ -7,8 +7,8 @@ import yaml
 from harness_common.environment import (
     EnvironmentFacts,
     EnvironmentSnapshot,
-    parse_environment,
 )
+from harness_toolbox.environment import parse_environment
 from e2e_harness.caserun import Budgets, CasePlan, CaseRef, Fail
 from e2e_harness.environment import EnvironmentState, run_in_environment
 

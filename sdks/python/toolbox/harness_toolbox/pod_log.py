@@ -8,8 +8,11 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
-from harness_toolbox.client import ClientProvider, client_key
-from harness_toolbox.kube import KubernetesClient, KubernetesClientFactory
+from harness_common import DataSource
+
+from harness_toolbox.client import _ClientBorrower, client_key
+from harness_toolbox.environment import KubernetesEnvironment, _native_access
+from harness_toolbox.kube import KubernetesClient
 from harness_toolbox.process import process_scope, read_bounded
 
 
@@ -67,19 +70,19 @@ class PodLogCapture:
 
 
 @dataclass(frozen=True)
-class PodLogDataSource:
-    kubernetes: KubernetesClientFactory
+class PodLogDataSource(DataSource["PodLogClient"]):
+    environment: KubernetesEnvironment
     concurrency: int = 4
     timeout_s: float = 60
     max_capture_bytes: int = 64 * 1024 * 1024
     max_total_bytes: int = 512 * 1024 * 1024
 
     @property
-    def key(self) -> str:
+    def client_key(self) -> str:
         return client_key(
             "pod-logs",
             [
-                self.kubernetes.key,
+                self.environment.client_key,
                 self.concurrency,
                 self.timeout_s,
                 self.max_capture_bytes,
@@ -87,14 +90,14 @@ class PodLogDataSource:
             ],
         )
 
-    def create_client(self, clients: ClientProvider) -> PodLogClient:
+    def create_client(self, clients: _ClientBorrower) -> PodLogClient:
         return PodLogClient(self, clients)
 
 
 class PodLogClient:
     """The root shares this client/configuration to share its pool and byte budget."""
 
-    def __init__(self, source: PodLogDataSource, clients: ClientProvider) -> None:
+    def __init__(self, source: PodLogDataSource, clients: _ClientBorrower) -> None:
         if (
             min(
                 source.concurrency,
@@ -118,7 +121,9 @@ class PodLogClient:
         if self._disposal is not None:
             raise RuntimeError("Pod log client is disposed")
         if self._directory is None:
-            self._kubernetes = await self._clients.get(self._source.kubernetes)
+            self._kubernetes = await self._clients.get(
+                _native_access(self._source.environment, self._source.environment.options)
+            )
             self._directory = tempfile.TemporaryDirectory(prefix="pod-logs-")
 
     async def capture(self, target: PodLogTarget) -> PodLogCapture:

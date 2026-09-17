@@ -1,6 +1,6 @@
 # Harness Toolbox
 
-Client, ClientFactory, DataSource, EnvironmentContext and ClientManager are owned by the sibling TypeScript package
+Client, ClientProvider, DataSource, EnvironmentContext and ClientManager are owned by the sibling TypeScript package
 `@compforge/harness-common`. Toolbox provides protocol implementations and transports;
 its lifecycle entrypoints re-export the same common symbols.
 
@@ -14,7 +14,7 @@ not load database or Kubernetes drivers.
 
 ## Workload discovery
 
-Borrow a KubernetesClient through KubernetesClientFactory and the shared ClientManager lifecycle, then call
+Borrow a KubernetesClient through KubernetesEnvironment and the shared ClientManager lifecycle, then call
 `client.resolveWorkload(workload, environmentId)`. The ID is a stable target identity from your
 environment registry, not a display name or kubeconfig path. The Workload's namespace overrides the client's default.
 Resource, Service selector and labels locations return all matching Pod incarnations without
@@ -28,21 +28,21 @@ See [the shared Workload model](../../../docs/workload.md).
 
 ```ts
 import { ClientManager, EnvironmentContext } from "@compforge/harness-toolbox";
-import { KubernetesClientFactory } from "@compforge/harness-toolbox/kubernetes/client-factory";
+import { KubernetesEnvironment } from "@compforge/harness-toolbox/kubernetes/environment";
 
 const clients = new ClientManager();
 try {
   const ctx = new EnvironmentContext(
-    { id: "cluster-a/runtime", kubeconfig: "/config/cluster", context: "dev", namespace: "app" },
+    new KubernetesEnvironment("dev",
+      { kubeconfig: "/config/cluster", context: "dev", namespace: "app" },
+      { timeoutMs: 10_000, concurrency: 4, maxBytes: 8 * 1024 * 1024 }),
     clients, performance.now() + 30_000,
   );
-  const kube = await ctx.clients.get(new KubernetesClientFactory(ctx.environment, {
-    timeoutMs: 10_000, concurrency: 4, maxBytes: 8 * 1024 * 1024,
-  }));
+  const kube = await ctx.clients.get(ctx.environment);
   const pods = await kube.resolveWorkload({
     name: "api", platform: "kubernetes",
     location: { kind: "resource", resource_kind: "Deployment", name: "api" },
-  }, ctx.environment.id);
+  }, "cluster-a/runtime");
 } finally {
   await clients.dispose();
 }
@@ -68,8 +68,8 @@ The toolbox root override resolves common from `../common` only for local develo
 the published dependency remains a registry version. Publish common before toolbox.
 The Makefile builds common before typechecking or building toolbox.
 
-A `ClientFactory` identifies a reusable client and constructs it; `DataSource` adds data-access semantics.
-Environment access factories need not pretend to be data sources. The `Client` owns initialization
+A `ClientProvider` identifies a reusable client and constructs it; `DataSource` adds data-access semantics.
+Accessible environments implement ClientProvider directly without becoming data sources. The `Client` owns initialization
 and idempotent disposal; a `ClientManager` joins concurrent initialization for the same key and
 closes owned clients when the caller finishes. A `ConnectionSource` resolves connection settings
 and available `Transport` paths. Clients execute protocol operations through those paths.
@@ -81,7 +81,7 @@ import { DirectTransport } from "@compforge/harness-toolbox/transport";
 
 const target = { host: "localhost", port: 3306, database: "app", user: "reader", password: "..." };
 const source: DataSource<MysqlClient> = {
-  key: clientKey("mysql", target),
+  clientKey: clientKey("mysql", target),
   createClient: (_clients, signal) => new MysqlClient({
     resolve: async () => target,
     transports: [new DirectTransport()],

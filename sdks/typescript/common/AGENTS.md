@@ -2,7 +2,7 @@
 
 ## 项目定位与边界
 
-`@compforge/harness-common` 承载中立的 Client、ClientFactory、DataSource、ClientManager、EnvironmentContext、
+`@compforge/harness-common` 承载中立的 Client、ClientProvider、DataSource、ClientManager、EnvironmentContext、
 Workload/WorkloadInstance 与 Service 数据源关联。
 具体协议、Transport 与平台适配归 toolbox；业务 Service 定义和诊断协议归消费方。
 Python 对应实现位于 `../../python/common`，各语言独立发布，保持已有公共行为语义一致。
@@ -12,7 +12,7 @@ Python 对应实现位于 `../../python/common`，各语言独立发布，保持
 ```text
 src/
 ├── client.ts          # 初始化与幂等回收契约
-├── client-factory.ts  # 通用客户端配置身份与构造
+├── client-provider.ts  # Environment/DataSource 共同的客户端标识与构造契约
 ├── datasource.ts      # 数据来源语义与 Service 关联
 ├── context.ts         # 执行期环境、借用入口与预算，不依赖 Fixture
 ├── client-manager.ts  # 根执行内共享客户端与回收

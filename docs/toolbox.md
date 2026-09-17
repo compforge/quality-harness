@@ -3,28 +3,28 @@
 > 本文描述可被多个 Harness 复用的环境操作与观测能力。工具箱回答“如何可靠地操作和观察”，
 > 不拥有 Case、Dataset、EvaluationRun 或 Verdict，也不决定业务目标、执行时机和通过条件。
 
-## 1. Client、ClientFactory、DataSource 与 Transport
+## 1. Client、ClientProvider、DataSource 与 Transport
 
 TypeScript 平台工具箱位于 `sdks/typescript/toolbox`，独立发布为 `@compforge/harness-toolbox`；
 Python 位于 `sdks/python/toolbox`，独立分发为 `harness-toolbox`。
 它可供诊断宿主、业务适配与测试执行方复用，不要求调用方创建 Case 或依赖某个 Harness。
 
 - **Client**：拥有协议资源和操作，负责初始化与幂等销毁，包括初始化失败后的部分资源清理。
-- **ClientFactory**：以稳定 key 标识客户端配置，并构造 Client；构造阶段不执行外部访问。
-- **DataSource**：具有数据来源语义的 ClientFactory，例如数据库、日志和指标，不代表所有环境操作。
-- **ClientManager**：在一次根执行中按 ClientFactory key 复用初始化中的异步任务和成功的 Client。
+- **ClientProvider**：通过 client_key / clientKey 标识客户端配置，以 create_client / createClient 构造 Client；构造阶段不执行外部访问。
+- **DataSource**：具有数据来源语义的 ClientProvider，例如数据库、日志和指标，不代表所有环境操作。
+- **ClientManager**：在一次根执行中按 ClientProvider key 复用初始化中的异步任务和成功的 Client。
   初始化失败完成清理后允许重试；结束时取消并等待进行中的初始化，再按依赖顺序逆序销毁。
-- **ClientProvider**：只提供借用入口，子调用方无权关闭根调用方的共享资源。
 - **ConnectionSource**：解析协议连接信息，并声明适用的 Transport；环境配置语义由调用方提供。
 - **Transport**：提供直连、端口转发、Host-native worker 或 Pod Python 等访问路径，并拥有相应通道的创建、失效和关闭。
 
-调用方创建根 ClientManager，将 ClientProvider 传给嵌套或并发工作，并在根执行结束时统一 dispose。
-ClientFactory key 必须覆盖影响复用的协议、目标、配置与凭据；用 client_key / clientKey 生成摘要，
+调用方创建根 ClientManager，将只含 get 的借用视图传给嵌套或并发工作，并在根执行结束时统一 dispose。
+ClientProvider key 必须覆盖影响复用的协议、目标、配置与凭据；用 client_key / clientKey 生成摘要，
 避免凭据出现在可观察 key 中。
 共享容量和策略在一个根执行中保持一致，不能用同一个 key 请求相互冲突的策略。
 
-ClientManager 实现 ClientProvider；Environment 是环境声明，DataSource 是 ClientFactory，
-都不是客户端缓存或借用入口。两端工厂在构造时获得 ClientProvider，初始化期间通过它取得
+ClientProvider 是“可提供 Client 的对象”的共同契约；可访问的具体 Environment 和 DataSource 都实现它。
+ClientManager 接收它们：clients.get(environment) / clients.get(datasource)，并负责复用和释放。
+通用 Environment 只表达身份，不强迫没有访问实现的环境提供空客户端。构造时接收只含 get 的借用视图，初始化期间通过它取得
 依赖客户端；依赖图须无环，消费者不释放借用对象。TS 额外接收根 AbortSignal。
 初始化失败且清理成功后允许重试；清理失败则保留失败身份、禁止重建，并在根释放时报告错误。
 
@@ -74,14 +74,14 @@ Toolbox 的范围是通用基础设施访问与操作，包括数据库、OpenSe
 
 ClientManager 属于根执行，按实际访问配置、凭据与容量复用客户端并集中释放。环境名、服务名或
 Workload 名不能代替连接身份。EnvironmentContext 绑定本次环境、借用入口与预算，不自行创建或销毁连接。
-Python 的 Environment、EnvironmentContext、Service、Client、ClientFactory、DataSource、ClientProvider、
+Python 的 Environment、EnvironmentContext、Service、Client、ClientProvider、DataSource、
 ClientManager、ServiceDataSource 与配置 key 归独立的 harness-common；具体协议客户端、Transport、
-地址解析和 Kubernetes 工厂归 harness-toolbox。依赖方向为 toolbox → common → 标准库；common 的
+地址解析、具体 KubernetesEnvironment 及其配置解析归 harness-toolbox。依赖方向为 toolbox → common → 标准库；common 的
 LLM HTTP 客户端通过独立 extra 引入 httpx。原 toolbox 生命周期符号保留转导出。
 
 共享层按语言独立组织：Python 位于 `sdks/python/common`，TypeScript 位于
 `sdks/typescript/common`，分别发布 `harness-common` 与 `@compforge/harness-common`。
-TypeScript common 承载 Client、ClientFactory、DataSource、ClientProvider、ClientManager、EnvironmentContext、ServiceDataSource
+TypeScript common 承载 Client、ClientProvider、DataSource、ClientManager、EnvironmentContext、ServiceDataSource
 与配置 key；Service 关联保留消费方的 Service 类型，不引入 Doctor 或平台专用定义。
 两种语言不要求功能覆盖完全相同；TypeScript toolbox 同样只转导出中立生命周期符号。
 
@@ -137,7 +137,8 @@ Pod 完成等待返回成功或失败的终态，日志通过原生 API 有界�
 创建哪些资源、何时清理、如何保存证据与解释准入拒绝由消费方拥有。
 ### 本地与 Environment Host 上的统一资源访问
 
-`KubernetesResourcesClientFactory` 接收 `KubernetesEnvironment` 和 `Options`，在本机借用
+`KubernetesEnvironment` 自身提供 client_key / create_client，Options 是其访问配置的一部分。
+`clients.get(environment)` 在本机借用
 原生 Kubernetes 连接池，在 SSH Host 上通过持续存活的 `python3 -m harness_toolbox.kube.worker`
 执行相同的原生资源操作。支持 manifest create / get / list / UID delete、删除等待、Pod 完成
 等待及有界日志读取。namespace 校验、UID 保护和 API 错误状态在两端保持一致。

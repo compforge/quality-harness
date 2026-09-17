@@ -54,7 +54,8 @@ Workload 承载，部署配置为这一关系提供事实；映射变化不改�
 Workload 内含定位描述，执行期发现 WorkloadInstance；身份与访问边界见 [Workload](workload.md)。
 EnvironmentContext 绑定执行期环境、借用客户端入口与预算；EnvironmentFixture 编排共享环境资源，
 领域执行回调内部的 Case / Trial 生命周期归各 Harness；见 [Environment](environment.md)。
-ClientFactory 提供通用客户端构造与配置身份，DataSource 仅表达其中的数据来源语义。
+ClientProvider 通过客户端标识与构造方法显式连接可访问 Environment 和 DataSource；
+DataSource 仅表达数据来源语义，ClientManager 统一接收两者。
 Transport 管理各类基础设施访问通道，ClientManager 管理执行期客户端；见 [toolbox](toolbox.md)。
 
 这些名字定义共同语义。Python Harness 共享 `harness_common` 中的身份基类；不同语言保持惯用 API，

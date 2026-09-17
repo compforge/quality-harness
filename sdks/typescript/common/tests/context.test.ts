@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ClientManager, EnvironmentContext, type ClientFactory, type DataSource } from "../src/index.js";
+import { ClientManager, EnvironmentContext, type ClientProvider, type DataSource } from "../src/index.js";
 
 class Probe {
   ready = false;
@@ -8,12 +8,12 @@ class Probe {
   async dispose() { this.closed = true; }
 }
 
-test("environment and data factories share root ownership without fixture or source metadata", async () => {
+test("environment and data providers share root ownership without fixture or source metadata", async () => {
   const clients = new ClientManager();
-  const context = new EnvironmentContext({ name: "test" }, clients, performance.now() + 10_000);
-  const environment: ClientFactory<Probe> = { key: "environment", createClient: () => new Probe() };
-  const source: DataSource<Probe> = { key: "db", createClient: () => new Probe() };
-  const first = await context.clients.get(environment);
+  const environment = { name: "test", clientKey: "environment", createClient: () => new Probe() } satisfies ClientProvider<Probe> & { name: string };
+  const context = new EnvironmentContext(environment, clients, performance.now() + 10_000);
+  const source: DataSource<Probe> = { clientKey: "db", createClient: () => new Probe() };
+  const first = await context.clients.get(context.environment);
   const second = await context.clients.get(source);
   expect(first).toBe(await context.clients.get({ ...environment }));
   expect(first).not.toBe(second);

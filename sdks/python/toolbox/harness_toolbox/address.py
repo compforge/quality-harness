@@ -8,9 +8,10 @@ import socket
 from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass
 
-from harness_common import Environment, KubernetesEnvironment
+from harness_common import Environment
 
-from harness_toolbox.client import ClientProvider, client_key
+from harness_toolbox.client import _ClientBorrower, client_key
+from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.errors import ErrorKind, ToolboxError
 from harness_toolbox.transport import Endpoint
 
@@ -75,7 +76,7 @@ async def _dns(host: str, port: int, timeout_s: float) -> tuple[str, ...]:
 
 
 async def _hosts(
-    policy: AddressPolicy, endpoint: Endpoint, clients: ClientProvider | None
+    policy: AddressPolicy, endpoint: Endpoint, clients: _ClientBorrower | None
 ) -> tuple[tuple[str, ...], str]:
     try:
         ipaddress.ip_address(endpoint.host)
@@ -93,8 +94,8 @@ async def _hosts(
         return await _dns(endpoint.host, endpoint.port, policy.timeout_s), "dns"
     assert isinstance(environment, KubernetesEnvironment)
     if clients is None:
-        raise ValueError("Kubernetes address resolution requires a ClientProvider")
-    from harness_toolbox.environment import kubernetes_client_factory
+        raise ValueError("Kubernetes address resolution requires a client borrowing context")
+    from harness_toolbox.environment import _native_access
     from harness_toolbox.kube import Options
 
     name, namespace = service
@@ -103,7 +104,7 @@ async def _hosts(
 
     try:
         kube = await clients.get(
-            kubernetes_client_factory(
+            _native_access(
                 environment,
                 Options(
                     namespace=namespace,
@@ -123,7 +124,7 @@ async def _hosts(
 
 
 async def address_candidates(
-    endpoint: Endpoint, policy: AddressPolicy | None, clients: ClientProvider | None
+    endpoint: Endpoint, policy: AddressPolicy | None, clients: _ClientBorrower | None
 ) -> AsyncIterator[AddressCandidate]:
     """Yield ordered candidates; resolution failures remain visible before alternatives.
 

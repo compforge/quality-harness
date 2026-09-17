@@ -3,7 +3,6 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { createServer as createTlsServer } from "node:https";
 import { readFileSync } from "node:fs";
 import { ClientManager } from "../src/client-manager";
-import type { ClientProvider } from "../src/client";
 import { S3Client, S3DataSource, type S3Target } from "../src/s3";
 import { DirectTransport, PortForwardTransport } from "../src/transport";
 
@@ -29,13 +28,13 @@ test("S3 DataSource shares clients, hashes credentials/policy/route, snapshots i
   const source = new S3DataSource(config, limits);
   const manager = new ClientManager();
   try {
-    expect(source.key).not.toContain(credentials.secretAccessKey);
-    expect(source.key).toBe(new S3DataSource(config, limits).key);
-    expect(source.key).not.toBe(new S3DataSource(config, { ...limits, concurrency: 1 }).key);
-    expect(source.key).not.toBe(new S3DataSource({ ...config, credentials: { ...credentials, sessionToken: "other" } }, limits).key);
+    expect(source.clientKey).not.toContain(credentials.secretAccessKey);
+    expect(source.clientKey).toBe(new S3DataSource(config, limits).clientKey);
+    expect(source.clientKey).not.toBe(new S3DataSource(config, { ...limits, concurrency: 1 }).clientKey);
+    expect(source.clientKey).not.toBe(new S3DataSource({ ...config, credentials: { ...credentials, sessionToken: "other" } }, limits).clientKey);
     const route = new PortForwardTransport(async endpoint => endpoint);
-    expect(new S3DataSource(config, limits, { key: "cluster-a", transport: route }).key)
-      .not.toBe(new S3DataSource(config, limits, { key: "cluster-b", transport: route }).key);
+    expect(new S3DataSource(config, limits, { key: "cluster-a", transport: route }).clientKey)
+      .not.toBe(new S3DataSource(config, limits, { key: "cluster-b", transport: route }).clientKey);
     config.endpoint = "http://not-the-original.example";
     const [a, b] = await Promise.all([manager.get(source), manager.get(source)]);
     expect(a).toBe(b);
@@ -171,7 +170,7 @@ test("S3 TLS tunnel retains certificate validation and original server identity"
 
 test("S3 failed initialization can be retried by ClientManager", async () => {
   let attempts = 0;
-  const source = { key: "s3-init-retry", createClient: (_clients: ClientProvider, signal: AbortSignal) => new S3Client({
+  const source = { clientKey: "s3-init-retry", createClient: (_clients: Pick<ClientManager, "get">, signal: AbortSignal) => new S3Client({
     resolve: async () => { if (++attempts === 1) throw new Error("resolve failed"); return target("http://localhost:1"); },
     transports: [new DirectTransport()],
   }, limits, { signal }) };

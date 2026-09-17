@@ -26,13 +26,13 @@ from harness_common import (
     Execution,
     ExperimentRun,
     Forge,
-    KubernetesEnvironment,
     Repository,
 )
 from harness_common import Deployment as BaseDeployment
 from harness_common import Environment as BaseEnvironment
 from harness_common import Outcome as BaseOutcome
 from harness_common import Service as BaseService
+from harness_toolbox.environment import KubernetesEnvironment
 
 from perf_harness.metric import Caveat, MetricFamily, MetricSummary
 

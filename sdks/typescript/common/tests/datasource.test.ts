@@ -12,7 +12,7 @@ test("source identity includes credentials and ignores configuration key order",
 test("service associations share the source client without owning its lifetime", async () => {
   let starts = 0;
   let closes = 0;
-  const source = { key: "db", createClient: () => ({
+  const source = { clientKey: "db", createClient: () => ({
     initialize: async () => { starts++; },
     dispose: async () => { closes++; },
   }) };

@@ -2,38 +2,39 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from harness_common import ClientProvider, KubernetesEnvironment, client_key
+from harness_common import DataSource, client_key
+from harness_common.client import _ClientBorrower
 
 from harness_toolbox.data_loader import DataLoader
+from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.kube.environment_resources import (
     KubernetesResourcesClient,
-    KubernetesResourcesClientFactory,
 )
 from harness_toolbox.kube.model import Options
 
 
 @dataclass(frozen=True)
-class ResourceListDataSource:
+class ResourceListDataSource(DataSource["ResourceListClient"]):
     environment: KubernetesEnvironment
     options: Options
 
     @property
-    def key(self) -> str:
+    def client_key(self) -> str:
         return client_key(
             "kubernetes-resource-list",
-            KubernetesResourcesClientFactory(self.environment, self.options).key,
+            replace(self.environment, options=self.options).client_key,
         )
 
-    def create_client(self, clients: ClientProvider) -> ResourceListClient:
+    def create_client(self, clients: _ClientBorrower) -> ResourceListClient:
         return ResourceListClient(self, clients)
 
 
 class ResourceListClient:
     """Borrow resources without owning their pool or worker lifetime."""
 
-    def __init__(self, source: ResourceListDataSource, clients: ClientProvider):
+    def __init__(self, source: ResourceListDataSource, clients: _ClientBorrower):
         self._source = source
         self._clients = clients
         self._resources: KubernetesResourcesClient | None = None
@@ -41,7 +42,7 @@ class ResourceListClient:
 
     async def initialize(self) -> None:
         self._resources = await self._clients.get(
-            KubernetesResourcesClientFactory(self._source.environment, self._source.options)
+            replace(self._source.environment, options=self._source.options)
         )
 
     async def list(
@@ -57,7 +58,7 @@ class ResourceListClient:
         if scope is None:
             return await self._list(api_version, kind, label_selector=label_selector)
         return await scope.read(
-            (self._source.key, "list", api_version, kind, label_selector),
+            (self._source.client_key, "list", api_version, kind, label_selector),
             lambda: self._list(api_version, kind, label_selector=label_selector),
         )
 

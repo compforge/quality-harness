@@ -8,36 +8,33 @@ pytest.importorskip("kubernetes_asyncio")
 
 from harness_common import (
     Component,
+    Environment,
     EnvironmentContext,
     Forge,
-    KubernetesEnvironment,
     Repository,
     Service,
     ServiceDataSource,
 )
 
 from harness_toolbox import ClientManager
-from harness_toolbox.environment import kubernetes_client_factory
-from harness_toolbox.kube import KubernetesClientFactory, Options
+from harness_toolbox.environment import KubernetesEnvironment
+from harness_toolbox.kube import Options
 from harness_toolbox.kube.resource_list import ResourceListDataSource
 from harness_toolbox.transport import KubernetesAccess, PortForwardTransport
 
-ENV = KubernetesEnvironment("dev", "/config/dev", "cluster-context")
 OPTIONS = Options("runtime-ns", 15, 4)
+ENV = KubernetesEnvironment("dev", "/config/dev", "cluster-context", options=OPTIONS)
 SERVICE = Service("business-name", Component(Repository(Forge("git"), "org/repo"), "server"), ENV)
 
 
 def test_reuse_uses_physical_access_not_environment_alias():
-    source = kubernetes_client_factory(ENV, OPTIONS)
-    assert source.key == kubernetes_client_factory(replace(ENV, name="another-label"), OPTIONS).key
+    source = ENV
+    assert source.client_key == replace(ENV, name="another-label").client_key
+    assert source.client_key != replace(ENV, kubeconfig="/other-cluster").client_key
+    assert source.client_key != replace(ENV, context="other-context").client_key
     assert (
-        source.key
-        != kubernetes_client_factory(replace(ENV, kubeconfig="/other-cluster"), OPTIONS).key
+        source.client_key != replace(ENV, options=replace(OPTIONS, namespace="other-ns")).client_key
     )
-    assert (
-        source.key != kubernetes_client_factory(replace(ENV, context="other-context"), OPTIONS).key
-    )
-    assert source.key != kubernetes_client_factory(ENV, replace(OPTIONS, namespace="other-ns")).key
 
 
 async def test_logical_services_share_access_without_platform_name_assumptions(
@@ -45,16 +42,13 @@ async def test_logical_services_share_access_without_platform_name_assumptions(
 ):
     kube = AsyncMock()
     kube.access = KubernetesAccess(ENV.kubeconfig, OPTIONS.namespace, ENV.context)
-    monkeypatch.setattr(KubernetesClientFactory, "create_client", lambda source, clients: kube)
-    source = kubernetes_client_factory(ENV, OPTIONS)
+    monkeypatch.setattr(KubernetesEnvironment, "create_client", lambda source, clients: kube)
     async with ClientManager() as clients:
         first = EnvironmentContext(SERVICE.environment, clients, time.monotonic() + 15)
         other_service = replace(SERVICE, name="another-business-service")
         second = EnvironmentContext(other_service.environment, clients, first.deadline)
-        client = await first.clients.get(source)
-        assert client is await second.clients.get(
-            kubernetes_client_factory(second.environment, OPTIONS)
-        )
+        client = await first.clients.get(first.environment)
+        assert client is await second.clients.get(second.environment)
         # A logical Service may have multiple workloads, with entirely different resource names.
         await client.list_deployment_pods("api-workload")
         await client.list_deployment_pods("worker-workload")
@@ -71,4 +65,15 @@ def test_one_service_can_associate_multiple_independent_sources():
     other = ResourceListDataSource(ENV, replace(OPTIONS, namespace="shared-infra"))
     bindings = [ServiceDataSource(SERVICE, source), ServiceDataSource(SERVICE, other)]
     assert all(binding.service == SERVICE for binding in bindings)
-    assert bindings[0].source.key != bindings[1].source.key
+    assert bindings[0].source.client_key != bindings[1].source.client_key
+
+
+def test_kubernetes_environment_extends_environment_with_cluster_access() -> None:
+    environment = KubernetesEnvironment(
+        name="dev",
+        kubeconfig="~/.kube/config",
+        context="dev-cluster",
+    )
+
+    assert isinstance(environment, Environment)
+    assert environment.kubeconfig == "~/.kube/config"

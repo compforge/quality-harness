@@ -1,16 +1,16 @@
-"""Data access associations built on the neutral client factory contract."""
+"""Data access associations built on the neutral client provider contract."""
 
 from dataclasses import dataclass
 from typing import Generic, Protocol
 
-from harness_common.client import C, ClientFactory
+from harness_common.client import C, ClientProvider
 from harness_common.service import Service
 
 
-class DataSource(ClientFactory[C], Protocol[C]):
-    """A source of data; lifecycle and reuse follow ClientFactory.
+class DataSource(ClientProvider[C], Protocol[C]):
+    """A source of data; lifecycle and reuse follow ClientProvider.
 
-    Environment management factories need not be described as data sources.
+    Accessible environment providers need not be described as data sources.
     """
 
 
