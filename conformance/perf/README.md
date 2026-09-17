@@ -10,3 +10,7 @@ OperationRun/Outcome；`basic.evaluations.json` 单独保存判定。
 契约见 [perf-contract](../../spec/perf-contract.md)，schema 见
 [Run](../../spec/perf-run-schema.yaml)、[Request](../../spec/perf-request-schema.yaml)、
 [Evaluation](../../spec/perf-evaluation-schema.yaml)。
+
+`judge-failure.json` 是 Python/TypeScript 共同执行的生命周期场景：Judge 在 measurement 或 drain
+期间失败时，已完成请求、measurement 边界、停止原因、在途数量、中断清点和重载结果必须一致。
+取消处理刻意延迟，以验证清理耗时不会进入 measurement。

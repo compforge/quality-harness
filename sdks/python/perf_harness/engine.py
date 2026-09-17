@@ -25,7 +25,7 @@ from spec_case.model import Case
 
 from perf_harness.drive.load import LoadPlan
 from perf_harness.drive.runner import ArmContext, Runner
-from perf_harness.drive.scheduler import drive
+from perf_harness.drive.scheduler import DriveState, drive
 from perf_harness.judge import Judge, default_judge
 from perf_harness.metric import (
     MetricFamily,
@@ -37,7 +37,6 @@ from perf_harness.metric.store import PER_REQUEST_DESCRIPTORS, REQUEST_DESCRIPTO
 from perf_harness.model import (
     Arm,
     ArmRun,
-    ArmStop,
     Deployment,
     Phase,
     PhaseError,
@@ -75,6 +74,7 @@ class _ArmExecution:
     """
 
     context: ArmContext
+    drive: DriveState = field(default_factory=DriveState)
     phase: Phase = "setup"
     phase_errors: list[PhaseError] = field(default_factory=list)
     fatal_error: BaseException | None = None
@@ -216,7 +216,6 @@ class Engine:
         )
         store: ProbeStore = {}
         probe_errors: dict[str, ProbeErrors] = {}
-        measurement_end_s = 0.0
         cooldown_start_s: float | None = None
         cooldown_end_s: float | None = None
         # trust_env=False: the load generator connects DIRECTLY to the Service's
@@ -238,7 +237,6 @@ class Engine:
             ctx: ProbeContext | None = None
             observer: asyncio.Task | None = None
             stop = asyncio.Event()
-            arm_run_stop = ArmStop(reason="aborted")
             try:
                 await exp.runner.setup(execution.context)
                 execution.enter("measurement")
@@ -252,7 +250,7 @@ class Engine:
                 observer = asyncio.create_task(
                     observe_loop(exp.probes, ctx, store, stop, exp.observe_interval_s)
                 )
-                arm_run_stop = await drive(
+                await drive(
                     exp.runner,
                     exp.judge,
                     execution.context,
@@ -260,13 +258,7 @@ class Engine:
                     self._cases,
                     self._weights,
                     result,
-                )
-                # Post-load samples remain in the raw series for cooldown/scale-down
-                # charts, but summaries must describe only the load measurement window.
-                measurement_end_s = (
-                    arm_run_stop.snapshot.at_s
-                    if arm_run_stop.snapshot is not None
-                    else load.duration_s
+                    execution.drive,
                 )
                 execution.enter("deactivate")
                 await exp.runner.deactivate(execution.context)
@@ -276,8 +268,6 @@ class Engine:
                     await asyncio.sleep(exp.cooldown_s)
             except Exception as exc:
                 execution.record(exc)
-                if ctx is not None and measurement_end_s == 0.0:
-                    measurement_end_s = time.monotonic() - ctx.t0
             except BaseException as exc:
                 # Cancellation / process-level interrupts remain control flow rather
                 # than persisted test results, but cleanup must still not hide them.
@@ -318,11 +308,11 @@ class Engine:
             result,
             store,
             probe_errors,
-            measurement_end_s=measurement_end_s,
+            measurement_end_s=execution.drive.measurement_end_s or 0.0,
             cooldown_start_s=cooldown_start_s,
             cooldown_end_s=cooldown_end_s,
         )
-        arm_run.stop = arm_run_stop  # how the arm_run ended (deadline / breaker) + enact census
+        arm_run.stop = execution.drive.stop
         arm_run.phase_errors = execution.phase_errors
         return arm_run
 

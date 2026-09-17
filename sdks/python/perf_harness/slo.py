@@ -16,6 +16,7 @@ live in ``store.py`` (the metric layer); import them from there.
 
 from __future__ import annotations
 
+from perf_harness.comparison import comparison_groups
 from perf_harness.metric import Missing
 from perf_harness.metric.store import MetricStore
 from perf_harness.model import ArmRun, SloAssertion, SloCheck
@@ -59,30 +60,30 @@ def evaluate_slo(arm_run: ArmRun, assertions: list[SloAssertion]) -> list[SloChe
 
 
 def slo_aware_capacity(arm_runs: list[ArmRun]) -> dict[str, float | None]:
-    """Highest complete hold Window whose own checks all passed, per resources."""
+    """Highest passing complete hold per comparable load slice (axis and fixed conditions)."""
     best: dict[str, float | None] = {}
-    for arm_run in arm_runs:
-        c = f"{arm_run.arm.resources.label()}|{arm_run.arm.load.mode}"
-        best.setdefault(c, None)
-        checks_by_window: dict[str, list[SloCheck]] = {}
-        for check in arm_run.slo:
-            if check.window_id is not None:
-                checks_by_window.setdefault(check.window_id, []).append(check)
-        for window in arm_run.windows:
-            checks = checks_by_window.get(window.id, [])
-            if (
-                window.kind != "hold"
-                or not window.complete
-                or window.target_level is None
-                or window.request is None
-                or window.request.n == 0
-                or window.request.n_dropped > 0
-                or window.request.n_interrupted > 0
-                or "incomplete" in window.request.caveats
-                or not checks
-                or not all(check.passed for check in checks)
-            ):
-                continue
-            if best[c] is None or window.target_level > best[c]:
-                best[c] = window.target_level
+    for c, rows in comparison_groups(arm_runs, include_partial=True):
+        best[c] = None
+        for arm_run in rows:
+            checks_by_window: dict[str, list[SloCheck]] = {}
+            for check in arm_run.slo:
+                if check.window_id is not None:
+                    checks_by_window.setdefault(check.window_id, []).append(check)
+            for window in arm_run.windows:
+                checks = checks_by_window.get(window.id, [])
+                if (
+                    window.kind != "hold"
+                    or not window.complete
+                    or window.target_level is None
+                    or window.request is None
+                    or window.request.n == 0
+                    or window.request.n_dropped > 0
+                    or window.request.n_interrupted > 0
+                    or "incomplete" in window.request.caveats
+                    or not checks
+                    or not all(check.passed for check in checks)
+                ):
+                    continue
+                if best[c] is None or window.target_level > best[c]:
+                    best[c] = window.target_level
     return best

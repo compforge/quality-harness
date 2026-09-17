@@ -519,6 +519,9 @@ def load_run(run_dir: str | Path, *, with_series: bool = True) -> Run:
         )
     service = doc.get("service", "")
     arm_runs = [_arm_run_from(d, service) for d in doc.get("executions") or []]
+    ids = [execution.id for execution in arm_runs]
+    if len(set(ids)) != len(ids):
+        raise ValueError("duplicate ArmRun id in run.json; request ownership is ambiguous")
 
     ts = out / "timeseries.csv"
     if with_series and ts.exists():

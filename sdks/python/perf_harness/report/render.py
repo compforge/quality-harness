@@ -41,6 +41,7 @@ from harness_common.report_kit import (
 )
 from harness_common.run import run_dir_for
 
+from perf_harness.comparison import axis_label, comparison_groups
 from perf_harness.metric import (
     LEGAL_STATS,
     MetricFamily,
@@ -57,7 +58,7 @@ from perf_harness.slo import slo_aware_capacity
 
 # service is constant across a report's rows (one Experiment = one Service) and is
 # already in the title — so it's not a table column.
-_KEY_COLS = ["resources", "model", "level"]
+_KEY_COLS = ["resources", "peak_request_rate", "peak_max_concurrency"]
 _STAT_COLS = ["n", "ok", "rps", "err%", "drop%", "p50_ms", "p95_ms", "p99_ms", "err_top"]
 
 # header hover tooltips for the built-in request-side stat columns (metric/probe
@@ -125,7 +126,11 @@ def _phase_error_brief(r: ArmRun) -> str:
 
 
 def _key_cells(r: ArmRun) -> list[str]:
-    return [r.arm.resources.label(), r.arm.load.mode, f"{r.arm.load.peak_level:g}"]
+    return [
+        r.arm.resources.label(),
+        "inf" if r.arm.load.saturated else f"{r.arm.load.peak_level:g}",
+        str(r.arm.load.peak_concurrency),
+    ]
 
 
 def _stat_cells(s: RequestStats) -> list[str]:
@@ -283,8 +288,8 @@ def _display_probe_cells(r: ArmRun, cols: list[str]) -> list[str]:
 
 def _key_layout(results: list[ArmRun]) -> tuple[list[tuple[str, str]], list[str]]:
     """Hoist key columns CONSTANT across all rows into a caption; the rest stay table
-    columns. A single-constraint sweep then shows just ``level`` (the swept axis)."""
-    getters = {"constraint": lambda r: r.arm.resources.label(), "model": lambda r: r.arm.load.mode}
+    columns. Both load dimensions remain visible, even for a single-row experiment."""
+    getters = {"constraint": lambda r: r.arm.resources.label()}
     consts: list[tuple[str, str]] = []
     var_cols: list[str] = []
     for col, g in getters.items():
@@ -293,15 +298,15 @@ def _key_layout(results: list[ArmRun]) -> tuple[list[tuple[str, str]], list[str]
             consts.append((col, next(iter(vals))))
         else:
             var_cols.append(col)
-    var_cols.append("level")  # always a column — it's the sweep axis
+    var_cols.extend(["peak_request_rate", "peak_max_concurrency"])
     return consts, var_cols
 
 
 def _key_cells_var(r: ArmRun, var_cols: list[str]) -> list[str]:
     m = {
         "constraint": r.arm.resources.label(),
-        "model": r.arm.load.mode,
-        "level": f"{r.arm.load.peak_level:g}",
+        "peak_request_rate": "inf" if r.arm.load.saturated else f"{r.arm.load.peak_level:g}",
+        "peak_max_concurrency": str(r.arm.load.peak_concurrency),
     }
     return [m[c] for c in var_cols]
 
@@ -820,15 +825,11 @@ def _build_doc(
 
 
 def _curve_groups(results: list[ArmRun]) -> list[tuple[str, list[ArmRun]]]:
-    """Resource-profile groups with ≥2 levels, each sorted by level — the sweeps that can
-    be drawn as a curve (x = level)."""
-    groups: dict[str, list[ArmRun]] = {}
-    for r in results:
-        groups.setdefault(f"{r.arm.resources.label()}|{r.arm.load.mode}", []).append(r)
+    """Only comparable slices with distinct scan levels form response curves."""
     return [
-        (label, sorted(rs, key=lambda r: r.arm.load.peak_level))
-        for label, rs in groups.items()
-        if len({r.arm.load.peak_level for r in rs}) >= 2
+        (label, rows)
+        for label, rows in comparison_groups(results)
+        if len({r.arm.load.peak_level for r in rows}) >= 2
     ]
 
 
@@ -839,7 +840,8 @@ def _response_section(results: list[ArmRun]) -> Section | None:
     sec = Section("3. 压力响应曲线（指标随档位）")
     sec.blocks.append(
         Prose(
-            "x 轴=负载档位（closed 并发数 / open 到达率）。请求侧小节看入口的错误率与延迟"
+            "x 轴为 request_rate 或 max_concurrency，另一轴与到达方式、阶段形态等条件固定。"
+            "条件不同则分组；无法形成可比曲线时只保留各 Arm 的结果。请求侧小节看入口的错误率与延迟"
             "随压力的变化；每个服务一小节，看它的资源用量逼近自己 request/limit 的速度"
             "（平线即参考线）。悬停图例可见各指标含义。"
         )
@@ -855,7 +857,7 @@ def _response_section(results: list[ArmRun]) -> Section | None:
             Chart(
                 f"错误率与丢弃 — {clabel}",
                 [LineSeries("error %", err), LineSeries("drop %", drop)],
-                x_label="load level",
+                x_label=axis_label(rs[0]),
                 y_label="%",
             )
         )
@@ -870,7 +872,7 @@ def _response_section(results: list[ArmRun]) -> Section | None:
         ]
         if ttft:
             lat.append(LineSeries("ttft p95", ttft))
-        sec.blocks.append(Chart(f"延迟 — {clabel}", lat, x_label="load level", y_label="ms"))
+        sec.blocks.append(Chart(f"延迟 — {clabel}", lat, x_label=axis_label(rs[0]), y_label="ms"))
 
     # 服务侧 — per service, per (unit, value_kind): the headline stat vs level.
     # gauge → peak (+ flat request/limit reference lines on bounded units);
@@ -933,7 +935,7 @@ def _response_section(results: list[ArmRun]) -> Section | None:
                 Chart(
                     f"{svc} · {_unit_name(unit)}{_KIND_SUFFIX[vk]} — {clabel}",
                     lines,
-                    x_label="load level",
+                    x_label=next(axis_label(rows[0]) for label, rows in groups if label == clabel),
                     y_label=y,
                 )
             )
@@ -1216,11 +1218,8 @@ def _render_md(
 def _knees(results: list[ArmRun], thr: float) -> dict[str, ArmRun]:
     """First ArmRun per resource profile (by ascending level) whose overall error rate ≥ thr."""
     knees: dict[str, ArmRun] = {}
-    by_profile: dict[str, list[ArmRun]] = {}
-    for r in results:
-        by_profile.setdefault(f"{r.arm.resources.label()}|{r.arm.load.mode}", []).append(r)
-    for label, rs in by_profile.items():
-        for r in sorted(rs, key=lambda x: x.arm.load.peak_level):
+    for label, rows in comparison_groups(results):
+        for r in rows:
             if r.measurement.request.error_rate >= thr:
                 knees[label] = r
                 break

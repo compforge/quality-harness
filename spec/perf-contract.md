@@ -12,6 +12,8 @@ perf 的协议适配器称 Runner，避免把它与运行平台承载单元 Work
 Case/CaseSet 归 spec-case；实验只选择 Case 并设置本次使用的权重，不修改资产。
 简单 Case 一次触发对应一个 OperationRun；这不是对所有领域多步骤 Case 的限制。
 `arm.id` 在 Experiment 内稳定；`ArmRun.id` 带 run identity；`OperationRun.id` 在 ArmRun 内唯一。
+一个 ExperimentRun 内每个 Arm 只执行一次；重复 Arm 在 setup 前拒绝。配置 hash 只能消除显示标签冲突，
+不能充当重复执行序号。Reader 拒绝重复 ArmRun ID，避免重载时静默合并调用与判定。
 RequestRecord 以 operation_run_id 引用实际调用；drop 没有 OperationRun。Outcome 仅存一份。
 Service 持有 common Component/Repository/Forge/Environment/Workload 身份；落盘只保存非敏感身份，
 不持久化访问凭据、HTTP headers、kubeconfig 内容或执行期客户端。
@@ -41,6 +43,9 @@ first_byte_ms 只表示首字节，不能自动命名 TTFT；业务 token 时刻
 生命周期：setup → 发压 → drain/cancel → deactivate → cooldown → cleanup → 释放客户端。
 Python 资源观察覆盖发压、排空、停用与 cooldown；TypeScript 资源观察仍由消费方负责。
 普通生命周期异常记录 phase_errors，终止 sweep，verdict=error；控制流取消允许继续向调用方传播。
+停止发压时立即记录 measurement 边界、停止原因与在途数量；取消并 join 后补齐中断清点。
+这些事实随 ArmRun 生命周期维护，不依赖 scheduler 正常返回。Judge 异常保留已完成 Outcome，
+标记缺失判定并使 Run 失败；排空期间的异常不得重置或延长 measurement，也不得改写已发生的停止原因。
 每个实际中断请求保留独立事实，不执行 Judge，不把短暂取消耗时混入延迟样本。
 
 ## 时间与统计
@@ -63,6 +68,16 @@ Python capacity 只读取有请求、无丢弃/中断/未判定且匹配 SLO 全
 无 SLO 的正常运行 verdict=skipped，不表示容量通过。TypeScript 当前不提供 SLO 评估与 HTML 报告。
 离线可更换 Judge、重算统计与 SLO；重渲染报告不重新发压或判定。当前 perf 请求判定表是领域投影，
 未实现通用 EvaluationRun/Worksheet 的全量持久化，不把设计目标写成已实现能力。
+
+## 比较条件
+
+有限速率的默认扫描轴为 request_rate，无限速率的扫描轴为 max_concurrency。另一轴的完整调度、
+资源配置、到达分布、seed、时长、warmup、drain 与熔断条件必须相同；扫描轴的阶段形态按峰值
+归一化后也必须相同。不同条件分组，条件相同且至少有两个不同档位才绘制响应曲线或拟合斜率。
+固定有限速率、只改变并发上限的实验保留为不同条件的结果点，不推导速率容量曲线。
+
+分析、SLO 容量汇总与报告共用比较分组；图表标明扫描轴及单位，汇总表保留两轴峰值，
+精确阶段配置保留在 Arm 中。分组标签中的短 hash 仅供显示，完整配置决定分组归属。
 
 ## 产物
 

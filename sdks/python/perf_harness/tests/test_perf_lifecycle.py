@@ -1,6 +1,10 @@
 import asyncio
 import copy
+import json
 import time
+from pathlib import Path
+
+import pytest
 
 from perf_harness import (
     Engine,
@@ -171,3 +175,83 @@ async def test_interrupted_run_verdict_and_no_latency_evidence(tmp_path):
     assert build_verdict_doc(run)["status"] == "fail"
     checks = evaluate_slo(run.arm_runs[0], [SloAssertion(metric="p99_ms", op="lt", threshold=100)])
     assert checks[0].skipped and checks[0].observed is None
+
+
+JUDGE_FAILURES = json.loads(
+    (Path(__file__).parents[4] / "conformance/perf/fixtures/judge-failure.json").read_text()
+)
+
+
+@pytest.mark.parametrize("scenario", JUDGE_FAILURES, ids=lambda s: s["name"])
+async def test_judge_failure_preserves_boundaries_and_census(scenario, tmp_path):
+    class RunnerWithSlowCancellation(Runner):
+        calls = 0
+        active = 0
+        cleaned = False
+
+        async def fire(self, ctx):
+            self.calls += 1
+            first = self.calls == 1
+            self.active += 1
+            try:
+                await asyncio.sleep(scenario["first_response_s"] if first else 10)
+            except asyncio.CancelledError:
+                await asyncio.sleep(scenario["cancellation_delay_s"])
+                raise
+            finally:
+                self.active -= 1
+            return Outcome(
+                status=200,
+                duration_ms=scenario["first_response_s"] * 1000,
+                meta={"trace_id": "completed-before-judge-error"},
+            )
+
+        async def cleanup(self, ctx):
+            assert self.active == 0
+            self.cleaned = True
+
+    def broken_judge(outcome):
+        raise ValueError("judge unavailable")
+
+    runner = RunnerWithSlowCancellation()
+    run = await Engine(
+        experiment(
+            runner,
+            LoadPlan(
+                request_rate=float("inf"),
+                max_concurrency=2,
+                duration_s=scenario["duration_s"],
+                drain_timeout_s=scenario["drain_timeout_s"],
+            ),
+            judge=broken_judge,
+        )
+    ).run()
+    arm = run.arm_runs[0]
+    assert not run.passed and runner.cleaned and runner.active == 0
+    assert arm.phase_errors[0].message == "judge unavailable"
+    assert arm.stop.reason == scenario["stop_reason"]
+    assert arm.stop.inflight_at_stop == scenario["inflight_at_stop"]
+    assert arm.stop.interrupted == 1 and arm.stop.force_cancelled
+    assert arm.measurement.complete == scenario["measurement_complete"]
+    assert arm.measurement.end_s > 0
+    if scenario["measurement_complete"]:
+        assert arm.measurement.end_s == scenario["duration_s"]
+    else:
+        assert arm.measurement.end_s < scenario["duration_s"]
+    assert arm.measurement.request.completed == scenario["completed"]
+    assert arm.measurement.request.n == 1
+    assert arm.measurement.request.n_interrupted == 1
+    assert arm.measurement.request.error_breakdown == {"unjudged": 1}
+    assert not arm.evaluations
+    finished = next(r for r in arm.requests if r.state == "finished")
+    interrupted = next(r for r in arm.requests if r.state == "interrupted")
+    assert interrupted.finished_at > arm.measurement.end_s
+    drain = next(w for w in arm.windows if w.kind == "drain")
+    assert drain.start_s == arm.measurement.end_s
+    assert drain.request.completed == 1 - scenario["completed"]
+    call = next(o for o in arm.operation_runs if o.id == finished.operation_run_id)
+    assert call.outcome.meta["trace_id"] == "completed-before-judge-error"
+    write_run_data(run, tmp_path)
+    restored = load_run(tmp_path).arm_runs[0]
+    assert restored.requests == arm.requests and restored.stop == arm.stop
+    assert restored.windows == arm.windows

@@ -9,7 +9,8 @@ exhaustion, and the caveats reduce already minted — co_biased/high_drop)?
 
 from __future__ import annotations
 
-from perf_harness.analysis.base import AnalysisNote, by_resources
+from perf_harness.analysis.base import AnalysisNote
+from perf_harness.comparison import comparison_groups
 from perf_harness.metric.store import MetricStore
 from perf_harness.model import ArmRun, Run
 
@@ -27,7 +28,7 @@ _CAVEAT_TEXT = {
 
 def analyze(run: Run, store: MetricStore) -> list[AnalysisNote]:
     out: list[AnalysisNote] = []
-    for label, rs in by_resources(run.arm_runs):
+    for label, rs in comparison_groups(run.arm_runs):
         out.extend(_degradation(label, rs))
         out.extend(_ttft(label, rs, store))
         out.extend(_adequacy(label, rs))
