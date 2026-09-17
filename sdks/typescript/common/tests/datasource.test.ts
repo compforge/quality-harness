@@ -1,6 +1,20 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { ClientManager, clientKey, type Service, type ServiceDataSource, type Client } from "../src/index.js";
+import { ClientManager, clientKey, type Service, type ServiceDataSource, type Client, type DataSource } from "../src/index.js";
+
+test("datasource description is optional discovery metadata, not client identity", async () => {
+  const source: DataSource<Client> = {
+    clientKey: "shared-db",
+    createClient: () => ({ initialize: async () => {}, dispose: async () => {} }),
+  };
+  expect(source.description).toBeUndefined();
+  const described: DataSource<Client> = { ...source, description: "Read-only conversation history" };
+  const clients = new ClientManager();
+  try {
+    expect(described.description).toBe("Read-only conversation history");
+    expect(await clients.get(described)).toBe(await clients.get(source));
+  } finally { await clients.dispose(); }
+});
 
 test("source identity includes credentials and ignores configuration key order", () => {
   const key = clientKey("mysql", { host: "db", password: "secret" });

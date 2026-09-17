@@ -13,6 +13,9 @@ class DataSource(ClientProvider[C], Protocol[C]):
     Accessible environment providers need not be described as data sources.
     """
 
+    # Safe discovery metadata, not credentials or part of client_key.
+    description: str | None = None
+
 
 @dataclass(frozen=True)
 class ServiceDataSource(Generic[C]):

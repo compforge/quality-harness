@@ -30,6 +30,7 @@ class Workload:
     """
 
     name: str
+    description: str | None = field(default=None, kw_only=True, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
