@@ -29,5 +29,5 @@ test("environment and data providers share root ownership without fixture or sou
 });
 
 test("expired context budget is zero", () => {
-  expect(new EnvironmentContext({}, new ClientManager(), performance.now() - 1).remainingMs).toBe(0);
+  expect(new EnvironmentContext({ name: "local" }, new ClientManager(), performance.now() - 1).remainingMs).toBe(0);
 });

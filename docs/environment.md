@@ -41,7 +41,8 @@ Environment 是配置与身份声明，不持有连接；EnvironmentContext 绑�
 传给具体操作，并在根执行退出前等待子任务结束。
 
 Python 使用单调时钟秒数 deadline / remaining_s；TypeScript 使用 performance.now() 的
-毫秒数 deadlineMs / remainingMs，不使用墙钟时间。TypeScript 的环境类型由消费方泛型提供。
+毫秒数 deadlineMs / remainingMs，不使用墙钟时间。TypeScript 的 EnvironmentContext<E> 保留
+common Environment 的具体扩展类型；Service<E> 引用同一环境，不为客户端访问重建环境模型。
 具体可访问环境实现 ClientProvider 的 client_key / create_client；DataSource 扩展同一契约。
 调用方直接 clients.get(environment) 或 clients.get(datasource)，共用初始化、复用和释放机制。
 通用 Environment 保留身份声明；具体 KubernetesEnvironment 及配置解析归 toolbox。

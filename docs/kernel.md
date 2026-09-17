@@ -58,8 +58,9 @@ ClientProvider 通过客户端标识与构造方法显式连接可访问 Environ
 DataSource 仅表达数据来源语义，ClientManager 统一接收两者。
 Transport 管理各类基础设施访问通道，ClientManager 管理执行期客户端；见 [toolbox](toolbox.md)。
 
-这些名字定义共同语义。Python Harness 共享 `harness_common` 中的身份基类；不同语言保持惯用 API，
-但遵守相同关系和落盘契约。
+这些名字定义共同语义。Python Harness 共享 `harness_common` 中的身份基类；TypeScript common 通过
+只读接口表达 Service、Component、Repository、Forge 与 Environment/Host 的同一关系，消费方扩展业务能力。
+Service.workloads 使用共享 Workload 声明；不同语言保持惯用 API，但遵守相同关系和落盘契约。
 
 ### Experiment 执行骨架
 

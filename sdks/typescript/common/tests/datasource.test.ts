@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { ClientManager, clientKey, type ServiceDataSource, type Client } from "../src/index.js";
+import { ClientManager, clientKey, type Service, type ServiceDataSource, type Client } from "../src/index.js";
 
 test("source identity includes credentials and ignores configuration key order", () => {
   const key = clientKey("mysql", { host: "db", password: "secret" });
@@ -16,9 +16,11 @@ test("service associations share the source client without owning its lifetime",
     initialize: async () => { starts++; },
     dispose: async () => { closes++; },
   }) };
-  const bindings: ServiceDataSource<{ name: string }, Client>[] = [
-    { service: { name: "one" }, source }, { service: { name: "two" }, source },
-  ];
+  const component = { name: "api", repository: { forge: { name: "github" }, path: "example/app" } };
+  const environment = { name: "test" };
+  const bindings: ServiceDataSource<Service, Client>[] = ["one", "two"].map(name => ({
+    service: { name, component, environment, workloads: [] }, source,
+  }));
   const clients = new ClientManager();
   try {
     const [one, two] = await Promise.all(bindings.map(binding => clients.get(binding.source)));
