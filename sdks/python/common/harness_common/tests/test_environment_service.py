@@ -82,6 +82,19 @@ def test_components_are_scoped_by_repository() -> None:
     )
 
 
+def test_component_description_is_optional_and_does_not_change_identity() -> None:
+    component = Component(
+        repository=Repository(forge=Forge(name="github"), path="org/api"),
+        name="server",
+    )
+
+    assert component.description is None
+    described = replace(component, description="Conversation API")
+    assert described.description == "Conversation API"
+    assert described == component
+    assert hash(described) == hash(component)
+
+
 def test_repository_is_scoped_by_forge() -> None:
     assert Repository(forge=Forge(name="github"), path="org/repo") != Repository(
         forge=Forge(name="gitlab"),

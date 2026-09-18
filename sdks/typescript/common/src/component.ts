@@ -4,4 +4,6 @@ import type { Repository } from "./repository.js";
 export interface Component {
   readonly repository: Repository;
   readonly name: string;
+  /** Human-readable discovery metadata; not part of Component identity. */
+  readonly description?: string;
 }
