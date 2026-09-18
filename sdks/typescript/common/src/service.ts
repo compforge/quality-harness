@@ -10,6 +10,8 @@ import type { Workload } from "./workload.js";
  */
 export interface Service<E extends Environment = Environment> {
   readonly name: string;
+  /** Human-readable discovery metadata; not part of Service identity. */
+  readonly description?: string;
   readonly component: Component;
   readonly environment: E;
   /** Zero or more runtime carriers; an empty array declares no workloads. */

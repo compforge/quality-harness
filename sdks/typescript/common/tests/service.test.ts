@@ -15,9 +15,19 @@ const workload: Workload = {
   location: { kind: "resource", resource_kind: "Deployment", name: "api-server" },
 };
 
+test("Component description is optional discovery metadata", () => {
+  const described: Component = { ...component, description: "Conversation API" };
+  expect(component.description).toBeUndefined();
+  expect(described.description).toBe("Conversation API");
+  expect(described.repository).toBe(component.repository);
+});
+
 test("Service binds code identity, environment and zero or more workload declarations", () => {
   const service: Service = { name: "chat", component, environment, workloads: [] };
   const deployed: Service = { ...service, workloads: [workload] };
+  const described: Service = { ...service, description: "Conversation API" };
+  expect(service.description).toBeUndefined();
+  expect(described.description).toBe("Conversation API");
   expect(deployed.name).not.toBe(workload.name);
   expect(deployed.component.repository.forge).toBe(forge);
   expect(deployed.component).toBe(service.component);
