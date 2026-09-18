@@ -18,6 +18,9 @@ const workload: Workload = {
 test("Service binds code identity, environment and zero or more workload declarations", () => {
   const service: Service = { name: "chat", component, environment, workloads: [] };
   const deployed: Service = { ...service, workloads: [workload] };
+  const described: Service = { ...service, description: "Conversation API" };
+  expect(service.description).toBeUndefined();
+  expect(described.description).toBe("Conversation API");
   expect(deployed.name).not.toBe(workload.name);
   expect(deployed.component.repository.forge).toBe(forge);
   expect(deployed.component).toBe(service.component);

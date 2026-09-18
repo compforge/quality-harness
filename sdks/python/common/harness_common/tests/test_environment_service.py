@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from harness_common import (
     Artifact,
     Component,
@@ -51,6 +53,23 @@ def test_service_name_is_part_of_runtime_identity() -> None:
     assert Service(
         name="public-gateway", component=component, environment=environment
     ) != Service(name="internal-gateway", component=component, environment=environment)
+
+
+def test_service_description_is_optional_and_does_not_change_identity() -> None:
+    service = Service(
+        name="chat",
+        component=Component(
+            repository=Repository(forge=Forge(name="github"), path="org/chat"),
+            name="server",
+        ),
+        environment=Environment(name="dev"),
+    )
+
+    assert service.description is None
+    described = replace(service, description="Conversation API")
+    assert described.description == "Conversation API"
+    assert described == service
+    assert hash(described) == hash(service)
 
 
 def test_components_are_scoped_by_repository() -> None:
