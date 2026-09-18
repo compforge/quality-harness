@@ -51,6 +51,7 @@ from perf_harness.model import ArmStop as ArmStop
 from perf_harness.model import Deployment as Deployment
 from perf_harness.model import Environment as Environment
 from perf_harness.model import Outcome as Outcome
+from perf_harness.model import ReportColumn as ReportColumn
 from perf_harness.model import RequestStats as RequestStats
 from perf_harness.model import ResourceProfile as ResourceProfile
 from perf_harness.model import Run as Run
@@ -66,16 +67,17 @@ from perf_harness.model import make_run_id as make_run_id
 from perf_harness.observe import ClientProbe as ClientProbe
 from perf_harness.observe import FamilySpec as FamilySpec
 from perf_harness.observe import KubectlTopProbe as KubectlTopProbe
+from perf_harness.observe import MetricProbe as MetricProbe
 from perf_harness.observe import PerWorkerRSSProbe as PerWorkerRSSProbe
 from perf_harness.observe import PodCountProbe as PodCountProbe
 from perf_harness.observe import Probe as Probe
 from perf_harness.observe import ProbeConfig as ProbeConfig
 from perf_harness.observe import ProbeContext as ProbeContext
-from perf_harness.observe import PrometheusProbe as PrometheusProbe
 from perf_harness.observe import PrometheusQuery as PrometheusQuery
 from perf_harness.observe import ResourceLimitsProbe as ResourceLimitsProbe
 from perf_harness.observe import RestartProbe as RestartProbe
 from perf_harness.observe import register_probe as register_probe
+from perf_harness.observe.metric import WindowQuery as WindowQuery
 from perf_harness.observe.prometheus_query import PrometheusQueryProbe as PrometheusQueryProbe
 from perf_harness.records import RequestEvaluation as RequestEvaluation
 from perf_harness.records import RequestRecord as RequestRecord

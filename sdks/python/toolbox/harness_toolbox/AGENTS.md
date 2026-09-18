@@ -18,7 +18,8 @@ harness_toolbox/
 ├── diagnostics.py  # 客户端连接路径快照，与异常独立
 ├── transport.py    # 连接解析、直连、port-forward、Pod Python 路径
 ├── data_loader.py   # 单次读取范围内共享结果、错误与在途任务
-├── prometheus.py   # Prometheus DataSource、有界抓取与 Prombed 查询历史
+├── prometheus.py   # Prometheus DataSource、多目标有界抓取与本地窗口查询
+├── prometheus_discovery.py # 复用 Workload 解析发现 Pod 指标目标
 ├── prometheus_query.py # 远端 Prometheus HTTP 查询、单轮去重与响应预算
 ├── kube_portforward.py # 执行期 Service/Pod IP 隧道复用与资源身份校验
 ├── socks.py        # 外部客户端接入 Transport 的 loopback SOCKS5 适配

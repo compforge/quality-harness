@@ -59,7 +59,8 @@ async def test_native_probes_share_snapshot_refresh_and_dispose(monkeypatch, hos
     probes = [p(target_service=service) for p in [RestartProbe, ResourceLimitsProbe, PodCountProbe]]
     ctx = ProbeContext(service=service, client=None, t0=time.monotonic())
     store = {}
-    failures = await observe_loop(probes, ctx, store, stop, 0.001)
+    async with ctx.clients:
+        failures = await observe_loop(probes, ctx, store, stop, 0.001)
     assert failures == {}
     assert calls == [("v1", "Pod", "app=chat")] * 2
     assert len(readers) == 1 and readers[0].disposed
@@ -98,6 +99,8 @@ async def test_native_error_is_probe_failure_and_cancel_closes_clients(monkeypat
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+    assert not disposed.is_set()  # window queries still borrow this client
+    await ctx.clients.dispose()
     assert disposed.is_set()
     assert store[("restart", "up")][0].value == 0
     assert ("restart", "restarts") not in store

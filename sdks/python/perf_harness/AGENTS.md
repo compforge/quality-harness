@@ -30,7 +30,9 @@ perf_harness/
 │   ├── runner.py #   ArmContext/FireContext + fire 协议适配与注册；judge.py 独立判定
 │   └── scheduler.py#   驱动循环：节奏与在途反馈 + 熔断 + cooldown/cancel → ArmStop
 ├── observe/        # 看什么（扩展点②）；FamilySpec 单表声明 metric 元数据
-│   ├── base.py     #   Probe ABC + client/Prometheus 指标适配 + observe_loop（采样循环）
+│   ├── base.py     #   Probe ABC + client 指标 + observe_loop（采样循环）
+│   ├── metric.py   #   直接服务指标抓取与窗口查询；configuration.py 装配配置
+│   ├── prometheus.py # PromQL 描述与结果投影，供直接抓取/远端查询共用
 │   ├── prometheus_query.py # 远端 Prometheus 结果到统一指标的映射
 │   └── k8s.py      #   top/rss 的 kubectl 采样与 restart/limits/pods 的原生 API 采样
 ├── metric/         # 收腰：唯一的那张表
@@ -58,7 +60,7 @@ perf_harness/
 - **Case 资产归 spec-case**：实验用 `caseset: <path>` 引用 canonical CaseSet，`cases:` 只做 case 选择/排序与实验本地 `weight`；`input/facets/judge/binding` 不在 perf 配置里覆盖。无 `caseset` 的内联 cases 仍是轻量实验入口。
 - **Kernel 对齐**：request Outcome、Probe sample 及其 window-aligned 归约事实是 Observation；request、window、run 是不同 Unit grain，必须区分分析粒度，不能混成一张表。raw/model Run facts 构成可离线重算 Dataset，本次选择的 独立 Judge、SLO 和 analysis 组件直接定义评估侧重点；换 SLO 或分析透镜不得重新发压，详见 [`../../../docs/kernel.md`](../../../docs/kernel.md#dataset-与反复评估)。
 - **`Runner`**（协议适配）：`ArmContext` 是整个 ArmRun 共用的不可变输入，单次并发请求通过 `FireContext(arm_run, case)` 组合请求 Case；`fire` 只记原始观测，独立 `Judge(outcome)→RequestEvaluation` 才裁决（纯函数，可离线重判）。各服务在自己项目写、`register_runner` 注册；ArmRun 固定按 `setup → warmup → hold → cooldown → cleanup` 运行，其中业务 hook 只有 `setup/deactivate/cleanup`。
-- **`Probe`**（看什么）：`families` 单表声明元数据（FamilySpec：unit/value_kind/description，describe/summarize/Engine 共读），`sample()` 周期采样；Source 不绑 k8s，consumer 可通过 extension module + `register_probe` 扩展。Prometheus 来源由 toolbox 的 `PrometheusDataSource` 访问；`PrometheusProbe` 只将 PromQL 结果映射为声明的指标与 label 契约。采样周期由 perf 决定，单轮读取共享由 toolbox `DataLoader` 管理，连接和查询历史随 ArmRun 的 `ClientManager` 释放。
+- **`Probe`**（看什么）：`families` 单表声明元数据（FamilySpec：unit/value_kind/description，describe/summarize/Engine 共读），`sample()` 周期采样；Source 不绑 k8s，consumer 可通过 extension module + `register_probe` 扩展。Prometheus 来源由 toolbox 的 `PrometheusDataSource` 访问；`MetricProbe` 只将 PromQL 结果映射为声明的指标与 label 契约。采样周期由 perf 决定，单轮读取共享由 toolbox `DataLoader` 管理，连接和查询历史随 ArmRun 的 `ClientManager` 释放；先完成窗口查询，再清理资源。
 - **压后观测不污染容量口径**：`cooldown_s` 延长 raw series 以观察回收/缩容；默认 SLO 只读 measurement Window，`window: {kind: cooldown}` 显式读取 cooldown。
 
 ### 判定与可信度语义（细节见 docs/result-semantics.md + metric-model.md §3.6-3.8）
@@ -92,3 +94,5 @@ uv run python -m perf_harness.cli run perf_harness/examples/mock.yaml --out /tmp
 - 结果/SLO 语义：[`docs/result-semantics.md`](docs/result-semantics.md)
 - 加压模型细节：[`docs/load-model-redesign.md`](docs/load-model-redesign.md)
 - consumer 扩展与 arm_run 生命周期：[`docs/extensions.md`](docs/extensions.md)
+
+- 服务指标与汇总列：[`docs/service-metrics.md`](docs/service-metrics.md)

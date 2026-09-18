@@ -3,7 +3,8 @@
 from harness_toolbox.errors import ErrorKind, PrometheusQueryError
 from harness_toolbox.prometheus_query import PrometheusQueryDataSource, PrometheusQueryOptions
 
-from perf_harness.observe.base import ProbeContext, PrometheusQuery, _PrometheusResultProbe
+from perf_harness.observe.base import ProbeContext
+from perf_harness.observe.prometheus import PrometheusQuery, _PrometheusResultProbe
 
 
 class PrometheusQueryProbe(_PrometheusResultProbe):

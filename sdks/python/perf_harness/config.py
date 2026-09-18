@@ -37,31 +37,28 @@ from perf_harness.metric import MetricFamily, parse_ref, validate_ref
 from perf_harness.metric.store import PER_REQUEST_DESCRIPTORS, REQUEST_DESCRIPTORS, SLO_METRICS
 from perf_harness.model import (
     Deployment,
+    ReportColumn,
     ResourceProfile,
     Service,
     SloAssertion,
     SloOp,
-    WindowKind,
-    WindowSelector,
 )
 from perf_harness.observe import (
     ClientProbe,
     KubectlTopProbe,
+    MetricProbe,
     PerWorkerRSSProbe,
     PodCountProbe,
     Probe,
     ProbeConfig,
-    PrometheusProbe,
-    PrometheusQuery,
-    PrometheusQueryProbe,
     ResourceLimitsProbe,
     RestartProbe,
     build_probe,
 )
+from perf_harness.observe.configuration import parse_columns, parse_metric_probe, parse_window
 
 # valid enum values, derived from the Literal types so they can't drift
 _SLO_OPS = get_args(SloOp)
-_WINDOW_KINDS = get_args(WindowKind)
 
 _PROBES = {
     "client": ClientProbe,
@@ -111,7 +108,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     if "probes" in raw:
         raise ValueError(
             "`probes:` was removed — `client` is always recorded; put "
-            "prometheus/top/rss/restart/limits/pods or registered custom probes under "
+            "metric/top/rss/restart/limits/pods or registered custom probes under "
             "`observe:` (the Service is the entry that omits `k8s`)"
         )
     # client (load-gen's own inflight/sent) is harness-intrinsic → always on, not a
@@ -120,7 +117,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     if "derived" in raw:
         raise ValueError(
             "`derived:` was removed — express server-side ratios and rates directly "
-            "as PromQL queries on the `prometheus` probe"
+            "as PromQL queries on the `metric` probe"
         )
     caseset = _load_caseset_ref(raw.get("caseset"), config_path.parent)
     cases = _parse_cases(raw, caseset)
@@ -162,6 +159,26 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
         per_pod_only,
         cooldown_s=cooldown_s,
     )
+    report_columns = parse_columns(raw.get("report"))
+    _validate_slo(report_columns, registry, declared_facets, declared_services, loads, per_pod_only)
+    for probe in probes:
+        if not isinstance(probe, MetricProbe):
+            continue
+        for summary in probe.summaries:
+            for selection in [*slo, *report_columns]:
+                name, labels, _ = parse_ref(selection.metric)
+                if name != f"{probe.family}.{summary.name}" or labels.get(
+                    "service"
+                ) != probe.labels.get("service"):
+                    continue
+                source_window = summary.window
+                selected = selection.window
+                if (
+                    selected.kind != source_window.kind
+                    or (source_window.name is not None and selected.name != source_window.name)
+                    or (source_window.level is not None and selected.level != source_window.level)
+                ):
+                    raise ValueError(f"Metric {name!r} is not produced for window {selected!r}")
     experiment = Experiment(
         service=service,
         deployer=deployer,
@@ -170,6 +187,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
         resources=resources,
         loads=loads,
         probes=probes,
+        report_columns=report_columns,
         cases=cases,
         mix=mix,
         facet_order=facet_schema.ordered_value_lists(),
@@ -372,7 +390,7 @@ def _parse_observe(items: list[dict] | None, root_service: Service) -> list[Prob
     """``observe:`` → the ONE place for per-service resource observation, self +
     downstream in one shape. Each item is a Service plus ``probes``; omitted
     Environment fields inherit from the experiment Service.
-    ``prometheus`` embeds Prombed and requires declarative PromQL queries. Resource
+    ``metric`` embeds Prombed and requires declarative PromQL queries. Resource
     families remain service-labeled, so reports can compare the same signal across
     observed services."""
     out: list[Probe] = []
@@ -387,7 +405,7 @@ def _parse_observe(items: list[dict] | None, root_service: Service) -> list[Prob
         if obsolete:
             raise ValueError(
                 f"observe[{service_name}]: removed keys {sorted(obsolete)!r}; configure "
-                "PromQL under `probes: [{name: prometheus, queries: [...]}]`"
+                "PromQL under `probes: [{name: metric, queries: [...]}]`"
             )
         # per_pod: top/limits emit one {pod}-labeled series per pod instead of the
         # service-level sum (per-pod usage vs its OWN request/limit on one chart)
@@ -417,51 +435,8 @@ def _parse_observe(items: list[dict] | None, root_service: Service) -> list[Prob
                         f"got {sorted(options)}"
                     )
                 out.append(_PROBES[pname](target_service=service, per_pod=per_pod))
-            elif pname in {"prometheus", "prometheus_query"}:
-                queries = _parse_prometheus_queries(options.pop("queries", None), service_name)
-                url = options.pop("url", None)
-                if (pname == "prometheus_query" or service != root_service) and not url:
-                    raise ValueError(
-                        f"observe[{service_name}].probes[{pname}]: remote queries and downstream "
-                        "scrapes need an explicit `url`"
-                    )
-                headers = options.pop("headers", None)
-                if headers is not None and not isinstance(headers, dict):
-                    raise ValueError(
-                        f"observe[{service_name}].probes[{pname}].headers must be a mapping"
-                    )
-                allowed_limits = {
-                    "timeout_ms",
-                    "max_scrape_bytes",
-                    "retention_ms",
-                    "max_series",
-                    "max_samples_per_series",
-                }
-                if pname == "prometheus_query":
-                    allowed_limits = {
-                        "timeout_ms",
-                        "max_response_bytes",
-                        "max_series",
-                        "connection_pool_maxsize",
-                    }
-                unknown = set(options) - allowed_limits
-                if unknown:
-                    raise ValueError(
-                        f"observe[{service_name}].probes[{pname}]: unknown options "
-                        f"{sorted(unknown)!r}"
-                    )
-                probe_type = (
-                    PrometheusQueryProbe if pname == "prometheus_query" else PrometheusProbe
-                )
-                out.append(
-                    probe_type(
-                        service=service_name,
-                        queries=queries,
-                        url=str(url) if url else None,
-                        headers={str(k): str(v) for k, v in (headers or {}).items()},
-                        **{key: int(value) for key, value in options.items()},
-                    )
-                )
+            elif pname in {"metric", "prometheus_query"}:
+                out.append(parse_metric_probe(pname, options, service))
             elif pname == "client":
                 raise ValueError(
                     f"observe[{service_name}].probes: 'client' is intrinsic and cannot "
@@ -478,51 +453,6 @@ def _parse_observe(items: list[dict] | None, root_service: Service) -> list[Prob
                         ),
                     )
                 )
-    return out
-
-
-def _parse_prometheus_queries(items: object, service: str) -> list[PrometheusQuery]:
-    if not isinstance(items, list) or not items:
-        raise ValueError(f"observe[{service}].probes[prometheus] needs a non-empty `queries` list")
-    out: list[PrometheusQuery] = []
-    seen = {"up"}
-    for item in items:
-        if not isinstance(item, dict):
-            raise ValueError(
-                f"observe[{service}].probes[prometheus].queries entries must be mappings"
-            )
-        name = item.get("name")
-        promql = item.get("promql")
-        if not isinstance(name, str) or not name:
-            raise ValueError(f"Prometheus query needs a non-empty string `name`: {item!r}")
-        if not isinstance(promql, str) or not promql:
-            raise ValueError(f"Prometheus query {name!r} needs a non-empty string `promql`")
-        if name in seen:
-            raise ValueError(f"Prometheus query name {name!r} is duplicate or reserved")
-        seen.add(name)
-        kind = str(item.get("kind", "gauge"))
-        if kind not in ("counter", "gauge"):
-            raise ValueError(f"Prometheus query {name!r}: kind must be counter|gauge, got {kind!r}")
-        labels = item.get("labels", [])
-        if not (
-            isinstance(labels, list)
-            and all(isinstance(label, str) and label for label in labels)
-            and len(set(labels)) == len(labels)
-        ):
-            raise ValueError(f"Prometheus query {name!r}: labels must be a list of unique names")
-        unknown = set(item) - {"name", "promql", "kind", "unit", "description", "labels"}
-        if unknown:
-            raise ValueError(f"Prometheus query {name!r}: unknown keys {sorted(unknown)!r}")
-        out.append(
-            PrometheusQuery(
-                name=name,
-                promql=promql,
-                value_kind=kind,  # type: ignore[arg-type]
-                unit=str(item.get("unit", "")),
-                description=str(item.get("description", "")),
-                labels=tuple(labels),
-            )
-        )
     return out
 
 
@@ -609,18 +539,7 @@ def _parse_slo(items: list[dict] | None) -> list[SloAssertion]:
             raise ValueError(f"slo entry needs exactly one of {list(_SLO_OPS)}: {s!r}")
         op = ops[0]
         threshold = tuple(float(x) for x in s[op]) if op == "between" else float(s[op])
-        window_raw = s.get("window") or {"kind": "measurement"}
-        if not isinstance(window_raw, dict):
-            raise ValueError("slo.window must be a mapping, e.g. {kind: hold}")
-        kind = window_raw.get("kind", "measurement")
-        if kind not in _WINDOW_KINDS:
-            raise ValueError(f"slo.window.kind must be one of {list(_WINDOW_KINDS)}, got {kind!r}")
-        level = window_raw.get("level")
-        window = WindowSelector(
-            kind=kind,
-            name=window_raw.get("name"),
-            level=float(level) if level is not None else None,
-        )
+        window = parse_window(s.get("window"), default="measurement")
         out.append(
             SloAssertion(
                 metric=metric,
@@ -704,7 +623,7 @@ def _declared_facet_pairs(facet_schema: FacetSchema, cases: list[Case], runner: 
 
 
 def _validate_slo(
-    slo: list[SloAssertion],
+    slo: list[SloAssertion] | list[ReportColumn],
     registry: dict[str, MetricFamily],
     declared_facets: set[str],
     declared_services: set[str],
@@ -727,6 +646,12 @@ def _validate_slo(
         name, labels, stat = parse_ref(a.metric)
         fam = registry.get(name)
         non_service_labels = {k: v for k, v in labels.items() if k != "service"}
+        if fam is None and name not in SLO_METRICS:
+            raise ValueError(
+                f"slo.metric {a.metric!r}: {name!r} is not a declared metric — only declared "
+                "metrics can gate (declare a per-request metric via Runner.describe(); a "
+                "dynamic first_<event>_ms reaches the report but can't gate)"
+            )
 
         if a.window.kind in ("warmup", "ramp", "hold"):
             candidates = [stage for stage in planned if stage.kind == a.window.kind]
@@ -740,7 +665,8 @@ def _validate_slo(
             raise ValueError("slo.window name/level only apply to ramp or hold windows")
 
         if (
-            a.window.kind == "cooldown"
+            isinstance(a, SloAssertion)
+            and a.window.kind == "cooldown"
             and (fam is None or fam.side == "request")
             and name
             not in {
@@ -813,15 +739,6 @@ def _validate_slo(
                     f"slo.metric {name!r} is a resource-side metric — arm_run-global, "
                     f"can't be sliced by {sorted(slice_labels)}"
                 )
-        else:
-            # an SLO gate must fail-fast, not silently skip a typo → the metric must be
-            # DECLARED (builtin / probe / framework ttft_ms / Runner.describe()).
-            # A dynamic per-request metric still reaches the report/CSV — just can't gate.
-            raise ValueError(
-                f"slo.metric {a.metric!r}: {name!r} is not a declared metric — only declared "
-                "metrics can gate (declare a per-request metric via Runner.describe(); a "
-                "dynamic first_<event>_ms reaches the report but can't gate)"
-            )
 
         # the facet label value must be one a run actually produces
         for k, v in slice_labels.items():

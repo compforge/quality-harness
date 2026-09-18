@@ -56,6 +56,8 @@ Python 资源观察覆盖发压、排空、停用与 cooldown；TypeScript 资�
 ## 时间与统计
 
 所有时刻是相对 ArmRun 发压起点的秒数；Window 使用半开区间 `[start_s,end_s)`。
+Python 指标采集可增加 observation Window，覆盖发压前基线至最终抓取；基线时间可为负，
+它不是负载阶段，不参与容量分组。最终窗口查询记录实际查询时间范围，默认请求统计口径不变。
 
 - arrived / arrival_rps 按源头实际接受的发起机会 scheduled_at 归窗；arrived_at 保留实际处理时刻。
 - dispatched / dispatch_rps 按实际 dispatched_at 归窗。
@@ -101,3 +103,10 @@ Reader 必须恢复原始关联与完整请求记录；支持当前 schema 的�
 跨语言共同 fixture 位于 [conformance/perf](../conformance/perf/README.md)。字段定义见
 [Run schema](perf-run-schema.yaml)、[Request schema](perf-request-schema.yaml) 与
 [Evaluation schema](perf-evaluation-schema.yaml)。
+
+
+## 可选服务指标报告
+
+Python 的 MetricProbe 默认直接抓服务指标，显式配置 PrometheusQueryProbe 才访问远端查询 API。
+可选 window_observations 保存窗口查询事实；report_columns 保存指标与窗口的报告选择。
+两者是 schema 6 的附加字段。直接采集查询与汇总列目前由 Python 实现，报告重渲染只读取已保存结果。
