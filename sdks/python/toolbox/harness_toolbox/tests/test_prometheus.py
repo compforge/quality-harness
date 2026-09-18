@@ -158,3 +158,64 @@ async def test_scrape_has_total_deadline_and_closes_slow_stream(monkeypatch):
             async with asyncio.timeout(1):
                 await client.read(["requests_total"])
         assert closed.is_set()
+
+
+async def test_fleet_window_uses_weighted_counts_and_preserves_instance_identity(monkeypatch):
+    from prombed import ScrapeTarget
+
+    now = 1_000_000
+    step = 0
+    monkeypatch.setattr("prombed.prombed._now_ms", lambda: now)
+    values = {"a": [(100, 10), (110, 11)], "b": [(300, 1), (1200, 4)]}
+
+    def handler(request):
+        total, count = values[request.url.host][step]
+        return httpx.Response(200, text=f"d_sum {total}\nd_count {count}\n")
+
+    with_transport(monkeypatch, handler)
+    source = PrometheusDataSource(
+        targets=(ScrapeTarget("http://a/metrics"), ScrapeTarget("http://b/metrics"))
+    )
+    async with ClientManager() as clients:
+        client = await clients.get(source)
+        first = await client.read(["d_count"])
+        assert len(first["d_count"]["result"]) == 2
+        step, now = 1, now + 1000
+        await client.read([])
+        expression = "sum(increase(d_sum[1001ms])) / sum(increase(d_count[1001ms]))"
+        result = client.query_window([expression], start_ms=1_000_000, end_ms=now)
+        # (10 + 900)/(1 + 3), not the average of per-replica means (10 + 300)/2.
+        assert float(result[expression]["result"][0]["value"][1]) == pytest.approx(227.5)
+
+
+@pytest.mark.parametrize(
+    "options", [PrometheusOptions(retention_ms=500), PrometheusOptions(max_samples_per_series=2)]
+)
+async def test_window_query_fails_when_history_was_evicted(monkeypatch, options):
+    now = 1_000_000
+    monkeypatch.setattr("prombed.prombed._now_ms", lambda: now)
+    with_transport(monkeypatch, lambda _: httpx.Response(200, text="x 1\n"))
+    async with ClientManager() as clients:
+        client = await clients.get(PrometheusDataSource("http://metrics", options=options))
+        for _ in range(3):
+            await client.read([])
+            now += 1000
+        with pytest.raises(ValueError, match="not retained"):
+            client.query_window(["x"], start_ms=1_000_000, end_ms=now - 1000)
+
+
+async def test_failed_replica_invalidates_window_not_silent_partial_sum(monkeypatch):
+    from prombed import ScrapeTarget
+
+    with_transport(
+        monkeypatch,
+        lambda request: httpx.Response(500 if request.url.host == "bad" else 200, text="x 1\n"),
+    )
+    async with ClientManager() as clients:
+        client = await clients.get(
+            PrometheusDataSource(targets=(ScrapeTarget("http://good"), ScrapeTarget("http://bad")))
+        )
+        with pytest.raises(PrombedError):
+            await client.read(["sum(x)"])
+        with pytest.raises(ValueError):
+            client.query_window(["sum(x)"], start_ms=0, end_ms=1)

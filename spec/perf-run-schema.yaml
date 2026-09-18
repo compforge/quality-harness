@@ -27,6 +27,15 @@ properties:
     minLength: 1
   passed:
     type: boolean
+  report_columns:
+    type: array
+    items:
+      type: object
+      required: [title, metric, window]
+      properties:
+        title: {type: string}
+        metric: {type: string}
+        window: {type: object}
   executions:
     type: array
     items:
@@ -283,9 +292,10 @@ $defs:
         - ramp
         - hold
         - cooldown
+        - observation
       start_s:
         type: number
-        minimum: 0
+        description: Relative to load start; an observation baseline may be negative.
       end_s:
         type: number
         minimum: 0
@@ -413,6 +423,23 @@ $defs:
         minItems: 1
         items:
           $ref: '#/$defs/window'
+      window_observations:
+        type: array
+        items:
+          type: object
+          required: [probe, window_id, metric, expression, source_key, start_ms, end_ms, values]
+          properties:
+            probe: {type: string}
+            window_id: {type: string}
+            metric: {type: string}
+            expression: {type: string}
+            source_key: {type: string}
+            start_ms: {type: integer}
+            end_ms: {type: integer}
+            values:
+              type: object
+              additionalProperties: {type: number}
+            error: {type: [string, "null"]}
       probe_errors:
         type: object
       phase_errors:

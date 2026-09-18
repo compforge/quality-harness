@@ -147,11 +147,9 @@ SSH 使用共享资源 worker 的只读视图，Kubernetes 客户端在 Host 上
 
 ### Prometheus 观测
 
-`PrometheusProbe` 通过 toolbox `PrometheusDataSource` 抓取 `/metrics` 并查询内嵌 Prombed。
-同一访问配置的探针在单轮 `DataLoader` 内共享一次抓取，PromQL 查询仍各自执行。连接池与
-有界查询历史由该 ArmRun 的 `ClientManager` 管理，新 ArmRun 不读取旧 ArmRun 的样本。
-Prometheus 使用独立 HTTP 池，不占用发压连接；地址、认证和容量属于 DataSource，
-采样频率、输出指标/label 契约以及 SLO 属于 perf。
+`MetricProbe` 默认直接抓被测服务的 `/metrics`。配置 `queries` 观察趋势、`summaries` 计算窗口值，
+并通过 `report.columns` 选择报告列；多副本使用实例目标或 Service.workloads。
+采样、基线、收尾与完整性口径见 [服务指标采集与报告](service-metrics.md)。
 
 `PrometheusQueryProbe` 使用 toolbox `PrometheusQueryDataSource` 查询远端 Prometheus 的
 `/api/v1/query`。它适合跨 Pod 聚合，显式设置服务器地址与该服务器的认证，不继承发压请求头。

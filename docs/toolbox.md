@@ -173,6 +173,12 @@ Python `harness-toolbox[prometheus]` 提供 `PrometheusDataSource`，描述 `/me
 perf 每个 ArmRun 持有 ClientManager、每轮观测创建 DataLoader，再把查询结果映射为指标。
 这样下一轮可见新数据，内嵌 Prombed 的新 ArmRun 不会读到上一轮试验的历史。
 
+直接抓取也可声明多个实例目标，或通过 `KubernetesScrapeDiscovery` 复用 Workload 解析发现 Pod。
+实例 UID 进入 Prometheus instance 标签，替代 Pod 不与旧计数器拼接；消失实例记录 stale。
+抓取并发、超时与响应预算归同一个客户端，任一实例失败不能表现为成功的服务级聚合。
+`query_window` 只查询已保留的本地历史，历史缺失或采集不完整时显式失败；采集调度和业务 PromQL
+仍归消费方。Pod 指标地址须从执行机可达，Kubernetes API 的 Host 路径不隐式代理 HTTP 抓取。
+
 远端 Prometheus 使用 Python `PrometheusQueryDataSource`，通过现有 HTTPClientProvider
 借用独立连接池，复用相同 ClientManager 生命周期。`read(expressions, timestamp=..., scope=...)`
 调用 `/api/v1/query`；单轮 DataLoader 共享求值时间与相同表达式的结果或错误。端点、显式认证、

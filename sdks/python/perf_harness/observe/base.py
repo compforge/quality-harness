@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import math
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -23,16 +22,14 @@ from dataclasses import dataclass, field
 import httpx
 from harness_common.client import ClientManager
 from harness_toolbox.data_loader import DataLoader
-from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
 
 from perf_harness.metric import (
     MetricFamily,
     MetricSummary,
     MetricValueKind,
-    series_id,
 )
 from perf_harness.metric.reduce import time_series_summary
-from perf_harness.model import ProbeErrors, Sample, Service
+from perf_harness.model import ProbeErrors, ProbeWindowObservation, Sample, Service, Window
 
 
 class ClientStats:
@@ -67,11 +64,13 @@ class ProbeContext:
     t0: float
     stats: ClientStats = field(default_factory=ClientStats)
     observer_client: httpx.AsyncClient | None = None
-    # Owned by observe_loop; direct sample callers must dispose this manager.
+    # Owned by the ArmRun through final window queries; direct callers must dispose.
     clients: ClientManager = field(default_factory=ClientManager)
     reads: DataLoader | None = None
     # Unix time at the start of this tick, before other probes consume its budget.
+    observation_budget_s: float | None = None
     sample_time_s: float | None = None
+    wall_origin_s: float = field(default_factory=lambda: time.time() - time.monotonic())
 
     @property
     def probe_client(self) -> httpx.AsyncClient:
@@ -124,6 +123,7 @@ class Probe(ABC):
     #: ``summarize`` (which reducers to emit) and the Engine (series units) — a
     #: single table, so the vocabularies can't drift apart.
     families: dict[str, FamilySpec] = {}
+    needs_observation_window: bool = False
 
     def describe(self) -> list[MetricFamily]:
         """This probe's contributions as ``resource``-side metric FAMILIES (no labels).
@@ -158,6 +158,12 @@ class Probe(ABC):
         merged onto the base labels. Same metric model either way: a label is part of
         the series identity, and the Engine/report group by it like any other label."""
 
+    async def finish(
+        self, ctx: ProbeContext, windows: list[Window]
+    ) -> list[ProbeWindowObservation]:
+        """Read final window facts before clients close; default probes need no final query."""
+        return []
+
     def summarize(self, series: dict[str, list[Sample]]) -> dict[str, MetricSummary]:
         """Collapse this probe's (steady-state) series → one typed MetricSummary per
         (bare) metric, keyed by bare name (the Engine prefixes ``<probe>.``).
@@ -189,154 +195,6 @@ class ClientProbe(Probe):
         return {"inflight": float(ctx.stats.inflight), "sent": float(ctx.stats.sent)}
 
 
-@dataclass(frozen=True)
-class PrometheusQuery:
-    """One bounded PromQL result exported into perf's resource metric table.
-
-    ``labels`` is the declared output contract and cardinality boundary. Prombed may
-    evaluate arbitrary supported PromQL, but every returned vector must carry exactly
-    these labels after target-owned labels are removed.
-    """
-
-    name: str
-    promql: str
-    value_kind: MetricValueKind = "gauge"
-    unit: str = ""
-    description: str = ""
-    labels: tuple[str, ...] = ()
-
-
-class _PrometheusResultProbe(Probe):
-    """Shared metric/label projection; subclasses own only their query source."""
-
-    def __init__(self, *, queries: list[PrometheusQuery], service: str | None = None) -> None:
-        self.queries = list(queries)
-        self._service = service
-        self.families = {
-            query.name: FamilySpec(
-                query.unit,
-                query.value_kind,
-                query.description,
-                query.labels,
-            )
-            for query in self.queries
-        }
-        if len(self.families) != len(self.queries):
-            raise ValueError("Prometheus query names must be unique within one probe")
-        if service:
-            self.name = f"{self.name}.{service}"
-
-    @staticmethod
-    def _labels(metric: dict[str, str]) -> dict[str, str]:
-        return {key: value for key, value in metric.items() if key != "__name__"}
-
-    @staticmethod
-    def _number(value: object) -> float:
-        try:
-            number = float(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Prometheus query returned an invalid numeric sample") from exc
-        if not math.isfinite(number):
-            raise ValueError("Prometheus query returned a non-finite sample")
-        return number
-
-    def _record_vector(
-        self,
-        out: dict[str, float],
-        query: PrometheusQuery,
-        rows: list[dict],
-    ) -> None:
-        expected = set(query.labels)
-        for row in rows:
-            labels = self._labels(row["metric"])
-            if set(labels) != expected:
-                raise ValueError(
-                    f"Prometheus query {query.name!r} declared labels {sorted(expected)!r} "
-                    f"but returned {sorted(labels)!r}"
-                )
-            key = series_id(query.name, labels)
-            if key in out:
-                raise ValueError(f"Prometheus query {query.name!r} returned duplicate series {key}")
-            out[key] = self._number(row["value"][1])
-
-    def _project(self, results: dict[str, dict]) -> dict[str, float]:
-        out: dict[str, float] = {}
-        for query in self.queries:
-            data = results[query.promql]
-            if data["resultType"] == "scalar":
-                if query.labels:
-                    raise ValueError(
-                        f"Prometheus scalar query {query.name!r} cannot declare output labels"
-                    )
-                out[query.name] = self._number(data["result"][1])
-                continue
-            if data["resultType"] != "vector":
-                raise ValueError(
-                    f"Prometheus query {query.name!r} returned unsupported "
-                    f"result type {data['resultType']!r}"
-                )
-            self._record_vector(out, query, data["result"])
-        return out
-
-
-class PrometheusProbe(_PrometheusResultProbe):
-    """Scrape and query a Prometheus endpoint through an embedded Prombed runtime.
-
-    Perf owns the observation cadence and final report/SLO model; Prombed owns the
-    Prometheus text format, bounded short-term storage and PromQL evaluation.
-    Toolbox owns access and retained observations through a DataSource; the ArmRun
-    owns ClientManager so range queries cannot read samples from a previous arm.
-    """
-
-    name = "prometheus"
-    source = "prometheus"
-
-    def __init__(
-        self,
-        *,
-        queries: list[PrometheusQuery],
-        service: str | None = None,
-        url: str | None = None,
-        headers: dict[str, str] | None = None,
-        timeout_ms: int = 5_000,
-        max_scrape_bytes: int = 16 * 1024 * 1024,
-        retention_ms: int = 10 * 60_000,
-        max_series: int = 20_000,
-        max_samples_per_series: int = 10_000,
-    ) -> None:
-        super().__init__(queries=queries, service=service)
-        self._url = url
-        self._headers = dict(headers or {})
-        self._options = PrometheusOptions(
-            timeout_ms=timeout_ms,
-            max_scrape_bytes=max_scrape_bytes,
-            retention_ms=retention_ms,
-            max_series=max_series,
-            max_samples_per_series=max_samples_per_series,
-        )
-
-    def _source(self, ctx: ProbeContext) -> PrometheusDataSource:
-        # Service credentials apply only to its implicit metrics endpoint.
-        # An explicit downstream URL must supply its own credentials.
-        target_headers = ctx.service.headers if self._url is None else {}
-        return PrometheusDataSource(
-            url=self._url or ctx.service.base_url.rstrip("/") + "/metrics",
-            headers={**target_headers, **self._headers, "User-Agent": "quality-harness/perf"},
-            options=self._options,
-        )
-
-    @staticmethod
-    def _labels(metric: dict[str, str]) -> dict[str, str]:
-        # Prombed injects target identity for scrape correctness. Perf already owns
-        # service identity, so target labels must not become accidental fan-out axes.
-        return {key: value for key, value in metric.items() if key not in {"__name__", "instance"}}
-
-    async def sample(self, ctx: ProbeContext) -> dict[str, float]:
-        client = await ctx.clients.get(self._source(ctx))
-        results = await client.read([query.promql for query in self.queries], scope=ctx.reads)
-        return self._project(results)
-
-
 # Probe sample store: (probe.name, sample key) → time series. The sample key is what
 # ``Probe.sample`` returned it under — a bare metric (``cpu_m``) or, for a fan-out
 # probe, a labeled ``series_id`` (``cpu_m{pod="…"}``). Tupling with the unique
@@ -350,6 +208,8 @@ async def observe_loop(
     store: ProbeStore,
     stop: asyncio.Event,
     interval: float,
+    ready: asyncio.Event | None = None,
+    start: asyncio.Event | None = None,
 ) -> dict[str, ProbeErrors]:
     """Sample every probe each ``interval`` until stopped. A failing probe never stops
     observation, but the failure is RECORDED, not swallowed — returns the per-probe
@@ -357,35 +217,40 @@ async def observe_loop(
     affected summaries and the arm_run. A broken /metrics must not render as calm data."""
     failures: dict[str, list[str]] = {}
     ticks = 0
-    async with ctx.clients:
-        while True:
-            ctx.sample_time_s = time.time()
-            t = time.monotonic() - ctx.t0
-            ticks += 1
-            async with DataLoader() as reads:
-                ctx.reads = reads
-                try:
-                    for probe in probes:
-                        try:
-                            reading = await probe.sample(ctx)
-                        except Exception as exc:  # noqa: BLE001 — one bad probe must not stop observation
-                            failures.setdefault(probe.name, []).append(repr(exc))
-                            reading = None
-                        # synthesize the probe's health as a SERIES (the Prometheus `up` analogue):
-                        # the arm_run census says THAT observation broke, this says WHEN — §4 can
-                        # chart the outage window instead of a fake-calm gap. 1 ok / 0 failed.
-                        store.setdefault((probe.name, "up"), []).append(
-                            Sample(t, 0.0 if reading is None else 1.0)
-                        )
-                        for key, val in (reading or {}).items():
-                            store.setdefault((probe.name, key), []).append(Sample(t, val))
-                finally:
-                    ctx.reads = None
-                    ctx.sample_time_s = None
-            if stop.is_set():
-                break
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(stop.wait(), timeout=interval)
+    while True:
+        ctx.sample_time_s = time.time()
+        t = time.monotonic() - ctx.t0
+        ticks += 1
+        async with DataLoader() as reads:
+            ctx.reads = reads
+            try:
+                for probe in probes:
+                    try:
+                        reading = await probe.sample(ctx)
+                    except Exception as exc:  # noqa: BLE001 — one bad probe must not stop observation
+                        failures.setdefault(probe.name, []).append(repr(exc))
+                        reading = None
+                    # synthesize the probe's health as a SERIES (the Prometheus `up` analogue):
+                    # the arm_run census says THAT observation broke, this says WHEN — §4 can
+                    # chart the outage window instead of a fake-calm gap. 1 ok / 0 failed.
+                    store.setdefault((probe.name, "up"), []).append(
+                        Sample(t, 0.0 if reading is None else 1.0)
+                    )
+                    for key, val in (reading or {}).items():
+                        store.setdefault((probe.name, key), []).append(Sample(t, val))
+            finally:
+                ctx.reads = None
+                ctx.sample_time_s = None
+        if ready is not None:
+            ready.set()
+        if start is not None:
+            await start.wait()
+            start = None
+            continue
+        if stop.is_set():
+            break
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=interval)
     return {
         name: ProbeErrors(failures=len(errs), ticks=ticks, last=errs[-1])
         for name, errs in failures.items()

@@ -63,7 +63,9 @@ def main(argv: list[str] | None = None) -> int:
                 else _parse_facet_order(raw.get("facets"))
             )
         loaded = load_run(run_dir)
-        paths = write_report(loaded.arm_runs, str(run_dir), facet_order=facet_order)
+        paths = write_report(
+            loaded.arm_runs, str(run_dir), facet_order=facet_order, columns=loaded.report_columns
+        )
         print(f"re-rendered from model layer: {paths['report']}")
         print(f"  html: {paths['report_html']}")
         return 0

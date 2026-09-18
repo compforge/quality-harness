@@ -279,7 +279,7 @@ class ProbeErrors:
     last: str
 
 
-WindowKind = Literal["measurement", "warmup", "ramp", "hold", "cooldown"]
+WindowKind = Literal["measurement", "warmup", "ramp", "hold", "cooldown", "observation"]
 Phase = Literal["setup", "warmup", "hold", "cooldown", "cleanup"]
 
 
@@ -326,6 +326,21 @@ class Window:
         return max(self.end_s - self.start_s, 0.0)
 
 
+@dataclass(frozen=True)
+class ProbeWindowObservation:
+    """Saved result of one local query; enough provenance to explain report cells."""
+
+    probe: str
+    window_id: str
+    metric: str
+    expression: str
+    source_key: str
+    start_ms: int
+    end_ms: int
+    values: dict[str, float] = field(default_factory=dict)
+    error: str | None = None
+
+
 @dataclass
 class ArmRun(Execution[Outcome]):
     """The recorded execution of one Arm, reduced into addressable Windows."""
@@ -351,6 +366,7 @@ class ArmRun(Execution[Outcome]):
     serve those reads."""
     requests: list[RequestRecord] = field(default_factory=list)
     evaluations: dict[str, RequestEvaluation] = field(default_factory=dict)
+    window_observations: list[ProbeWindowObservation] = field(default_factory=list)
     probe_errors: dict[str, ProbeErrors] = field(default_factory=dict)
     """Probes that FAILED at least one sampling tick this arm_run (key = unique probe
     name, e.g. ``metrics.chat``). Their summaries carry the ``probe_error`` caveat,
@@ -393,6 +409,15 @@ class WindowSelector:
             and (self.name is None or window.name == self.name)
             and (self.level is None or window.target_level == self.level)
         )
+
+
+@dataclass(frozen=True)
+class ReportColumn:
+    """A persisted view selection; repeated windows remain separate cells, never averaged."""
+
+    title: str
+    metric: str
+    window: WindowSelector = field(default_factory=WindowSelector)
 
 
 @dataclass(frozen=True)
@@ -455,6 +480,7 @@ class Run(ExperimentRun):
 
     service: str
     passed: bool = True
+    report_columns: list[ReportColumn] = field(default_factory=list)
 
     @property
     def arm_runs(self) -> list[ArmRun]:

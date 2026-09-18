@@ -56,6 +56,8 @@ from perf_harness.model import (
     Outcome,
     PhaseError,
     ProbeErrors,
+    ProbeWindowObservation,
+    ReportColumn,
     RequestStats,
     ResourceProfile,
     Run,
@@ -355,6 +357,7 @@ def _arm_run_json(r: ArmRun) -> dict:
             }
             for window in r.windows
         ],
+        "window_observations": [asdict(item) for item in r.window_observations],
         "probe_errors": {
             name: {"failures": e.failures, "ticks": e.ticks, "last": e.last}
             for name, e in r.probe_errors.items()
@@ -370,6 +373,9 @@ def _arm_run_from(d: dict, service: str) -> ArmRun:
     arm = d["arm"]
     return ArmRun(
         id=d["id"],
+        window_observations=[
+            ProbeWindowObservation(**item) for item in d.get("window_observations", [])
+        ],
         service=d.get("service", service),
         arm=Arm(
             id=arm["id"],
@@ -460,6 +466,7 @@ def write_run_data(run: Run, run_dir: str | Path) -> dict[str, str]:
         "created_at": run.created_at,
         "service": run.service,
         "passed": run.passed,
+        "report_columns": [asdict(column) for column in run.report_columns],
         "executions": [_arm_run_json(r) for r in run.arm_runs],
     }
     run_json = out / "run.json"
@@ -551,6 +558,10 @@ def load_run(run_dir: str | Path, *, with_series: bool = True) -> Run:
         executions=arm_runs,
         service=service,
         passed=bool(doc.get("passed", True)),
+        report_columns=[
+            ReportColumn(item["title"], item["metric"], WindowSelector(**item.get("window", {})))
+            for item in doc.get("report_columns", [])
+        ],
     )
     run.add_artifact("model", "run.json")
     by_id = {execution.id: execution for execution in arm_runs}

@@ -50,8 +50,9 @@ from perf_harness.metric import (
     series_id,
     split_series,
 )
-from perf_harness.model import ArmRun, RequestStats, Run, Series, SloCheck
+from perf_harness.model import ArmRun, ReportColumn, RequestStats, Run, Series, SloCheck
 from perf_harness.report import lifecycle
+from perf_harness.report.columns import cases_cell, selected_cells
 from perf_harness.report.palette import family_color as _family_color
 from perf_harness.runio import PerfReducer, write_timeseries_data
 from perf_harness.slo import slo_aware_capacity
@@ -438,6 +439,7 @@ def write_run(
             str(run_dir),
             knee_err_rate=knee_err_rate,
             facet_order=facet_order,
+            columns=run.report_columns,
         )
     )
 
@@ -450,6 +452,7 @@ def write_report(
     *,
     knee_err_rate: float = 0.05,
     facet_order: dict[str, list[str]] | None = None,
+    columns: list[ReportColumn] | None = None,
 ) -> dict[str, str]:
     """Write summary.csv + by_facet.csv + timeseries.csv + report.md; return the paths."""
     out = Path(outdir)
@@ -462,13 +465,24 @@ def write_report(
     summary_path = out / "summary.csv"
     with summary_path.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(_KEY_COLS + _STAT_COLS + mcols + probe_cols)
+        w.writerow(
+            _KEY_COLS
+            + (
+                ["case"] + [c.title for c in columns]
+                if columns
+                else _STAT_COLS + mcols + probe_cols
+            )
+        )
         for r in results:
             w.writerow(
                 _key_cells(r)
-                + _stat_cells(r.measurement.request)
-                + _metric_cells(r.measurement.request, metric_keys)
-                + _probe_cells(r, probe_cols)
+                + (
+                    [cases_cell(r)] + selected_cells(r, columns)
+                    if columns
+                    else _stat_cells(r.measurement.request)
+                    + _metric_cells(r.measurement.request, metric_keys)
+                    + _probe_cells(r, probe_cols)
+                )
             )
 
     facet_path = out / "by_facet.csv"
@@ -543,13 +557,13 @@ def write_report(
         writer = csv.writer(f)
         writer.writerow(lifecycle.COLUMNS)
         writer.writerows(lifecycle.rows(results))
-    md_path.write_text(_render_md(results, metric_keys, knee_err_rate, facet_order))
+    md_path.write_text(_render_md(results, metric_keys, knee_err_rate, facet_order, columns))
 
     # HTML companion: mirrors report.md, but §3 actually plots the Probe timeseries
     # (the md only points at timeseries.csv). Tables render offline; only the charts
     # pull ECharts from CDN.
     html_path = out / "report.html"
-    doc = _build_doc(results, metric_keys, knee_err_rate, facet_order)
+    doc = _build_doc(results, metric_keys, knee_err_rate, facet_order, columns)
     html_path.write_text(render_html(doc), encoding="utf-8")
 
     return {
@@ -622,6 +636,7 @@ def _build_doc(
     metric_keys: list[str],
     knee_err_rate: float,
     facet_order: dict[str, list[str]] | None,
+    columns: list[ReportColumn] | None = None,
 ) -> Report:
     """Map ArmRuns into the neutral report IR — same content/order as ``_render_md``,
     but §3 carries plotted Probe series instead of a pointer to timeseries.csv."""
@@ -698,12 +713,20 @@ def _build_doc(
     # metric is ONE slashed column (lat_ms = p50/p95/p99, client.inflight = last/mean/peak…).
     consts, var_cols = _key_layout(results)
     dprobe = _display_probe_cols(results)
-    cols = var_cols + _DISPLAY_STAT_COLS + metric_keys + dprobe
+    cols = var_cols + (
+        ["case"] + [c.title for c in columns]
+        if columns
+        else _DISPLAY_STAT_COLS + metric_keys + dprobe
+    )
     rows = [
         _key_cells_var(r, var_cols)
-        + _display_stat_cells(r.measurement.request)
-        + _display_metric_cells(r.measurement.request, metric_keys)
-        + _display_probe_cells(r, dprobe)
+        + (
+            [cases_cell(r)] + selected_cells(r, columns)
+            if columns
+            else _display_stat_cells(r.measurement.request)
+            + _display_metric_cells(r.measurement.request, metric_keys)
+            + _display_probe_cells(r, dprobe)
+        )
         for r in results
     ]
     knees = _knees(results, knee_err_rate)
@@ -711,6 +734,7 @@ def _build_doc(
     highlight = {i: "knee" for i, r in enumerate(results) if _arm_run_id(r) in knee_ids}
     # hover a column header → the merged stats + what the metric is (unit · source).
     tips = _display_col_tips(results, metric_keys, dprobe)
+    tips.update({c.title: f"{c.metric} · window={c.window.kind}" for c in columns or []})
     sec1 = Section("1. 汇总（overall）")
     if consts:
         sec1.blocks.append(Prose("固定：" + " · ".join(f"`{k}={v}`" for k, v in consts)))
@@ -1073,6 +1097,7 @@ def _render_md(
     metric_keys: list[str],
     knee_err_rate: float,
     facet_order: dict[str, list[str]] | None,
+    columns: list[ReportColumn] | None = None,
 ) -> str:
     lines: list[str] = []
     service = results[0].service if results else "?"
@@ -1090,13 +1115,18 @@ def _render_md(
     if consts:
         lines.append("固定：" + " · ".join(f"`{k}={v}`" for k, v in consts))
         lines.append("")
-    header = var_cols + _DISPLAY_STAT_COLS + metric_keys + dprobe
+    header = var_cols + (
+        ["case"] + [c.title for c in columns]
+        if columns
+        else _DISPLAY_STAT_COLS + metric_keys + dprobe
+    )
     lines.append("| " + " | ".join(header) + " |")
     lines.append("|" + "|".join(["---"] * len(header)) + "|")
     for r in results:
-        cells = (
-            _key_cells_var(r, var_cols)
-            + _display_stat_cells(r.measurement.request)
+        cells = _key_cells_var(r, var_cols) + (
+            [cases_cell(r)] + selected_cells(r, columns)
+            if columns
+            else _display_stat_cells(r.measurement.request)
             + _display_metric_cells(r.measurement.request, metric_keys)
             + _display_probe_cells(r, dprobe)
         )

@@ -29,6 +29,7 @@ from perf_harness.drive.scheduler import DriveState, drive
 from perf_harness.judge import Judge, default_judge
 from perf_harness.metric import (
     MetricFamily,
+    ScalarSummary,
     series_id,
     split_series,
 )
@@ -41,6 +42,7 @@ from perf_harness.model import (
     Phase,
     PhaseError,
     ProbeErrors,
+    ReportColumn,
     ResourceProfile,
     Run,
     Sample,
@@ -116,6 +118,7 @@ class Experiment(BaseExperiment):
     observe_interval_s: float = 5.0
     cooldown_s: float = 0.0  # keep probes running after deactivation for scale-down curves
     teardown: bool = False
+    report_columns: list[ReportColumn] = field(default_factory=list)
 
     def resolved_arms(self) -> list[Arm]:
         """Expand the configured resource × load axes into named comparison Arms."""
@@ -204,6 +207,7 @@ class Engine:
             executions=arm_runs,
             service=exp.service.name,
             passed=passed,
+            report_columns=list(exp.report_columns),
         )
 
     async def _run_arm_run(self, service: Service, arm: Arm) -> ArmRun:
@@ -237,6 +241,7 @@ class Engine:
             ctx: ProbeContext | None = None
             observer: asyncio.Task | None = None
             stop = asyncio.Event()
+            start_observation = asyncio.Event()
             try:
                 await exp.runner.setup(execution.context)
                 execution.enter("warmup")
@@ -246,10 +251,36 @@ class Engine:
                     t0=time.monotonic(),
                     stats=stats,
                     observer_client=obs_client,
+                    clients=clients,
+                    observation_budget_s=load.duration_s + load.cooldown_timeout_s + exp.cooldown_s,
                 )
+                ready = asyncio.Event()
                 observer = asyncio.create_task(
-                    observe_loop(exp.probes, ctx, store, stop, exp.observe_interval_s)
+                    observe_loop(
+                        exp.probes,
+                        ctx,
+                        store,
+                        stop,
+                        exp.observe_interval_s,
+                        ready,
+                        start_observation,
+                    )
                 )
+                initial = asyncio.create_task(ready.wait())
+                try:
+                    await asyncio.wait((initial, observer), return_when=asyncio.FIRST_COMPLETED)
+                    if observer.done():
+                        await observer
+                finally:
+                    initial.cancel()
+                    await asyncio.gather(initial, return_exceptions=True)
+                # Baseline collection must not consume the requested load duration.
+                now = time.monotonic()
+                offset = now - ctx.t0
+                for key, samples in store.items():
+                    store[key] = [Sample(sample.t - offset, sample.value) for sample in samples]
+                ctx.t0 = now
+                start_observation.set()
                 await drive(
                     exp.runner,
                     exp.judge,
@@ -277,6 +308,9 @@ class Engine:
             finally:
                 if observer is not None:
                     stop.set()
+                    start_observation.set()
+                    if execution.fatal_error is not None:
+                        observer.cancel()
                     try:
                         probe_errors = await observer
                     except Exception as exc:
@@ -294,6 +328,22 @@ class Engine:
                             # Close the Window only after that tick has been recorded.
                             cooldown_end_s = time.monotonic() - ctx.t0
                 try:
+                    result = self._aggregate(
+                        arm,
+                        result,
+                        store,
+                        probe_errors,
+                        measurement_end_s=execution.drive.measurement_end_s or 0.0,
+                        drive_state=execution.drive,
+                        cooldown_start_s=cooldown_start_s,
+                        cooldown_end_s=cooldown_end_s,
+                        observation_end_s=time.monotonic() - ctx.t0 if ctx else None,
+                    )
+                    if ctx is not None and execution.fatal_error is None:
+                        await self._finish_probes(ctx, result)
+                except Exception as exc:
+                    execution.record(exc, phase="cooldown")
+                try:
                     await exp.runner.cleanup(execution.context)
                 except BaseException as cleanup_error:
                     if execution.fatal_error is not None:
@@ -305,19 +355,33 @@ class Engine:
                 if execution.fatal_error is not None:
                     raise execution.fatal_error
 
-        arm_run = self._aggregate(
-            arm,
-            result,
-            store,
-            probe_errors,
-            measurement_end_s=execution.drive.measurement_end_s or 0.0,
-            drive_state=execution.drive,
-            cooldown_start_s=cooldown_start_s,
-            cooldown_end_s=cooldown_end_s,
-        )
-        arm_run.stop = execution.drive.stop
-        arm_run.phase_errors = execution.phase_errors
-        return arm_run
+        result.stop = execution.drive.stop
+        result.phase_errors = execution.phase_errors
+        return result
+
+    async def _finish_probes(self, ctx: ProbeContext, result: ArmRun) -> None:
+        windows = {window.id: window for window in result.windows}
+        for probe in self.experiment.probes:
+            try:
+                observations = await probe.finish(ctx, result.windows)
+            except Exception as exc:
+                previous = result.probe_errors.get(probe.name, ProbeErrors(0, 0, ""))
+                result.probe_errors[probe.name] = ProbeErrors(
+                    previous.failures + 1, previous.ticks + 1, str(exc)
+                )
+                continue
+            result.window_observations.extend(observations)
+            for observation in observations:
+                if observation.error:
+                    previous = result.probe_errors.get(probe.name, ProbeErrors(0, 0, ""))
+                    result.probe_errors[probe.name] = ProbeErrors(
+                        previous.failures + 1, previous.ticks + 1, observation.error
+                    )
+                    continue
+                for key, value in observation.values.items():
+                    bare, extra = split_series(key)
+                    sid = series_id(f"{probe.family}.{bare}", {**probe.labels, **extra})
+                    windows[observation.window_id].probe_metrics[sid] = ScalarSummary(value)
 
     def _aggregate(
         self,
@@ -330,6 +394,7 @@ class Engine:
         drive_state: DriveState | None = None,
         cooldown_start_s: float | None = None,
         cooldown_end_s: float | None = None,
+        observation_end_s: float | None = None,
     ) -> ArmRun:
         exp = self.experiment
         load = arm.load
@@ -396,6 +461,22 @@ class Engine:
                 )
             )
 
+        if observation_end_s is not None and any(p.needs_observation_window for p in exp.probes):
+            baseline = min(
+                (sample.t for samples in store.values() for sample in samples), default=0.0
+            )
+            windows.append(
+                Window(
+                    id="observation",
+                    name="observation",
+                    kind="observation",
+                    start_s=min(0.0, baseline),
+                    end_s=observation_end_s,
+                    complete=(not drive_state.stop.early and not drive_state.stop.interrupted)
+                    if drive_state
+                    else True,
+                )
+            )
         result.windows = windows
         for window in windows:
             window.request = reduce_requests(result, window.start_s, window.end_s)

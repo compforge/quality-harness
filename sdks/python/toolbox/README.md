@@ -55,6 +55,10 @@ with Prombed; it does not query a remote Prometheus server. `ClientManager` owns
 pool and bounded history. Pass a `DataLoader` from `harness_toolbox.data_loader` to
 `client.read(expressions, scope=scope)` to share one scrape across callers in that scope.
 A new scope reads again; query results retain their Prometheus types and labels.
+Declare `targets` for multiple instances or use `KubernetesScrapeDiscovery` with declared workloads.
+Pod UID keeps replacement counters separate; HTTP targets must be reachable from the scraper.
+`query_window(expressions, start_ms=..., end_ms=...)` queries retained local history without I/O,
+rejecting incomplete scrapes or evicted history.
 
 For a Prometheus server, use `PrometheusQueryDataSource` from
 `harness_toolbox.prometheus_query` (extra `http`). It queries the HTTP API without

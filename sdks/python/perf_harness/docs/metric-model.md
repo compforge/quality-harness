@@ -127,7 +127,7 @@ request.duration_ms{difficulty="complex"}.p99   # request / distribution（facet
 request.error_rate.value             # request  / scalar
 client.inflight.peak                 # resource / gauge
 top.mem_mi{service="worker"}.peak    # resource / gauge（资源·某服务）
-prometheus.request_rate{service="example"}.mean  # resource / gauge（PromQL 结果）
+metric.request_rate{service="example"}.mean  # resource / gauge（PromQL 结果）
 ```
 
 ---
@@ -208,7 +208,7 @@ SLO 配置在**解析期**统一校验，任一不过即 `ValueError`（绝不�
 
 ### 3.8 观测面与判定面：observational by default, gateable only by explicit SLO
 
-服务暴露的 PromQL 查询结果默认只属于**观测面**：进报告、进响应曲线、进 analyze，但**不进 judge / 熔断 / capacity**。**判定面**只有三个成员——`Judge`（单请求成败，输入签名只有 Outcome，probe 产物结构上到不了它）、错误率熔断（只读 judged outcomes）、run 级 SLO 门。观测数据影响成败的**唯一通道**是 config 里显式写的 SLO 引用（如 `prometheus.error_rate{service="example"}.peak < 0.01`）——opt-in，不是默认。
+服务暴露的 PromQL 查询结果默认只属于**观测面**：进报告、进响应曲线、进 analyze，但**不进 judge / 熔断 / capacity**。**判定面**只有三个成员——`Judge`（单请求成败，输入签名只有 Outcome，probe 产物结构上到不了它）、错误率熔断（只读 judged outcomes）、run 级 SLO 门。观测数据影响成败的**唯一通道**是 config 里显式写的 SLO 引用（如 `metric.error_rate{service="example"}.peak < 0.01`）——opt-in，不是默认。
 
 Runner.fire 只记录 Outcome，独立 `Judge(outcome) -> RequestEvaluation` 产生判定，breaker 只读
 完成后的判定计数。资源观测不注入 Judge。观测系统自身故障通过 probe_error、Missing 和分析提示保留，
@@ -324,3 +324,11 @@ pdata/pmetric（OTLP）与本模型独立收敛到同一形状：`Metric`(name/u
 `request.duration_ms` 使用本窗口 dispatch cohort 的完整耗时，排空后完成的请求不迁移到下一窗口。
 `scheduler_lag_ms` 量化加压器本身延迟；drop/interrupted 没有可用于响应延迟分布的完整样本。
 完整口径见 [结果语义](result-semantics.md)。
+
+
+## 服务窗口查询
+
+直接 `MetricProbe` 的 summaries 在采集结束、客户端释放前查询本地历史，产出 resource 侧 scalar。
+结果保存到相应 Window.probe_metrics，来源与实际查询边界保留在 ArmRun.window_observations。
+这些值使用 `.value`，不经过 gauge 的采样平均归约；SLO 与报告仍只通过 MetricStore 寻址。
+完整语义见 [服务指标采集与报告](service-metrics.md)。

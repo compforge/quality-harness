@@ -262,13 +262,13 @@ def test_cooldown_slo_accepts_resource_series_labels(tmp_path):
         "observe:\n"
         "  - name: worker\n"
         "    probes:\n"
-        "      - name: prometheus\n"
+        "      - name: metric\n"
         "        url: http://worker/metrics\n"
         "        queries:\n"
         "          - { name: task_count, promql: 'sum by (task_type, state) (task_count)', "
         "kind: gauge, labels: [task_type, state] }\n"
         "slo:\n"
-        '  - { metric: \'prometheus.task_count{service="worker",'
+        '  - { metric: \'metric.task_count{service="worker",'
         'task_type="batch",state="running"}.last\', window: {kind: cooldown}, lte: 0 }\n'
         "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
     )
@@ -282,13 +282,13 @@ def test_cooldown_slo_rejects_unknown_resource_label(tmp_path):
         "observe:\n"
         "  - name: worker\n"
         "    probes:\n"
-        "      - name: prometheus\n"
+        "      - name: metric\n"
         "        url: http://worker/metrics\n"
         "        queries:\n"
         "          - { name: task_count, promql: 'sum by (task_type, state) (task_count)', "
         "kind: gauge, labels: [task_type, state] }\n"
         "slo:\n"
-        '  - { metric: \'prometheus.task_count{service="worker",'
+        '  - { metric: \'metric.task_count{service="worker",'
         'task_tipe="batch",state="running"}.last\', window: {kind: cooldown}, lte: 0 }\n'
         "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
     )
