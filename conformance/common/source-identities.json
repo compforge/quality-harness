@@ -1,0 +1,59 @@
+{
+  "products": [
+    {
+      "name": "example-product"
+    }
+  ],
+  "repositories": [
+    {
+      "forge": {
+        "name": "github"
+      },
+      "path": "example/api"
+    },
+    {
+      "forge": {
+        "name": "gitlab"
+      },
+      "path": "example/api"
+    },
+    {
+      "forge": {
+        "name": "github"
+      },
+      "path": "example/worker"
+    }
+  ],
+  "components": [
+    {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/api"
+      },
+      "name": "server",
+      "description": "Public API component",
+      "language": "go"
+    },
+    {
+      "repository": {
+        "forge": {
+          "name": "gitlab"
+        },
+        "path": "example/api"
+      },
+      "name": "server",
+      "language": "python"
+    },
+    {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/worker"
+      },
+      "name": "server"
+    }
+  ]
+}

@@ -14,23 +14,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Forge struct {
-	Name string `yaml:"name"`
-}
-
-type Repository struct {
-	Forge Forge  `yaml:"forge"`
-	Path  string `yaml:"path"`
-}
-
-type Product struct {
-	Name string `yaml:"name"`
-}
-
-type Component struct {
-	Repository Repository `yaml:"repository"`
-	Name       string     `yaml:"name"`
-}
+type Forge = common.Forge
+type Repository = common.Repository
+type Product = common.Product
+type Component = common.Component
 
 type Environment = common.Environment
 
