@@ -1,0 +1,34 @@
+[
+  {
+    "language": "python",
+    "ecosystem": "python"
+  },
+  {
+    "language": "go",
+    "ecosystem": "go"
+  },
+  {
+    "language": "javascript",
+    "ecosystem": "node"
+  },
+  {
+    "language": "typescript",
+    "ecosystem": "node"
+  },
+  {
+    "language": "mixed",
+    "ecosystem": null
+  },
+  {
+    "language": "unknown-language",
+    "ecosystem": null
+  },
+  {
+    "language": "",
+    "ecosystem": null
+  },
+  {
+    "language": null,
+    "ecosystem": null
+  }
+]

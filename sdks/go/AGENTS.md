@@ -28,7 +28,7 @@ sdks/go/
 
 ## 关键约定
 
-- **源码身份由 common 拥有**：Forge / Repository / Product / Component 可独立于 E2E 被消费；目录、语言和产品关联由消费侧布局或 registry 维护。共享 JSON fixture 位于 `conformance/common/source-identities.json`，Go/Python 共同验证。
+- **源码身份由 common 拥有**：Forge / Repository / Product / Component 可独立于 E2E 被消费；Language 为消费侧提供的可选描述信息，不参与身份比较；Ecosystem 由 Language 推导，不重复持久化；目录发现和产品关联由消费侧布局或 registry 维护。共享 JSON fixture 位于 `conformance/common/source-identities.json`，Go/Python/TypeScript 共同验证。
 
 - **case 贴着 handler**：marker grammar 与 plural `specs[]` / `binding.spec_id` 由 spec-case 持有；casegen 用 Go AST 纯静态扫描，不 import、不运行被测服务。
 - **执行身份**：测试以字面量 `caserun.Ref("<canonical-caseset>", "<case-id>")` 绑定资产。CaseSet 内 case id 唯一；variant 在同一 CaseRun 内展开，不重复声明 Ref。

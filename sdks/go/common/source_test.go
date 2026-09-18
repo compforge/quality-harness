@@ -32,8 +32,9 @@ func TestSourceIdentityConformance(t *testing.T) {
 	}
 	described := fixture.Components[0]
 	described.Description = "A different description"
+	described.Language = "typescript"
 	if !described.SameIdentity(fixture.Components[0]) || described.SameIdentity(fixture.Components[1]) {
-		t.Fatal("description changed identity or forge identity was ignored")
+		t.Fatal("metadata changed identity or forge identity was ignored")
 	}
 	encoded, err := json.Marshal(fixture)
 	if err != nil {
@@ -60,5 +61,36 @@ func TestSourceIdentityConformance(t *testing.T) {
 	}
 	if !reflect.DeepEqual(roundtrip, fixture) {
 		t.Fatalf("YAML roundtrip mismatch: %s", yamlData)
+	}
+}
+
+func TestComponentEcosystemConformance(t *testing.T) {
+	data, err := os.ReadFile("../../../conformance/common/component-ecosystems.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Language  string `json:"language"`
+		Ecosystem string `json:"ecosystem"`
+	}
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range cases {
+		component := common.Component{Language: tc.Language}
+		if got := component.Ecosystem(); got != tc.Ecosystem {
+			t.Errorf("language %q: ecosystem %q, want %q", tc.Language, got, tc.Ecosystem)
+		}
+		encoded, err := json.Marshal(component)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := fields["ecosystem"]; ok {
+			t.Fatal("derived ecosystem must not be persisted")
+		}
 	}
 }
