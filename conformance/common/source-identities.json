@@ -1,0 +1,13 @@
+{
+  "products": [{"name": "example-product"}],
+  "repositories": [
+    {"forge": {"name": "github"}, "path": "example/api"},
+    {"forge": {"name": "gitlab"}, "path": "example/api"},
+    {"forge": {"name": "github"}, "path": "example/worker"}
+  ],
+  "components": [
+    {"repository": {"forge": {"name": "github"}, "path": "example/api"}, "name": "server", "description": "Public API component"},
+    {"repository": {"forge": {"name": "gitlab"}, "path": "example/api"}, "name": "server"},
+    {"repository": {"forge": {"name": "github"}, "path": "example/worker"}, "name": "server"}
+  ]
+}
