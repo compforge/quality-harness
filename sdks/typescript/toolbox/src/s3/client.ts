@@ -3,7 +3,7 @@ import {
   ListObjectsV2Command, GetBucketVersioningCommand, GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { Readable } from "node:stream";
-import type { Client } from "../client";
+import type { DataSourceClient, JsonObject } from "@compforge/harness-common";
 import { ConcurrencyPool } from "../concurrency";
 import type { ClientLifecycle, ConnectionSource } from "../datasource";
 import { s3Handler } from "./handler";
@@ -26,7 +26,7 @@ function metadata(value: { ContentLength?: number; ETag?: string; LastModified?:
  * @spec HTTP errors retain SDK status/code, including ambiguous HEAD 403/404 responses.
  * @why Initialization prepares a route without requiring account-wide bucket-list permission.
  */
-export class S3Client implements Client {
+export class S3Client implements DataSourceClient {
   readonly #controller = new AbortController();
   readonly signal: AbortSignal;
   readonly #pool: ConcurrencyPool;
@@ -34,6 +34,7 @@ export class S3Client implements Client {
   #initialization?: Promise<void>;
   #disposal?: Promise<void>;
   #sdk?: AwsS3Client;
+  #target?: S3Target;
   #http?: ReturnType<typeof s3Handler>;
 
   constructor(private readonly source: ConnectionSource<S3Target>, private readonly limits: S3Limits,
@@ -45,6 +46,12 @@ export class S3Client implements Client {
     this.signal = lifecycle.signal ? AbortSignal.any([lifecycle.signal, this.#controller.signal]) : this.#controller.signal;
   }
 
+  mask(): JsonObject {
+    if (!this.#sdk || !this.#target) throw new Error("S3 client is not initialized");
+    return { kind: "s3", endpoint: this.#target.endpoint, region: this.#target.region,
+      forcePathStyle: this.#target.forcePathStyle ?? true };
+  }
+
   initialize(): Promise<void> {
     this.signal.throwIfAborted();
     return this.#initialization ??= this.#initialize();
@@ -52,6 +59,7 @@ export class S3Client implements Client {
 
   async #initialize(): Promise<void> {
     const target = await this.source.resolve();
+    this.#target = target;
     this.signal.throwIfAborted();
     const url = new URL(target.endpoint);
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {

@@ -1,4 +1,4 @@
-import type { Client } from "../client";
+import type { DataSourceClient, JsonObject } from "@compforge/harness-common";
 import { ConcurrencyPool } from "../concurrency";
 import { createConnection, type Connection, type ConnectionOptions, type RowDataPacket } from "mysql2/promise";
 import type { Database, DatabaseTarget, DatabaseRow, DatabaseQueryLimits, DatabaseQueryResult } from "./types";
@@ -112,7 +112,7 @@ export class MysqlDatabase implements Database {
 }
 
 /** A datasource-bound MySQL client; the protocol adapter still supports explicit multi-target diagnostics. */
-export class MysqlClient<Target extends DatabaseTarget = DatabaseTarget> implements Client {
+export class MysqlClient<Target extends DatabaseTarget = DatabaseTarget> implements DataSourceClient {
   readonly #controller = new AbortController();
   readonly signal: AbortSignal;
   #initialization?: Promise<void>;
@@ -132,6 +132,12 @@ export class MysqlClient<Target extends DatabaseTarget = DatabaseTarget> impleme
       this.#database = new MysqlDatabase(this.source.transports, { ...this.options, signal: this.signal });
       await this.#database.initialize(this.#target);
     })();
+  }
+
+  mask(): JsonObject {
+    const target = this.target;
+    return { kind: "db", backend: "mysql", host: target.host, port: target.port,
+      database: target.database, username: target.user };
   }
 
   get database(): MysqlDatabase {

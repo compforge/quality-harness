@@ -1,4 +1,4 @@
-import type { Client } from "../client";
+import type { DataSourceClient, JsonObject } from "@compforge/harness-common";
 import type { ConnectionSource, ClientLifecycle } from "../datasource";
 import type { TcpTransport } from "../transport";
 import { createClient, type RedisClientType } from "@redis/client";
@@ -277,7 +277,7 @@ export interface RedisDataSourceTarget extends RedisConnectionConfig {
   endpoints: RedisEndpoint[];
 }
 
-export class RedisClient implements Client {
+export class RedisClient implements DataSourceClient {
   readonly #controller = new AbortController();
   readonly signal: AbortSignal;
   #initialization?: Promise<void>;
@@ -296,6 +296,12 @@ export class RedisClient implements Client {
       if (!transport || transport.kind !== "tcp") throw new Error("Redis requires a TCP transport");
       this.#access = new RedisAccess(transport, this.#target);
     })();
+  }
+  mask(): JsonObject {
+    const target = this.target;
+    return { kind: "redis", endpoints: target.endpoints.map(({ host, port }) => ({ host, port })),
+      database: target.database, useSsl: target.useSsl,
+      ...(target.username === undefined ? {} : { username: target.username }) };
   }
   get access(): RedisAccess {
     this.signal.throwIfAborted();

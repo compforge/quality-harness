@@ -18,6 +18,10 @@ try {
 A ClientProvider clientKey identifies the complete configuration and access policy. Equal keys share client
 initialization, not query results. Use clientKey to hash configuration without exposing credentials.
 ServiceDataSource associates a shared Service (or a consumer extension) with a source without changing its key.
+DataSourceClient adds `mask()` for a fresh, JSON-compatible description of an initialized data target.
+It performs no I/O, changes no client state, and excludes credentials and raw configuration. Protocol
+implementations select safe fields; consumers decide how to persist that description as evidence.
+Ordinary Client lifecycle implementations do not need this method.
 DataSource extends ClientProvider with data-access semantics; accessible concrete environments implement
 ClientProvider directly. Both use the same manager. EnvironmentContext binds an Environment (or a consumer
 extension), a get-only client view and monotonic deadlineMs (performance.now()).

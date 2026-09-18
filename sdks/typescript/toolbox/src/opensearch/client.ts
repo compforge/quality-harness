@@ -1,4 +1,4 @@
-import type { Client as ManagedClient } from "../client";
+import type { DataSourceClient, JsonObject } from "@compforge/harness-common";
 import type { ConnectionSource, ClientLifecycle } from "../datasource";
 import { Client } from "@opensearch-project/opensearch";
 import type { SearchEngine, SearchQuery, SearchResult } from "./types";
@@ -86,21 +86,31 @@ export class OpenSearchEngine implements OpenSearchReadApi {
   }
 }
 
-export class OpenSearchClient implements ManagedClient, OpenSearchReadApi {
+export class OpenSearchClient implements DataSourceClient, OpenSearchReadApi {
   readonly #controller = new AbortController();
   readonly signal: AbortSignal;
   #initialization?: Promise<void>;
   #disposal?: Promise<void>;
   #engine?: OpenSearchEngine;
+  #target?: OpenSearchOptions;
   readonly #operations = new Set<Promise<unknown>>();
 
   constructor(private readonly source: ConnectionSource<OpenSearchOptions>, lifecycle: ClientLifecycle = {}) {
     this.signal = lifecycle.signal ? AbortSignal.any([lifecycle.signal, this.#controller.signal]) : this.#controller.signal;
   }
+  mask(): JsonObject {
+    if (!this.#target) throw new Error("OpenSearch client is not initialized");
+    const url = new URL(this.#target.node);
+    // URL userinfo, query parameters and fragments may carry credentials.
+    url.username = ""; url.password = ""; url.search = ""; url.hash = "";
+    return { kind: "vdb", backend: "opensearch", endpoint: url.toString(),
+      ...(this.#target.auth.username === undefined ? {} : { username: this.#target.auth.username }) };
+  }
   initialize(): Promise<void> {
     this.signal.throwIfAborted();
     return this.#initialization ??= (async () => {
       const target = await this.source.resolve();
+      this.#target = target;
       this.signal.throwIfAborted();
       const transport = this.source.transports[0];
       if (!transport || transport.kind !== "tcp") throw new Error("OpenSearch requires a TCP transport");
