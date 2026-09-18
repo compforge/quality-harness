@@ -56,6 +56,32 @@ pool and bounded history. Pass a `DataLoader` from `harness_toolbox.data_loader`
 `client.read(expressions, scope=scope)` to share one scrape across callers in that scope.
 A new scope reads again; query results retain their Prometheus types and labels.
 
+For a Prometheus server, use `PrometheusQueryDataSource` from
+`harness_toolbox.prometheus_query` (extra `http`). It queries the HTTP API without
+running a scraper or a local TSDB:
+
+```python
+from harness_common import ClientManager
+from harness_toolbox.prometheus_query import PrometheusQueryDataSource
+
+async with ClientManager() as clients:
+    source = PrometheusQueryDataSource("https://prometheus.example/prometheus")
+    client = await clients.get(source)
+    results = await client.read(['sum(rate(http_requests_total{job="api"}[1m]))'])
+    result = results['sum(rate(http_requests_total{job="api"}[1m]))']
+    # result.data retains native types/labels; result.warnings and result.infos
+    # retain server annotations for the caller to assess.
+```
+
+The URL is the server base URL, including any reverse-proxy prefix. Authentication
+uses explicit `headers`. `PrometheusQueryOptions` bounds total query time, response
+bytes, series count and pool size. Queries use one evaluation timestamp per call;
+passing a `DataLoader` shares that timestamp and identical queries across readers
+in one observation cycle. `timestamp=` selects an explicit Unix time in seconds.
+Remote history is server-owned: a range selector such as `[1m]` can include data
+from before the experiment. This client uses `/api/v1/query`; historical range
+export via `/api/v1/query_range` is not part of this interface.
+
 ## Run-owned connections without a VPN
 
 `KubernetesPortForwardTransport` resolves a selected Service and dynamic Pod IPs

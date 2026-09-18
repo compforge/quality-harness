@@ -171,7 +171,17 @@ Python `harness-toolbox[prometheus]` 提供 `PrometheusDataSource`，描述 `/me
 
 读取频率与范围边界由调用方决定；toolbox 不运行采样循环，也不声明业务指标或 SLO。
 perf 每个 ArmRun 持有 ClientManager、每轮观测创建 DataLoader，再把查询结果映射为指标。
-这样下一轮可见新数据，新 ArmRun 不会读到上一轮试验的历史。
+这样下一轮可见新数据，内嵌 Prombed 的新 ArmRun 不会读到上一轮试验的历史。
+
+远端 Prometheus 使用 Python `PrometheusQueryDataSource`，通过现有 HTTPClientProvider
+借用独立连接池，复用相同 ClientManager 生命周期。`read(expressions, timestamp=..., scope=...)`
+调用 `/api/v1/query`；单轮 DataLoader 共享求值时间与相同表达式的结果或错误。端点、显式认证、
+超时、响应字节数与序列上限属于 DataSource；超限失败，不请求服务端截断结果。
+原始 labels、warnings 和 infos 保留在返回值中，perf Probe 将 warnings 视为观测失败。
+
+远端历史归 Prometheus 管理，查询窗口可以包含压测开始前的数据。环境、租户、实例与时间窗口
+由调用方的 PromQL 显式选择；toolbox 不推断业务归属。网络地址必须从执行机可达，
+Service 名称只是 perf 报告的归属标签，不隐式添加查询条件或进行集群路由。
 
 ## 4. 故障注入后端
 

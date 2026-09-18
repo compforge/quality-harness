@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -69,6 +70,8 @@ class ProbeContext:
     # Owned by observe_loop; direct sample callers must dispose this manager.
     clients: ClientManager = field(default_factory=ClientManager)
     reads: DataLoader | None = None
+    # Unix time at the start of this tick, before other probes consume its budget.
+    sample_time_s: float | None = None
 
     @property
     def probe_client(self) -> httpx.AsyncClient:
@@ -203,7 +206,80 @@ class PrometheusQuery:
     labels: tuple[str, ...] = ()
 
 
-class PrometheusProbe(Probe):
+class _PrometheusResultProbe(Probe):
+    """Shared metric/label projection; subclasses own only their query source."""
+
+    def __init__(self, *, queries: list[PrometheusQuery], service: str | None = None) -> None:
+        self.queries = list(queries)
+        self._service = service
+        self.families = {
+            query.name: FamilySpec(
+                query.unit,
+                query.value_kind,
+                query.description,
+                query.labels,
+            )
+            for query in self.queries
+        }
+        if len(self.families) != len(self.queries):
+            raise ValueError("Prometheus query names must be unique within one probe")
+        if service:
+            self.name = f"{self.name}.{service}"
+
+    @staticmethod
+    def _labels(metric: dict[str, str]) -> dict[str, str]:
+        return {key: value for key, value in metric.items() if key != "__name__"}
+
+    @staticmethod
+    def _number(value: object) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Prometheus query returned an invalid numeric sample") from exc
+        if not math.isfinite(number):
+            raise ValueError("Prometheus query returned a non-finite sample")
+        return number
+
+    def _record_vector(
+        self,
+        out: dict[str, float],
+        query: PrometheusQuery,
+        rows: list[dict],
+    ) -> None:
+        expected = set(query.labels)
+        for row in rows:
+            labels = self._labels(row["metric"])
+            if set(labels) != expected:
+                raise ValueError(
+                    f"Prometheus query {query.name!r} declared labels {sorted(expected)!r} "
+                    f"but returned {sorted(labels)!r}"
+                )
+            key = series_id(query.name, labels)
+            if key in out:
+                raise ValueError(f"Prometheus query {query.name!r} returned duplicate series {key}")
+            out[key] = self._number(row["value"][1])
+
+    def _project(self, results: dict[str, dict]) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for query in self.queries:
+            data = results[query.promql]
+            if data["resultType"] == "scalar":
+                if query.labels:
+                    raise ValueError(
+                        f"Prometheus scalar query {query.name!r} cannot declare output labels"
+                    )
+                out[query.name] = self._number(data["result"][1])
+                continue
+            if data["resultType"] != "vector":
+                raise ValueError(
+                    f"Prometheus query {query.name!r} returned unsupported "
+                    f"result type {data['resultType']!r}"
+                )
+            self._record_vector(out, query, data["result"])
+        return out
+
+
+class PrometheusProbe(_PrometheusResultProbe):
     """Scrape and query a Prometheus endpoint through an embedded Prombed runtime.
 
     Perf owns the observation cadence and final report/SLO model; Prombed owns the
@@ -228,8 +304,7 @@ class PrometheusProbe(Probe):
         max_series: int = 20_000,
         max_samples_per_series: int = 10_000,
     ) -> None:
-        self.queries = list(queries)
-        self._service = service
+        super().__init__(queries=queries, service=service)
         self._url = url
         self._headers = dict(headers or {})
         self._options = PrometheusOptions(
@@ -239,19 +314,6 @@ class PrometheusProbe(Probe):
             max_series=max_series,
             max_samples_per_series=max_samples_per_series,
         )
-        self.families = {
-            query.name: FamilySpec(
-                query.unit,
-                query.value_kind,
-                query.description,
-                query.labels,
-            )
-            for query in self.queries
-        }
-        if len(self.families) != len(self.queries):
-            raise ValueError("Prometheus query names must be unique within one probe")
-        if service:
-            self.name = f"{self.name}.{service}"
 
     def _source(self, ctx: ProbeContext) -> PrometheusDataSource:
         # Service credentials apply only to its implicit metrics endpoint.
@@ -269,45 +331,10 @@ class PrometheusProbe(Probe):
         # service identity, so target labels must not become accidental fan-out axes.
         return {key: value for key, value in metric.items() if key not in {"__name__", "instance"}}
 
-    def _record_vector(
-        self,
-        out: dict[str, float],
-        query: PrometheusQuery,
-        rows: list[dict],
-    ) -> None:
-        expected = set(query.labels)
-        for row in rows:
-            labels = self._labels(row["metric"])
-            if set(labels) != expected:
-                raise ValueError(
-                    f"Prometheus query {query.name!r} declared labels {sorted(expected)!r} "
-                    f"but returned {sorted(labels)!r}"
-                )
-            key = series_id(query.name, labels)
-            if key in out:
-                raise ValueError(f"Prometheus query {query.name!r} returned duplicate series {key}")
-            out[key] = float(row["value"][1])
-
     async def sample(self, ctx: ProbeContext) -> dict[str, float]:
         client = await ctx.clients.get(self._source(ctx))
         results = await client.read([query.promql for query in self.queries], scope=ctx.reads)
-        out: dict[str, float] = {}
-        for query in self.queries:
-            data = results[query.promql]
-            if data["resultType"] == "scalar":
-                if query.labels:
-                    raise ValueError(
-                        f"Prometheus scalar query {query.name!r} cannot declare output labels"
-                    )
-                out[query.name] = float(data["result"][1])
-                continue
-            if data["resultType"] != "vector":
-                raise ValueError(
-                    f"Prometheus query {query.name!r} returned unsupported "
-                    f"result type {data['resultType']!r}"
-                )
-            self._record_vector(out, query, data["result"])
-        return out
+        return self._project(results)
 
 
 # Probe sample store: (probe.name, sample key) → time series. The sample key is what
@@ -332,6 +359,7 @@ async def observe_loop(
     ticks = 0
     async with ctx.clients:
         while True:
+            ctx.sample_time_s = time.time()
             t = time.monotonic() - ctx.t0
             ticks += 1
             async with DataLoader() as reads:
@@ -353,6 +381,7 @@ async def observe_loop(
                             store.setdefault((probe.name, key), []).append(Sample(t, val))
                 finally:
                     ctx.reads = None
+                    ctx.sample_time_s = None
             if stop.is_set():
                 break
             with contextlib.suppress(asyncio.TimeoutError):
