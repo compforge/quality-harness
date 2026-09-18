@@ -53,6 +53,7 @@ from perf_harness.observe import (
     ProbeConfig,
     PrometheusProbe,
     PrometheusQuery,
+    PrometheusQueryProbe,
     ResourceLimitsProbe,
     RestartProbe,
     build_probe,
@@ -416,18 +417,18 @@ def _parse_observe(items: list[dict] | None, root_service: Service) -> list[Prob
                         f"got {sorted(options)}"
                     )
                 out.append(_PROBES[pname](target_service=service, per_pod=per_pod))
-            elif pname == "prometheus":
+            elif pname in {"prometheus", "prometheus_query"}:
                 queries = _parse_prometheus_queries(options.pop("queries", None), service_name)
                 url = options.pop("url", None)
-                if service != root_service and not url:
+                if (pname == "prometheus_query" or service != root_service) and not url:
                     raise ValueError(
-                        f"observe[{service_name}].probes[prometheus]: a downstream service "
-                        "needs an explicit `url`"
+                        f"observe[{service_name}].probes[{pname}]: remote queries and downstream "
+                        "scrapes need an explicit `url`"
                     )
                 headers = options.pop("headers", None)
                 if headers is not None and not isinstance(headers, dict):
                     raise ValueError(
-                        f"observe[{service_name}].probes[prometheus].headers must be a mapping"
+                        f"observe[{service_name}].probes[{pname}].headers must be a mapping"
                     )
                 allowed_limits = {
                     "timeout_ms",
@@ -436,14 +437,24 @@ def _parse_observe(items: list[dict] | None, root_service: Service) -> list[Prob
                     "max_series",
                     "max_samples_per_series",
                 }
+                if pname == "prometheus_query":
+                    allowed_limits = {
+                        "timeout_ms",
+                        "max_response_bytes",
+                        "max_series",
+                        "connection_pool_maxsize",
+                    }
                 unknown = set(options) - allowed_limits
                 if unknown:
                     raise ValueError(
-                        f"observe[{service_name}].probes[prometheus]: unknown options "
+                        f"observe[{service_name}].probes[{pname}]: unknown options "
                         f"{sorted(unknown)!r}"
                     )
+                probe_type = (
+                    PrometheusQueryProbe if pname == "prometheus_query" else PrometheusProbe
+                )
                 out.append(
-                    PrometheusProbe(
+                    probe_type(
                         service=service_name,
                         queries=queries,
                         url=str(url) if url else None,

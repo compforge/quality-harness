@@ -153,6 +153,45 @@ SSH 使用共享资源 worker 的只读视图，Kubernetes 客户端在 Host 上
 Prometheus 使用独立 HTTP 池，不占用发压连接；地址、认证和容量属于 DataSource，
 采样频率、输出指标/label 契约以及 SLO 属于 perf。
 
+`PrometheusQueryProbe` 使用 toolbox `PrometheusQueryDataSource` 查询远端 Prometheus 的
+`/api/v1/query`。它适合跨 Pod 聚合，显式设置服务器地址与该服务器的认证，不继承发压请求头。
+求值时间使用本轮观测开始的 Unix 时间，与时序落盘的采样周期对齐，不随前序探针耗时漂移。
+例如在实验中声明服务端滚动平均耗时，并同时保留 perf 自己判定的错误率：
+
+```yaml
+observe:
+  - name: api
+    probes:
+      - name: prometheus_query
+        url: https://prometheus.example/prometheus
+        timeout_ms: 5000
+        connection_pool_maxsize: 4
+        queries:
+          - name: duration_mean_s
+            promql: >-
+              sum(rate(http_request_duration_seconds_sum{job="api"}[1m]))
+              / sum(rate(http_request_duration_seconds_count{job="api"}[1m]))
+            unit: s
+            description: Server duration, rolling 1m mean across api instances
+observe_interval_s: 5
+slo:
+  - {metric: error_rate, window: {kind: hold}, lt: 0.01}
+  - {metric: 'prometheus_query.duration_mean_s{service="api"}.peak', window: {kind: hold}, lt: 10}
+strict_slo: true
+```
+
+`queries` 复用 scrape Probe 的 `name/promql/kind/unit/description/labels` 契约，支持 scalar 与
+vector 浮点样本。远端结果的 `instance` 是真实维度，保留并要求在 `labels` 中声明；
+仅移除 Prometheus 的 `__name__`。空向量保持缺失，warnings、非有限值、超时及超限进入
+probe error 与 `up=0`，不伪造零值。SLO 缺失为 skipped，`strict_slo` 下未验证门禁使 run 失败。
+
+采样值沿用时序落盘、阶段统计、HTML 报告与离线重载，不需要修改 Case。数据源不携带压测
+run ID，租户/环境/实例过滤必须写入 PromQL；多 case 混合加压时不能把同一服务聚合值
+当成每个 case 的独立耗时。图表中的滚动均值及其阶段均值也不等于整阶段请求加权均值。
+需要整段平均耗时时，应在对应结束时点用该时间范围的 sum/count 增量比查询。
+Grafana 的 `$__rate_interval` 等变量需替换为实验明确选定的窗口。远端历史可能覆盖其它运行，
+新建 ArmRun 不会清空 Prometheus 的历史。
+
 ## 独立 Judge
 
 ```python

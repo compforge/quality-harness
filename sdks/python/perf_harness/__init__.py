@@ -76,6 +76,7 @@ from perf_harness.observe import PrometheusQuery as PrometheusQuery
 from perf_harness.observe import ResourceLimitsProbe as ResourceLimitsProbe
 from perf_harness.observe import RestartProbe as RestartProbe
 from perf_harness.observe import register_probe as register_probe
+from perf_harness.observe.prometheus_query import PrometheusQueryProbe as PrometheusQueryProbe
 from perf_harness.records import RequestEvaluation as RequestEvaluation
 from perf_harness.records import RequestRecord as RequestRecord
 from perf_harness.report import write_report as write_report

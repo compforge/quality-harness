@@ -31,6 +31,7 @@ perf_harness/
 │   └── scheduler.py#   驱动循环：节奏与在途反馈 + 熔断 + cooldown/cancel → ArmStop
 ├── observe/        # 看什么（扩展点②）；FamilySpec 单表声明 metric 元数据
 │   ├── base.py     #   Probe ABC + client/Prometheus 指标适配 + observe_loop（采样循环）
+│   ├── prometheus_query.py # 远端 Prometheus 结果到统一指标的映射
 │   └── k8s.py      #   top/rss 的 kubectl 采样与 restart/limits/pods 的原生 API 采样
 ├── metric/         # 收腰：唯一的那张表
 │   ├── family.py   #   纯模型：MetricFamily(side/value_kind)+summary union+Missing+寻址

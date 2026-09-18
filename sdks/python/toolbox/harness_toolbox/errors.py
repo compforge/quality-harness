@@ -60,3 +60,7 @@ class OpenSearchConnectionError(OpenSearchError):
 
 class OpenSearchRequestError(OpenSearchError):
     """Request execution or response collection failed."""
+
+
+class PrometheusQueryError(ToolboxError):
+    """Remote Prometheus query failed or exceeded its response budget."""

@@ -1,7 +1,7 @@
 # perf_harness 统一 metric 模型
 
 > 状态：**已实现**（greenfield 重构后收敛为 `metric/` 包：`family` + `store` + `reduce`）。本文是 perf 的**唯一 metric 概念**，也是整个 harness 的**脊柱**：加压 / Probe / Runner 只是 metric 的**生产者**，report / SLO / capacity 只是**消费者**，中间收腰在 `MetricFamily`（族）+ typed `MetricSummary`（值，带 caveats）+ `MetricStore`（读面）上——让 per-request 延迟、资源 gauge、server counter、派生标量走**同一条读取面**，消费方都只认 `<family>{labels}.<stat>`。
-> 取向参考 Prometheus 的 *typed metric* + *family/series + label* 思路（类型决定合法操作、label 即维度）。服务端遥测由内嵌 Prombed 按 Prometheus 语义抓取、存储和查询；查询结果再进入本模型（见 §5）。
+> 取向参考 Prometheus 的 *typed metric* + *family/series + label* 思路（类型决定合法操作、label 即维度）。服务端遥测由内嵌 Prombed 抓取/查询或远端 Prometheus HTTP API 求值；查询结果再进入本模型（见 §5）。
 
 ---
 
