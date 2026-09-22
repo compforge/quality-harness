@@ -19,9 +19,7 @@ select 接收时间、属性、错误条件与明确 trace IDs，固定实际成
 ```python
 async with harness.open(source, work_dir="trace-work") as session:
     dataset = await session.select(query)
-    result = await session.detect(
-        dataset, detectors=["http_request_patterns"], metrics=["self_ms"]
-    )
+    result = await session.detect(dataset, detectors=["http_request_patterns"], metrics=["self_ms"])
 ```
 
 node detector 逐 trace 后序执行，batch detector 每 Dataset 执行一次：
