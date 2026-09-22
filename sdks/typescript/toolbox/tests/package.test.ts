@@ -29,7 +29,10 @@ test("published lifecycle and transport entries run in Node without protocol dri
       import { KubernetesError } from '@compforge/harness-toolbox/errors';
       import { ClientManager as Subpath } from '@compforge/harness-toolbox/client-manager';
       import { ClientManager as Common } from '@compforge/harness-common';
-      import { DirectTransport } from '@compforge/harness-toolbox/transport';
+      import { DirectTransport, PodRelayTransport } from '@compforge/harness-toolbox/transport';
+      const relay = new PodRelayTransport({namespace:'test', startupTimeoutMs:1000, connectTimeoutMs:1000,
+        maxConnections:2, maxTargets:2, maxCandidatePods:2});
+      await relay.initialize(); await relay.dispose();
       assert.equal(ClientManager, Subpath);
       assert.equal(ClientManager, Common);
       assert.ok(new KubernetesError('safe', {kind:'permission_denied'}) instanceof ToolboxError);

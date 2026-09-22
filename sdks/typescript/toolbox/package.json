@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
