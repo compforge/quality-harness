@@ -179,7 +179,7 @@ class TestSSERunner:
         assert outcome.raw == sse_body
 
     def test_on_event_callback_invoked_per_event(self):
-        sse_body = b'data: {"op":"a"}\n\n' b'data: {"op":"b"}\n\n'
+        sse_body = b'data: {"op":"a"}\n\ndata: {"op":"b"}\n\n'
         seen: list[str] = []
 
         def cb(e: SSEEvent):

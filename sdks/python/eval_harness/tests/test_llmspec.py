@@ -64,8 +64,7 @@ def _write(tmp_path, service):
     d = tmp_path / "experiments"
     d.mkdir()
     (tmp_path / "cases.yaml").write_text(
-        "caseset: c\ncases:\n"
-        "  - {id: q1, input: {query: q}, judge: {eval: {ground_truth: a}}}\n",
+        "caseset: c\ncases:\n  - {id: q1, input: {query: q}, judge: {eval: {ground_truth: a}}}\n",
         encoding="utf-8",
     )
     body = {**_BODY, "service": service}
