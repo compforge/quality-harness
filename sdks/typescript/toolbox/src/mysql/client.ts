@@ -1,11 +1,11 @@
 import type { Client } from "../client";
 import { ConcurrencyPool } from "../concurrency";
 import { createConnection, type Connection, type ConnectionOptions, type RowDataPacket } from "mysql2/promise";
-import type { Database, DatabaseTarget, DatabaseRow, DatabaseQueryLimits, DatabaseQueryResult } from "./types";
+import type { Database, DatabaseTarget, DatabaseRow, DatabaseQueryLimits, DatabaseQueryResult, SqlStatement } from "./types";
 import { queryReadonlySession, validateQueryLimits } from "./readonly";
 import type { ConnectionSource, ClientLifecycle } from "../datasource";
 import { isConnectionNetworkError, type Transport, type PodPythonTransport } from "../transport";
-import { queryMysqlViaPod } from "./pod";
+import { queryMysqlViaPod, queryMysqlViaPodBatch } from "./pod";
 
 export interface MysqlDatabaseOptions extends ClientLifecycle { connectTimeoutMs: number; queryTimeoutMs: number }
 type ConnectionFactory = (options: ConnectionOptions) => Promise<Connection>;
@@ -24,6 +24,26 @@ export class MysqlDatabase implements Database {
 
   query(target: DatabaseTarget, sql: string, values: readonly unknown[]): Promise<DatabaseRow[]> {
     return this.#queries.run(() => this.#query(target, sql, values), this.options.signal);
+  }
+
+  /**
+   * Independent statements in submission order, one session: a Pod transport pays the exec
+   * and connection cost once instead of per statement. Fail-fast like query(); use query()
+   * when a statement depends on an earlier result.
+   */
+  queryBatch(target: DatabaseTarget, statements: readonly SqlStatement[]): Promise<DatabaseRow[][]> {
+    return this.#queries.run(async () => {
+      if (!statements.length) return [];
+      return this.#withSession(target, async (session) => {
+        if (session.kind === "python") return queryMysqlViaPodBatch(session.transport, target, statements, this.options);
+        const results: DatabaseRow[][] = [];
+        for (const { sql, values } of statements) {
+          const [rows] = await session.connection.execute<RowDataPacket[]>({ sql, values: [...values], timeout: this.options.queryTimeoutMs });
+          results.push(rows as DatabaseRow[]);
+        }
+        return results;
+      });
+    }, this.options.signal);
   }
 
   /** Bounded, single-statement prepared execution on an isolated READ ONLY session (native only). */
@@ -54,7 +74,7 @@ export class MysqlDatabase implements Database {
     return pending;
   }
 
-  async #query(target: DatabaseTarget, sql: string, values: readonly unknown[]): Promise<DatabaseRow[]> {
+  async #withSession<T>(target: DatabaseTarget, run: (session: Session) => Promise<T>): Promise<T> {
     this.options.signal?.throwIfAborted();
     const key = [target.host, target.port, target.database, target.user, target.password].join("\0");
     const pending = this.#session(target);
@@ -62,14 +82,20 @@ export class MysqlDatabase implements Database {
     try {
       session = await pending;
       this.options.signal?.throwIfAborted();
-      if (session.kind === "python") return await queryMysqlViaPod(session.transport, target, sql, values, this.options);
-      const [rows] = await session.connection.execute<RowDataPacket[]>({ sql, values: [...values], timeout: this.options.queryTimeoutMs });
-      return rows as DatabaseRow[];
+      return await run(session);
     } catch (error) {
       if (this.#connections.get(key) === pending) this.#connections.delete(key);
       if (session?.kind === "tcp") session.connection.destroy();
       throw error;
     }
+  }
+
+  async #query(target: DatabaseTarget, sql: string, values: readonly unknown[]): Promise<DatabaseRow[]> {
+    return this.#withSession(target, async (session) => {
+      if (session.kind === "python") return queryMysqlViaPod(session.transport, target, sql, values, this.options);
+      const [rows] = await session.connection.execute<RowDataPacket[]>({ sql, values: [...values], timeout: this.options.queryTimeoutMs });
+      return rows as DatabaseRow[];
+    });
   }
 
   async #open(target: DatabaseTarget): Promise<Session> {

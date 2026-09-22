@@ -1,4 +1,4 @@
-import type { DatabaseRow, DatabaseTarget } from "./types";
+import type { DatabaseRow, DatabaseTarget, SqlStatement } from "./types";
 import type { PodPythonTransport } from "../transport";
 
 // Preserve prepared-statement placeholders inside literals, identifiers and comments.
@@ -57,9 +57,20 @@ try:
     )
     try:
         with connection.cursor(pymysql.cursors.DictCursor) as cursor:
-            cursor.execute(request["sql"], request["values"])
-            rows = cursor.fetchall()
-        print(json.dumps({"rows": rows}, default=encode, ensure_ascii=False))
+            statements = request.get("statements")
+            if statements is None:
+                cursor.execute(request["sql"], request["values"])
+                rows = cursor.fetchall()
+                print(json.dumps({"rows": rows}, default=encode, ensure_ascii=False))
+            else:
+                # Batch: one process and one connection for independent statements;
+                # the per-statement deadline is re-armed before each execute.
+                results = []
+                for statement in statements:
+                    signal.alarm(math.ceil(request["queryTimeoutMs"] / 1000))
+                    cursor.execute(statement["sql"], statement["values"])
+                    results.append({"rows": cursor.fetchall()})
+                print(json.dumps({"results": results}, default=encode, ensure_ascii=False))
     finally:
         connection.close()
 except Exception as error:
@@ -71,6 +82,12 @@ finally:
 `;
 
 
+function parsePodResponse(raw: string): { rows?: DatabaseRow[]; results?: { rows?: DatabaseRow[] }[]; error?: string; code?: number } {
+  return JSON.parse(raw, (_key, value) => (
+    value?.type === "Buffer" && Array.isArray(value.data) ? Buffer.from(value.data) : value
+  ));
+}
+
 export async function queryMysqlViaPod(
   transport: PodPythonTransport, target: DatabaseTarget, sql: string, values: readonly unknown[],
   options: { connectTimeoutMs: number; queryTimeoutMs: number },
@@ -78,11 +95,35 @@ export async function queryMysqlViaPod(
   const raw = await transport.run(POD_QUERY, {
     target, sql: preparePodSql(sql, values), values, ...options,
   }, options.queryTimeoutMs + 3_000);
-  const response = JSON.parse(raw, (_key, value) => (
-    value?.type === "Buffer" && Array.isArray(value.data) ? Buffer.from(value.data) : value
-  )) as { rows?: DatabaseRow[]; error?: string; code?: number };
+  const response = parsePodResponse(raw);
   if (response.error || !Array.isArray(response.rows)) {
     throw new Error(`MySQL via Pod failed: ${response.error ?? "invalid response"}${response.code ? ` (${response.code})` : ""}`);
   }
   return response.rows;
+}
+
+/**
+ * Independent statements over one Pod process and one MySQL connection: the per-exec cost
+ * (kubectl handshake, interpreter start, auth) is paid once. Fail-fast: a statement error
+ * aborts the batch, later statements never execute, and the whole batch throws.
+ */
+export async function queryMysqlViaPodBatch(
+  transport: PodPythonTransport, target: DatabaseTarget, statements: readonly SqlStatement[],
+  options: { connectTimeoutMs: number; queryTimeoutMs: number },
+): Promise<DatabaseRow[][]> {
+  const raw = await transport.run(POD_QUERY, {
+    target,
+    statements: statements.map(({ sql, values }) => ({ sql: preparePodSql(sql, values), values })),
+    ...options,
+  }, options.connectTimeoutMs + options.queryTimeoutMs * statements.length + 3_000);
+  const response = parsePodResponse(raw);
+  if (response.error || !Array.isArray(response.results)) {
+    throw new Error(`MySQL via Pod batch failed: ${response.error ?? "invalid response"}${response.code ? ` (${response.code})` : ""}`);
+  }
+  return response.results.map((result, index) => {
+    if (!Array.isArray(result.rows)) {
+      throw new Error(`MySQL via Pod batch statement ${index} returned no rows`);
+    }
+    return result.rows;
+  });
 }

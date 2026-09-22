@@ -11,6 +11,11 @@ export interface DatabaseTarget extends DatabaseIdentity {
 
 export type DatabaseRow = Record<string, unknown>;
 
+export interface SqlStatement {
+  sql: string;
+  values: readonly unknown[];
+}
+
 export interface DatabaseQueryLimits {
   timeoutMs: number;
   maxRows: number;
