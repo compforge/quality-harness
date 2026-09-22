@@ -95,3 +95,55 @@ test("shared MySQL client queues Pod queries and drains before close", async () 
   expect(connects).toBe(1);
   expect(peak).toBe(1);
 });
+
+test("Pod batch runs independent statements in one exec and preserves order", async () => {
+  const calls: { command: readonly string[]; stdin: string }[] = [];
+  const pod = new PodPythonTransport(async (command, options) => {
+    calls.push({ command, stdin: options.stdin });
+    const request = JSON.parse(options.stdin);
+    return JSON.stringify({ results: request.statements.map((statement: { values: unknown[] }) => ({ rows: [{ id: statement.values[0] }] })) });
+  });
+  const db = new MysqlDatabase([new DirectTransport(), pod], options, async () => { throw networkError(); });
+  const results = await db.queryBatch(target, [
+    { sql: "SELECT ? /* keep % literal */", values: [1] },
+    { sql: "SELECT ?", values: [2] },
+  ]);
+  expect(results).toEqual([[{ id: 1 }], [{ id: 2 }]]);
+  expect(calls.length).toBe(1);
+  const request = JSON.parse(calls[0]!.stdin);
+  expect(request.sql).toBeUndefined();
+  expect(request.statements.map((statement: { sql: string }) => statement.sql)).toEqual(["SELECT %s /* keep %% literal */", "SELECT %s"]);
+  expect(calls[0]!.command.join(" ")).not.toContain(target.password);
+  await db.close();
+});
+
+test("TCP batch reuses one native session and fails fast without transport retry", async () => {
+  const executed: string[] = [];
+  let destroys = 0;
+  let attempts = 0;
+  const connection = {
+    execute: async ({ sql }: { sql: string }) => {
+      executed.push(sql);
+      if (sql === "SELECT bad") throw networkError("ECONNRESET");
+      return [[{ sql }]];
+    },
+    destroy: () => { destroys++; },
+  } as unknown as Connection;
+  const db = new MysqlDatabase([new DirectTransport(), new PodPythonTransport(async () => { throw new Error("unexpected Pod retry"); })], options, async () => { attempts++; return connection; });
+  expect(await db.queryBatch(target, [{ sql: "SELECT 1", values: [] }, { sql: "SELECT 2", values: [] }]))
+    .toEqual([[{ sql: "SELECT 1" }], [{ sql: "SELECT 2" }]]);
+  await expect(db.queryBatch(target, [{ sql: "SELECT 3", values: [] }, { sql: "SELECT bad", values: [] }, { sql: "SELECT 4", values: [] }]))
+    .rejects.toThrow("unavailable");
+  expect(executed).toEqual(["SELECT 1", "SELECT 2", "SELECT 3", "SELECT bad"]);
+  expect(attempts).toBe(1);
+  expect(destroys).toBe(1);
+  expect(await db.queryBatch(target, [])).toEqual([]);
+  await db.close();
+});
+
+test("Pod batch error aborts the batch and reports the statement class only", async () => {
+  const pod = new PodPythonTransport(async () => JSON.stringify({ error: "OperationalError", code: 1146 }));
+  const db = new MysqlDatabase([new DirectTransport(), pod], options, async () => { throw networkError(); });
+  await expect(db.queryBatch(target, [{ sql: "SELECT 1", values: [] }])).rejects.toThrow("batch failed: OperationalError (1146)");
+  await db.close();
+});

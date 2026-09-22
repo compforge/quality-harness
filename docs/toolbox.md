@@ -39,7 +39,8 @@ Kubernetes port-forward 缓存同时保留资源 UID 和子进程存活状态。
 
 MySQL、Redis、OpenSearch、S3 和 Kubernetes 客户端实现这些原语。连接、排队、取消、资源释放属于工具箱；
 授权、业务 SQL、Redis key、索引规则、采集时机和结果解释仍属于消费方。MySQL 只在初始化阶段切换地址，建连网络错误可以切换
-Transport，认证错误或已开始执行的 SQL 错误不得触发重放。
+Transport，认证错误或已开始执行的 SQL 错误不得触发重放。相互独立的语句可用 `queryBatch` 合并提交：
+Pod Transport 下进程启动、exec 握手与认证只发生一次，语句按提交顺序执行，任一失败即整批失败（fail-fast）。
 
 PodLogClient 以物理 Pod/container 身份及绝对时间窗口共享采集源，向并发和晚到的消费者回放原始日志。
 相对窗口或缺少实例身份的请求不能复用。消费者保有独立过滤与原始文件；根并发池和字节预算只约束真实
