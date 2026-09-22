@@ -17,7 +17,7 @@ export interface ExecTarget {
 }
 
 export interface RunOptions {
-  stdin?: string | Uint8Array;
+  stdin?: string | Uint8Array | ReadableStream<Uint8Array>;
   timeoutMs?: number;
   signal?: AbortSignal;
   onStdout?: (chunk: string) => void;

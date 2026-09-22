@@ -41,3 +41,5 @@ export function isConnectionNetworkError(error: unknown): boolean {
   return ["ECONNREFUSED", "ETIMEDOUT", "ECONNRESET", "EHOSTUNREACH", "ENETUNREACH",
     "EADDRNOTAVAIL", "ENOTFOUND", "EAI_AGAIN"].includes(String(error.code));
 }
+
+export { PodRelayTransport, type PodRelayOptions } from "./pod-relay";

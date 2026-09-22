@@ -9,7 +9,7 @@ export interface RuntimeProcess {
 }
 
 export interface SpawnProcessOptions {
-  stdin?: string | Uint8Array;
+  stdin?: string | Uint8Array | ReadableStream<Uint8Array>;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -21,7 +21,13 @@ export function spawnProcess(argv: string[], opts?: SpawnProcessOptions): Runtim
     stdio: "pipe",
     env: opts?.env,
   });
-  child.stdin.end(opts?.stdin);
+  if (opts?.stdin instanceof ReadableStream) {
+    const input = Readable.fromWeb(opts.stdin as import("node:stream/web").ReadableStream<Uint8Array>);
+    input.on("error", () => child.stdin.destroy());
+    child.stdin.on("error", () => input.destroy());
+    child.once("close", () => input.destroy());
+    input.pipe(child.stdin);
+  } else child.stdin.end(opts?.stdin);
 
   const exited = new Promise<number>((resolve, reject) => {
     child.once("error", reject);

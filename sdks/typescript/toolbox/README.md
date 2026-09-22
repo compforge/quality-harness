@@ -156,3 +156,50 @@ is not an arbitrary-SQL sandbox. This API requires MySQL 5.7.8+ `max_execution_t
 fall back to Pod Python. Completion, truncation, timeout, and cancellation destroy the disposable
 session without replay or changes to ordinary borrowed sessions. Disconnect does not prove immediate
 server cancellation. The byte budget limits retained JSON rows, not individual wire packets or fields.
+
+## Shared Pod relay transport
+
+`PodRelayTransport` opens TCP routes through an existing Running/Ready Pod. It discovers an
+eligible container in the selected namespace (optionally restricted by a label selector); the
+current implementation uses Python 3.8+ standard-library asyncio. Callers supply endpoints,
+not a Pod name or interpreter. It creates no Pods and installs no packages. The selected Pod
+must be able to resolve and reach each destination.
+
+Create one transport in the root execution's ClientManager and lend it to all Service/protocol
+clients. Its key describes cluster access and relay policy, never a Service or database identity.
+Concurrent callers share Pod discovery, one relay process and one forward per host/port. Database
+credentials and connections remain owned by their protocol clients.
+
+```ts
+import { ClientManager } from '@compforge/harness-toolbox';
+import { PodRelayTransport } from '@compforge/harness-toolbox/transport';
+
+const clients = new ClientManager();
+try {
+  const relay = await clients.get({
+    clientKey: 'transport:customer-cluster:app',
+    createClient: (_clients, signal) => new PodRelayTransport({
+      kubeconfig: '/config/cluster', context: 'customer', namespace: 'app',
+      selector: 'diagnostic-relay=eligible',
+      startupTimeoutMs: 5000, connectTimeoutMs: 5000,
+      maxConnections: 16, maxTargets: 8, maxCandidatePods: 8, signal,
+    }),
+  });
+  // The same instance belongs in each protocol client's ConnectionSource.transports.
+  const address = await relay.connect({host: 'database.internal', port: 3306});
+  // Connect the native protocol client to address; do not dispose relay in a Service.
+} finally {
+  await clients.dispose();
+}
+```
+
+The host must authorize `list pods`, `create pods/exec` and `create pods/portforward`, including
+running a temporary process in the selected container. List/discovery and each readiness operation
+use startupTimeoutMs; candidate Pod count, target count and aggregate live relay connections are
+bounded separately. List pods is namespace scoped. Relay listeners bind only to Pod loopback and
+local forwards only to host loopback. Control messages contain destinations, never DB credentials.
+
+Disposal closes forwards and the exec stream; EOF closes remote listeners/connections. If an exec
+connection is lost without EOF, a 30-second heartbeat lease bounds remote process lifetime.
+A dead relay invalidates its routes and fails callers; no SQL or other protocol operation is replayed.
+The root should finish or cancel protocol work before disposing the transport.
