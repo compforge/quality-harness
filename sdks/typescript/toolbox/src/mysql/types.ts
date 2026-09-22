@@ -43,5 +43,7 @@ export interface Database {
     sql: string,
     values: readonly unknown[],
   ): Promise<DatabaseRow | undefined>;
+  /** Independent statements in submission order; fail-fast, without atomicity or replay. */
+  queryBatch?(target: DatabaseTarget, statements: readonly SqlStatement[]): Promise<DatabaseRow[][]>;
   close(): Promise<void>;
 }

@@ -42,6 +42,14 @@ MySQL、Redis、OpenSearch、S3 和 Kubernetes 客户端实现这些原语。连
 Transport，认证错误或已开始执行的 SQL 错误不得触发重放。相互独立的语句可用 `queryBatch` 合并提交：
 Pod Transport 下进程启动、exec 握手与认证只发生一次，语句按提交顺序执行，任一失败即整批失败（fail-fast）。
 
+TypeScript MySQL 的有界查询 helper 为调用方提供的 SQL 追加经过整数校验的 LIMIT，并通过额外一行
+判断截断；表结构、过滤条件和查询优先级仍由业务方拥有。`queryReadonly` 继续负责独立只读会话的
+行数、字节与时间预算，两种能力不混用语义。
+
+TypeScript 数据库适配器 `withReadScope` 将读取接入同一个 DataLoader，按完整数据库身份、SQL
+与参数类型隔离。适配器借用 scope 和数据库，关闭权归调用方；底层查询的取消与超时仍归 Client。
+相同读取共享结果和失败，不能视作数据库一致性快照。批量操作复用命中项，将缺失项有序交给数据库。
+
 PodLogClient 以物理 Pod/container 身份及绝对时间窗口共享采集源，向并发和晚到的消费者回放原始日志。
 相对窗口或缺少实例身份的请求不能复用。消费者保有独立过滤与原始文件；根并发池和字节预算只约束真实
 网络采集，不约束本地回放。容量、预算和访问期限显式传入，不将某个产品的现场默认值作为通用策略。
@@ -163,6 +171,8 @@ stderr 有界收集。取消、超时或协议断流会退役当前 worker，后
 不自动 batch，也不保证 Kubernetes 与 Prometheus 等不同来源处于同一原子快照。
 `ResourceListClient.list(..., scope=scope)` 和 `PrometheusClient.read(..., scope=scope)`
 都支持这个可选参数，不传时每次重新访问。
+TypeScript DataLoader 显式声明条目数与序列化结果字节预算；超出容量的读取正常执行但不保留。
+关闭时向 operation 发出 AbortSignal 并等待退出；operation 必须响应信号才能及时取消。
 
 Python `harness-toolbox[prometheus]` 提供 `PrometheusDataSource`，描述 `/metrics` 地址、
 显式请求头、HTTP 连接池、总抓取超时、响应体及历史容量。客户端通过独立 HTTP 池抓取，

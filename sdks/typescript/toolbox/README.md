@@ -157,6 +157,49 @@ fall back to Pod Python. Completion, truncation, timeout, and cancellation destr
 session without replay or changes to ordinary borrowed sessions. Disconnect does not prove immediate
 server cancellation. The byte budget limits retained JSON rows, not individual wire packets or fields.
 
+## Reusable bounded queries and read caches
+
+For trusted, caller-owned SELECT statements, `queryLimited(database, target, statement, maxRows)`
+appends an integer `LIMIT maxRows + 1` and returns `{ rows, truncated }`. SQL must not already have
+LIMIT or a trailing terminator; the helper does not parse or rewrite arbitrary SQL. Business values
+stay bound parameters. `limitedStatement` and `limitedRows` expose the same preparation/projection
+for `Database.queryBatch`. `maxRows` must be a positive integer below 2147483647. These helpers
+bound row count only: use `queryReadonly` when a disposable readonly session and byte/time budgets
+are required.
+
+`DataLoader` shares results, failures and in-flight work within one explicit read scope, similar to
+Guava's LoadingCache but scoped to a single collection round. Consumers must not mutate shared results.
+Use `withReadScope` to bind caller-approved database reads; do not use it for writes or polling.
+
+```ts
+import { DataLoader } from '@compforge/harness-toolbox/data-loader';
+import { withReadScope, queryLimited } from '@compforge/harness-toolbox/mysql';
+
+const scope = new DataLoader({
+  maxEntries: 256, maxBytes: 4 * 1024 * 1024, signal: client.signal,
+});
+const reads = withReadScope(client.database, scope);
+try {
+  const page = await queryLimited(reads, client.target, {
+    sql: 'SELECT id FROM items WHERE owner = ? ORDER BY id', values: [owner],
+  }, 100);
+} finally {
+  await scope.close(); // Root still owns client.dispose().
+}
+```
+
+Keys include full database identity, SQL and typed parameters as an opaque digest. Nonserializable
+parameters bypass caching. Batch reads reuse cached entries and send misses as one ordered native
+batch, or sequential queries when batching is unavailable. Failures are shared without replay;
+use a new scope for fresh observations. This is not a consistent database snapshot.
+
+Entry capacity includes failures and pending reads; new keys bypass caching when full. Serialized
+result bytes bound retained results, excluding keys/errors and active operation memory. Oversized
+or nonserializable results are returned but not retained. Scope close signals cancellation and joins
+operations, including uncached reads. Operations must honor the signal for prompt cancellation;
+MySQL reads retain their underlying client's timeout/cancellation policy. Adapter close owns neither
+the scope nor the database. A waiter's optional signal to `scope.read` cancels only that waiter.
+
 ## Shared Pod relay transport
 
 `PodRelayTransport` opens TCP routes through an existing Running/Ready Pod. It discovers an

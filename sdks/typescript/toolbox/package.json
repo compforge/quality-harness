@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -80,6 +80,10 @@
     "./concurrency": {
       "types": "./dist/concurrency.d.ts",
       "import": "./dist/concurrency.js"
+    },
+    "./data-loader": {
+      "types": "./dist/data-loader.d.ts",
+      "import": "./dist/data-loader.js"
     }
   },
   "files": [

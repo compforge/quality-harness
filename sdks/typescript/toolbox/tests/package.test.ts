@@ -108,3 +108,50 @@ test("published S3 entry performs bounded signed reads through a mapped route in
     expect(result.status).toBe(0);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("published MySQL query helpers preserve typed parameters and isolated cached rows in Node", () => {
+  const root = mkdtempSync(join(tmpdir(), "harness-toolbox-query-package-"));
+  const target = join(root, "node_modules/@compforge/harness-toolbox");
+  mkdirSync(target, { recursive: true });
+  try {
+    installCommon(root);
+    cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
+    cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
+    const require = createRequire(import.meta.url);
+    symlinkSync(dirname(require.resolve("mysql2/package.json")), join(root, "node_modules/mysql2"), "dir");
+    const result = spawnSync("node", ["--input-type=module", "-e", `
+      import assert from 'node:assert/strict';
+      import { withReadScope, queryLimited } from '@compforge/harness-toolbox/mysql';
+      const target = {host:'db',port:3306,database:'app',user:'reader',password:'fixture'};
+      let reads = 0;
+      const inner = {
+        query: async (_target,sql,values) => {
+          reads++; assert.ok(sql.endsWith('LIMIT 2')); assert.equal(values[0],1n);
+          return [{bytes:Buffer.from('ok'),date:new Date(0)}, {extra:true}];
+        },
+        queryOne: async () => undefined,
+        close: async () => { throw new Error('borrower must not close underlying connection'); },
+      };
+      const controller = new AbortController();
+      const { DataLoader } = await import('@compforge/harness-toolbox/data-loader');
+      const scope = new DataLoader({maxEntries:8,maxBytes:4096,signal:controller.signal});
+      const cache = withReadScope(inner, scope);
+      const statement = {sql:'SELECT value FROM items WHERE id = ?',values:[1n]};
+      const first = await queryLimited(cache,target,statement,1);
+      assert.equal(first.truncated,true);
+      // Shared observations must not be mutated.
+      const second = await queryLimited(cache,target,statement,1);
+      assert.ok(Buffer.isBuffer(second.rows[0].bytes));
+      assert.equal(second.rows[0].bytes.toString(),'ok');
+      assert.ok(second.rows[0].date instanceof Date);
+      assert.equal(reads,1);
+      controller.abort(new Error('finished'));
+      await assert.rejects(queryLimited(cache,target,statement,1),/finished/);
+      await cache.close();
+      await scope.close();
+    `], { cwd: root, encoding: "utf8", timeout: 10_000 });
+    expect(result.error).toBeUndefined();
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
