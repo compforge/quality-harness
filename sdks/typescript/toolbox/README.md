@@ -9,6 +9,10 @@ clients to access Kubernetes, MySQL, Redis, OpenSearch and S3-compatible object 
 command, plugin protocol, test model or verdict.
 
 The package supports Node.js 22+ and Bun. Install with `npm install @compforge/harness-toolbox`.
+Use `@compforge/harness-toolbox/duration` to parse a positive duration such as `30m` or `2d` into milliseconds.
+`searchAfterPages` from `@compforge/harness-toolbox/opensearch/search-after` yields raw OpenSearch
+hit pages with a caller supplied query and stable sort. It streams pages without owning the client or
+claiming snapshot consistency; callers supply cancellation and decide how to persist or verify results.
 Protocol adapters have separate entry points; importing lifecycle or transport contracts does
 not load database or Kubernetes drivers.
 

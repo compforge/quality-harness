@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -9,6 +9,10 @@
     "build": "bun scripts/build.ts && tsc -p tsconfig.build.json"
   },
   "exports": {
+    "./duration": {
+      "types": "./dist/duration.d.ts",
+      "import": "./dist/duration.js"
+    },
     "./errors": {
       "types": "./dist/errors.d.ts",
       "import": "./dist/errors.js"
