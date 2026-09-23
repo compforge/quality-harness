@@ -1,5 +1,6 @@
 /// <reference path="./node-fetch.d.ts" />
 import { logTimestampNanos } from "./log-timestamp";
+import { parseDuration } from "../duration";
 import { closeSync, openSync, writeSync } from "node:fs";
 import { KubeConfig } from "@kubernetes/client-node";
 // Bun replaces the bare node-fetch import with a shim that ignores HTTPS Agent TLS options.
@@ -56,28 +57,8 @@ const RFC3339_LINE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d
 const RECENT_LINE_LIMIT = 256;
 
 function parseSinceSeconds(value: string): number | undefined {
-  const input = value.trim();
-  if (!input) return undefined;
-  const units: Record<string, number> = {
-    ns: 1e-9,
-    us: 1e-6,
-    "µs": 1e-6,
-    ms: 1e-3,
-    s: 1,
-    m: 60,
-    h: 3600,
-  };
-  let seconds = 0;
-  let cursor = 0;
-  const segment = /(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)/gy;
-  while (cursor < input.length) {
-    segment.lastIndex = cursor;
-    const match = segment.exec(input);
-    if (!match) return undefined;
-    seconds += Number(match[1]) * units[match[2]!]!;
-    cursor = segment.lastIndex;
-  }
-  return Math.max(1, Math.ceil(seconds));
+  try { return Math.max(1, Math.ceil(parseDuration(value) / 1_000)); }
+  catch { return undefined; }
 }
 
 function errorMessage(error: unknown): string {
