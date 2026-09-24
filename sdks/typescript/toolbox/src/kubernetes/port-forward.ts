@@ -2,7 +2,7 @@
 // ClusterIP 通常不可从集群外直达，而 kubeconfig 是现场已有的最小凭据面，
 // 所以沿用「kubectl 是传输层」的 collect 约定，不要求现场额外开网络。
 import { buildKubectlArgs, type KubectlOptions } from "./executor";
-import { sleep, spawnProcess, type RuntimeProcess } from "../process/index";
+import { spawnProcess, type RuntimeProcess } from "../process/index";
 
 export interface PortForward {
   target: PortForwardTarget;
@@ -64,11 +64,15 @@ export async function startPortForward(
   for (;;) {
     const remain = deadline - Date.now();
     if (remain <= 0) break;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const chunk = await Promise.race([
       reader.read(),
-      sleep(remain).then(() => "timeout" as const),
+      new Promise<"timeout">(resolve => { timer = setTimeout(() => resolve("timeout"), remain); }),
       proc.exited.then(() => "exited" as const).catch((error: unknown) => ({ error })),
-    ]);
+    ]).finally(() => {
+      // Promise.race does not cancel its losers; a ready forward must not keep Node alive until the deadline.
+      clearTimeout(timer);
+    });
     if (chunk === "timeout") break;
     if (typeof chunk === "object" && "error" in chunk) {
       proc.kill();

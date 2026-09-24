@@ -14,8 +14,8 @@ function fixture(rows: unknown[], stall = false) {
   const connection = {
     query: async (sql: string) => { statements.push(sql); },
     execute: async () => [[{ normal: true }]],
-    destroy: () => { destroyed = true; },
-    connection: { execute: (options: unknown) => {
+    destroy: () => {},
+    connection: { stream: { destroy: () => { destroyed = true; } }, execute: (options: unknown) => {
       executed.push(options);
       const events = new EventEmitter();
       queueMicrotask(() => {
