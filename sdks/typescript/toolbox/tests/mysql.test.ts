@@ -35,7 +35,7 @@ test("SQL failure is not retried over another transport; failed native socket is
   let attempts = 0;
   const db = new MysqlDatabase([new DirectTransport(), new PodPythonTransport(async () => { throw new Error("unexpected Pod retry"); })], options, async () => {
     attempts++;
-    return { execute: async () => { throw networkError("ECONNRESET"); }, destroy: () => { destroys++; } } as unknown as Connection;
+    return { execute: async () => { throw networkError("ECONNRESET"); }, connection: { stream: { destroy: () => { destroys++; } } }, destroy: () => {} } as unknown as Connection;
   });
   await expect(db.query(target, "SELECT 1", [])).rejects.toThrow("unavailable");
   await expect(db.query(target, "SELECT 1", [])).rejects.toThrow("unavailable");
@@ -67,7 +67,7 @@ test("close destroys open sockets and drops cached sessions", async () => {
   let opened = 0;
   const db = new MysqlDatabase([new DirectTransport()], options, async () => {
     opened++;
-    return { execute: async () => [[{ ok: 1 }]], destroy: () => { destroyed++; } } as unknown as Connection;
+    return { execute: async () => [[{ ok: 1 }]], connection: { stream: { destroy: () => { destroyed++; } } }, destroy: () => {} } as unknown as Connection;
   });
   await db.query(target, "SELECT 1", []);
   await db.close();
@@ -127,7 +127,7 @@ test("TCP batch reuses one native session and fails fast without transport retry
       if (sql === "SELECT bad") throw networkError("ECONNRESET");
       return [[{ sql }]];
     },
-    destroy: () => { destroys++; },
+    connection: { stream: { destroy: () => { destroys++; } } }, destroy: () => {},
   } as unknown as Connection;
   const db = new MysqlDatabase([new DirectTransport(), new PodPythonTransport(async () => { throw new Error("unexpected Pod retry"); })], options, async () => { attempts++; return connection; });
   expect(await db.queryBatch(target, [{ sql: "SELECT 1", values: [] }, { sql: "SELECT 2", values: [] }]))

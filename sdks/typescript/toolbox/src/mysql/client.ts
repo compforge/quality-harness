@@ -2,6 +2,7 @@ import type { Client } from "../client";
 import { ConcurrencyPool } from "../concurrency";
 import { createConnection, type Connection, type ConnectionOptions, type RowDataPacket } from "mysql2/promise";
 import type { Database, DatabaseTarget, DatabaseRow, DatabaseQueryLimits, DatabaseQueryResult, SqlStatement } from "./types";
+import { destroyMysqlConnection } from "./connection";
 import { queryReadonlySession, validateQueryLimits } from "./readonly";
 import type { ConnectionSource, ClientLifecycle } from "../datasource";
 import { isConnectionNetworkError, type Transport, type PodPythonTransport } from "../transport";
@@ -54,7 +55,7 @@ export class MysqlDatabase implements Database {
       if (session.kind !== "tcp") throw new Error("Bounded readonly MySQL queries require a native TCP transport");
       try {
         return await queryReadonlySession(session.connection, sql, values, limits, this.options.signal);
-      } finally { session.connection.destroy(); }
+      } finally { destroyMysqlConnection(session.connection); }
     }, this.options.signal);
   }
 
@@ -85,7 +86,7 @@ export class MysqlDatabase implements Database {
       return await run(session);
     } catch (error) {
       if (this.#connections.get(key) === pending) this.#connections.delete(key);
-      if (session?.kind === "tcp") session.connection.destroy();
+      if (session?.kind === "tcp") destroyMysqlConnection(session.connection);
       throw error;
     }
   }
@@ -131,7 +132,7 @@ export class MysqlDatabase implements Database {
       const pending = [...this.#connections.values()];
       this.#connections.clear();
       for (const result of await Promise.allSettled(pending)) {
-        if (result.status === "fulfilled" && result.value.kind === "tcp") result.value.connection.destroy();
+        if (result.status === "fulfilled" && result.value.kind === "tcp") destroyMysqlConnection(result.value.connection);
       }
     });
   }

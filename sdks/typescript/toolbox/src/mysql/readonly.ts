@@ -1,5 +1,6 @@
 import type { Connection as NativeConnection, FieldPacket } from "mysql2";
 import type { Connection } from "mysql2/promise";
+import { destroyMysqlConnection } from "./connection";
 import type { DatabaseQueryLimits, DatabaseQueryResult, DatabaseRow } from "./types";
 
 export function validateQueryLimits(limits: DatabaseQueryLimits): void {
@@ -38,7 +39,7 @@ export async function queryReadonlySession(
         return await collectRows(connection, sql, values, limits);
       })(),
       new Promise<never>((_resolve, reject) => {
-        const fail = (reason: unknown) => { connection.destroy(); reject(reason); };
+        const fail = (reason: unknown) => { destroyMysqlConnection(connection); reject(reason); };
         abort = () => fail(signal?.reason ?? new Error("MySQL query cancelled"));
         signal?.addEventListener("abort", abort, { once: true });
         timer = setTimeout(() => fail(new Error("MySQL readonly query timed out")), limits.timeoutMs);
@@ -49,7 +50,7 @@ export async function queryReadonlySession(
     if (timer) clearTimeout(timer);
     if (abort) signal?.removeEventListener("abort", abort);
     // Disconnect rolls back and also abandons unread rows on truncation. Never reuse this session.
-    connection.destroy();
+    destroyMysqlConnection(connection);
   }
 }
 
@@ -73,13 +74,13 @@ function collectRows(
     query.on("fields", (fields: FieldPacket[]) => { result.columns = fields?.map(field => field.name) ?? []; });
     query.on("result", (row: DatabaseRow) => {
       if (settled) return;
-      if (result.rows.length >= limits.maxRows) { finish("rows"); connection.destroy(); return; }
+      if (result.rows.length >= limits.maxRows) { finish("rows"); destroyMysqlConnection(connection); return; }
       try {
         const bytes = Buffer.byteLength(JSON.stringify(row));
-        if (result.bytes + bytes > limits.maxBytes) { finish("bytes"); connection.destroy(); return; }
+        if (result.bytes + bytes > limits.maxBytes) { finish("bytes"); destroyMysqlConnection(connection); return; }
         result.rows.push(row);
         result.bytes += bytes;
-      } catch (error) { settled = true; connection.destroy(); reject(error); }
+      } catch (error) { settled = true; destroyMysqlConnection(connection); reject(error); }
     });
     query.on("error", error => { if (!settled) { settled = true; reject(error); } });
     query.on("end", () => finish());
