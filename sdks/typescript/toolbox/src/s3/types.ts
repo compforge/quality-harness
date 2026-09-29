@@ -1,4 +1,10 @@
 export interface S3Target {
+  /**
+   * Complete endpoint URL, including the scheme, host and any non-default port.
+   * A Kubernetes Service host includes its namespace (for example, http://s3.storage:9000).
+   * The source resolves the full address; downstream clients and transports use it as-is,
+   * without appending host suffixes or inferring a namespace from the consuming Service.
+   */
   endpoint: string;
   region: string;
   credentials: { accessKeyId: string; secretAccessKey: string; sessionToken?: string };
