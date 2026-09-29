@@ -247,6 +247,10 @@ def _project_http(n: Node) -> list[Field]:
 def _http_spec() -> KindSpec:
     return KindSpec(
         kind="http",
+        structure_fields=("url.full", "http.url", "url.path"),
+        value=lambda primary, satellites: str(
+            primary.attr("url.full", "http.url", "url.path") or ""
+        ),
         matches=_match_http,
         build=_build_http,
         metrics=duration_metric(),

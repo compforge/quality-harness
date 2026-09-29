@@ -56,6 +56,8 @@ class KindSpec:
     # —— IR projection —— per-kind 一行投影（assemble bake 期烤进 node.brief）
     project: Callable[[Node], list[Field]] | None = None
     project_requires: tuple[str, ...] = ()
+    # Search text extracted at assembly; declare input attributes in structure_fields.
+    value: Callable[[NormSpan, list[NormSpan]], str] | None = None
 
 
 class SpecSet:

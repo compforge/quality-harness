@@ -32,6 +32,8 @@ class Node:
     brief: list[Field] = field(default_factory=list)
     # 错误原文摘要（首个出错 span）；有错才非空，渲染器内联标注不必回 raw span。
     error_text: str = ""
+    # Business-selected search text; never inferred from children.
+    value: str = ""
 
     @property
     def end_ms(self) -> float:

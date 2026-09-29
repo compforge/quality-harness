@@ -42,6 +42,7 @@ def analysis_snapshot(
                 "parent_node_id": node.parent_node_id,
                 "kind": node.kind,
                 "name": node.name,
+                "value": node.value,
                 "start_ms": node.start_ms,
                 "duration_ms": node.duration_ms,
                 "service": node.service,

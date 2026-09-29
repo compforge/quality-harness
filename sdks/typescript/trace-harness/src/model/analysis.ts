@@ -12,6 +12,7 @@ export interface AnalysisNode {
   parent_node_id: string | null;
   kind: string;
   name: string;
+  value?: string;
   start_ms: number;
   duration_ms: number;
   service: string | null;
@@ -56,6 +57,7 @@ export function analysisSnapshot(
       parent_node_id: node.parent_node_id ?? null,
       kind: node.kind,
       name: node.name,
+      value: node.value,
       start_ms: node.start_ms,
       duration_ms: node.duration_ms,
       service: node.service ?? null,

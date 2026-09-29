@@ -33,6 +33,7 @@ export interface NodeInit {
   error_span_ids?: string[];
   brief?: Field[];
   error_text?: string;
+  value?: string;
 }
 
 export class Node {
@@ -49,6 +50,8 @@ export class Node {
   readonly error_span_ids: string[];
   brief: Field[];
   error_text: string;
+  /** Business-selected search text; never inferred from children. */
+  readonly value: string;
 
   constructor(init: NodeInit) {
     this.kind = init.kind;
@@ -64,6 +67,7 @@ export class Node {
     this.error_span_ids = init.error_span_ids ?? [];
     this.brief = init.brief ?? [];
     this.error_text = init.error_text ?? "";
+    this.value = init.value ?? "";
   }
 
   get end_ms(): number {
