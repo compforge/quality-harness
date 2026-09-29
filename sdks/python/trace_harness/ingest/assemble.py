@@ -71,13 +71,14 @@ def assemble(
     nodes: list[Node] = []
     owner: dict[str, str] = {}  # span_id → node_id（primary/卫星/generic 全覆盖）
 
-    def _mk(origin: NormSpan, kind: str, sat_ids: list[str], facts: dict) -> Node:
+    def _mk(origin: NormSpan, kind: str, sat_ids: list[str], facts: dict, value: str) -> Node:
         span_ids = [origin.span_id, *sat_ids]
         # 6 errors（内联在节点构造里）：error_span_ids = 名下（primary+卫星）出错的 span
         errs = [sid for sid in span_ids if spans[sid].has_error]
         node = Node(
             kind=kind,
             name=origin.name,
+            value=value,
             primary_span_id=origin.span_id,
             span_ids=span_ids,
             facts={"duration_ms": round(origin.dur_ms, 3), **facts},
@@ -94,8 +95,10 @@ def assemble(
     for psid in primaries:
         spec = kind_of[psid]
         sat_ids = claimed_by.get(psid, [])
-        facts = spec.build(spans[psid], [spans[s] for s in sat_ids]) if spec.build else {}
-        nodes.append(_mk(spans[psid], spec.kind, sat_ids, facts))
+        satellites = [spans[s] for s in sat_ids]
+        facts = spec.build(spans[psid], satellites) if spec.build else {}
+        value = spec.value(spans[psid], satellites) if spec.value else ""
+        nodes.append(_mk(spans[psid], spec.kind, sat_ids, facts, value))
 
     # 5 connect：沿 span 父链上溯到首个异主 span → 该 span 的 node 即父
     for node in nodes:

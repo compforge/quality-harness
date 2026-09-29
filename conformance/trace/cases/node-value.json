@@ -1,0 +1,30 @@
+[
+  {
+    "attrs": {
+      "url.full": "https://example.test/full?q=1",
+      "http.url": "https://example.test/old",
+      "url.path": "/path"
+    },
+    "value": "https://example.test/full?q=1"
+  },
+  {
+    "attrs": {
+      "url.full": "",
+      "http.url": "https://example.test/old",
+      "url.path": "/path"
+    },
+    "value": "https://example.test/old"
+  },
+  {
+    "attrs": {
+      "url.path": "/api/v1/resources"
+    },
+    "value": "/api/v1/resources"
+  },
+  {
+    "attrs": {
+      "http.route": "/route-only"
+    },
+    "value": ""
+  }
+]

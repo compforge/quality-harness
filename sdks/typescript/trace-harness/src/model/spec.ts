@@ -16,6 +16,8 @@ export interface KindSpec {
   obs_hole?: boolean;
   project?(node: Node): Field[];
   project_requires?: readonly string[];
+  /** Search text extracted at assembly; declare input attributes in structure_fields. */
+  value?(primary: NormSpan, satellites: NormSpan[]): string;
 }
 
 export class SpecSet implements Iterable<KindSpec> {

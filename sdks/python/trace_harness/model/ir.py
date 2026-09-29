@@ -60,6 +60,7 @@ def _node_to_dict(n: Node) -> dict:
         "parent_node_id": n.parent_node_id,
         "kind": n.kind,
         "name": n.name,
+        "value": n.value,
         "start_ms": n.start_ms,
         "duration_ms": n.duration_ms,
         "service": n.service,
@@ -76,6 +77,7 @@ def _node_from_dict(d: dict) -> Node:
     return Node(
         kind=d["kind"],
         name=d["name"],
+        value=d.get("value", ""),
         primary_span_id=d["primary_span_id"],
         span_ids=list(d.get("span_ids") or []),
         facts=d.get("facts") or {},

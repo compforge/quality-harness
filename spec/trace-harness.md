@@ -77,6 +77,12 @@ The canonical JSON projection is `trace-harness/analysis@2`, defined by
   values, and failures MUST NOT be represented as zero.
 - `Finding` is the diagnostic output of detection attached to a node, trace, or cohort. A finding is not a verdict.
 - `brief` is the baked, language-neutral field projection used by renderers.
+- `value` is a business-selected string for node search, defaulting to `""`.
+  `KindSpec.value(primary, satellites)` computes it during assembly; consumers search this
+  string without interpreting span attributes or concatenating child values. Specs MUST declare
+  required attributes in `structure_fields` so managed loading produces the same value.
+  The built-in HTTP spec uses only `url.full`, then `http.url`, then `url.path`; absent URLs
+  produce an empty value. Snapshots preserve it; older snapshots without it load as `""`.
 
 Implementations MUST order nodes by `(start_ms, node_id)` and findings by
 `(scope, ref, source, severity, note)` when producing the canonical JSON projection. Runtime

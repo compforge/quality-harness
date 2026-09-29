@@ -124,6 +124,8 @@ function agentSpec(): KindSpec {
 function httpSpec(): KindSpec {
   return {
     kind: "http",
+    structure_fields: ["url.full", "http.url", "url.path"],
+    value: (primary) => String(primary.attr("url.full", "http.url", "url.path") ?? ""),
     matches: (span) => {
       const isHttp = span.attr("http.request.method", "http.method", "url.full", "http.url") !== undefined;
       const url = String(span.attr("url.full", "http.url") ?? "");

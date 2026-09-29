@@ -166,6 +166,10 @@
           "items": {
             "$ref": "#/$defs/field"
           }
+        },
+        "value": {
+          "type": "string",
+          "default": ""
         }
       },
       "additionalProperties": false

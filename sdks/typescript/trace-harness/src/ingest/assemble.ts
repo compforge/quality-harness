@@ -62,11 +62,13 @@ export function assemble(
     kind: string,
     satelliteIds: string[],
     facts: Record<string, unknown>,
+    value: string,
   ): Node => {
     const spanIds = [primary.span_id, ...satelliteIds];
     const node = new Node({
       kind,
       name: primary.name,
+      value,
       primary_span_id: primary.span_id,
       span_ids: spanIds,
       facts: { duration_ms: round(primary.dur_ms, 3), ...facts },
@@ -84,8 +86,9 @@ export function assemble(
     const primary = spans.get(primaryId)!;
     const spec = kindOf.get(primaryId)!;
     const satelliteIds = claimedBy.get(primaryId) ?? [];
-    const facts = spec.build?.(primary, satelliteIds.map((id) => spans.get(id)!)) ?? {};
-    nodes.push(makeNode(primary, spec.kind, satelliteIds, facts));
+    const satellites = satelliteIds.map((id) => spans.get(id)!);
+    const facts = spec.build?.(primary, satellites) ?? {};
+    nodes.push(makeNode(primary, spec.kind, satelliteIds, facts, spec.value?.(primary, satellites) ?? ""));
   }
 
   for (const node of nodes) {
