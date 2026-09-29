@@ -83,6 +83,9 @@ The canonical JSON projection is `trace-harness/analysis@2`, defined by
   required attributes in `structure_fields` so managed loading produces the same value.
   The built-in HTTP spec uses only `url.full`, then `http.url`, then `url.path`; absent URLs
   produce an empty value. Snapshots preserve it; older snapshots without it load as `""`.
+  Interactive Node Tree search MUST match only this value (case-insensitive literal substring).
+  It highlights matches, expands their ancestor paths, and provides previous/next navigation.
+  Empty queries clear highlights; virtual groups and the separate AgentRun view are not searchable.
 
 Implementations MUST order nodes by `(start_ms, node_id)` and findings by
 `(scope, ref, source, severity, note)` when producing the canonical JSON projection. Runtime

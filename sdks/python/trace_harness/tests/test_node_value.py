@@ -72,3 +72,15 @@ def test_old_snapshots_default_to_empty_value(tmp_path):
         del node["value"]
     nodes_path.write_text(json.dumps(nodes))
     assert all(n.value == "" for n in load_view(nodes_path).nodes)
+
+
+def test_interactive_search_preserves_value_without_script_injection():
+    from trace_harness.view.interactive import render_interactive
+
+    primary = span("root", {"http.method": "POST", "url.path": "/api/v1/resources</script>"})
+    context = assemble({"root": primary}, genai.specs())
+    html = render_interactive(context)
+    assert 'id="node-search"' in html
+    assert 'const searchValues={"root": "/api/v1/resources<\\/script>"};' in html
+    assert "__VALUES__" not in html
+    assert html.count("</script>") == 1

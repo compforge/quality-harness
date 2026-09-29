@@ -146,14 +146,23 @@ _CSS = """
 :root{--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
 body{font:13px/1.5 var(--mono);margin:0;background:#f6f7f9;color:#1a1a1a}
 header{background:#1f2937;color:#fff;padding:8px 16px;display:flex;gap:12px;align-items:center}
+
+.trace-search{display:flex;align-items:center;gap:8px;padding:7px 16px;background:#eef2f7;height:42px}
+.trace-search input{width:280px;max-width:45vw;font:12px var(--mono);padding:4px 8px;border:1px solid #94a3b8;border-radius:4px}
+.trace-search button{font:12px var(--mono);cursor:pointer}.trace-search button:disabled{cursor:default;opacity:.45}
+#search-status{font-size:12px;color:#475569}
+.row.search-hit{background:#fef3c7;box-shadow:inset 3px 0 #d97706}
+.row.search-hit.search-current{background:#fde68a;outline:1px solid #d97706;outline-offset:-1px}
+.fcell.search-hit{outline:2px solid #f59e0b;outline-offset:-2px;filter:brightness(1.2)}
+
 header h1{font-size:13px;margin:0;font-weight:normal}
 header b{color:#93c5fd}
 header button{font:11px var(--mono);background:#374151;color:#e5e7eb;border:0;border-radius:4px;padding:2px 8px;cursor:pointer}
 nav.switch{display:flex;gap:2px;align-items:center}
 nav.switch span{font-size:10px;color:#9ca3af;margin-right:2px}
 nav.switch button.active{background:#2563eb;color:#fff}
-.wrap{display:flex;height:calc(100vh - 35px)}
-#view-flame{display:none;height:calc(100vh - 35px);overflow:auto;background:#fff;padding:12px 16px}
+.wrap{display:flex;height:calc(100vh - 77px)}
+#view-flame{display:none;height:calc(100vh - 77px);overflow:auto;background:#fff;padding:12px 16px}
 .faxis{position:relative;height:18px;color:#6b7280;font-size:10px;border-bottom:1px solid #e5e7eb;margin-bottom:6px}
 .faxis span{position:absolute;transform:translateX(-50%);white-space:nowrap}
 .flame{position:relative}
@@ -228,6 +237,48 @@ const KCOLOR={agent:'#7c3aed','agent-run':'#7c3aed','agent-turn':'#4f46e5',frame
 const treeEl=document.getElementById('tree'),paneEl=document.getElementById('pane');
 let perspective='full',layout='tree',tree=TREES.full,selectedId=location.hash.slice(1);
 let byId={},parentOf={},boxOf={},twOf={},flameBuilt=false,stackMaxDuration=1;
+const searchValues=__VALUES__;
+function nodeSearchValue(id){return searchValues[id]??'';}
+
+// Search only business-selected Node.value; virtual groups and AgentRun items have no value.
+const searchInput=document.getElementById('node-search');
+const searchStatus=document.getElementById('search-status');
+const searchPrev=document.getElementById('search-prev'),searchNext=document.getElementById('search-next');
+let searchHits=[],searchIndex=-1;
+function paintSearch(){
+  const hits=new Set(searchHits);
+  document.querySelectorAll('.row[data-id],.fcell[data-id]').forEach(row=>{
+    row.classList.toggle('search-hit',hits.has(row.dataset.id));
+    row.classList.toggle('search-current',row.dataset.id===searchHits[searchIndex]);
+  });
+  searchStatus.textContent=perspective!=='full'||!searchInput.value.trim()?'':searchHits.length
+    ?(searchIndex<0?'':(searchIndex+1)+' / ')+searchHits.length+' 个命中':'无匹配节点';
+  searchPrev.disabled=searchNext.disabled=!searchHits.length;
+}
+function updateSearch(){
+  const enabled=perspective==='full';
+  searchInput.disabled=!enabled;
+  searchInput.placeholder=enabled?'搜索节点内容':'节点搜索请切换到完整视图';
+  const keyword=enabled?searchInput.value.trim().toLowerCase():'';
+  searchHits=keyword?Object.keys(byId).filter(id=>nodeSearchValue(id).toLowerCase().includes(keyword)):[];
+  searchIndex=-1;
+  for(const id of searchHits)unfoldAncestors(id);
+  paintSearch();
+}
+function moveSearch(step){
+  if(!searchHits.length)return;
+  searchIndex=searchIndex<0?(step<0?searchHits.length-1:0)
+    :(searchIndex+step+searchHits.length)%searchHits.length;
+  showLayout('tree');select(searchHits[searchIndex]);paintSearch();
+  treeEl.querySelector('.row.search-current')?.scrollIntoView({block:'center'});
+}
+searchInput.addEventListener('input',updateSearch);
+searchInput.addEventListener('keydown',event=>{
+  if(event.key==='Enter'){event.preventDefault();moveSearch(event.shiftKey?-1:1);}
+  if(event.key==='Escape'){searchInput.value='';updateSearch();}
+});
+searchPrev.onclick=()=>moveSearch(-1);searchNext.onclick=()=>moveSearch(1);
+
 function fmtMs(ms){if(ms<1)return (ms*1000).toFixed(0)+'µs';if(ms<1000)return ms.toFixed(0)+'ms';
   const s=ms/1000;if(s<60)return s.toFixed(2)+'s';return Math.floor(s/60)+'m'+(s%60).toFixed(1)+'s';}
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -407,9 +458,10 @@ function renderTree(){
   tree.roots.forEach(r=>treeEl.appendChild(renderInto(r,0,null)));
   if(!tree.roots.length){treeEl.innerHTML='<div class="empty">当前侧重点没有可展示节点</div>';
     paneEl.innerHTML='<div class="empty">切换到“完整”查看全部节点</div>';
-    if(layout==='flame')buildFlame();return;}
+    updateSearch();if(layout==='flame')buildFlame();return;}
   const wanted=selectedId&&byId[selectedId]?selectedId:null;
   select(wanted||firstError(tree.roots)||firstReal(tree.roots)||tree.roots[0].node_id);
+  updateSearch();
   if(layout==='flame')buildFlame();}
 // 火焰图（icicle）：x=wall-clock time，行=深度，色=kind；按当前 perspective 构建
 function buildFlame(){
@@ -426,7 +478,7 @@ function buildFlame(){
     s.style.left=(i*10)+'%';s.textContent=fmtMs(span*i/10);axis.appendChild(s);}
   (function place(ns,d){ns.forEach(n=>{
     const c=document.createElement('div');
-    c.className='fcell'+(n.has_error?' err':'');
+    c.dataset.id=n.node_id;c.className='fcell'+(n.has_error?' err':'');
     c.style.left=((n.start_ms-t0)/span*100)+'%';
     c.style.width=Math.max(n.duration_ms/span*100,0.15)+'%';
     c.style.top=(d*rowH)+'px';
@@ -436,7 +488,7 @@ function buildFlame(){
     c.title=compactName(n,Number.MAX_SAFE_INTEGER)+' · '+n.kind+' · '+fmtMs(n.duration_ms)
       +(n.service?' · '+n.service:'')+(n.has_error?' · ERROR':'');
     c.addEventListener('click',()=>{showLayout('tree');select(n.node_id);});
-    place(n.children,d+1);});})(tree.roots,0);flameBuilt=true;}
+    place(n.children,d+1);});})(tree.roots,0);flameBuilt=true;paintSearch();}
 renderTree();showLayout('tree');
 """
 
@@ -477,6 +529,7 @@ def render_interactive(
         return json.dumps(obj, ensure_ascii=False).replace("</", "<\\/")
 
     js = _JS.replace("__TREES__", _embed(trees_payload)).replace("__SPANS__", _embed(spans_payload))
+    js = js.replace("__VALUES__", _embed({n.node_id: n.value for n in ctx.nodes if n.value}))
     title = html_mod.escape(ctx.trace_id)
     n_err = sum(1 for n in ctx.nodes if n.has_error)
     agent_button = (
@@ -491,6 +544,7 @@ def render_interactive(
 <nav class="switch"><span>侧重点</span><button data-perspective="full" class="active">完整</button>{agent_button}</nav>
 <nav class="switch"><span>形态</span><button data-layout="tree" class="active">调用栈</button><button data-layout="flame">火焰图</button></nav>
 <button id="expand">全部展开</button><button id="fold">全部折叠</button></header>
+<div class="trace-search" role="search"><input id="node-search" type="search" aria-label="搜索节点内容" placeholder="搜索节点内容" title="搜索业务指定的节点内容；Enter 下一个，Shift+Enter 上一个，Esc 清空"><button id="search-prev" aria-label="上一个匹配节点" disabled>↑</button><button id="search-next" aria-label="下一个匹配节点" disabled>↓</button><span id="search-status" role="status" aria-live="polite"></span></div>
 <div class="wrap" id="view-stack">
   <div class="tree" id="tree"></div>
   <div class="pane" id="pane"></div>
