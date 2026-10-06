@@ -28,7 +28,9 @@ Dependency graphs must be acyclic. A failed initialization permits retry only af
 failed cleanup poisons that key and is reported again when the root manager is disposed.
 
 Service identifies a Component's runtime presence in an Environment. A Component belongs to a Repository
-on a Forge; a Service explicitly declares zero or more Workloads. Consumers extend Service with business
+on a Forge. Product is a separate business identity; consumers own its many-to-many associations
+with Components. Repository discovery and directory ownership remain consumer responsibilities.
+A Service explicitly declares zero or more Workloads. Consumers extend Service with business
 capabilities, without duplicating these identities. For example:
 
 ```typescript
