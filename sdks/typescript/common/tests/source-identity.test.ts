@@ -33,3 +33,10 @@ test("ecosystem is derived from language across the shared contract", () => {
     expect(componentEcosystem(component)).toBe(item.ecosystem ?? undefined);
   }
 });
+
+test("Product shares the neutral business identity contract", () => {
+  const fixture = JSON.parse(readFileSync(
+    new URL("../../../../conformance/common/source-identities.json", import.meta.url), "utf8",
+  )) as { products: import("../src/index.js").Product[] };
+  expect(fixture.products).toEqual([{ name: "example-product" }]);
+});
