@@ -39,3 +39,19 @@ test("invalid targets, unsupported protocols and cancellation do not invoke the 
   await expect(executeHttpCase(item, "missing", budget, new AbortController().signal, execute)).rejects.toThrow();
   expect(calls).toBe(0);
 });
+
+
+test("origin-relative paths remain on the selected target and malformed paths never execute", async () => {
+  let calls = 0;
+  const execute = async (request: { url: string }) => {
+    calls++;
+    expect(request.url).toBe("http://platform:3000/health?probe=ready");
+    return { response: { captureComplete: true, statusCode: 200, contentType: "application/octet-stream" } };
+  };
+  const preparePath = (path: string): PreparedHttpCase => ({ ...item, case: { ...item.case, input: { ...item.case.input, path } } });
+  await executeHttpCase(preparePath("/health?probe=ready"), "internal", budget, new AbortController().signal, execute);
+  for (const path of ["//other.test", "/\t/other.test", "/\\other.test"]) {
+    await expect(executeHttpCase(preparePath(path), "internal", budget, new AbortController().signal, execute)).rejects.toThrow();
+  }
+  expect(calls).toBe(1);
+});
