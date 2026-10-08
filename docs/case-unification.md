@@ -85,3 +85,10 @@ Python 同步 step 通过 `PhaseContext.remaining_s` 协作传递 deadline，并
 - Python e2e 代码地图：[`../sdks/python/e2e_harness/AGENTS.md`](../sdks/python/e2e_harness/AGENTS.md)
 - Go CaseRun 与 coverage gate：[`../sdks/go/AGENTS.md`](../sdks/go/AGENTS.md)
 - 统一 Verdict：[`../spec/verdict-schema.yaml`](../spec/verdict-schema.yaml)
+
+## Prepared HTTP Case
+
+`spec-case` 的 HTTP profile 把协议判别放在 `Case.input.protocol`，请求判据放在 `judge.e2e.http`。
+`PreparedHttpCase` 将该 Case 与本次解析的 target URL、认证头和可选入口组合；签名更新不改变 Case hash。
+TypeScript `case-runner` 使用调用方提供的执行通道构造请求并判定响应，保留原始 Observation。
+调用方持有执行位置、权限、预算、备用入口策略及证据脱敏；Runner 不隐式改用 Host 或跟随重定向。

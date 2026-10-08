@@ -1,0 +1,35 @@
+{
+  "name": "@compforge/case-runner",
+  "version": "0.0.1",
+  "description": "Protocol execution of prepared canonical Cases through caller-owned transports",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@compforge/spec-case": "0.0.7"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^22",
+    "typescript": "^5.6.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
