@@ -25,3 +25,19 @@ export function kubernetesHttpError(status: number): KubernetesError {
   } as Record<number, ErrorKind>)[status] ?? "operation_failed";
   return new KubernetesError("Kubernetes resource request failed", { kind, code: status });
 }
+
+
+/**
+ * Normalize a failed kubectl resource request at the transport boundary.
+ * Only the server's Status reason is authoritative; arbitrary stderr containing
+ * "not found" (including a missing kubectl binary) does not prove resource absence.
+ * Do not apply this to a command executed inside a container.
+ */
+export function kubernetesCommandError(result: { stderr: string; timedOut: boolean }): KubernetesError {
+  if (result.timedOut) return new KubernetesError("Kubernetes resource request timed out", { kind: "timeout" });
+  const reason = /^Error from server \(([^)]+)\):/m.exec(result.stderr)?.[1];
+  const status = reason ? ({ Unauthorized: 401, Forbidden: 403, NotFound: 404,
+    Timeout: 408, TooManyRequests: 429, ServerTimeout: 504 } as Record<string, number>)[reason] : undefined;
+  return status ? kubernetesHttpError(status)
+    : new KubernetesError("Kubernetes resource request failed", { kind: "operation_failed" });
+}
