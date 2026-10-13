@@ -1,45 +1,3 @@
-// Browser-only presentation. All calls retain the shared analysis source identity.
-function measurementWindow(calls, start, end) {
-  return calls.filter(call => call.start_ms <= end && call.end_ms >= start).map(call => ({
-    ...call, start: Math.max(start, call.start_ms) - start,
-    end: Math.min(end, call.end_ms) - start,
-    duration: Math.max(0, Math.min(end, call.end_ms) - Math.max(start, call.start_ms)),
-    clipped: call.end_ms > end,
-    group: JSON.stringify([call.kind, call.service, call.target || "", call.name]),
-  }));
-}
-function aggregateMeasurementCalls(calls) {
-  const groups = new Map();
-  for (const call of calls) {
-    let group = groups.get(call.group);
-    if (!group) { group = { key: call.group, kind: call.kind, service: call.service, target: call.target, name: call.name, count: 0, total: 0, max: 0 }; groups.set(call.group, group); }
-    group.count++; group.total += call.duration; group.max = Math.max(group.max, call.duration);
-  }
-  return [...groups.values()].sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
-}
-function measurementTimelineRows(calls, collapsed, filter) {
-  const byKey = new Map(calls.map(call => [call.key, call]));
-  const children = new Map();
-  for (const call of calls) {
-    const parent = byKey.has(call.parent) ? call.parent : null;
-    const list = children.get(parent) || []; list.push(call); children.set(parent, list);
-  }
-  for (const list of children.values()) list.sort((a,b) => a.start - b.start || b.end - a.end || a.key.localeCompare(b.key));
-  const visible = new Set();
-  if (filter) for (const call of calls) if (call.group === filter) {
-    for (let item = call; item && !visible.has(item.key); item = byKey.get(item.parent)) visible.add(item.key);
-  }
-  const rows = [];
-  const visit = (parent, depth) => {
-    for (const call of children.get(parent) || []) {
-      if (filter && !visible.has(call.key)) continue;
-      rows.push({ ...call, depth, hasChildren: (children.get(call.key) || []).length > 0 });
-      if (filter || !collapsed.has(call.key)) visit(call.key, depth + 1);
-    }
-  };
-  visit(null, 0);
-  return rows;
-}
 let measurementState;
 let measurementChart;
 let measurementSourceCache;
@@ -48,7 +6,7 @@ function openMeasurements(summary) {
   const dialog = document.getElementById('measurement-dialog');
   const prefix = (node.measurements || []).find(row => row.id === 'calls_until_node_end' && row.status === 'measured');
   const usable = prefix && Number.isFinite(prefix.evidence.start_ms) && Number.isFinite(prefix.evidence.end_ms);
-  measurementState = { node, calls: [], groups: [], rows: [], collapsed: new Set(), filter: null, tab: 'summary', elapsed: 0 };
+  measurementState = { node, calls: [], groups: [], collapsed: new Set(), filter: null, tab: 'summary', elapsed: 0 };
   document.getElementById('measurement-title').textContent = node.name + ' · 耗时分析';
   document.getElementById('measurement-window').textContent = usable ? '请求开始 → 此节点结束 · ' + fmtMs(prefix.evidence.end_ms - prefix.evidence.start_ms) + ' wall-clock' : '此节点的 Measurements';
   document.getElementById('measurement-tabs').hidden = !usable;
@@ -67,7 +25,7 @@ function openMeasurements(summary) {
 function renderMeasurementSummary() {
   const groups = measurementState.groups;
   const max = groups[0]?.total || 1;
-  document.getElementById('measurement-summary').innerHTML = groups.length ? '<div class="measurement-table-wrap"><table class="measurement-table"><thead><tr><th>服务 / 操作</th><th>Kind</th><th class="numeric">调用次数</th><th class="numeric">累计耗时 ↓</th><th class="numeric">平均耗时</th><th class="numeric">最慢一次</th></tr></thead><tbody>' + groups.map((group, index) => '<tr><th><button class="measurement-operation" data-group="' + index + '"><span>' + esc(group.name) + '</span><small>' + esc((group.service || '未知服务') + (group.target ? ' → ' + group.target : '')) + '</small></button></th><td>' + esc(group.kind) + '</td><td class="numeric">' + group.count + '</td><td class="numeric measurement-total">' + fmtMs(group.total) + '<span class="measurement-bar"><i style="width:' + (group.total / max * 100) + '%"></i></span></td><td class="numeric">' + fmtMs(group.total / group.count) + '</td><td class="numeric">' + fmtMs(group.max) + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="empty">此窗口没有调用来源</p>';
+  document.getElementById('measurement-summary').innerHTML = groups.length ? '<div class="measurement-table-wrap"><table class="measurement-table"><thead><tr><th>服务 / 操作</th><th>Kind</th><th class="numeric">调用次数</th><th class="numeric">累计耗时 ↓</th><th class="numeric">平均耗时</th><th class="numeric">最慢一次</th></tr></thead><tbody>' + groups.map((group, index) => '<tr><th><button class="measurement-operation" data-group="' + index + '"><span>' + esc(group.name) + '</span><small>' + esc((group.service || '未知服务') + (group.target ? ' → ' + group.target : '')) + '</small></button></th><td>' + esc(group.kind) + '</td><td class="numeric">' + group.count + '</td><td class="numeric measurement-total">' + fmtMs(group.total) + '<span class="measurement-bar"><i style="width:' + (group.total / max * 100) + '%"></i></span></td><td class="numeric">' + fmtMs(group.average) + '</td><td class="numeric">' + fmtMs(group.max) + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="empty">此窗口没有调用来源</p>';
   document.querySelectorAll('[data-group]').forEach(button => button.onclick = () => {
     measurementState.filter = groups[Number(button.dataset.group)].key;
     switchMeasurementTab('timeline');
@@ -91,7 +49,6 @@ function renderMeasurementTimeline() {
   }
   const state = measurementState;
   const rows = measurementTimelineRows(state.calls, state.collapsed, state.filter);
-  state.rows = rows;
   const selectedGroup = state.groups.find(group => group.key === state.filter);
   document.getElementById('measurement-filter').textContent = selectedGroup ? selectedGroup.service + ' / ' + selectedGroup.name + ' · ' + selectedGroup.count + ' 次（保留父级上下文）' : '全部调用 · ' + state.calls.length + ' 次 · 点击名称展开/折叠，点击条形查看详情';
   document.getElementById('measurement-clear').hidden = !state.filter;

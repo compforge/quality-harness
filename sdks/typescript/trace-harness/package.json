@@ -1,6 +1,6 @@
 {
   "name": "@compforge/trace-harness",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "TypeScript trace/span analysis harness",
   "type": "module",
   "scripts": {

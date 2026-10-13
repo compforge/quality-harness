@@ -1,33 +1,11 @@
-import { httpEndpoint } from "../kinds/http";
-import type { TraceContext } from "../model/context";
-import type { Measurements } from "../model/measurement";
 import browserSource from "./measurement-dialog.browser.js" with { type: "text" };
+import { measurementWindow, aggregateMeasurementCalls, measurementTimelineRows } from "./measurement-calls";
+export { measurementCallDetails } from "./measurement-calls";
 
-/**
- * @spec Report projections retain the measured call identities and their original intervals.
- * @why Aggregation and window clipping are view operations; neither changes analysis or HTTP pairing.
- */
-export function measurementCallDetails(trace: TraceContext, measurements: Measurements) {
-  const nodes = trace.view().by_id;
-  const nodeCalls = new Map(measurements.sources.filter(call => call.kind !== "http").map(call => [call.node_id, `${call.kind}:${call.id}`]));
-  return measurements.sources.map(call => {
-    const node = nodes.get(call.node_id);
-    const span = trace.spans.get(call.kind === "http" ? call.span_ids[0] ?? "" : node?.primary_span_id ?? "");
-    const endpoint = span && (call.kind === "http" || call.kind === "service-api") ? httpEndpoint(span) : undefined;
-    const serverRoute = call.kind === "http" ? call.span_ids.slice(1).map(id => trace.spans.get(id)).filter(item => item !== undefined).map(item => httpEndpoint(item!)).find(item => item !== undefined)?.[2] : undefined;
-    const name = endpoint ? `${endpoint[0]} ${serverRoute ?? endpoint[2]}` : node?.name ?? span?.name ?? call.id;
-    let parent = node?.parent_node_id;
-    while (parent && !nodeCalls.has(parent)) parent = nodes.get(parent)?.parent_node_id;
-    return {
-      ...call, key: `${call.kind}:${call.id}`,
-      parent: call.kind === "http" && nodeCalls.has(call.node_id) ? nodeCalls.get(call.node_id) : parent ? nodeCalls.get(parent) : undefined,
-      name, target: endpoint?.[1] ?? "",
-      service: (call.kind === "http" ? span?.service : node?.service) ?? node?.service ?? "",
-    };
-  });
-}
-
-export const MEASUREMENT_DIALOG_SCRIPT = browserSource;
+// The offline browser runs the same pure projections as SDK queries. No second implementation.
+const projectionSource = Object.entries({ measurementWindow, aggregateMeasurementCalls, measurementTimelineRows })
+  .map(([name, fn]) => `const ${name} = ${fn.toString()};`).join("\n");
+export const MEASUREMENT_DIALOG_SCRIPT = projectionSource + "\n" + browserSource;
 export const MEASUREMENT_DIALOG_HTML = `<dialog id="measurement-dialog" aria-labelledby="measurement-title">
 <div class="measurement-head"><div><h2 id="measurement-title"></h2><p id="measurement-window"></p></div><button id="measurement-close" aria-label="关闭耗时分析">关闭 ✕</button></div>
 <div id="measurement-tabs" role="tablist" aria-label="耗时分析视图"><button id="measurement-summary-tab" role="tab" aria-controls="measurement-summary" aria-selected="true" data-measurement-tab="summary">调用聚合</button><button id="measurement-timeline-tab" role="tab" aria-controls="measurement-timeline" aria-selected="false" tabindex="-1" data-measurement-tab="timeline">调用时间线</button></div>

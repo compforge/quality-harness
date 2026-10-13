@@ -87,3 +87,41 @@ to the source node. Other measurement specifications remain available in the mod
 
 ECharts is bundled as a compressed, lazily loaded report asset: the HTML works
 offline without a CDN or runtime package installation.
+
+## Offline inspection for agents and CLI hosts
+
+All outputs derive from prepared local evidence. HTML is a human view; text and JSON inspection
+are bounded views over the same analysis. Artifact packaging belongs to the host. These APIs do
+not connect to a backend, compute new measurements or assert collection completeness.
+
+```ts
+import {
+  loadAnalysis, inspectAgentStack, renderAgentStackText,
+  inspectNodeMeasurements, renderNodeMeasurementsText,
+} from "@compforge/trace-harness";
+
+const analysis = loadAnalysis(savedAnalysis);
+// Supply the persisted AgentRun IR when available; do not guess it from node kinds.
+const stack = inspectAgentStack(analysis.trace, savedAgentRunIR, { limit: 100 });
+console.log(renderAgentStackText(stack));
+const detail = inspectNodeMeasurements(analysis.trace, analysis.measurements, nodeId, {
+  groups: { limit: 20 }, calls: { limit: 50, offset: 0 },
+});
+console.log(renderNodeMeasurementsText(detail));
+// Both query results are also JSON-serializable. Follow each page's next_offset.
+```
+
+`inspectNodeMeasurements` ignores UI visibility filters: a node without a balloon remains
+queryable. Its `node.duration_ms` is the node's own elapsed time; `prefix.window.elapsed_ms`
+is the earliest observed trace start through that node's end. Absent or failed prefix measurements
+have null windows/groups/calls, while measured-zero results contain an empty page.
+
+Call groups expose `count`, `total`, `average`, `max` (durations in milliseconds), and a stable
+operation key. Timeline calls retain original `start_ms`/`end_ms`, clipped relative `start`/`end`,
+`duration`, `clipped`, hierarchy and node/span references. Nested calls and different kinds overlap:
+aggregate totals must not be reported as exclusive wall-clock contributions. A page defaults to
+100 rows and returns total/offset/next_offset; limits are row limits, not a token budget.
+
+Agent stack IDs are display identities; use `source_node_ids` and `span_ids` to drill down.
+Missing AgentRun IR is `not_available`; an explicitly empty IR is available with zero rows.
+Hosts should report evidence completeness and any acquisition gaps next to these projections.
