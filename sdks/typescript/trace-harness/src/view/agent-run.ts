@@ -28,6 +28,7 @@ function sourcePayload(
   const errorSpanIds = [...new Set(nodes.flatMap((node) => node.error_span_ids))];
   const statusError = ["error", "failed", "failure"].includes(status.toLowerCase());
   return {
+    source_node_ids: sourceNodeIds,
     service: nodes[0]?.service ?? "",
     has_error: errorSpanIds.length > 0 || statusError,
     error: errorSpanIds.length ? context.error_text(errorSpanIds[0]!) : status,
@@ -62,8 +63,9 @@ function itemPayload(
   context: TraceContext,
   item: TurnItem,
   findings: Readonly<Record<string, readonly Finding[]>>,
+  includeDetails: boolean,
 ): Record<string, unknown> {
-  const itemFacts = facts(item.status, item.attributes, item.source_node_ids);
+  const itemFacts = includeDetails ? facts(item.status, item.attributes, item.source_node_ids) : {};
   const brief: string[] = [];
   if (item.kind === "model-call" && item.model) {
     itemFacts.model = item.model;
@@ -76,14 +78,14 @@ function itemPayload(
   if (operations.length) brief.push(`${operations.length} operation${operations.length === 1 ? "" : "s"}`);
   if (agentRuns.length) brief.push(`${agentRuns.length} agent run${agentRuns.length === 1 ? "" : "s"}`);
   const children = [
-    ...operations.map((operation) => itemPayload(context, operation, findings)),
-    ...agentRuns.map((run) => runPayload(context, run, findings)),
+    ...operations.map((operation) => itemPayload(context, operation, findings, includeDetails)),
+    ...agentRuns.map((run) => runPayload(context, run, findings, includeDetails)),
   ].sort((left, right) => (
     Number(left.start_ms) - Number(right.start_ms)
     || String(left.node_id).localeCompare(String(right.node_id))
   ));
   const source = sourcePayload(context, item.source_node_ids, findings, item.status);
-  const detail = item.kind === "tool-call" ? toolNameDetail(item.input) : "";
+  const detail = includeDetails && item.kind === "tool-call" ? toolNameDetail(item.input) : "";
   return {
     node_id: `agent-item:${item.kind}:${item.id}`,
     kind: item.kind,
@@ -93,10 +95,10 @@ function itemPayload(
     duration_ms: item.duration_ms,
     brief: brief.join(" · "),
     facts: itemFacts,
-    details: Object.fromEntries([
+    details: includeDetails ? Object.fromEntries([
       ...(item.input === undefined ? [] : [["input", text(item.input)]]),
       ...(item.output === undefined ? [] : [["output", text(item.output)]]),
-    ]),
+    ]) : {},
     folded: 0,
     collapsed: item.kind === "operation" && children.length > 0
       && !source.has_error && !children.some(payloadHasError),
@@ -110,8 +112,9 @@ function turnPayload(
   turn: AgentTurn,
   index: number,
   findings: Readonly<Record<string, readonly Finding[]>>,
+  includeDetails: boolean,
 ): Record<string, unknown> {
-  const children = turn.items.map((item) => itemPayload(context, item, findings));
+  const children = turn.items.map((item) => itemPayload(context, item, findings, includeDetails));
   const sources = turn.source_node_ids?.length
     ? turn.source_node_ids
     : [...new Set(turn.items.flatMap(itemSources))];
@@ -124,7 +127,7 @@ function turnPayload(
     start_ms: turn.start_ms,
     duration_ms: turn.duration_ms,
     brief: `${turn.items.length} items`,
-    facts: facts(turn.status, turn.attributes, sources),
+    facts: includeDetails ? facts(turn.status, turn.attributes, sources) : {},
     details: {},
     folded: 0,
     children,
@@ -155,11 +158,12 @@ function runPayload(
   context: TraceContext,
   run: AgentRun,
   findings: Readonly<Record<string, readonly Finding[]>>,
+  includeDetails: boolean,
 ): Record<string, unknown> {
   let turnIndex = 0;
   const children = run.items.map((item) => {
-    if (item.kind === "operation") return itemPayload(context, item, findings);
-    const payload = turnPayload(context, item, turnIndex, findings);
+    if (item.kind === "operation") return itemPayload(context, item, findings, includeDetails);
+    const payload = turnPayload(context, item, turnIndex, findings, includeDetails);
     turnIndex += 1;
     return payload;
   });
@@ -173,7 +177,7 @@ function runPayload(
     start_ms: run.start_ms,
     duration_ms: run.duration_ms,
     brief: `${turnIndex} turns · ${operationCount} operations`,
-    facts: facts(run.status, run.attributes, sources),
+    facts: includeDetails ? facts(run.status, run.attributes, sources) : {},
     details: {},
     folded: 0,
     children,
@@ -181,10 +185,15 @@ function runPayload(
   };
 }
 
+/**
+ * @spec Shared Agent stack projection for HTML and text inspection.
+ * includeDetails controls payload preparation only; selected rows, order and hierarchy stay identical.
+ */
 export function agentRunRoots(
   context: TraceContext,
   ir: AgentRunIR,
   findings: Readonly<Record<string, readonly Finding[]>>,
+  includeDetails = true,
 ): Array<Record<string, unknown>> {
-  return ir.runs.map((run) => runPayload(context, run, findings));
+  return ir.runs.map((run) => runPayload(context, run, findings, includeDetails));
 }

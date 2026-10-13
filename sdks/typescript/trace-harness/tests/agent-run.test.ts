@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   agentRunSnapshot,
+  inspectAgentStack,
+  renderAgentStackText,
   createAgentRunIR,
   genAiSpecs,
   normalizeJaegerSpans,
@@ -195,6 +197,44 @@ describe("AgentRun IR", () => {
     )).json();
 
     expect(agentRunSnapshot(instance.extractAgentRuns(context)!)).toEqual(expected);
+  });
+
+  test("HTML and text render the same Agent stack, including paginated nested calls", () => {
+    const instance = harness();
+    const context = instance.assemble(normalizeJaegerSpans(fixtureDocuments()));
+    const ir = instance.extractAgentRuns(context)!;
+    const before = JSON.stringify(ir);
+    const html = instance.renderInteractive(context, {}, { agentRunIR: ir });
+    const roots = traceTrees(html).agent.roots;
+    const expected: Array<Record<string, unknown>> = [];
+    const visit = (nodes: any[], depth = 0, parent_id?: string) => {
+      for (const node of nodes) {
+        expected.push({ id: node.node_id, parent_id, depth, kind: node.kind, name: node.name,
+          service: node.service, start_ms: node.start_ms, duration_ms: node.duration_ms,
+          source_node_ids: node.source_node_ids, span_ids: node.span_ids });
+        visit(node.children, depth + 1, node.node_id);
+      }
+    };
+    visit(roots);
+    // Page boundaries can fall inside a nested tool/child-agent path. They must not reset ancestry.
+    const actual = [];
+    const textRows: string[] = [];
+    let offset: number | null = 0;
+    while (offset !== null) {
+      const stack = inspectAgentStack(context, ir, { offset, limit: 3 });
+      actual.push(...stack.rows.items.map(({ offset_ms, ...row }) => row));
+      textRows.push(...renderAgentStackText(stack).trimEnd().split("\n").slice(2));
+      offset = stack.rows.next_offset;
+    }
+    expect(actual).toEqual(expected);
+    expect(textRows).toHaveLength(expected.length);
+    expected.forEach((row, index) => {
+      expect(textRows[index]).toContain(`id=${JSON.stringify(row.id)}`);
+      expect(textRows[index]).toContain(`nodes=${JSON.stringify(row.source_node_ids)}`);
+    });
+    expect(expected.some(row => row.id === "agent-run:run-worker" && Number(row.depth) > 2)).toBe(true);
+    expect(expected.some(row => row.kind === "service-api" || row.kind === "http")).toBe(false);
+    expect(JSON.stringify(ir)).toBe(before);
   });
 
   test("renders the extracted turns, calls, and operations", async () => {

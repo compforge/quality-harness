@@ -152,6 +152,31 @@ The analysis artifact MUST retain measured results independently of facts and Fi
 reload MUST render persisted results without recomputation. Interactive node details show scope,
 kind, counts, duration sum and coverage even with no Finding; Markdown exposes the same values.
 
+### Offline inspection projections
+
+HTML, text and JSON inspection consume the same prepared TraceContext, Measurements and optional
+AgentRun IR. Packaging these artifacts does not change their analysis semantics. Inspection MUST NOT
+read a remote Source or rerun analysis; hosts retain acquisition scope/completeness alongside them.
+
+- Agent stack is one concern-specific trace view with HTML and text renderings. Both MUST share
+  selected rows, ordering, hierarchy and source references; text adds pagination, not selection rules.
+  Inspection follows the existing AgentRun projection used by HTML, keeps display IDs distinct
+  from source node IDs, and retains span references. Missing AgentRun IR is unavailable, not a
+  guessed tree. Stack output excludes model/tool input and output payloads.
+- Explicit node inspection reads all persisted measurements for that anchor, independently of
+  the report visibility filter. Missing, not-applicable, failed and measured-zero values remain
+  distinct. Unknown node IDs are errors.
+- Prefix detail uses the saved evidence window and shared call index. Group by kind, caller service,
+  target and operation; compute count, clipped duration sum, average and maximum before pagination.
+  A hierarchy-preserving timeline keeps original intervals, window-relative offsets and source IDs.
+  These projections do not claim exclusive time or a critical path. Sibling rows are chronological.
+- Bounded row output reports total count, offset and continuation offset; paging does not change
+  aggregates or the measurement window. Names and arbitrary text must not create extra output rows.
+
+The TypeScript SDK supplies convenience inspection/text functions; these are view projections,
+not a new persisted IR or a change to analysis/AgentRun schemas. The shared boundary fixture is
+[`inspection-window.json`](../conformance/trace/fixtures/inspection-window.json).
+
 ## 4. AgentRun IR
 
 The canonical concern-specific projection is `trace-harness/agent-run@1`, defined by

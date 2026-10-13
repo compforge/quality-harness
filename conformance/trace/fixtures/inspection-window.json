@@ -1,0 +1,75 @@
+{
+  "window": [
+    0,
+    30
+  ],
+  "calls": [
+    {
+      "id": "a",
+      "node_id": "a",
+      "kind": "node",
+      "service": "worker",
+      "name": "same",
+      "start_ms": 0,
+      "end_ms": 20,
+      "span_ids": [
+        "s-a"
+      ]
+    },
+    {
+      "id": "anchor",
+      "node_id": "anchor",
+      "kind": "node",
+      "service": "worker",
+      "name": "anchor",
+      "start_ms": 20,
+      "end_ms": 30,
+      "span_ids": [
+        "s-anchor"
+      ]
+    },
+    {
+      "id": "flight",
+      "node_id": "flight",
+      "kind": "node",
+      "service": "worker",
+      "name": "same",
+      "start_ms": 15,
+      "end_ms": 40,
+      "span_ids": [
+        "s-flight"
+      ]
+    },
+    {
+      "id": "cutoff",
+      "node_id": "cutoff",
+      "kind": "node",
+      "service": "worker",
+      "name": "same",
+      "start_ms": 30,
+      "end_ms": 40,
+      "span_ids": [
+        "s-cutoff"
+      ]
+    },
+    {
+      "id": "future",
+      "node_id": "future",
+      "kind": "node",
+      "service": "worker",
+      "name": "same",
+      "start_ms": 31,
+      "end_ms": 50,
+      "span_ids": [
+        "s-future"
+      ]
+    }
+  ],
+  "expected_group": {
+    "name": "same",
+    "count": 3,
+    "total": 35,
+    "max": 20,
+    "average": 11.666666666666666
+  }
+}
