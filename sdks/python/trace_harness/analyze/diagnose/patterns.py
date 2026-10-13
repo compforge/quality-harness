@@ -32,7 +32,7 @@ def _tool_churn(ctx: TraceContext) -> list[Finding]:
     """同一父节点下、同一 tool **背靠背**连续调用 ≥N 次（中间隔任何其它节点即断开——
     think→call→think→call 是正常 agent 循环，背靠背重复才指向 desc/出参问题）。"""
     out: list[Finding] = []
-    view = ctx.view()
+    view = ctx.tree()
 
     def flush(run: list[Node]) -> None:
         if len(run) < _CHURN_MIN_RUN:

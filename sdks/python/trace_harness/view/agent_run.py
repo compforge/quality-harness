@@ -37,7 +37,7 @@ def _source_payload(
     findings: dict[str, list[Finding]],
     status: str = "",
 ) -> dict[str, Any]:
-    by_id = context.view().by_id
+    by_id = context.tree().by_id
     nodes = [by_id[node_id] for node_id in source_node_ids if node_id in by_id]
     span_ids = list(dict.fromkeys(span_id for node in nodes for span_id in node.span_ids))
     error_span_ids = list(
@@ -56,9 +56,15 @@ def _source_payload(
     return {
         "service": nodes[0].service if nodes else "",
         "has_error": bool(error_span_ids) or status_error,
-        "error": context.error_text(error_span_ids[0]) if error_span_ids else status,
+        "error": (
+            context.error_text(error_span_ids[0])
+            or next((n.error_text for n in nodes if n.error_text), status)
+        )
+        if error_span_ids
+        else status,
         "findings": item_findings,
         "span_ids": span_ids,
+        "source_node_ids": list(source_node_ids),
         "primary_span_id": nodes[0].primary_span_id if nodes else "",
         "error_span_ids": error_span_ids,
     }

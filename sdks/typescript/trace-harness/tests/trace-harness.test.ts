@@ -1,3 +1,5 @@
+import { renderDisplay } from "../src/view/engine";
+import { reportHtml } from "./view-fixture";
 import { archiveContents, traceTrees } from "./archive-fixture";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -5,7 +7,7 @@ import { resolve } from "node:path";
 import {
   analysisSnapshot,
   assemble,
-  buildView,
+  buildNodeTree,
   DefaultFacet,
   diagnose,
   DisplayName,
@@ -14,8 +16,6 @@ import {
   Node,
   normalizeJaegerSpans,
   nameProjections,
-  renderInteractive,
-  renderDisplay,
   TraceHarness,
 } from "../src";
 
@@ -51,11 +51,11 @@ describe("Python trace_harness parity fixture", () => {
 
   test("renders the Python interactive view contract as one HTML file", async () => {
     const context = assemble(normalizeJaegerSpans(fixtureDocuments()), genAiSpecs());
-    const html = renderInteractive(context, await diagnose(context));
+    const html = reportHtml(new TraceHarness({}), context, await diagnose(context));
     expect(html + archiveContents(html)).toStartWith("<!doctype html>");
     expect(html + archiveContents(html)).toContain("调用栈");
     expect(html + archiveContents(html)).toContain("火焰图");
-    expect(html + archiveContents(html)).toContain('data-perspective="full"');
+    expect(html + archiveContents(html)).toContain('data-perspective="default"');
     expect(html + archiveContents(html)).not.toContain('data-perspective="agent"');
     expect(html + archiveContents(html)).toContain('data-layout="tree"');
     expect(html + archiveContents(html)).toContain('data-layout="flame"');
@@ -81,7 +81,7 @@ describe("Python trace_harness parity fixture", () => {
     );
 
     const context = assemble(normalizeJaegerSpans(documents), genAiSpecs());
-    const html = renderInteractive(context);
+    const html = reportHtml(new TraceHarness({}), context);
 
     expect(html + archiveContents(html)).toContain('"json.object":{"kind":"json","value":{"nested":[1,true,null]}}');
     expect(html + archiveContents(html)).toContain('"json.encoded":{"kind":"json","value":{"answer":"ok"}}');
@@ -100,7 +100,7 @@ describe("Python trace_harness parity fixture", () => {
       command: "python3 references/scripts/stream_query.py --question example",
     });
 
-    const html = renderInteractive(context);
+    const html = reportHtml(new TraceHarness({}), context);
 
     expect(html + archiveContents(html)).toContain('"name_variants":["shell · stream_query.py","stream_query.py","shell"]');
     expect(html + archiveContents(html)).toContain("applyNameLayout(row,n,depth,rowHeight)");
@@ -138,57 +138,6 @@ describe("Python trace_harness parity fixture", () => {
       "x".repeat(1000), "m".repeat(500), "s".repeat(100),
     ]);
     expect(calls).toBe(4);
-  });
-});
-
-describe("trace perspectives", () => {
-  const node = (
-    nodeId: string,
-    kind: string,
-    parentNodeId?: string,
-    startMs = 0,
-    error = false,
-  ): Node => new Node({
-    kind,
-    name: `${nodeId}.${kind}`,
-    primary_span_id: nodeId,
-    span_ids: [nodeId],
-    facts: {},
-    start_ms: startMs,
-    duration_ms: 10,
-    node_id: nodeId,
-    parent_node_id: parentNodeId,
-    error_span_ids: error ? [nodeId] : [],
-  });
-
-  test("agent perspective keeps semantic nodes and compresses context paths", () => {
-    const root = node("root", "service");
-    const agent = node("agent", "agent", root.node_id, 1);
-    const bridge = node("bridge", "service", agent.node_id, 2);
-    const model = node("model", "model-call", bridge.node_id, 3);
-    const tool = node("tool", "tool-call", agent.node_id, 4);
-    const noise = node("noise", "service", agent.node_id, 5);
-    const errorHttp = node("error-http", "http", model.node_id, 6, true);
-    const roots = renderDisplay(
-      buildView([root, agent, bridge, model, tool, noise, errorHttp]),
-      {},
-      undefined,
-      { perspective: "agent" },
-    );
-    const flat: Array<{ kind: string; name: string }> = [];
-    const stack = [...roots];
-    while (stack.length) {
-      const display = stack.pop()!;
-      flat.push(display);
-      stack.push(...display.children);
-    }
-
-    expect(flat.filter((display) => display.kind).map((display) => display.name).sort())
-      .toEqual([agent.name, model.name, tool.name].sort());
-    expect(flat.some((display) => display.name.includes("上下文节点"))).toBe(true);
-    expect(flat.map((display) => display.name)).not.toContain(noise.name);
-    expect(flat.map((display) => display.name)).not.toContain(errorHttp.name);
-    expect(model.parent_node_id).toBe(bridge.node_id);
   });
 });
 
@@ -250,7 +199,7 @@ describe("scoped TraceHarness", () => {
       .toContain("scope:alpha");
     expect(Object.values(plainFindings).flat().map((finding) => finding.source))
       .not.toContain("scope:alpha");
-    const displayedIds = (roots: ReturnType<TraceHarness["renderDisplay"]>): Set<string> => {
+    const displayedIds = (roots: ReturnType<typeof renderDisplay>): Set<string> => {
       const ids = new Set<string>();
       const stack = [...roots];
       while (stack.length) {
@@ -263,9 +212,9 @@ describe("scoped TraceHarness", () => {
     const successHttp = alphaContext.nodes.find((node) => (
       node.kind === "http" && node.facts.status === 200
     ))!;
-    expect(displayedIds(alpha.renderDisplay(alphaContext, alphaFindings))).toContain(successHttp.node_id);
-    expect(displayedIds(plain.renderDisplay(plainContext, plainFindings))).not.toContain(successHttp.node_id);
-    expect(archiveContents(alpha.renderInteractive(alphaContext, alphaFindings))).toContain("alpha-action");
-    expect(archiveContents(plain.renderInteractive(plainContext, plainFindings))).not.toContain("alpha-action");
+    expect(displayedIds(renderDisplay(alphaContext.tree(), alphaFindings, alpha.facets))).toContain(successHttp.node_id);
+    expect(displayedIds(renderDisplay(plainContext.tree(), plainFindings, plain.facets))).not.toContain(successHttp.node_id);
+    expect(archiveContents(reportHtml(alpha, alphaContext, alphaFindings))).toContain("alpha-action");
+    expect(archiveContents(reportHtml(plain, plainContext, plainFindings))).not.toContain("alpha-action");
   });
 });

@@ -1,13 +1,13 @@
 import { httpEndpoint } from "../kinds/http";
 import type { TraceContext } from "../model/context";
-import type { Measurements } from "../model/measurement";
+import type { Measurement, MeasurementSpec, Measurements } from "../model/measurement";
 
 /**
  * @spec Report projections retain the measured call identities and their original intervals.
- * @why Aggregation and window clipping are view operations; neither changes analysis or HTTP pairing.
+ * @why Window clipping and operation aggregation derive node timing data from existing call sources; HTTP pairing is preserved.
  */
 export function measurementCallDetails(trace: TraceContext, measurements: Measurements) {
-  const nodes = trace.view().by_id;
+  const nodes = trace.tree().by_id;
   const nodeCalls = new Map(measurements.sources.filter(call => call.kind !== "http").map(call => [call.node_id, `${call.kind}:${call.id}`]));
   return measurements.sources.map(call => {
     const node = nodes.get(call.node_id);
@@ -71,26 +71,48 @@ export function aggregateMeasurementCalls(calls: readonly WindowedCall[]): CallG
   }
   return [...groups.values()].sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
 }
-export function measurementTimelineRows(calls: readonly WindowedCall[], collapsed: ReadonlySet<string> = new Set(), filter: string | null = null): TimelineCall[] {
-  const byKey = new Map(calls.map(call => [call.key, call]));
-  const children = new Map<string | null, WindowedCall[]>();
-  for (const call of calls) {
-    const parent = call.parent && byKey.has(call.parent) ? call.parent : null;
-    const list = children.get(parent) ?? []; list.push(call); children.set(parent, list);
+
+export interface CallBreakdown {
+  status: "measured" | "not_applicable" | "error" | "not_available";
+  error: string | null;
+  window: { start_ms: number; end_ms: number; elapsed_ms: number } | null;
+  calls: WindowedCall[];
+  groups: CallGroup[];
+}
+
+/** @spec Derive timing once on explicit preparation, independently of rendering or visibility. */
+export function deriveCallBreakdown(trace: TraceContext, measurements: Measurements, nodeId: string): CallBreakdown {
+  if (!trace.tree().by_id.has(nodeId)) throw new Error(`Trace ${trace.trace_id}: node ${nodeId} not found`);
+  const prefix = measurements.get(nodeId, "calls_until_node_end");
+  const result: CallBreakdown = { status: prefix?.status ?? "not_available", error: prefix?.error ?? null,
+    window: null, calls: [], groups: [] };
+  if (prefix?.status !== "measured") return result;
+  const { start_ms: start, end_ms: end, source } = prefix.evidence;
+  if (source !== "calls" || typeof start !== "number" || typeof end !== "number") {
+    throw new Error(`Trace ${trace.trace_id}: node ${nodeId} has invalid prefix evidence`);
   }
-  for (const list of children.values()) list.sort((a,b) => a.start - b.start || b.end - a.end || a.key.localeCompare(b.key));
-  const visible = new Set<string>();
-  if (filter) for (const call of calls) if (call.group === filter) {
-    for (let item: WindowedCall | undefined = call; item && !visible.has(item.key); item = item.parent ? byKey.get(item.parent) : undefined) visible.add(item.key);
-  }
-  const rows: TimelineCall[] = [];
-  const visit = (parent: string | null, depth: number) => {
-    for (const call of children.get(parent) ?? []) {
-      if (filter && !visible.has(call.key)) continue;
-      rows.push({ ...call, depth, hasChildren: (children.get(call.key) ?? []).length > 0 });
-      if (filter || !collapsed.has(call.key)) visit(call.key, depth + 1);
-    }
-  };
-  visit(null, 0);
-  return rows;
+  result.calls = measurementWindow(measurementCallDetails(trace, measurements), start, end);
+  result.groups = aggregateMeasurementCalls(result.calls);
+  result.window = { start_ms: start, end_ms: end, elapsed_ms: end - start };
+  return result;
+}
+
+/** @spec This explicit preparation stores descriptive results; it never emits Findings. */
+export const CALL_BREAKDOWN: MeasurementSpec = { kind: "call_breakdown", scope: "node", dimensions: [],
+  units: { window: "ms", calls: "ms", groups: "ms" }, description: "Clipped calls and operation aggregates through this node's end." };
+export function prepareCallBreakdown(trace: TraceContext, measurements: Measurements, nodeId: string): void {
+  if (measurements.get(nodeId, CALL_BREAKDOWN.kind)) return;
+  const data = deriveCallBreakdown(trace, measurements, nodeId);
+  if (data.status === "not_available") return;
+  if (!measurements.specs.some(spec => spec.kind === CALL_BREAKDOWN.kind)) measurements.specs.push(CALL_BREAKDOWN);
+  const value: Measurement = { kind: CALL_BREAKDOWN.kind, node_id: nodeId, status: data.status, error: data.error,
+    values: data.status === "measured" ? { window: data.window, calls: data.calls, groups: data.groups } : {},
+    evidence: { measurement: "calls_until_node_end", node_id: nodeId } };
+  (measurements.nodes[nodeId] ??= []).push(value);
+}
+export function savedCallBreakdown(measurements: Measurements, nodeId: string): CallBreakdown | undefined {
+  const saved = measurements.get(nodeId, CALL_BREAKDOWN.kind);
+  return saved ? { status: saved.status, error: saved.error,
+    window: saved.values.window as CallBreakdown["window"] ?? null,
+    calls: saved.values.calls as WindowedCall[] ?? [], groups: saved.values.groups as CallGroup[] ?? [] } : undefined;
 }

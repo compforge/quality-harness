@@ -14,7 +14,7 @@ import pytest
 from trace_harness.ingest.assemble import assemble
 from trace_harness.ingest.load import build_context
 from trace_harness.kinds import genai
-from trace_harness.model.ir import TraceView, dump_view, is_nodes_file, load_view
+from trace_harness.model.ir import TraceSnapshot, dump_nodes, is_nodes_file, load_nodes
 from trace_harness.model.span import NormSpan
 from trace_harness.view.engine import render_callstack
 from trace_harness.view.explore import render_explore
@@ -48,9 +48,9 @@ def _span(sid, parent, name, dur, attrs, *, start=0.0, error=False):
 
 
 def test_ir_roundtrip(tmp_path, ctx):
-    p = dump_view(ctx, tmp_path / "n.json")
+    p = dump_nodes(ctx, tmp_path / "n.json")
     assert is_nodes_file(p)
-    tv = load_view(p)
+    tv = load_nodes(p)
     assert tv.trace_id == ctx.trace_id
     assert len(tv.nodes) == len(ctx.nodes)
     assert tv.span_count == ctx.span_count
@@ -61,14 +61,14 @@ def test_ir_roundtrip(tmp_path, ctx):
     synth = next(n for n in tv.nodes if n.name == "chat synth")
     assert "ModelTPOTTimeoutError" in synth.error_text
     # 父子结构从平 node 集重建
-    vt = tv.view()
+    vt = tv.tree()
     agent = next(n for n in tv.nodes if n.kind == "agent")
     assert len(vt.children(agent)) == 3
 
 
 def test_loaded_ir_renders_via_callstack(tmp_path, ctx):
     # 统一性：既有渲染器吃序列化 IR（零 ctx）也能出树，brief 来自烤进 IR 的字段
-    tv = load_view(dump_view(ctx, tmp_path / "n.json"))
+    tv = load_nodes(dump_nodes(ctx, tmp_path / "n.json"))
     out = render_callstack(tv)
     assert "chat planner" in out
     assert "model-alpha-seed-2" in out
@@ -78,7 +78,7 @@ def test_loaded_ir_renders_via_callstack(tmp_path, ctx):
 
 
 def test_thumbnail_collapses_then_expand_reveals(ctx):
-    tv = TraceView.from_context(ctx)
+    tv = TraceSnapshot.from_context(ctx)
     thumb = render_explore(tv, ViewState())
     assert "invoke_agent main" in thumb
     assert "⊕" in thumb  # 有可展开折叠点
@@ -99,7 +99,7 @@ def test_isomorphic_siblings_collapse_to_xN():
         )
         spans[f"call{i}"] = _span(f"call{i}", f"agent{i}", "chat", 1000, _MODEL, start=i * 10000)
     ctx = assemble(spans, genai.specs())
-    out = render_explore(TraceView.from_context(ctx), ViewState())
+    out = render_explore(TraceSnapshot.from_context(ctx), ViewState())
     assert "×3" in out  # 3 个同构 agent 折叠成一行
     assert out.count("invoke_agent x") == 1  # 不是铺 3 行
 

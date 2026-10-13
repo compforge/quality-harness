@@ -44,7 +44,7 @@ async def test_node_result_scope_postorder_and_repeat_analysis(tmp_path):
         result = context.result("leaf")
         assert result.status == "succeeded"
         assert [r["data"]["node"] for r in result.findings()] == [node.node_id]
-        for child in context.trace.view().children(node):
+        for child in context.trace.tree().children(node):
             assert any(f.source == "summary-rule" for f in context.findings[child.node_id])
         return [Finding(node.node_id, "summary-rule", "info")]
 

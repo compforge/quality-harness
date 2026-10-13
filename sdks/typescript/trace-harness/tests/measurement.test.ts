@@ -1,14 +1,16 @@
+import { measurementsMd } from "../src/view/measurements";
+import { reportHtml } from "./view-fixture";
 import { archiveContents, traceTrees } from "./archive-fixture";
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { type FactTransform, TransformContext, buildView, Node, NormSpan, TraceContext, TraceHarness, genAiSpecs, analysisSnapshot, loadAnalysis, type Measurer, type MeasurementSpec, mergeTraceContributions, measurementsMd } from "../src/index";
+import { type FactTransform, TransformContext, buildNodeTree, Node, NormSpan, TraceContext, TraceHarness, genAiSpecs, analysisSnapshot, loadAnalysis, type Measurer, type MeasurementSpec, mergeTraceContributions } from "../src/index";
 
 import { prefixValues } from "../src/analyze/measure";
 import type { CallSource } from "../src/model/measurement";
 
 interface Case {
   name: string;
-  presentation?: { anchor_span_ids: string[]; spec_ids: string[] };
+  presentation?: { anchor_span_ids: string[]; kinds: string[] };
   spans: Array<{ span_id: string; parent_span_id: string | null; name: string; start_ms: number; dur_ms: number; service: string; attrs: Record<string, unknown> }>;
   expected: Record<string, Record<string, { count: number; duration_sum_ms: number; covered_ms: number }>>;
 }
@@ -22,7 +24,7 @@ for (const fixture of cases) test(`Measurement conformance: ${fixture.name}`, as
   const analysis = await harness.analyze(trace, false);
   expect(analysis.findings).toEqual({});
   for (const [id, expected] of Object.entries(fixture.expected)) {
-    const node = trace.view().by_span.get(id)!;
+    const node = trace.tree().by_span.get(id)!;
     const result = analysis.measurements.get(node.node_id, "calls_until_node_end")!;
     expect(result.status).toBe("measured");
     expect(result.values).toEqual(expected);
@@ -33,7 +35,7 @@ for (const fixture of cases) test(`Measurement conformance: ${fixture.name}`, as
 const node = () => new Node({ kind: "tool", name: "n", node_id: "n", primary_span_id: "n", span_ids: ["n"], facts: {}, start_ms: 0, duration_ms: 10 });
 test("fact dependencies memoize whole producer outputs", () => {
   const n = node(); let calls = 0;
-  new TransformContext(buildView([n]), [{ produces: ["c"], applies: () => true, compute: (n, ctx) => ({ c: Number(ctx.get(n, "a")) + Number(ctx.get(n, "b")) }) }, { produces: ["a", "b"], applies: () => true, compute: () => { calls++; return { a: 2, b: 3 }; } }]).materialize([[n, "c"]]);
+  new TransformContext(buildNodeTree([n]), [{ produces: ["c"], applies: () => true, compute: (n, ctx) => ({ c: Number(ctx.get(n, "a")) + Number(ctx.get(n, "b")) }) }, { produces: ["a", "b"], applies: () => true, compute: () => { calls++; return { a: 2, b: 3 }; } }]).materialize([[n, "c"]]);
   expect(n.facts).toEqual({ a: 2, b: 3, c: 5 }); expect(calls).toBe(1);
 });
 for (const failure of ["duplicate", "base", "cycle", "undeclared"]) test(`invalid transform: ${failure}`, () => {
@@ -44,28 +46,28 @@ for (const failure of ["duplicate", "base", "cycle", "undeclared"]) test(`invali
   else if (failure === "cycle") items = [{ produces: ["a"], applies: () => true, compute: (n, ctx) => ({ a: ctx.get(n, "b") }) }, { produces: ["b"], applies: () => true, compute: (n, ctx) => ({ b: ctx.get(n, "a") }) }];
   else items = [{ ...producer, compute: () => ({ other: 1 }) }];
   const before = { ...n.facts };
-  expect(() => new TransformContext(buildView([n]), items).materialize([[n, "a"]])).toThrow(); expect(n.facts).toEqual(before);
+  expect(() => new TransformContext(buildNodeTree([n]), items).materialize([[n, "a"]])).toThrow(); expect(n.facts).toEqual(before);
 });
 test("curl is an ordinary fact, materialized only on request", async () => {
   let calls = 0;
   const transform: FactTransform = { produces: ["curl"], applies: () => true, compute: (node, ctx) => { calls++; return { curl: `curl -X ${ctx.get(node, "method") ?? "GET"} example.test` }; } };
   const harness = new TraceHarness({ specs: genAiSpecs(), transforms: [transform] });
   const trace = build(cases[0]!, harness);
-  const html = harness.renderInteractive(trace);
+  const html = reportHtml(harness, trace);
   expect(calls).toBe(0); expect(html + archiveContents(html)).not.toContain("curl -X");
   harness.transformAll(trace, "curl");
   expect(calls).toBe(trace.nodes.length);
-  expect(archiveContents(harness.renderInteractive(trace))).toContain("curl -X");
+  expect(archiveContents(reportHtml(harness, trace))).toContain("curl -X");
   expect(trace.nodes.every((node) => Object.hasOwn(node.facts, "curl"))).toBe(true);
   harness.transformAll(trace, "curl");
   expect(calls).toBe(trace.nodes.length);
   const loaded = loadAnalysis(JSON.parse(JSON.stringify(analysisSnapshot(await harness.analyze(trace, false)))));
-  expect(archiveContents(harness.renderInteractive(loaded.trace))).toContain("curl -X");
+  expect(archiveContents(reportHtml(harness, loaded.trace))).toContain("curl -X");
 });
 test("measurers run once, detectors consume measurements and previous findings", async () => {
   let calls = 0; const seen: boolean[] = [];
-  const custom: Measurer = { spec: { id: "custom", scope: "node", units: { size: "item" }, description: "Size", dimensions: [] }, compute: (trace) => {
-    calls++; return trace.nodes.map((node) => ({ spec_id: "custom", anchor_node_id: node.node_id, status: "measured", values: { size: 7 }, evidence: {}, error: null }));
+  const custom: Measurer = { spec: { kind: "custom", scope: "node", units: { size: "item" }, description: "Size", dimensions: [] }, compute: (trace) => {
+    calls++; return trace.nodes.map((node) => ({ kind: "custom", node_id: node.node_id, status: "measured", values: { size: 7 }, evidence: {}, error: null }));
   } };
   const harness = new TraceHarness({ specs: genAiSpecs(), measurers: [custom], detectors: [(node, analysis) => {
     expect(analysis.measurements.get(node.node_id, "custom")!.values).toEqual({ size: 7 });
@@ -75,8 +77,8 @@ test("measurers run once, detectors consume measurements and previous findings",
   expect(calls).toBe(2); expect(seen.every(Boolean)).toBe(true); expect(b.findings).toEqual({}); expect(a.measurements).not.toBe(b.measurements);
 });
 test("errors and not applicable never become zero", () => {
-  const spec: MeasurementSpec = { id: "broken", scope: "node", units: {}, description: "Failure", dimensions: [] };
-  const harness = new TraceHarness({ specs: genAiSpecs(), measurers: [{ spec, compute: () => { throw new Error("missing input"); } }, { spec: { ...spec, id: "skip" }, compute: () => [] }] });
+  const spec: MeasurementSpec = { kind: "broken", scope: "node", units: {}, description: "Failure", dimensions: [] };
+  const harness = new TraceHarness({ specs: genAiSpecs(), measurers: [{ spec, compute: () => { throw new Error("missing input"); } }, { spec: { ...spec, kind: "skip" }, compute: () => [] }] });
   const trace = build(cases[0]!, harness), result = harness.measure(trace);
   for (const node of trace.nodes) { expect(result.get(node.node_id, "broken")!.status).toBe("error"); expect(result.get(node.node_id, "broken")!.values).toEqual({}); expect(result.get(node.node_id, "skip")!.status).toBe("not_applicable"); }
 });
@@ -84,7 +86,7 @@ test("saved analysis renders offline without recomputation", async () => {
   const harness = new TraceHarness({ specs: genAiSpecs() }); const trace = build(cases[1]!);
   const snapshot = analysisSnapshot(await harness.analyze(trace, false)); const loaded = loadAnalysis(JSON.parse(JSON.stringify(snapshot)));
   expect(analysisSnapshot(loaded)).toEqual(snapshot); expect(loaded.trace.spans.size).toBe(0); expect(loaded.trace.span_count).toBe(trace.span_count);
-  expect(archiveContents(harness.renderInteractive(loaded.trace, {}, { measurements: loaded.measurements }))).toContain('"duration_sum_ms":50');
+  expect(archiveContents(reportHtml(harness, loaded.trace, {}, { measurements: loaded.measurements }))).toContain('"duration_sum_ms":50');
 });
 test("prefix sweep matches an independent naive interval oracle", () => {
   const sources: CallSource[] = Array.from({ length: 100 }, (_, i) => ({ id: String(i), kind: "http", node_id: String(i), span_ids: [String(i)], start_ms: i % 37, end_ms: i % 37 + i % 19 }));
@@ -109,18 +111,18 @@ test("self measurement clips children and includes leaf duration", () => {
 test("invalid intervals are errors rather than zero", () => {
   const bad = new Node({ kind: "tool", name: "bad", node_id: "bad", primary_span_id: "bad", span_ids: ["bad"], facts: {}, start_ms: 0, duration_ms: -1 });
   const result = new TraceHarness({}).measure(new TraceContext("bad", new Map(), [bad], new Map()));
-  expect(result.results.bad!.every((value) => value.status === "error" && Object.keys(value.values).length === 0)).toBe(true);
+  expect(result.nodes.bad!.every((value) => value.status === "error" && Object.keys(value.values).length === 0)).toBe(true);
 });
 test("failed measurer results cannot carry numeric values", () => {
-  const spec: MeasurementSpec = { id: "invalid", scope: "node", units: { n: "item" }, description: "Invalid output", dimensions: [] };
-  const harness = new TraceHarness({ specs: genAiSpecs(), measurers: [{ spec, compute: (trace) => trace.nodes.map((node) => ({ spec_id: spec.id, anchor_node_id: node.node_id, status: "error", values: { n: 0 }, evidence: {}, error: "missing input" })) }] });
+  const spec: MeasurementSpec = { kind: "invalid", scope: "node", units: { n: "item" }, description: "Invalid output", dimensions: [] };
+  const harness = new TraceHarness({ specs: genAiSpecs(), measurers: [{ spec, compute: (trace) => trace.nodes.map((node) => ({ kind: spec.kind, node_id: node.node_id, status: "error", values: { n: 0 }, evidence: {}, error: "missing input" })) }] });
   const trace = build(cases[0]!, harness), result = harness.measure(trace);
   expect(trace.nodes.every((node) => Object.keys(result.get(node.node_id, "invalid")!.values).length === 0)).toBe(true);
 });
 
 test("failed transform batch retries without cached partial dependencies", () => {
   const n = node(); let calls = 0;
-  const context = new TransformContext(buildView([n]), [
+  const context = new TransformContext(buildNodeTree([n]), [
     { produces: ["a"], applies: () => true, compute: () => { calls++; return { a: 1 }; } },
     { produces: ["b"], applies: () => true, compute: (n, ctx) => { const a = Number(ctx.get(n, "a")); if (calls === 1) throw new Error("temporary"); return { b: a + 1 }; } },
   ]);
@@ -131,7 +133,7 @@ test("failed transform batch retries without cached partial dependencies", () =>
 });
 test("missing outputs cache once and unknown nodes are rejected", () => {
   const n = node(); let calls = 0;
-  const ctx = new TransformContext(buildView([n]), [{ produces: ["optional"], applies: () => true, compute: () => { calls++; return {}; } }]);
+  const ctx = new TransformContext(buildNodeTree([n]), [{ produces: ["optional"], applies: () => true, compute: () => { calls++; return {}; } }]);
   ctx.materialize([[n, "optional"]]); ctx.materialize([[n, "optional"]]);
   expect(calls).toBe(1); expect(n.facts).toEqual({});
   expect(() => ctx.materialize([[node(), "optional"]])).toThrow("does not belong");
@@ -149,7 +151,7 @@ test("projection requests its facts without computing unrelated transforms", asy
   const span = new NormSpan("n", undefined, "request", 0, 10, undefined, false, {}, { traceID: "t" });
   const trace = harness.assemble(new Map([["n", span]]));
   expect(trace.nodes[0]!.brief[0]!.value).toBe("POST"); expect(calls).toBe(0);
-  await harness.analyze(trace); harness.renderInteractive(trace); expect(calls).toBe(0);
+  await harness.analyze(trace); reportHtml(harness, trace); expect(calls).toBe(0);
   expect(harness.transform(trace.nodes[0]!, trace, "repro")).toEqual({ repro: { command: "curl -X POST example.test" } });
   harness.transformAll(trace, "curl", "repro"); expect(calls).toBe(1);
   const other = harness.assemble(new Map([["n", span]]));
@@ -164,8 +166,8 @@ test("report selection preserves analysis and offline evidence", async () => {
   const harness = new TraceHarness(mergeTraceContributions({
     specs: genAiSpecs(),
     measurementFilter: (node, measurement, trace) => {
-      expect(trace.view().by_id.get(node.node_id)).toBe(node);
-      return selection.anchor_span_ids.includes(node.primary_span_id) && selection.spec_ids.includes(measurement.spec_id);
+      expect(trace.tree().by_id.get(node.node_id)).toBe(node);
+      return selection.anchor_span_ids.includes(node.primary_span_id) && selection.kinds.includes(measurement.kind);
     },
     detectors: [(node, analysis) => { seen.push(!!analysis.measurements.get(node.node_id, "self_ms")); return []; }],
   }, { measurementFilter: () => false }));
@@ -174,19 +176,19 @@ test("report selection preserves analysis and offline evidence", async () => {
   expect(seen.length).toBe(trace.nodes.length); expect(seen.every(Boolean)).toBe(true);
   const before = JSON.stringify(analysisSnapshot(analysis));
   const visible = harness.visibleMeasurements(trace, analysis.measurements);
-  expect(Object.keys(visible.results)).toEqual([trace.view().by_span.get("b")!.node_id]);
-  expect(Object.values(visible.results).flat().map((m) => m.spec_id)).toEqual(["calls_until_node_end"]);
+  expect(Object.keys(visible.nodes)).toEqual([trace.tree().by_span.get("b")!.node_id]);
+  expect(Object.values(visible.nodes).flat().map((m) => m.kind)).toEqual(["calls_until_node_end"]);
   expect(visible.sources).toBe(analysis.measurements.sources);
   const md = measurementsMd(trace, visible);
   expect(md).toContain("| b | calls_until_node_end |"); expect(md).not.toContain("| a | calls_until_node_end |");
   expect(md).not.toContain("self_ms");
   const loaded = loadAnalysis(JSON.parse(before));
-  const html = harness.renderInteractive(loaded.trace, {}, { measurements: loaded.measurements });
+  const html = reportHtml(harness, loaded.trace, {}, { measurements: loaded.measurements });
   expect(html + archiveContents(html)).toContain('"duration_sum_ms":30'); expect(html + archiveContents(html)).not.toContain('"id":"self_ms"');
   expect(JSON.stringify(analysisSnapshot(analysis))).toBe(before);
   expect(analysisSnapshot(loaded)).toEqual(analysisSnapshot(analysis));
   const hidden = new TraceHarness({ measurementFilter: () => false });
-  expect(hidden.visibleMeasurements(trace, analysis.measurements).results).toEqual({});
+  expect(hidden.visibleMeasurements(trace, analysis.measurements).nodes).toEqual({});
   expect(measurementsMd(trace, hidden.visibleMeasurements(trace, analysis.measurements))).toBe("");
-  expect(archiveContents(hidden.renderInteractive(trace, {}, { measurements: analysis.measurements }))).toContain('"measurements":[]');
+  expect(archiveContents(reportHtml(hidden, trace, {}, { measurements: analysis.measurements }))).toContain('"measurements":[]');
 });

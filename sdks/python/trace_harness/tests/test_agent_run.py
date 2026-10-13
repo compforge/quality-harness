@@ -20,6 +20,7 @@ from trace_harness import (
 )
 from trace_harness.ingest.sources.jaeger_file import load_jaeger_file
 from trace_harness.kinds import genai
+from trace_harness.tests.view_fixture import report_html
 from trace_harness.view.agent_run import agent_run_roots
 
 ROOT = Path(__file__).parents[4]
@@ -205,7 +206,7 @@ async def test_interactive_agent_view_is_owned_by_agent_run_renderer():
     harness = _harness(_FixtureAgentRunExtractor())
     context = harness.assemble(load_jaeger_file(RAW))
 
-    html = harness.render_interactive(context, (await harness.diagnose(context)))
+    html = report_html(harness, context, (await harness.diagnose(context)))
 
     assert 'data-perspective="agent"' in html
     assert "agent-run:run-main" in html
@@ -375,7 +376,7 @@ def test_interactive_hides_agent_view_without_an_extractor():
     harness = _harness()
     context = harness.assemble(load_jaeger_file(RAW))
 
-    assert 'data-perspective="agent"' not in harness.render_interactive(context)
+    assert 'data-perspective="agent"' not in report_html(harness, context)
 
 
 def test_extractor_output_rejects_unknown_node_references():

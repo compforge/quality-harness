@@ -306,3 +306,34 @@ def agent_run_snapshot(ir: AgentRunIR) -> dict[str, Any]:
         "trace_id": ir.trace_id,
         "runs": [_run_snapshot(run) for run in ir.runs],
     }
+
+
+def load_agent_run(data: dict) -> AgentRunIR:
+    """Decode a saved derivation; the analysis loader validates its source identities."""
+
+    def item(value):
+        fields = {k: v for k, v in value.items() if k != "kind"}
+        fields["source_node_ids"] = tuple(fields.get("source_node_ids", ()))
+        kind = value["kind"]
+        if kind in {"operation", "tool-call"}:
+            fields["agent_runs"] = tuple(run(x) for x in fields.get("agent_runs", ()))
+        if kind == "operation":
+            fields["operations"] = tuple(item(x) for x in fields.get("operations", ()))
+        if kind == "agent-turn":
+            fields["items"] = tuple(item(x) for x in fields["items"])
+        return {
+            "operation": Operation,
+            "tool-call": ToolCall,
+            "model-call": ModelCall,
+            "agent-turn": AgentTurn,
+        }[kind](**fields)
+
+    def run(value):
+        fields = {k: v for k, v in value.items() if k != "kind"}
+        fields["source_node_ids"] = tuple(fields.get("source_node_ids", ()))
+        fields["items"] = tuple(item(x) for x in fields["items"])
+        return AgentRun(**fields)
+
+    if data["schema"] != AGENT_RUN_SCHEMA:
+        raise ValueError("Unsupported AgentRun schema")
+    return AgentRunIR(data["trace_id"], tuple(run(x) for x in data["runs"]))

@@ -12,9 +12,7 @@ from trace_harness.view.facet import (
     ChildOp,
     DefaultFacet,
     Hide,
-    PerspectiveLevel,
     RenderCtx,
-    TracePerspective,
 )
 
 
@@ -23,11 +21,6 @@ class ModelCallFacet(DefaultFacet):
 
     def match(self, node: Node) -> bool:
         return node.kind == "model-call"
-
-    def perspective_level(
-        self, node: Node, perspective: TracePerspective
-    ) -> PerspectiveLevel | None:
-        return "primary" if perspective == "agent" else None
 
     def layout(self, node: Node, children: list[Node], rctx: RenderCtx) -> list[ChildOp]:
         http = [c for c in children if c.kind == "http"]

@@ -1,3 +1,4 @@
+import { reportHtml } from "./view-fixture";
 import { expect, test } from "bun:test";
 import { runInNewContext } from "node:vm";
 import { strFromU8 } from "fflate";
@@ -12,7 +13,7 @@ test("node and span details remain complete outside the lightweight tree index",
     traceID: "trace", spanID: "span", operationName: "request", startTime: 1000000, duration: 5000,
     tags: [{ key: "large", value: body }], process: { serviceName: "fixture" },
   }]));
-  const html = h.renderInteractive(c);
+  const html = reportHtml(h, c);
   const entries = archiveEntries(html);
   const indexText = strFromU8(entries["index.json"]!);
   expect(indexText.length).toBeLessThan(10000);

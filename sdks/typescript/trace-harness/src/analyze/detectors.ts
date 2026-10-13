@@ -29,7 +29,7 @@ const observationHole: Detector = (node, analysis) => {
   const context = analysis.trace;
   const spec = context.specs.get(node.kind);
   if (spec?.obs_hole === false) return [];
-  const children = context.view().children(node);
+  const children = context.tree().children(node);
   if (children.length === 0 || node.duration_ms <= 0) return [];
   const measurement = analysis.measurements.get(node.node_id, "self_ms");
   if (measurement?.status !== "measured") return [];
@@ -47,7 +47,7 @@ const propagated: Detector = (node, analysis) => {
   const context = analysis.trace;
   if (!node.has_error) return [];
   const signature = errorSignature(context, node);
-  const stack = [...context.view().children(node)];
+  const stack = [...context.tree().children(node)];
   while (stack.length) {
     const descendant = stack.pop()!;
     if (descendant.has_error && errorSignature(context, descendant) === signature) {
@@ -58,7 +58,7 @@ const propagated: Detector = (node, analysis) => {
         note: `错误传播副本（源头在更深 node；sig=${signature}）`,
       }];
     }
-    stack.push(...context.view().children(descendant));
+    stack.push(...context.tree().children(descendant));
   }
   return [];
 };

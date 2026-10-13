@@ -2,11 +2,11 @@
 
 from trace_harness.kinds.base import _fmt_ms
 from trace_harness.model.node import Field, Finding
-from trace_harness.model.viewtree import ViewTree
+from trace_harness.model.node_tree import NodeTree
 from trace_harness.view.facet import ChildOp, Expand, Fold, Group
 
 
-def http_call_groups(view: ViewTree, findings: dict[str, list[Finding]]) -> dict[str, Group]:
+def http_call_groups(view: NodeTree, findings: dict[str, list[Finding]]) -> dict[str, Group]:
     groups = {}
     for items in findings.values():
         for finding in items:

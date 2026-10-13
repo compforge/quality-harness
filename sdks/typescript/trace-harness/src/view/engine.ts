@@ -1,14 +1,13 @@
 import { formatMs } from "../kinds/base";
 import type { Finding, Node } from "../model/node";
-import type { ViewTree } from "../model/viewtree";
+import type { NodeTree } from "../model/node-tree";
 import type { DisplayNode } from "./display";
 import type { ChildOp, RenderConfig, RenderContext } from "./facet";
 import { builtinFacets } from "./facets";
 import { groupHttpCalls, groupHttpServices, httpCallGroups } from "./http";
-import { projectPerspective } from "./perspective";
 import { FacetRegistry } from "./registry";
 
-function subtreeSize(view: ViewTree, node: Node): { count: number; total: number } {
+function subtreeSize(view: NodeTree, node: Node): { count: number; total: number } {
   let count = 1;
   let total = node.duration_ms;
   for (const child of view.children(node)) {
@@ -19,7 +18,7 @@ function subtreeSize(view: ViewTree, node: Node): { count: number; total: number
   return { count, total };
 }
 
-function flagged(view: ViewTree, findings: Readonly<Record<string, readonly Finding[]>>): Map<string, boolean> {
+function flagged(view: NodeTree, findings: Readonly<Record<string, readonly Finding[]>>): Map<string, boolean> {
   const result = new Map<string, boolean>();
   const mark = (node: Node): boolean => {
     let value = node.has_error || Boolean(findings[node.node_id]?.length);
@@ -35,7 +34,7 @@ function synthetic(name: string, nodeIds: string[], folded: number): DisplayNode
   return { kind: "", name, brief: [], node_ids: nodeIds, children: [], findings: [], folded };
 }
 
-function foldedLine(view: ViewTree, nodes: Node[], cut: number): DisplayNode {
+function foldedLine(view: NodeTree, nodes: Node[], cut: number): DisplayNode {
   const values = nodes.map((node) => subtreeSize(view, node));
   const count = values.reduce((sum, value) => sum + value.count, 0);
   const total = nodes.reduce((sum, node) => sum + node.duration_ms, 0);
@@ -43,7 +42,7 @@ function foldedLine(view: ViewTree, nodes: Node[], cut: number): DisplayNode {
 }
 
 export function renderDisplay(
-  view: ViewTree,
+  view: NodeTree,
   findings: Readonly<Record<string, readonly Finding[]>> = {},
   registry?: FacetRegistry,
   config: RenderConfig = {},
@@ -140,10 +139,5 @@ export function renderDisplay(
     }
     target?.findings.push(...nodeFindings);
   }
-  return projectPerspective(
-    roots,
-    view.by_id,
-    activeRegistry,
-    config.perspective ?? "full",
-  );
+  return roots;
 }

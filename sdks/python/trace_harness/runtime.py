@@ -222,11 +222,13 @@ class TraceSession:
         probes: bool = False,
     ) -> AnalysisContext:
         plan = self.harness.detectors.plan(detectors)
-        metric_ids = [m.spec.id for m in self.harness.measurers] if metrics is None else metrics
-        if analysis.trace.nodes:
-            await asyncio.gather(
-                *(analysis.measure(analysis.trace.nodes[0], name) for name in metric_ids)
+        metric_ids = [m.spec.kind for m in self.harness.measurers] if metrics is None else metrics
+        await asyncio.gather(
+            *(
+                analysis.measure(analysis.trace.nodes[0] if analysis.trace.nodes else None, name)
+                for name in metric_ids
             )
+        )
         if detectors is not None:
             # Explicit selection runs the same executor without unrelated base rules.
             return await run_node_detectors(analysis, plan)

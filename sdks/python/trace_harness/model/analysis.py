@@ -7,11 +7,12 @@ from dataclasses import asdict
 from pathlib import Path
 
 from trace_harness.analyze.context import AnalysisContext
+from trace_harness.model.agent import agent_run_snapshot, load_agent_run, validate_agent_run_ir
 from trace_harness.model.context import TraceContext
 from trace_harness.model.measurement import CallSource, Measurement, Measurements, MeasurementSpec
 from trace_harness.model.node import Field, Finding, Node
 
-SCHEMA = "trace-harness/analysis@2"
+SCHEMA = "trace-harness/analysis@3"
 
 
 def analysis_snapshot(
@@ -33,6 +34,7 @@ def analysis_snapshot(
     )
     return {
         "schema": SCHEMA,
+        **({"agent_runs": agent_run_snapshot(analysis.agent_runs)} if analysis.agent_runs else {}),
         "trace_id": context.trace_id,
         "span_count": context.span_count,
         "measurements": json.loads(json.dumps(asdict(analysis.measurements))),
@@ -119,9 +121,10 @@ def load_analysis(path: str | Path) -> AnalysisContext:
         ],
         {
             node_id: [Measurement(**item) for item in results]
-            for node_id, results in payload["results"].items()
+            for node_id, results in payload["nodes"].items()
         },
     )
+    measurements.trace = [Measurement(**item) for item in payload["trace"]]
     findings: dict[str, list[Finding]] = {}
     for item in data["findings"]:
         finding = Finding(
@@ -133,4 +136,7 @@ def load_analysis(path: str | Path) -> AnalysisContext:
         measurements,
         {key: tuple(value) for key, value in findings.items()},
         detector_runs=tuple(data.get("detector_runs", ())),
+        agent_runs=validate_agent_run_ir(load_agent_run(data["agent_runs"]), trace)
+        if "agent_runs" in data
+        else None,
     )

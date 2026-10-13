@@ -20,27 +20,32 @@ def filter_measurements(
     results = {}
     for node in trace.nodes:
         selected = [
-            m for m in measurements.results.get(node.node_id, ()) if predicate(node, m, trace)
+            m for m in measurements.nodes.get(node.node_id, ()) if predicate(node, m, trace)
         ]
         if selected:
             results[node.node_id] = selected
-    return Measurements(measurements.specs, measurements.sources, results)
+    return Measurements(measurements.specs, measurements.sources, results, measurements.trace)
 
 
-def measurement_rows(measurements: Measurements, node_id: str) -> list[dict]:
-    specs = {spec.id: spec for spec in measurements.specs}
+def measurement_rows(measurements: Measurements, node_id: str | None) -> list[dict]:
+    specs = {spec.kind: spec for spec in measurements.specs}
     rows = []
-    for result in measurements.results.get(node_id, ()):
-        spec = specs[result.spec_id]
-        values = result.values if spec.dimensions else {"": result.values}
+    for result in measurements.trace if node_id is None else measurements.nodes.get(node_id, ()):
+        spec = specs[result.kind]
+        selected = (
+            {"window": result.values.get("window")}
+            if result.kind == "call_breakdown"
+            else result.values
+        )
+        values = selected if spec.dimensions else {"": selected}
         if result.status != "measured":
             values = {"": {}}
         for kind, metrics in values.items():
             rows.append(
                 {
-                    "id": spec.id,
+                    "kind": spec.kind,
                     "scope": spec.scope,
-                    "kind": kind,
+                    "call_kind": kind,
                     "status": result.status,
                     "values": metrics,
                     "units": spec.units,
@@ -52,7 +57,7 @@ def measurement_rows(measurements: Measurements, node_id: str) -> list[dict]:
 
 
 def measurements_md(trace: Renderable, measurements: Measurements | None) -> str:
-    if measurements is None or not any(measurements.results.values()):
+    if measurements is None or not any(measurements.nodes.values()):
         return ""
     lines = [
         "",
@@ -80,7 +85,8 @@ def measurements_md(trace: Renderable, measurements: Measurements | None) -> str
             lines.append(
                 "| "
                 + " | ".join(
-                    escape(v) for v in (node.node_id, row["id"], row["scope"], row["kind"], value)
+                    escape(v)
+                    for v in (node.node_id, row["kind"], row["scope"], row["call_kind"], value)
                 )
                 + " |"
             )

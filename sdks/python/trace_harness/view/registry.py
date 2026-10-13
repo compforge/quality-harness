@@ -12,8 +12,6 @@ from trace_harness.model.node import Node
 from trace_harness.view.facet import (
     DefaultFacet,
     Facet,
-    PerspectiveLevel,
-    TracePerspective,
 )
 
 
@@ -34,14 +32,3 @@ class FacetRegistry:
             if f.match(node):
                 return f
         return self._default
-
-    def perspective_level(self, node: Node, perspective: TracePerspective) -> PerspectiveLevel:
-        if perspective == "full":
-            return "primary"
-        for facet in self._facets:
-            if not facet.match(node):
-                continue
-            level = facet.perspective_level(node, perspective)
-            if level is not None:
-                return level
-        return self._default.perspective_level(node, perspective) or "detail"

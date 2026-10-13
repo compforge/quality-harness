@@ -36,12 +36,12 @@ export class TraceAnalysis {
   }
   #node(node: Node): void {
     this.check();
-    if (this.trace.view().by_id.get(node.node_id) !== node) throw new Error("node does not belong to this trace");
+    if (this.trace.tree().by_id.get(node.node_id) !== node) throw new Error("node does not belong to this trace");
   }
   async dependencies(dependencies: readonly Dependency[], parent?: string): Promise<void> {
     await Promise.all(dependencies.map(dependency => {
       if (dependency instanceof EvidenceDependency) return this.loader.load(this.trace, dependency.span_ids, dependency.fields);
-      const node = this.trace.view().by_id.get(dependency.node_id);
+      const node = this.trace.tree().by_id.get(dependency.node_id);
       if (!node) throw new Error(`unknown dependency node: ${dependency.node_id}`);
       return this.#fact(node, dependency.name, parent);
     }));
@@ -109,15 +109,15 @@ export class TraceAnalysis {
     if (!tasks.has(owner)) tasks.set(owner, Promise.resolve().then(work));
     return tasks.get(owner)!;
   }
-  async metric(node: Node, name: string): Promise<Measurement | undefined> {
-    this.#node(node);
+  async metric(node: Node | null, name: string): Promise<Measurement | undefined> {
+    if (node) this.#node(node); else this.check();
     if (!this.#metrics.has(name)) this.#metrics.set(name, Promise.resolve().then(() => this.#measure(name)));
     await this.#metrics.get(name);
     this.check();
-    return this.measurements.get(node.node_id, name);
+    return this.measurements.get(node?.node_id ?? null, name);
   }
   async #measure(name: string): Promise<void> {
-    const selected = this.harness.measurers.filter(item => item.spec.id === name);
+    const selected = this.harness.measurers.filter(item => item.spec.kind === name);
     if (!selected.length) throw new Error(`unknown measurement: ${name}`);
     let result: Measurements;
     try {
@@ -126,16 +126,19 @@ export class TraceAnalysis {
     } catch (error) {
       this.check();
       if (error instanceof EvidenceTooLarge) throw error;
-      result = new Measurements(selected.map(item => item.spec), [], Object.fromEntries(this.trace.nodes.map(node => [node.node_id,
-        [{ spec_id: name, anchor_node_id: node.node_id, status: "error", values: {}, evidence: {}, error: String(error) }]])));
+      const failure = (node_id: string | null): Measurement => ({ kind: name, node_id, status: "error", values: {}, evidence: {}, error: String(error) });
+      result = selected[0]!.spec.scope === "trace"
+        ? new Measurements(selected.map(item => item.spec), [], {}, [failure(null)])
+        : new Measurements(selected.map(item => item.spec), [], Object.fromEntries(this.trace.nodes.map(node => [node.node_id, [failure(node.node_id)]])));
     }
     this.measurements.specs.push(...result.specs);
+    this.measurements.trace.push(...result.trace);
     if (result.sources.length) this.measurements.sources.splice(0, this.measurements.sources.length, ...result.sources);
-    for (const [id, values] of Object.entries(result.results)) (this.measurements.results[id] ??= []).push(...values);
+    for (const [id, values] of Object.entries(result.nodes)) (this.measurements.nodes[id] ??= []).push(...values);
     // Completion timing differs between cached and remote reads; output order must not.
-    const order = new Map(this.harness.measurers.map((item, index) => [item.spec.id, index]));
-    this.measurements.specs.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
-    for (const values of Object.values(this.measurements.results)) values.sort((a, b) => order.get(a.spec_id)! - order.get(b.spec_id)!);
+    const order = new Map(this.harness.measurers.map((item, index) => [item.spec.kind, index]));
+    this.measurements.specs.sort((a, b) => order.get(a.kind)! - order.get(b.kind)!);
+    for (const values of [this.measurements.trace, ...Object.values(this.measurements.nodes)]) values.sort((a, b) => order.get(a.kind)! - order.get(b.kind)!);
   }
   prepareView(full = false): Promise<void> {
     const work = this.#prepareView(full);

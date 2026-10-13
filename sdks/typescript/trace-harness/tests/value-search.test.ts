@@ -1,9 +1,10 @@
+import { reportHtml } from "./view-fixture";
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { strFromU8 } from "fflate";
-import { Node, TraceContext, renderInteractive } from "../src";
+import { Node, TraceContext, TraceHarness } from "../src";
 import { archiveEntries } from "./archive-fixture";
 
 const sources = [
@@ -32,7 +33,7 @@ for (const source of sources) test(`value-only search and navigation: ${source}`
     "name-only": { name: "/api/v1/resources", facts: { url: "/api/v1/resources" } },
   };
   const values: Record<string, string> = { first: "/API/v1/resources", second: "https://host/api/v1/resources?q=[x]" };
-  const context = { perspective: "full", byId, treeEl: { querySelector: () => null },
+  const context = { perspective: "default", byId, treeEl: { querySelector: () => null },
     document: { getElementById: (id: string) => elements[id], querySelectorAll: () => rows },
     nodeSearchValue: (id: string) => values[id] ?? "",
     unfold: (id: string) => unfolded.push(id), unfoldAncestors: (id: string) => unfolded.push(id),
@@ -65,7 +66,7 @@ test("offline search keeps complete values separate from the tree and raw detail
   const value = "x".repeat(20000) + "/api/v1/resources</script>";
   const node = new Node({ kind: "http", name: "http.server", value, node_id: "root",
     primary_span_id: "root", span_ids: [], start_ms: 0, duration_ms: 1, facts: {} });
-  const html = renderInteractive(new TraceContext("fixture", new Map(), [node], new Map()));
+  const html = reportHtml(new TraceHarness({}), new TraceContext("fixture", new Map(), [node], new Map()));
   const archive = archiveEntries(html);
   expect(JSON.parse(strFromU8(archive["values.json"]!))).toEqual({ root: value });
   expect(strFromU8(archive["index.json"]!)).not.toContain("resources");

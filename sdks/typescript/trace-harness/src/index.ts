@@ -5,7 +5,7 @@ export * from "./transform";
 export * from "./model/measurement";
 export { AnalysisContext } from "./analyze/context";
 export { measure, type Measurer } from "./analyze/measure";
-export { measurementsMd, type MeasurementFilter } from "./view/measurements";
+export { type MeasurementFilter } from "./view/measurements";
 export { TraceHarness, mergeTraceContributions, type TraceContributions } from "./harness";
 export { assemble } from "./ingest/assemble";
 export { normalizeJaegerSpan, normalizeJaegerSpans } from "./ingest/jaeger";
@@ -37,20 +37,20 @@ export {
 export { Node, type Emphasis, type Field, type Finding, type NodeInit, type Severity } from "./model/node";
 export { SpecSet, mergeSpecs, type KindSpec } from "./model/spec";
 export { NormSpan, spanErrorText, type ErrorEvent, type SpanAttributes, type SpanEvent } from "./model/span";
-export { ViewTree, buildView, type NodeTreeExtractor } from "./model/viewtree";
+export { NodeTree, buildNodeTree, type NodeTreeExtractor } from "./model/node-tree";
 export { DisplayName, nameProjections, type Compact, type DisplayNode } from "./view/display";
 export {
   DefaultFacet,
   Facet,
   type ChildOp,
-  type PerspectiveLevel,
   type RenderConfig,
   type RenderContext,
-  type TracePerspective,
 } from "./view/facet";
 export { builtinFacets } from "./view/facets";
-export { renderDisplay } from "./view/engine";
-export { renderInteractive } from "./view/interactive";
+export { render, type ViewFormat } from "./view/render";
+export { buildView } from "./view/build";
+export type { View, ViewRequest, TraceView, NodeView, TraceViewKind, NodeViewKind, ViewRow, ViewPage } from "./view/model";
+export { type CallBreakdown } from "./analyze/call-breakdown";
 export { FacetRegistry } from "./view/registry";
 
 export { TraceSession, TraceLease, type SessionOptions } from "./runtime";
@@ -59,7 +59,3 @@ export { type Source, type SpanQuery } from "./ingest/sources/base";
 export { type LoadConfig, type EvidenceRef, EvidenceMissing, EvidenceTooLarge } from "./loading/model";
 export { EvidenceDependency, FactDependency, type Dependency, type FactProducer } from "./loading/facts";
 export { JaegerFileSource } from "./ingest/sources/jaeger-file";
-
-export { inspectAgentStack, renderAgentStackText, inspectNodeMeasurements, renderNodeMeasurementsText,
-  type AgentStackInspection, type AgentStackRow, type NodeMeasurementInspection,
-  type PageOptions, type InspectionPage } from "./view/inspect";

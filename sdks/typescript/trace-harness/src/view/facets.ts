@@ -2,9 +2,7 @@ import type { Node } from "../model/node";
 import {
   DefaultFacet,
   type ChildOp,
-  type PerspectiveLevel,
   type RenderContext,
-  type TracePerspective,
 } from "./facet";
 import type { Facet } from "./facet";
 
@@ -21,12 +19,6 @@ class ModelCallFacet extends DefaultFacet {
     return node.kind === "model-call";
   }
 
-  override perspectiveLevel(
-    _node: Node,
-    perspective: TracePerspective,
-  ): PerspectiveLevel | undefined {
-    return perspective === "agent" ? "primary" : undefined;
-  }
 
   override layout(node: Node, children: Node[], context: RenderContext): ChildOp[] {
     const http = children.filter((child) => child.kind === "http")
@@ -42,12 +34,6 @@ class AgentFacet extends DefaultFacet {
     return node.kind === "agent";
   }
 
-  override perspectiveLevel(
-    _node: Node,
-    perspective: TracePerspective,
-  ): PerspectiveLevel | undefined {
-    return perspective === "agent" ? "primary" : undefined;
-  }
 }
 
 class ToolCallFacet extends DefaultFacet {
@@ -56,12 +42,6 @@ class ToolCallFacet extends DefaultFacet {
     return node.kind === "tool-call";
   }
 
-  override perspectiveLevel(
-    _node: Node,
-    perspective: TracePerspective,
-  ): PerspectiveLevel | undefined {
-    return perspective === "agent" ? "primary" : undefined;
-  }
 }
 
 export function builtinFacets(): Facet[] {

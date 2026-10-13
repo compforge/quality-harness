@@ -1,3 +1,5 @@
+import { renderDisplay } from "../src/view/engine";
+import { reportHtml } from "./view-fixture";
 import { archiveContents, traceTrees } from "./archive-fixture";
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -35,11 +37,11 @@ for (const fixture of cases) {
     const context = harness.assemble(new Map(spans.map((span: NormSpan) => [span.span_id, span])));
     const findings = fixture.diagnose === false ? {} : await harness.diagnose(context);
     const before = JSON.stringify(context.nodes);
-    expect(harness.renderDisplay(context, findings).map(outline)).toEqual(fixture.expected);
+    expect(renderDisplay(context.tree(), findings, harness.facets).map(outline)).toEqual(fixture.expected);
     expect(JSON.stringify(context.nodes)).toBe(before);
-    const html = harness.renderInteractive(context, findings);
+    const html = reportHtml(harness, context, findings);
     const payload: { full: { roots: PayloadNode[] } } = traceTrees(html);
-    const nodes = [...walk(payload.full.roots)];
+    const nodes = [...walk(payload.default.roots)];
     const ids = nodes.map((node) => node.node_id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(new Set(nodes.filter((node) => node.kind).map((node) => node.primary_span_id))).toEqual(new Set(fixture.spans.map((span) => span.span_id)));

@@ -8,6 +8,7 @@ import pytest
 from trace_harness import TraceContributions, TraceHarness
 from trace_harness.kinds import genai
 from trace_harness.model.span import NormSpan
+from trace_harness.tests.view_fixture import report_html
 
 CASES = json.loads(
     (Path(__file__).parents[4] / "conformance/trace/cases/http-detectors.json").read_text()
@@ -46,10 +47,10 @@ async def test_http_detector_conformance(case):
         hit = hits[0]
         actual = {"source": hit.source, "severity": hit.severity, **hit.data}
         assert {key: actual[key] for key in expected} == expected
-        assert hit.ref in context.view().by_id
+        assert hit.ref in context.tree().by_id
         if hit.source == "http_serial_same_api":
             assert hit.data["http_total_ms"] + hit.data["gap_ms"] == hit.data["wall_ms"]
         assert "secret" not in hit.note
-    html = harness.render_interactive(context, (await harness.diagnose(context)))
+    html = report_html(harness, context, (await harness.diagnose(context)))
     for finding in findings:
         assert finding.source in html

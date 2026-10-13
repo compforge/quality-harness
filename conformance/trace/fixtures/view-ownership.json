@@ -1,0 +1,9 @@
+{
+  "trace_id": "owners",
+  "node_id": "intention",
+  "trace_kind": "total_calls",
+  "node_kind": "calls_until_node_end",
+  "expected_trace_count": 1,
+  "expected_node_count": 1,
+  "formats": ["text", "html", "json"]
+}

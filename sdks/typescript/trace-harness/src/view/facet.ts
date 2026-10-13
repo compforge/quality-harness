@@ -1,8 +1,6 @@
 import type { Field, Finding, Node } from "../model/node";
-import type { ViewTree } from "../model/viewtree";
+import type { NodeTree } from "../model/node-tree";
 
-export type TracePerspective = "full" | "agent";
-export type PerspectiveLevel = "primary" | "context" | "detail";
 
 export type ChildOp =
   | { type: "expand"; node: Node }
@@ -17,11 +15,10 @@ export interface RenderConfig {
   prune_below_ms?: number;
   max_depth?: number;
   expand?: Set<string>;
-  perspective?: TracePerspective;
 }
 
 export interface RenderContext {
-  view: ViewTree;
+  view: NodeTree;
   findings: Readonly<Record<string, readonly Finding[]>>;
   flagged: Map<string, boolean>;
   config: RenderConfig;
@@ -35,12 +32,6 @@ export abstract class Facet {
     return node.brief;
   }
 
-  perspectiveLevel(
-    _node: Node,
-    _perspective: TracePerspective,
-  ): PerspectiveLevel | undefined {
-    return undefined;
-  }
 
   layout(_node: Node, children: Node[], context: RenderContext): ChildOp[] {
     const cut = context.config.prune_below_ms;

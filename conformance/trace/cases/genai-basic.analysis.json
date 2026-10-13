@@ -1,21 +1,20 @@
 {
-  "schema": "trace-harness/analysis@2",
+  "schema": "trace-harness/analysis@3",
   "trace_id": "abc123fixturetrace0000000000000001",
   "span_count": 6,
   "measurements": {
     "specs": [
       {
-        "id": "self_ms",
         "scope": "node",
         "units": {
           "self_ms": "ms"
         },
         "description": "Node duration not covered by direct children, clipped to the node interval.",
-        "dimensions": []
+        "dimensions": [],
+        "kind": "self_ms"
       },
       {
-        "id": "calls_until_node_end",
-        "scope": "trace_prefix",
+        "scope": "node",
         "units": {
           "count": "call",
           "duration_sum_ms": "ms",
@@ -23,8 +22,9 @@
         },
         "description": "Calls started from earliest observed trace start through anchor end; in-flight durations clipped. Kind coverage can overlap.",
         "dimensions": [
-          "kind"
-        ]
+          "call_kind"
+        ],
+        "kind": "calls_until_node_end"
       }
     ],
     "sources": [
@@ -89,11 +89,11 @@
         ]
       }
     ],
-    "results": {
+    "nodes": {
       "1111111111111111": [
         {
-          "spec_id": "self_ms",
-          "anchor_node_id": "1111111111111111",
+          "kind": "self_ms",
+          "node_id": "1111111111111111",
           "status": "measured",
           "values": {
             "self_ms": 900.0
@@ -105,8 +105,8 @@
           "error": null
         },
         {
-          "spec_id": "calls_until_node_end",
-          "anchor_node_id": "1111111111111111",
+          "kind": "calls_until_node_end",
+          "node_id": "1111111111111111",
           "status": "measured",
           "values": {
             "agent": {
@@ -140,8 +140,8 @@
       ],
       "5555555555555555": [
         {
-          "spec_id": "self_ms",
-          "anchor_node_id": "5555555555555555",
+          "kind": "self_ms",
+          "node_id": "5555555555555555",
           "status": "measured",
           "values": {
             "self_ms": 100.0
@@ -153,8 +153,8 @@
           "error": null
         },
         {
-          "spec_id": "calls_until_node_end",
-          "anchor_node_id": "5555555555555555",
+          "kind": "calls_until_node_end",
+          "node_id": "5555555555555555",
           "status": "measured",
           "values": {
             "agent": {
@@ -188,8 +188,8 @@
       ],
       "3333333333333333": [
         {
-          "spec_id": "self_ms",
-          "anchor_node_id": "3333333333333333",
+          "kind": "self_ms",
+          "node_id": "3333333333333333",
           "status": "measured",
           "values": {
             "self_ms": 3300.0
@@ -201,8 +201,8 @@
           "error": null
         },
         {
-          "spec_id": "calls_until_node_end",
-          "anchor_node_id": "3333333333333333",
+          "kind": "calls_until_node_end",
+          "node_id": "3333333333333333",
           "status": "measured",
           "values": {
             "agent": {
@@ -236,8 +236,8 @@
       ],
       "2222222222222222": [
         {
-          "spec_id": "self_ms",
-          "anchor_node_id": "2222222222222222",
+          "kind": "self_ms",
+          "node_id": "2222222222222222",
           "status": "measured",
           "values": {
             "self_ms": 100.0
@@ -249,8 +249,8 @@
           "error": null
         },
         {
-          "spec_id": "calls_until_node_end",
-          "anchor_node_id": "2222222222222222",
+          "kind": "calls_until_node_end",
+          "node_id": "2222222222222222",
           "status": "measured",
           "values": {
             "agent": {
@@ -284,8 +284,8 @@
       ],
       "6666666666666666": [
         {
-          "spec_id": "self_ms",
-          "anchor_node_id": "6666666666666666",
+          "kind": "self_ms",
+          "node_id": "6666666666666666",
           "status": "measured",
           "values": {
             "self_ms": 2400.0
@@ -297,8 +297,8 @@
           "error": null
         },
         {
-          "spec_id": "calls_until_node_end",
-          "anchor_node_id": "6666666666666666",
+          "kind": "calls_until_node_end",
+          "node_id": "6666666666666666",
           "status": "measured",
           "values": {
             "agent": {
@@ -332,8 +332,8 @@
       ],
       "4444444444444444": [
         {
-          "spec_id": "self_ms",
-          "anchor_node_id": "4444444444444444",
+          "kind": "self_ms",
+          "node_id": "4444444444444444",
           "status": "measured",
           "values": {
             "self_ms": 1200.0
@@ -345,8 +345,8 @@
           "error": null
         },
         {
-          "spec_id": "calls_until_node_end",
-          "anchor_node_id": "4444444444444444",
+          "kind": "calls_until_node_end",
+          "node_id": "4444444444444444",
           "status": "measured",
           "values": {
             "agent": {
@@ -378,7 +378,8 @@
           "error": null
         }
       ]
-    }
+    },
+    "trace": []
   },
   "nodes": [
     {

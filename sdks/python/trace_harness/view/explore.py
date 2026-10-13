@@ -2,7 +2,7 @@
 
 与 `callstack.render_callstack`（一次性、按耗时全局剪枝）的分工：那个是「一屏看全貌」，
 这个是**有状态探索**——默认只铺骨架顶层（空展开集 = 二三十行缩略图），`expand` 把某子树
-展开一层，同一 render 重画。两条策略，共享同一份烤好的 `Node.brief` 和 viewtree 遍历。
+展开一层，同一 render 重画。两条策略，共享同一份烤好的 `Node.brief` 和 node_tree 遍历。
 
 折叠两类信息，都留 handle 供下钻：
   - 未展开的有子节点 → 一行 `⊕<handle> [N kids · 耗时 · 错误]`
@@ -14,7 +14,7 @@ from __future__ import annotations
 from trace_harness.kinds.base import SERVICE_KIND, _fmt_ms
 from trace_harness.model.ir import Renderable
 from trace_harness.model.node import Node
-from trace_harness.model.viewtree import ViewTree
+from trace_harness.model.node_tree import NodeTree
 from trace_harness.view.state import ViewState, handle, iso_sig
 
 
@@ -22,7 +22,7 @@ def _brief(n: Node) -> str:
     return "  ".join(f"{f.label}={f.value}" for f in n.brief)
 
 
-def _subtree_stats(view: ViewTree, n: Node) -> tuple[int, float, int]:
+def _subtree_stats(view: NodeTree, n: Node) -> tuple[int, float, int]:
     """子树 (节点数, wall-clock duration 总和, 含错误的节点数)——折叠摘要用。"""
     cnt, total, errs = 1, n.duration_ms, (1 if n.has_error else 0)
     for c in view.children(n):
@@ -34,7 +34,7 @@ def _subtree_stats(view: ViewTree, n: Node) -> tuple[int, float, int]:
 
 
 def _emit_node(
-    view: ViewTree, n: Node, state: ViewState, depth: int, lines: list[str], group_min: int
+    view: NodeTree, n: Node, state: ViewState, depth: int, lines: list[str], group_min: int
 ) -> None:
     pad = "  " * depth
     flag = "🔴 " if n.has_error else ""
@@ -54,7 +54,7 @@ def _emit_node(
         lines.append(f"{pad}- {flag}{n.kind} {n.name}{bs}  ⊕{h} {tag}")
 
 
-def _emit_group(view: ViewTree, members: list[Node], depth: int, lines: list[str]) -> None:
+def _emit_group(view: NodeTree, members: list[Node], depth: int, lines: list[str]) -> None:
     pad = "  " * depth
     n0 = members[0]
     durs = [m.duration_ms for m in members]
@@ -69,7 +69,7 @@ def _emit_group(view: ViewTree, members: list[Node], depth: int, lines: list[str
 
 
 def _emit_level(
-    view: ViewTree,
+    view: NodeTree,
     siblings: list[Node],
     state: ViewState,
     depth: int,
@@ -105,7 +105,7 @@ def _emit_level(
 
 def render_explore(view: Renderable, state: ViewState, *, group_min: int = 2) -> str:
     """缩略图（空展开集）/ 展开视图。header + 树 + 操作提示。"""
-    vt = view.view()
+    vt = view.tree()
     if state.focus and state.focus in vt.by_id:
         roots = [vt.by_id[state.focus]]
         scope = f" · focus={handle(vt.by_id[state.focus])}"

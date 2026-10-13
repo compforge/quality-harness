@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from trace_harness.detectors import Detector, DetectorResult, dependency_result
+from trace_harness.model.agent import AgentRunIR
 from trace_harness.model.context import TraceContext
 from trace_harness.model.measurement import Measurements
 from trace_harness.model.node import Finding, Node
@@ -20,6 +21,8 @@ class AnalysisContext:
     trace: TraceContext
     measurements: Measurements = field(default_factory=Measurements)
     findings: Mapping[str, tuple[Finding, ...]] = field(default_factory=dict)
+
+    agent_runs: AgentRunIR | None = field(default=None, kw_only=True)
 
     runtime: TraceAnalysis | None = field(default=None, repr=False, compare=False)
 
@@ -40,7 +43,7 @@ class AnalysisContext:
             return node.facts.get(name)
         return await self.runtime.fact(node, name)
 
-    async def measure(self, node: Node, name: str):
+    async def measure(self, node: Node | None, name: str):
         if self.runtime is None:
-            return self.measurements.get(node.node_id, name)
+            return self.measurements.get(node.node_id if node else None, name)
         return await self.runtime.metric(node, name)

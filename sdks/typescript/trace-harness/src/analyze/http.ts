@@ -47,7 +47,7 @@ export const httpRequestPatterns: Detector = async (node, analysis) => {
   if (!anchor || node.node_id !== anchor.node_id) return [];
   await analysis.fact(node, "http_evidence");
   const requests = httpRequests(context);
-  const view = context.view();
+  const view = context.tree();
   const findings: Finding[] = [];
   const slow = requests.filter((request) => request.ordinary && duration(request) > SLOW_HTTP_MS)
     .sort((a, b) => duration(b) - duration(a) || compareId(a.span.span_id, b.span.span_id));

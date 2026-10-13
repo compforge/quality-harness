@@ -63,7 +63,7 @@
       "anchor_span_ids": [
         "b"
       ],
-      "spec_ids": [
+      "kinds": [
         "calls_until_node_end"
       ]
     }

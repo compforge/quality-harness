@@ -10,14 +10,15 @@
 ```
 
 ```python
+from trace_harness import render
+
 async with harness.open(source, work_dir="trace-work") as session:
     dataset = await session.select(SpanQuery(trace_ids=[trace_id]))
     async with session.tree(dataset, trace_id) as context:
         analysis = await session.analyze(context)
         await session.prepare_view(analysis, full=True)
-        html = harness.render_interactive(
-            analysis.trace, analysis.findings, measurements=analysis.measurements
-        )
+        view = harness.build_view(analysis, {"scope": "trace", "view": "default"})
+        html = render(view, format="html")
         output.write_text(html)
 ```
 
@@ -57,3 +58,16 @@ Node 与 Dataset 共用 [Detector 定义与依赖](kernel.md#detector-定义与�
 依赖结果按当前 node 隔离，节点之间保持后序；父节点通过 `context.findings` 消费子树观察，
 不能通过 requires 假定另一 node 已有同名结果。失败可见于 findings 和 `analysis.detector_runs`，
 保存分析快照后离线展示仍保留这些状态。重复分析重新执行规则，证据缓存与结果生命周期独立。
+
+## 派生数据与节点视图
+
+```python
+analysis = harness.prepare(analysis, agent_runs=True, call_breakdowns=[node_id])
+view = harness.build_view(analysis, {"scope": "node", "nodeId": node_id, "view": "timeline"})
+text = render(view, format="text")
+json_text = render(view, format="json")
+```
+
+Trace 支持 default/agent；Node 支持 default/measurements/timeline。View 不执行任何计算，
+三个格式消费同一份可序列化内容。MeasurementSpec.kind 标识计算类型，scope 为 trace/node；
+结果分别在 measurements.trace 和 measurements.nodes[node_id]，不修改原始观测。

@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from trace_harness.model.node import Node
-from trace_harness.model.viewtree import ViewTree
+from trace_harness.model.node_tree import NodeTree
 
 _HEX = set("0123456789abcdef")
 
@@ -94,7 +94,7 @@ def resolve_selector(nodes: list[Node], sel: str) -> list[str]:
     return [nid for nid in by_id if nid.startswith(sel)]
 
 
-def iso_sig(view: ViewTree, n: Node, depth: int = 2) -> tuple:
+def iso_sig(view: NodeTree, n: Node, depth: int = 2) -> tuple:
     """同构浅签名：(kind, name, 子节点签名多重集)。depth 限界，避免在大树上递归爆栈。"""
     if depth <= 0:
         return (n.kind, n.name)

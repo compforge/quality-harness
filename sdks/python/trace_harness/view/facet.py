@@ -17,16 +17,12 @@ Facet 不提供自定义递归或整片 render 的逃生口，避免每个业务
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING
 
 from trace_harness.model.node import Field, Finding, Node
 
 if TYPE_CHECKING:
-    from trace_harness.model.viewtree import ViewTree
-
-
-TracePerspective: TypeAlias = Literal["full", "agent"]
-PerspectiveLevel: TypeAlias = Literal["primary", "context", "detail"]
+    from trace_harness.model.node_tree import NodeTree
 
 
 # —— ChildOp：facet 对每个孩子声明的处置意图，由 engine 执行（facet 不自己递归）——
@@ -100,19 +96,18 @@ ChildOp = Expand | Fold | Aggregate | Summarize | Hide | Group
 
 @dataclass
 class RenderConfig:
-    """view 配方：控制折叠等呈现策略；perspective 只决定看 full 还是 agent 侧重点。"""
+    """Node tree 展示配方：控制折叠、展开与深度。"""
 
     prune_below_ms: float | None = None  # 给定则：耗时低于此、且子树无 finding/error 的孩子折叠
     max_depth: int | None = None
     expand: set[str] = field(default_factory=set)  # treecli：用户强制展开的 node_id
-    perspective: TracePerspective = "full"
 
 
 @dataclass
 class RenderCtx:
     """engine 传给 facet 的只读上下文：结构 + 判读 + 配方。"""
 
-    view: ViewTree
+    view: NodeTree
     findings: dict[str, list[Finding]]
     flagged: dict[str, bool]  # node_id → 子树是否含 finding/error（剪枝时必留）
     config: RenderConfig
@@ -129,12 +124,6 @@ class Facet:
     def brief(self, node: Node) -> list[Field]:
         """本节点这一行的内容。默认 = assemble 期烤好的 ctx-free brief（IR 自洽兜底）。"""
         return node.brief
-
-    def perspective_level(
-        self, node: Node, perspective: TracePerspective
-    ) -> PerspectiveLevel | None:
-        """当前侧重点下的展示权重；默认由统一 engine 当作 detail 处理。"""
-        return None
 
     def layout(self, node: Node, children: list[Node], rctx: RenderCtx) -> list[ChildOp]:
         """孩子布局。默认全展开。"""

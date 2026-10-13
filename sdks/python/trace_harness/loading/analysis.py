@@ -35,14 +35,14 @@ class TraceAnalysis:
             if isinstance(dependency, EvidenceDependency):
                 await self.loader.load(self.trace, dependency.span_ids, dependency.fields)
             elif isinstance(dependency, FactDependency):
-                await self.fact(self.trace.view().by_id[dependency.node_id], dependency.name)
+                await self.fact(self.trace.tree().by_id[dependency.node_id], dependency.name)
 
         await asyncio.gather(*(prepare(dep) for dep in dependencies))
 
     async def fact(self, node: Node, name: str):
         if not self.active:
             raise RuntimeError("trace lease has ended; reacquire it from the dataset")
-        if self.trace.view().by_id.get(node.node_id) is not node:
+        if self.trace.tree().by_id.get(node.node_id) is not node:
             raise ValueError("node does not belong to this trace")
         key = (node.node_id, name)
         if key in _ACTIVE.get():
@@ -111,16 +111,16 @@ class TraceAnalysis:
         finally:
             _ACTIVE.reset(token)
 
-    async def metric(self, node: Node, name: str) -> Measurement | None:
+    async def metric(self, node: Node | None, name: str) -> Measurement | None:
         if not self.active:
             raise RuntimeError("trace lease has ended")
         if name not in self._metrics:
             self._metrics[name] = asyncio.create_task(self._metric(name))
         await asyncio.shield(self._metrics[name])
-        return self.measurements.get(node.node_id, name)
+        return self.measurements.get(node.node_id if node else None, name)
 
     async def _metric(self, name):
-        selected = [m for m in self.harness.measurers if m.spec.id == name]
+        selected = [m for m in self.harness.measurers if m.spec.kind == name]
         if not selected:
             raise KeyError(f"unknown measurement: {name}")
         try:
@@ -128,19 +128,22 @@ class TraceAnalysis:
                 await self.dependencies(measurer.requires(self.trace))
             result = measure(self.trace, selected)
         except Exception as exc:
-            result = Measurements(
-                [m.spec for m in selected],
-                [],
-                {
-                    node.node_id: [Measurement(name, node.node_id, "error", error=str(exc))]
-                    for node in self.trace.nodes
-                },
-            )
+            result = Measurements([m.spec for m in selected])
+            if selected[0].spec.scope == "trace":
+                result.trace.append(Measurement(name, None, "error", error=str(exc)))
+            else:
+                result.nodes.update(
+                    {
+                        node.node_id: [Measurement(name, node.node_id, "error", error=str(exc))]
+                        for node in self.trace.nodes
+                    }
+                )
         self.measurements.specs.extend(result.specs)
+        self.measurements.trace.extend(result.trace)
         if result.sources:
             self.measurements.sources = result.sources
-        for node_id, values in result.results.items():
-            self.measurements.results.setdefault(node_id, []).extend(values)
+        for node_id, values in result.nodes.items():
+            self.measurements.nodes.setdefault(node_id, []).extend(values)
 
     async def prepare_view(self, *, full=False):
         if full:

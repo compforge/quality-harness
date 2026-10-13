@@ -1,11 +1,13 @@
+import { reportHtml } from "./view-fixture";
 import { archiveContents, traceTrees } from "./archive-fixture";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   agentRunSnapshot,
-  inspectAgentStack,
-  renderAgentStackText,
+  AnalysisContext,
+  buildView,
+  render,
   createAgentRunIR,
   genAiSpecs,
   normalizeJaegerSpans,
@@ -204,7 +206,7 @@ describe("AgentRun IR", () => {
     const context = instance.assemble(normalizeJaegerSpans(fixtureDocuments()));
     const ir = instance.extractAgentRuns(context)!;
     const before = JSON.stringify(ir);
-    const html = instance.renderInteractive(context, {}, { agentRunIR: ir });
+    const html = reportHtml(instance, context, {}, { agentRunIR: ir });
     const roots = traceTrees(html).agent.roots;
     const expected: Array<Record<string, unknown>> = [];
     const visit = (nodes: any[], depth = 0, parent_id?: string) => {
@@ -221,9 +223,11 @@ describe("AgentRun IR", () => {
     const textRows: string[] = [];
     let offset: number | null = 0;
     while (offset !== null) {
-      const stack = inspectAgentStack(context, ir, { offset, limit: 3 });
-      actual.push(...stack.rows.items.map(({ offset_ms, ...row }) => row));
-      textRows.push(...renderAgentStackText(stack).trimEnd().split("\n").slice(2));
+      const analysis = new AnalysisContext(context);
+      analysis.agentRuns = ir;
+      const stack = buildView(analysis, { scope: "trace", view: "agent", offset, limit: 3 });
+      actual.push(...stack.rows.items.map(row => ({ id: row.node_id, parent_id: row.parent_id, depth: row.depth, kind: row.kind, name: row.name, service: row.service, start_ms: row.start_ms, duration_ms: row.duration_ms, source_node_ids: row.source_node_ids, span_ids: row.span_ids })));
+      textRows.push(...render(stack, { format: "text" }).trimEnd().split("\n").slice(2));
       offset = stack.rows.next_offset;
     }
     expect(actual).toEqual(expected);
@@ -240,7 +244,7 @@ describe("AgentRun IR", () => {
   test("renders the extracted turns, calls, and operations", async () => {
     const instance = harness();
     const context = instance.assemble(normalizeJaegerSpans(fixtureDocuments()));
-    const html = instance.renderInteractive(context, await instance.diagnose(context));
+    const html = reportHtml(instance, context, await instance.diagnose(context));
 
     expect(html + archiveContents(html)).toContain('data-perspective="agent"');
     expect(html + archiveContents(html)).toContain("agent-run:run-main");
@@ -361,7 +365,7 @@ describe("AgentRun IR", () => {
     const instance = new TraceHarness({ specs: genAiSpecs() });
     const context = instance.assemble(normalizeJaegerSpans(fixtureDocuments()));
 
-    expect(instance.renderInteractive(context)).not.toContain('data-perspective="agent"');
+    expect(reportHtml(instance, context)).not.toContain('data-perspective="agent"');
   });
 
   test("rejects source references outside the node tree", () => {

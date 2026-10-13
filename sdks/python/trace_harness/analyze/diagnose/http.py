@@ -51,7 +51,7 @@ def request_pattern_findings(
     node: Node, ctx: TraceContext, requests: list[HttpRequest], *, limit: int | None = None
 ) -> list[Finding]:
     """Interpret prepared canonical requests; callers own scope and evidence loading."""
-    view = ctx.view()
+    view = ctx.tree()
     findings = []
     slow = sorted(
         (item for item in requests if item.ordinary and item.duration_ms > _SLOW_HTTP_MS),

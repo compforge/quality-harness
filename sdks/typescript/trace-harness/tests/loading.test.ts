@@ -1,3 +1,4 @@
+import { reportHtml } from "./view-fixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm, access, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -38,7 +39,7 @@ test("lazy/eager produce identical IR and full HTML; renderer does not read", as
     const result = await session.analyze(ctx);
     await session.prepareView(result, { full: true });
     const reads = source.reads;
-    results.push([analysisSnapshot(result), session.harness.renderInteractive(result.trace, result.findings, { measurements: result.measurements })]);
+    results.push([analysisSnapshot(result), reportHtml(session.harness, result.trace, result.findings, { measurements: result.measurements })]);
     expect(source.reads).toBe(reads);
   }
   expect(results[0]).toEqual(results[1]);
@@ -120,9 +121,9 @@ test("detail projection and transform/measurer requirements prepare before pure 
       project_requires: ["upper"], project: node => [{ label: "text", value: String(node.facts.upper) }] }],
     transforms: [{ produces: ["upper"], applies: () => true, requires: node => [new FactDependency(node.node_id, "text")],
       compute: (node, ctx) => ({ upper: String(ctx.get(node, "text")).toUpperCase() }) }],
-    measurers: [{ spec: { id: "size", scope: "node", units: {}, dimensions: [], description: "size" },
+    measurers: [{ spec: { kind: "size", scope: "node", units: {}, dimensions: [], description: "size" },
       requires: trace => trace.nodes.map(node => new FactDependency(node.node_id, "text")),
-      compute: trace => trace.nodes.map(node => ({ spec_id: "size", anchor_node_id: node.node_id, status: "measured", values: { size: String(node.facts.text).length }, evidence: {}, error: null })) }],
+      compute: trace => trace.nodes.map(node => ({ kind: "size", node_id: node.node_id, status: "measured", values: { size: String(node.facts.text).length }, evidence: {}, error: null })) }],
     detectors: [async (node, ctx) => [{ ref: node.node_id, source: "custom", severity: "info", note: String(await ctx.fact(node, "upper")) }]],
   };
   const source = new MemorySource(); await using session = new TraceHarness(custom).open(source);
@@ -267,16 +268,16 @@ test("changed evidence identity never commits facts or a successful field state"
 
 test("measurement output order follows registration, independent of read completion", async () => {
   const h = harness({ measurers: [true, false].map((slow, i) => ({
-    spec: { id: `m${i}`, scope: "node", units: {}, dimensions: [], description: "ordering" },
+    spec: { kind: `m${i}`, scope: "node", units: {}, dimensions: [], description: "ordering" },
     requires: trace => slow ? [new EvidenceDependency([...trace.spans.keys()], ["payload"])] : [],
-    compute: trace => trace.nodes.map(node => ({ spec_id: `m${i}`, anchor_node_id: node.node_id, status: "measured", values: { n: i }, evidence: {}, error: null })),
+    compute: trace => trace.nodes.map(node => ({ kind: `m${i}`, node_id: node.node_id, status: "measured", values: { n: i }, evidence: {}, error: null })),
   })) });
   const outputs = [];
   for (const lazy of [true, false]) {
     await using session = h.open(new MemorySource(), { config: { lazy } });
     await using lease = await session.tree(await session.select(), "t0");
     const result = await session.analyze(lease.analysis, { metrics: ["m0", "m1"], diagnosis: false });
-    expect(result.measurements.specs.map(item => item.id)).toEqual(["m0", "m1"]); outputs.push(result.measurements);
+    expect(result.measurements.specs.map(item => item.kind)).toEqual(["m0", "m1"]); outputs.push(result.measurements);
   }
   expect(outputs[0]).toEqual(outputs[1]);
 });

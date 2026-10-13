@@ -14,7 +14,8 @@ from trace_harness import (
     load_analysis,
 )
 from trace_harness.model.node import Field
-from trace_harness.model.viewtree import build_view
+from trace_harness.model.node_tree import build_node_tree
+from trace_harness.tests.view_fixture import report_html
 
 
 def node(name="n"):
@@ -31,7 +32,7 @@ def test_dependency_is_computed_once_and_only_when_requested():
         return {"a": 2, "b": 3}
 
     ctx = TransformContext(
-        build_view([n]),
+        build_node_tree([n]),
         [
             FactTransform(
                 ("c",), lambda n: True, lambda n, ctx: {"c": ctx.get(n, "a") + ctx.get(n, "b")}
@@ -64,7 +65,7 @@ def test_invalid_transform_fails_without_partial_facts(conflict):
         items = [FactTransform(("a",), lambda n: True, lambda n, ctx: {"other": 1})]
     before = dict(n.facts)
     with pytest.raises(ValueError):
-        TransformContext(build_view([n]), items).materialize([(n, "a")])
+        TransformContext(build_node_tree([n]), items).materialize([(n, "a")])
     assert n.facts == before
 
 
@@ -79,7 +80,7 @@ def test_failed_batch_can_retry_without_cached_partial_dependencies():
         return {"b": value + 1}
 
     ctx = TransformContext(
-        build_view([n]),
+        build_node_tree([n]),
         [
             FactTransform(
                 ("a",), lambda n: True, lambda n, ctx: calls.append(n.node_id) or {"a": 1}
@@ -135,18 +136,18 @@ async def test_request_to_curl_is_a_fact_and_projection_requests_only_its_inputs
     n = trace.nodes[0]
     assert n.brief[0].value == "POST" and calls == []
     (await harness.analyze(trace))
-    assert "curl -X" not in harness.render_interactive(trace)
+    assert "curl -X" not in report_html(harness, trace)
     assert calls == []
     result = harness.transform(n, trace, "repro")
     assert result == {"repro": {"command": "curl -X POST https://example.test/api"}}
     assert n.facts["curl"] == "curl -X POST https://example.test/api"
     harness.transform_all(trace, "curl", "repro")
     assert calls == ["n"]
-    assert "curl -X POST" in harness.render_interactive(trace)
+    assert "curl -X POST" in report_html(harness, trace)
     path = dump_analysis((await harness.analyze(trace)), tmp_path / "analysis.json")
     loaded = load_analysis(path)
     assert loaded.trace.nodes[0].facts == n.facts
-    assert "curl -X POST" in harness.render_interactive(loaded.trace)
+    assert "curl -X POST" in report_html(harness, loaded.trace)
     assert calls == ["n"]
     # Same harness, independent trace: projection does not precompute the requested curl.
     other = harness.assemble({"n": span})
@@ -159,7 +160,7 @@ def test_missing_outputs_are_cached_and_unknown_nodes_rejected():
     n = node()
     calls = []
     ctx = TransformContext(
-        build_view([n]),
+        build_node_tree([n]),
         [FactTransform(("optional",), lambda n: True, lambda n, ctx: calls.append(1) or {})],
     )
     ctx.materialize([(n, "optional")])

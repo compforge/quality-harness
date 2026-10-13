@@ -1,22 +1,20 @@
 let measurementState;
 let measurementChart;
-let measurementSourceCache;
 function openMeasurements(summary) {
   const node = loadNode(summary);
   const dialog = document.getElementById('measurement-dialog');
-  const prefix = (node.measurements || []).find(row => row.id === 'calls_until_node_end' && row.status === 'measured');
-  const usable = prefix && Number.isFinite(prefix.evidence.start_ms) && Number.isFinite(prefix.evidence.end_ms);
+  const timing = node.timing;
+  const usable = timing?.status === 'measured' && timing.window;
   measurementState = { node, calls: [], groups: [], collapsed: new Set(), filter: null, tab: 'summary', elapsed: 0 };
   document.getElementById('measurement-title').textContent = node.name + ' · 耗时分析';
-  document.getElementById('measurement-window').textContent = usable ? '请求开始 → 此节点结束 · ' + fmtMs(prefix.evidence.end_ms - prefix.evidence.start_ms) + ' wall-clock' : '此节点的 Measurements';
+  document.getElementById('measurement-window').textContent = usable ? '请求开始 → 此节点结束 · ' + fmtMs(timing.window.elapsed_ms) + ' wall-clock' : '此节点的 Measurements';
   document.getElementById('measurement-tabs').hidden = !usable;
   document.getElementById('measurement-call-detail').replaceChildren();
-  document.getElementById('measurement-other').innerHTML = measurementBlock({ measurements: (node.measurements || []).filter(row => !usable || row.id !== 'calls_until_node_end') });
+  document.getElementById('measurement-other').innerHTML = measurementBlock({ measurements: (node.measurements || []).filter(row => !usable || row.kind !== 'calls_until_node_end') });
   if (usable) {
-    measurementSourceCache ??= readTraceEntry('measurement-calls.json');
-    measurementState.calls = measurementWindow(measurementSourceCache, prefix.evidence.start_ms, prefix.evidence.end_ms);
-    measurementState.groups = aggregateMeasurementCalls(measurementState.calls);
-    measurementState.elapsed = prefix.evidence.end_ms - prefix.evidence.start_ms;
+    measurementState.calls = timing.calls;
+    measurementState.groups = timing.groups;
+    measurementState.elapsed = timing.window.elapsed_ms;
     renderMeasurementSummary();
   } else document.getElementById('measurement-summary').replaceChildren();
   dialog.showModal();
@@ -97,7 +95,7 @@ function showMeasurementCall(call) {
   const box = document.getElementById('measurement-call-detail');
   box.innerHTML = '<strong>' + esc(call.name) + '</strong> · ' + esc(call.service) + ' · ' + esc(call.kind) + '<br>开始 +' + fmtMs(call.start) + ' → +' + fmtMs(call.end) + ' · 窗口内耗时 ' + fmtMs(call.duration) + (call.clipped ? '（调用尚未结束，已截断）' : '') + '<br>';
   const button = document.createElement('button'); button.textContent = '定位 Trace 节点';
-  button.onclick = () => { document.getElementById('measurement-dialog').close(); showPerspective('full'); showLayout('tree'); select(call.node_id); };
+  button.onclick = () => { document.getElementById('measurement-dialog').close(); showPerspective(TREES.default ? 'default' : perspective); showLayout('tree'); select(call.node_id); };
   box.appendChild(button);
 }
 function initMeasurementDialog() {
