@@ -23,6 +23,16 @@ func TestSourceIdentityConformance(t *testing.T) {
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
 	}
+	bare, describedProduct := fixture.Products[0], fixture.Products[1]
+	if bare.Description != "" || describedProduct.Description == "" {
+		t.Fatal("optional product description was not preserved")
+	}
+	if bare.Concepts != "" || bare.Workflows != "" || describedProduct.Concepts == "" || describedProduct.Workflows == "" {
+		t.Fatal("optional product guidance was not preserved")
+	}
+	if !bare.SameIdentity(describedProduct) || bare.SameIdentity(common.Product{Name: "other-product"}) {
+		t.Fatal("product guidance changed identity or product name was ignored")
+	}
 	components := map[common.Component]bool{}
 	for _, component := range fixture.Components {
 		components[component] = true

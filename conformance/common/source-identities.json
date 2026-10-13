@@ -2,6 +2,12 @@
   "products": [
     {
       "name": "example-product"
+    },
+    {
+      "name": "example-product",
+      "description": "A product for submitting and tracking tasks.",
+      "concepts": "A Task owns one or more Attempts. An Attempt records one execution.",
+      "workflows": "Submit Task → schedule Attempt → execute → persist result.\nAcceptance does not imply completion."
     }
   ],
   "repositories": [

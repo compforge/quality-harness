@@ -1,4 +1,6 @@
-from dataclasses import replace
+from dataclasses import asdict, replace
+import json
+from pathlib import Path
 
 from harness_common import (
     Artifact,
@@ -70,6 +72,33 @@ def test_service_description_is_optional_and_does_not_change_identity() -> None:
     assert described.description == "Conversation API"
     assert described == service
     assert hash(described) == hash(service)
+
+
+def test_service_domain_guidance_preserves_identity_and_serialization() -> None:
+    fixture = json.loads(
+        (
+            Path(__file__).resolve().parents[5]
+            / "conformance/common/source-identities.json"
+        ).read_text()
+    )["products"][1]
+    service = Service(
+        name="tasks",
+        component=Component(
+            repository=Repository(forge=Forge(name="github"), path="example/tasks"),
+            name="api",
+        ),
+        environment=Environment(name="dev"),
+    )
+    assert service.concepts is None
+    assert service.workflows is None
+    described = replace(
+        service, concepts=fixture["concepts"], workflows=fixture["workflows"]
+    )
+    assert described == service
+    assert hash(described) == hash(service)
+    wire = json.loads(json.dumps(asdict(described)))
+    assert wire["concepts"] == fixture["concepts"]
+    assert wire["workflows"] == fixture["workflows"]
 
 
 def test_components_are_scoped_by_repository() -> None:
