@@ -1,5 +1,6 @@
 import type { Client } from "../client";
 import { ConcurrencyPool } from "../concurrency";
+import { ToolboxError } from "../errors";
 import { createConnection, type Connection, type ConnectionOptions, type RowDataPacket } from "mysql2/promise";
 import type { Database, DatabaseTarget, DatabaseRow, DatabaseQueryLimits, DatabaseQueryResult, SqlStatement } from "./types";
 import { destroyMysqlConnection } from "./connection";
@@ -12,7 +13,18 @@ export interface MysqlDatabaseOptions extends ClientLifecycle { connectTimeoutMs
 type ConnectionFactory = (options: ConnectionOptions) => Promise<Connection>;
 type Session = { kind: "tcp"; connection: Connection } | { kind: "python"; transport: PodPythonTransport };
 
-/** SQL is executed once; only native connection establishment may advance to another transport. */
+function mysqlOperationError(error: unknown, phase: "connect" | "query"): unknown {
+  if (!error || typeof error !== "object" || !("code" in error) || error.code !== "PROTOCOL_CONNECTION_LOST") return error;
+  return new ToolboxError(`MySQL ${phase} failed: connection lost (PROTOCOL_CONNECTION_LOST)`, {
+    kind: "connection_lost", code: error.code, cause: error,
+  });
+}
+
+/**
+ * @spec SQL is executed once; only native connection establishment may advance to another transport.
+ * @why mysql2 reports a socket closed during handshake as PROTOCOL_CONNECTION_LOST, before any SQL is sent.
+ * @case id=mysql_handshake_closed,desc=`Peer closes during handshake`,expect=`Try the next transport`,forbid=`Replay an interrupted query`
+ */
 export class MysqlDatabase implements Database {
   // A client owns one native session per target; serialize queries on both transports.
   readonly #queries = new ConcurrencyPool(1);
@@ -55,6 +67,8 @@ export class MysqlDatabase implements Database {
       if (session.kind !== "tcp") throw new Error("Bounded readonly MySQL queries require a native TCP transport");
       try {
         return await queryReadonlySession(session.connection, sql, values, limits, this.options.signal);
+      } catch (error) {
+        throw mysqlOperationError(error, "query");
       } finally { destroyMysqlConnection(session.connection); }
     }, this.options.signal);
   }
@@ -87,7 +101,7 @@ export class MysqlDatabase implements Database {
     } catch (error) {
       if (this.#connections.get(key) === pending) this.#connections.delete(key);
       if (session?.kind === "tcp") destroyMysqlConnection(session.connection);
-      throw error;
+      throw session ? mysqlOperationError(error, "query") : error;
     }
   }
 
@@ -117,8 +131,10 @@ export class MysqlDatabase implements Database {
         this.options.onRoute?.({ transport: endpoint.host === target.host && endpoint.port === target.port ? "direct" : transport.name, reason });
         return { kind: "tcp", connection };
       } catch (error) {
-        if (!isConnectionNetworkError(error) || i === this.transports.length - 1) throw error;
-        reason = String((error as NodeJS.ErrnoException).code);
+        const failure = mysqlOperationError(error, "connect");
+        const connectionLost = failure instanceof ToolboxError && failure.kind === "connection_lost";
+        if ((!isConnectionNetworkError(failure) && !connectionLost) || i === this.transports.length - 1) throw failure;
+        reason = String((failure as NodeJS.ErrnoException).code);
       }
     }
     throw new Error("MySQL DataSource has no transport");
