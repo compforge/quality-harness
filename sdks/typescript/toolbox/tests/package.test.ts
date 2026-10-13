@@ -155,3 +155,49 @@ test("published MySQL query helpers preserve typed parameters and isolated cache
     expect(result.status).toBe(0);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("published OpenSearch entry falls back and does not replay reads on a reused socket in Node", () => {
+  const root = mkdtempSync(join(tmpdir(), "harness-toolbox-opensearch-package-"));
+  const target = join(root, "node_modules/@compforge/harness-toolbox");
+  mkdirSync(target, { recursive: true });
+  try {
+    installCommon(root);
+    cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
+    cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
+    const require = createRequire(import.meta.url);
+    const link = join(root, "node_modules/@opensearch-project/opensearch");
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync(dirname(require.resolve("@opensearch-project/opensearch/package.json")), link, "dir");
+    const result = spawnSync("node", ["--input-type=module", "-e", `
+      import assert from 'node:assert/strict';
+      import { createServer } from 'node:http';
+      import { openOpenSearch } from '@compforge/harness-toolbox/opensearch';
+      import { DirectTransport } from '@compforge/harness-toolbox/transport';
+      let queries = 0, connects = 0;
+      const routes = [];
+      const server = createServer((req,res) => {
+        if (req.method === 'HEAD') res.end();
+        else { queries++; req.socket.destroy(); }
+      });
+      await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
+      let client;
+      try {
+        client = await openOpenSearch({
+          resolve: async () => ({ node: 'http://missing.invalid:9200', auth: {}, requestTimeoutMs: 500 }),
+          transports: [new DirectTransport(), {kind:'tcp',name:'pod-relay',connect:async () => {
+            connects++; return {host:'127.0.0.1',port:server.address().port};
+          }}],
+        }, {onRoute: route => routes.push(route)});
+        await assert.rejects(client.search('spans',{}));
+        assert.equal(queries,1); assert.equal(connects,1);
+        assert.deepEqual(routes,[{transport:'pod-relay',reason:'ConnectionError'}]);
+      } finally {
+        await client?.close(); server.closeAllConnections();
+        await new Promise(resolve => server.close(resolve));
+      }
+    `], { cwd: root, encoding: "utf8", timeout: 5000 });
+    expect(result.error).toBeUndefined();
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

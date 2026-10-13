@@ -250,3 +250,13 @@ Disposal closes forwards and the exec stream; EOF closes remote listeners/connec
 connection is lost without EOF, a 30-second heartbeat lease bounds remote process lifetime.
 A dead relay invalidates its routes and fails callers; no SQL or other protocol operation is replayed.
 The root should finish or cancel protocol work before disposing the transport.
+
+### OpenSearch connection preparation
+
+`openOpenSearch` probes the resolved endpoint before returning. It tries the supplied TCP transports
+in order only for connection failures; HTTP authorization/server errors stop preparation, and failed
+reads are never replayed on another route. `onRoute` reports the selected transport and safe fallback
+reason. The caller owns shared transports such as `PodRelayTransport` and their cleanup.
+
+Routed HTTPS preserves the original TLS server name. Bun disables HTTP keep-alive because its reused
+socket recovery can replay a failed request below the driver; Node retains connection pooling.
