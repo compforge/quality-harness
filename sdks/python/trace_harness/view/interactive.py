@@ -243,20 +243,20 @@ function measurementValue(value,unit){
   return esc(text)+(unit&&unit!=='call'?' '+esc(unit):'');
 }
 function measurementGroup(rows){
-  const first=rows[0],prefix=first.scope==='node',calls=first.id==='calls_until_node_end';
-  const label=calls?'累计调用':first.id;
+  const first=rows[0],prefix=first.kind==='calls_until_node_end',calls=prefix;
+  const label=calls?'累计调用':first.kind;
   const scope=prefix?'请求开始 → 此节点结束（含进行中的调用）':first.scope==='node'?'此节点内部':first.scope;
   const elapsed=prefix&&typeof first.evidence.start_ms==='number'&&typeof first.evidence.end_ms==='number'?fmtMs(first.evidence.end_ms-first.evidence.start_ms)+' wall-clock':'';
   const keys=[...new Set(rows.flatMap(r=>Object.keys(r.values)))];
   const names={count:'调用次数',duration_sum_ms:'累计耗时',covered_ms:'覆盖时间'};
-  const dimension=rows.some(r=>r.kind),status=rows.some(r=>r.status!=='measured');
+  const dimension=rows.some(r=>r.call_kind),status=rows.some(r=>r.status!=='measured');
   const header=(dimension?'<th scope="col">Kind</th>':'')+keys.map(k=>'<th scope="col" class="numeric">'+esc(names[k]||k)+'</th>').join('')+(status?'<th scope="col">状态</th>':'');
-  const body=rows.map(r=>'<tr>'+(dimension?'<th scope="row">'+esc(r.kind||'—')+'</th>':'')+keys.map(k=>'<td class="numeric">'+(r.status==='measured'?measurementValue(r.values[k],r.units[k]):'—')+'</td>').join('')+(status?'<td class="measurement-status">'+esc(r.status==='measured'?'已测量':r.status==='not_applicable'?'不适用':'错误：'+(r.error||'未知错误'))+'</td>':'')+'</tr>').join('');
+  const body=rows.map(r=>'<tr>'+(dimension?'<th scope="row">'+esc(r.call_kind||'—')+'</th>':'')+keys.map(k=>'<td class="numeric">'+(r.status==='measured'?measurementValue(r.values[k],r.units[k]):'—')+'</td>').join('')+(status?'<td class="measurement-status">'+esc(r.status==='measured'?'已测量':r.status==='not_applicable'?'不适用':'错误：'+(r.error||'未知错误'))+'</td>':'')+'</tr>').join('');
   return '<div class="measurement-group"><h4>'+esc(label)+'</h4><p class="measurement-scope">'+esc(scope)+(elapsed?' · '+esc(elapsed):'')+'</p><div class="measurement-table-wrap"><table class="measurement-table"><thead><tr>'+header+'</tr></thead><tbody>'+body+'</tbody></table></div>'+(prefix?'<p class="measurement-note">累计耗时是各调用耗时之和；覆盖时间对重叠区间去重。各 kind 可重叠，不代表独占的 wall-clock 贡献。</p>':'')+'</div>';
 }
 function measurementBlock(n){
   const rows=n.measurements||[];if(!rows.length)return '';
-  const groups=new Map();for(const row of rows){if(!groups.has(row.id))groups.set(row.id,[]);groups.get(row.id).push(row);}
+  const groups=new Map();for(const row of rows){if(!groups.has(row.kind))groups.set(row.kind,[]);groups.get(row.kind).push(row);}
   return '<section class="measurement-section" aria-labelledby="measurements"><h3 id="measurements" tabindex="-1">Measurements</h3>'+[...groups.values()].map(measurementGroup).join('')+'</section>';
 }
 function select(id){
@@ -332,31 +332,32 @@ function renderTree(){
   updateSearch();
   if(layout==='flame')buildFlame();}
 // 火焰图（icicle）：x=wall-clock time，行=深度，色=kind；按当前 perspective 构建
+// @spec Paged views retain absolute row.depth; missing ancestors do not reset flame rows.
 function buildFlame(){
   const box=document.getElementById('flame'),axis=document.getElementById('faxis');
   box.replaceChildren();axis.replaceChildren();
   if(!tree.roots.length){box.innerHTML='<div class="empty">当前侧重点没有可展示节点</div>';
     flameBuilt=true;return;}
   let t0=Infinity,t1=-Infinity,maxD=0;
-  (function scan(ns,d){ns.forEach(n=>{t0=Math.min(t0,n.start_ms);
-    t1=Math.max(t1,n.start_ms+n.duration_ms);maxD=Math.max(maxD,d);scan(n.children,d+1);});})(tree.roots,0);
+  (function scan(ns){ns.forEach(n=>{t0=Math.min(t0,n.start_ms);
+    t1=Math.max(t1,n.start_ms+n.duration_ms);maxD=Math.max(maxD,n.depth);scan(n.children);});})(tree.roots);
   const span=Math.max(t1-t0,1e-6),rowH=20;
   box.style.height=((maxD+1)*rowH+4)+'px';
   for(let i=0;i<=10;i++){const s=document.createElement('span');
     s.style.left=(i*10)+'%';s.textContent=fmtMs(span*i/10);axis.appendChild(s);}
-  (function place(ns,d){ns.forEach(n=>{
+  (function place(ns){ns.forEach(n=>{
     const c=document.createElement('div');
     c.dataset.id=n.node_id;c.className='fcell'+(n.has_error?' err':'');
     c.style.left=((n.start_ms-t0)/span*100)+'%';
     c.style.width=Math.max(n.duration_ms/span*100,0.15)+'%';
-    c.style.top=(d*rowH)+'px';
+    c.style.top=(n.depth*rowH)+'px';
     c.style.background=KCOLOR[n.kind]||'#9ca3af';
     box.appendChild(c);
     c.textContent=compactName(n,Math.max(1,Math.floor(c.clientWidth/7)));
     c.title=compactName(n,Number.MAX_SAFE_INTEGER)+' · '+n.kind+' · '+fmtMs(n.duration_ms)
       +(n.service?' · '+n.service:'')+(n.has_error?' · ERROR':'');
     c.addEventListener('click',()=>{showLayout('tree');select(n.node_id);});
-    place(n.children,d+1);});})(tree.roots,0);flameBuilt=true;paintSearch();}
+    place(n.children);});})(tree.roots);flameBuilt=true;paintSearch();}
 renderTree();showLayout('tree');
 """
 
@@ -384,7 +385,10 @@ def render_trace_html(views: list[dict]) -> str:
     title = html_mod.escape(view["trace_id"])
     n_err = view["error_count"]
     buttons = "".join(
-        f'<button data-perspective="{item["view"]}">{item["view"]}</button>' for item in views
+        f'<button data-perspective="{item["view"]}"'
+        + (' class="active"' if index == 0 else "")
+        + f">{'Agent' if item['view'] == 'agent' else '完整'}</button>"
+        for index, item in enumerate(views)
     )
     trace_measurements = (
         "<details><summary>Trace measurements</summary><pre>"
