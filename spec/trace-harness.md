@@ -158,7 +158,9 @@ HTML, text and JSON inspection consume the same prepared TraceContext, Measureme
 AgentRun IR. Packaging these artifacts does not change their analysis semantics. Inspection MUST NOT
 read a remote Source or rerun analysis; hosts retain acquisition scope/completeness alongside them.
 
-- Agent stack inspection follows the AgentRun hierarchy used by HTML, keeps display IDs distinct
+- Agent stack is one concern-specific trace view with HTML and text renderings. Both MUST share
+  selected rows, ordering, hierarchy and source references; text adds pagination, not selection rules.
+  Inspection follows the existing AgentRun projection used by HTML, keeps display IDs distinct
   from source node IDs, and retains span references. Missing AgentRun IR is unavailable, not a
   guessed tree. Stack output excludes model/tool input and output payloads.
 - Explicit node inspection reads all persisted measurements for that anchor, independently of

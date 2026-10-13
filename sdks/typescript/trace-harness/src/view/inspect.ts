@@ -47,8 +47,9 @@ export interface AgentStackInspection {
   rows: InspectionPage<AgentStackRow>;
 }
 /**
- * @spec Inspect prepared AgentRun IR using the same hierarchy as HTML. Display IDs are not Node IDs.
- * @why Missing AgentRun evidence must not be replaced by a guessed logical execution tree.
+ * @spec Text and HTML render the same Agent stack: selection, ordering, hierarchy and source refs.
+ * @why Agent view policy belongs to the existing projection; inspection only flattens and pages it.
+ * Display IDs are not Node IDs. Missing prepared Agent view data remains unavailable.
  */
 export function inspectAgentStack(trace: TraceContext, ir?: AgentRunIR, options: PageOptions = {}): AgentStackInspection {
   if (ir && ir.trace_id !== trace.trace_id) throw new Error(`AgentRun trace ${ir.trace_id} does not match ${trace.trace_id}`);

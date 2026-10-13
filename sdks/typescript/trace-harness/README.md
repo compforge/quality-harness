@@ -101,7 +101,7 @@ import {
 } from "@compforge/trace-harness";
 
 const analysis = loadAnalysis(savedAnalysis);
-// Supply the persisted AgentRun IR when available; do not guess it from node kinds.
+// Reuse the same prepared Agent view data supplied to HTML as agentRunIR.
 const stack = inspectAgentStack(analysis.trace, savedAgentRunIR, { limit: 100 });
 console.log(renderAgentStackText(stack));
 const detail = inspectNodeMeasurements(analysis.trace, analysis.measurements, nodeId, {
@@ -121,6 +121,13 @@ operation key. Timeline calls retain original `start_ms`/`end_ms`, clipped relat
 `duration`, `clipped`, hierarchy and node/span references. Nested calls and different kinds overlap:
 aggregate totals must not be reported as exclusive wall-clock contributions. A page defaults to
 100 rows and returns total/offset/next_offset; limits are row limits, not a token budget.
+
+Agent stack is the Agent-focused view of the trace. HTML and text share the same selection,
+ordering, hierarchy and source references through `agentRunRoots`; text is a paginated rendering
+of that view. Pass the same persisted `agentRunIR` used by `renderInteractive` to `inspectAgentStack`.
+The consumer's existing Agent projection determines which operations/calls appear; text rendering
+adds no separate node filter or business selection rules. Full trace evidence remains available
+for drill-down.
 
 Agent stack IDs are display identities; use `source_node_ids` and `span_ids` to drill down.
 Missing AgentRun IR is `not_available`; an explicitly empty IR is available with zero rows.

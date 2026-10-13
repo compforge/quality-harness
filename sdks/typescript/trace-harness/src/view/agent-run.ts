@@ -185,6 +185,10 @@ function runPayload(
   };
 }
 
+/**
+ * @spec Shared Agent stack projection for HTML and text inspection.
+ * includeDetails controls payload preparation only; selected rows, order and hierarchy stay identical.
+ */
 export function agentRunRoots(
   context: TraceContext,
   ir: AgentRunIR,
