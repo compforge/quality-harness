@@ -12,7 +12,7 @@ from pathlib import Path
 from trace_harness.analyze.diagnose import diagnose
 from trace_harness.ingest.load import build_context
 from trace_harness.view import engine
-from trace_harness.view.facet import DefaultFacet, RenderConfig
+from trace_harness.view.facet import DefaultFacet
 from trace_harness.view.facets import builtin_facets
 from trace_harness.view.facets.agent import AgentFacet, ToolCallFacet
 from trace_harness.view.facets.model_call import ModelCallFacet
@@ -65,7 +65,7 @@ async def test_engine_renders_findings():
 
 
 def test_render_md_folds_http_via_engine():
-    from trace_harness.view import render_md
+    from trace_harness.view.engine import render_md
 
     md = render_md(_ctx())
     assert md.startswith("# trace ")
@@ -74,18 +74,18 @@ def test_render_md_folds_http_via_engine():
 
 
 def test_render_interactive_via_engine_smoke():
-    from trace_harness.view.interactive import render_interactive
+    from trace_harness.tests.view_fixture import prepared_html as render_interactive
 
     h = render_interactive(_ctx())
     # 交互页也走 engine 的 DisplayNode（facet 折叠）+ 保留交互 JS（折叠/展开）。
     assert h.startswith("<!doctype html>")
     assert "renderInto" in h and "调用栈" in h and "火焰图" in h
-    assert 'data-perspective="full"' in h and 'data-perspective="agent"' not in h
+    assert 'data-perspective="default"' in h and 'data-perspective="agent"' not in h
     assert 'data-layout="tree"' in h and 'data-layout="flame"' in h
 
 
 def test_node_tree_tool_name_uses_shared_budget_compaction():
-    from trace_harness.view.interactive import render_interactive
+    from trace_harness.tests.view_fixture import prepared_html as render_interactive
 
     ctx = _ctx()
     tool = next(node for node in ctx.nodes if node.kind == "tool-call")
@@ -134,59 +134,6 @@ def test_name_projections_jump_between_reported_ratios():
     assert name.calls == 4
 
 
-def test_agent_perspective_keeps_semantic_nodes_and_compresses_context_paths():
-    from trace_harness.model.node import Node
-    from trace_harness.model.viewtree import build_view
-
-    def make_node(
-        node_id: str,
-        kind: str,
-        parent_id: str | None = None,
-        start: float = 0,
-        *,
-        error: bool = False,
-    ):
-        return Node(
-            kind=kind,
-            name=f"{node_id}.{kind}",
-            primary_span_id=node_id,
-            span_ids=[node_id],
-            facts={},
-            start_ms=start,
-            duration_ms=10,
-            service=None,
-            node_id=node_id,
-            parent_node_id=parent_id,
-            error_span_ids=[node_id] if error else [],
-        )
-
-    root = make_node("root", "service")
-    agent = make_node("agent", "agent", root.node_id, 1)
-    bridge = make_node("bridge", "service", agent.node_id, 2)
-    model = make_node("model", "model-call", bridge.node_id, 3)
-    tool = make_node("tool", "tool-call", agent.node_id, 4)
-    noise = make_node("noise", "service", agent.node_id, 5)
-    error_http = make_node("error-http", "http", model.node_id, 6, error=True)
-    roots = engine.render(
-        build_view([root, agent, bridge, model, tool, noise, error_http]),
-        config=RenderConfig(perspective="agent"),
-    )
-    flat = []
-    stack = list(roots)
-    while stack:
-        display = stack.pop()
-        flat.append(display)
-        stack.extend(display.children)
-
-    assert sorted(display.name for display in flat if display.kind) == sorted(
-        [agent.name, model.name, tool.name]
-    )
-    assert any("上下文节点" in display.name for display in flat)
-    assert noise.name not in [display.name for display in flat]
-    assert error_http.name not in [display.name for display in flat]
-    assert model.parent_node_id == bridge.node_id
-
-
 def test_group_childop_named_virtual_concept_collapses_members():
     """Group ChildOp：把一组（可异类）兄弟收成一个命名虚拟概念合成行，默认折起、成员进 node_ids。"""
     from trace_harness.model.node import Field
@@ -194,7 +141,7 @@ def test_group_childop_named_virtual_concept_collapses_members():
     from trace_harness.view.registry import FacetRegistry
 
     ctx = _ctx()
-    view = ctx.view()
+    view = ctx.tree()
     parent = next((n for n in ctx.nodes if len(view.children(n)) >= 2), None)
     assert parent is not None
     kids = view.children(parent)
@@ -245,7 +192,7 @@ def test_group_expanded_shows_members_in_static():
     from trace_harness.view.registry import FacetRegistry
 
     ctx = _ctx()
-    view = ctx.view()
+    view = ctx.tree()
     parent = next((n for n in ctx.nodes if len(view.children(n)) >= 2), None)
     assert parent is not None
     kids = view.children(parent)
@@ -283,7 +230,7 @@ def test_salience_aware_collapse_surfaces_error_member():
     from trace_harness.view.registry import FacetRegistry
 
     ctx = _ctx()
-    view = ctx.view()
+    view = ctx.tree()
     parent = next((n for n in ctx.nodes if len(view.children(n)) >= 2), None)
     assert parent is not None
     kids = view.children(parent)
@@ -330,7 +277,7 @@ def test_findings_block_filters_structural_info():
     assert "backbone-marker" not in block and "spine" not in block  # info 结构 signal 不进
 
     # 但 info finding 仍 flag → 驱动 keep（不被 prune）
-    flagged = _flagged(ctx.view(), {node.node_id: [Finding(node.node_id, "spine", "info")]})
+    flagged = _flagged(ctx.tree(), {node.node_id: [Finding(node.node_id, "spine", "info")]})
     assert flagged[node.node_id]
 
 
@@ -360,7 +307,7 @@ def test_fold_iso_groups_merges_consecutive_units():
 
 def test_interactive_collapses_folded_by_default():
     """HTML 交互页：折叠合成节点（folded>0）默认收起——payload 带 folded 字段、JS 有收起逻辑。"""
-    from trace_harness.view.interactive import render_interactive
+    from trace_harness.tests.view_fixture import prepared_html as render_interactive
 
     h = render_interactive(_ctx())
     assert '"folded"' in h  # payload 传 folded 标记

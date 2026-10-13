@@ -55,7 +55,7 @@ async def _rule_findings(analysis: AnalysisContext) -> list[Finding]:
 
 def _post_order(ctx: TraceContext) -> list[Node]:
     """后序节点序（子先于父），供注册 detector 归因：跑到某 node 时其子树 findings 已就绪。"""
-    view = ctx.view()
+    view = ctx.tree()
     out: list[Node] = []
     seen: set[str] = set()
 

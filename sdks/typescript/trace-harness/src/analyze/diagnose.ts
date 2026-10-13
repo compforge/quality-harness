@@ -19,10 +19,10 @@ function postOrder(context: TraceContext): Node[] {
   const visit = (node: Node): void => {
     if (seen.has(node.node_id)) return;
     seen.add(node.node_id);
-    for (const child of context.view().children(node)) visit(child);
+    for (const child of context.tree().children(node)) visit(child);
     result.push(node);
   };
-  for (const root of context.view().roots) visit(root);
+  for (const root of context.tree().roots) visit(root);
   return result;
 }
 
@@ -59,5 +59,7 @@ export async function diagnoseAnalysis(analysis: AnalysisContext, detectorRegist
     }
   }
   analysis.runtime?.check();
-  return new AnalysisContext(context, analysis.measurements, findings, analysis.runtime);
+  const result = new AnalysisContext(context, analysis.measurements, findings, analysis.runtime);
+  result.agentRuns = analysis.agentRuns;
+  return result;
 }

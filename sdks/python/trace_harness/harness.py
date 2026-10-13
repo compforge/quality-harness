@@ -8,7 +8,7 @@ package's ``TraceContributions`` when it creates the harness.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from trace_harness.dataset import Dataset
     from trace_harness.runtime import TraceSession
 
+from trace_harness.analyze.call_breakdown import prepare_call_breakdown
 from trace_harness.analyze.context import AnalysisContext
 from trace_harness.analyze.diagnose import diagnose as diagnose_context
 from trace_harness.analyze.diagnose import diagnose_analysis
@@ -34,16 +35,13 @@ from trace_harness.model.agent import AgentRunIR, validate_agent_run_ir
 from trace_harness.model.context import TraceContext
 from trace_harness.model.measurement import Measurements
 from trace_harness.model.node import Finding, Node
+from trace_harness.model.node_tree import NodeTreeExtractor
 from trace_harness.model.span import NormSpan
 from trace_harness.model.spec import KindSpec, SpecSet
-from trace_harness.model.viewtree import NodeTreeExtractor
 from trace_harness.transform import BUILTIN_TRANSFORMS, FactTransform
-from trace_harness.view.engine import render as render_display_tree
-from trace_harness.view.engine import render_callstack as render_callstack_view
-from trace_harness.view.engine import render_md as render_markdown
-from trace_harness.view.facet import Facet, RenderConfig
+from trace_harness.view.build import ViewRequest, build_view
+from trace_harness.view.facet import Facet
 from trace_harness.view.facets import builtin_facets
-from trace_harness.view.interactive import render_interactive as render_interactive_view
 from trace_harness.view.measurements import MeasurementFilter, filter_measurements
 from trace_harness.view.registry import FacetRegistry
 
@@ -180,77 +178,32 @@ class TraceHarness:
             return None
         return validate_agent_run_ir(extractor.extract(context), context)
 
-    def render_display(
-        self,
-        context: TraceContext,
-        findings: dict[str, list[Finding]] | None = None,
-        *,
-        config: RenderConfig | None = None,
-    ):
-        return render_display_tree(
-            context.view(),
-            findings,
-            registry=self.facets,
-            config=config,
-        )
-
     def visible_measurements(
         self, context: TraceContext, measurements: Measurements
     ) -> Measurements:
         """Project prepared measurements for reports; analysis remains complete."""
         return filter_measurements(context, measurements, self.contributions.measurement_filter)
 
-    def render_interactive(
+    def prepare(
         self,
-        context: TraceContext,
-        findings: dict[str, list[Finding]] | None = None,
+        analysis: AnalysisContext,
         *,
-        measurements: Measurements | None = None,
-    ) -> str:
-        return render_interactive_view(
-            context,
-            findings,
-            facet_registry=self.facets,
-            measurements=(
-                self.visible_measurements(context, measurements)
-                if measurements is not None
-                else None
-            ),
-            agent_run_ir=self.extract_agent_runs(context),
-        )
+        agent_runs: bool = False,
+        call_breakdowns: Iterable[str] = (),
+    ) -> AnalysisContext:
+        """Explicit derivation phase; independent of View selection and output format."""
+        for node_id in call_breakdowns:
+            prepare_call_breakdown(analysis.trace, analysis.measurements, node_id)
+        if agent_runs and analysis.agent_runs is None:
+            analysis = replace(analysis, agent_runs=self.extract_agent_runs(analysis.trace))
+        return analysis
 
-    def render_md(
-        self,
-        context: TraceContext,
-        findings: dict[str, list[Finding]] | None = None,
-        *,
-        prune_below_ms: float | None = None,
-        measurements: Measurements | None = None,
-    ) -> str:
-        from trace_harness.view.measurements import measurements_md
-
-        return render_markdown(
-            context,
-            findings,
-            prune_below_ms=prune_below_ms,
-            registry=self.facets,
-        ) + measurements_md(
-            context,
-            self.visible_measurements(context, measurements) if measurements is not None else None,
-        )
-
-    def render_callstack(
-        self,
-        context: TraceContext,
-        findings: dict[str, list[Finding]] | None = None,
-        *,
-        node_threshold: int = 120,
-    ) -> str:
-        return render_callstack_view(
-            context,
-            findings,
-            node_threshold=node_threshold,
-            registry=self.facets,
+    def build_view(self, analysis: AnalysisContext, request: ViewRequest) -> dict:
+        return build_view(
+            analysis,
+            request,
+            facets=self.facets,
+            measurement_filter=self.contributions.measurement_filter,
         )
 
 

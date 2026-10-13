@@ -13,7 +13,7 @@ from typing import Any
 from trace_harness.loading.facts import EvidenceDependency, FactDependency
 from trace_harness.model.context import TraceContext
 from trace_harness.model.node import Node
-from trace_harness.model.viewtree import ViewTree
+from trace_harness.model.node_tree import NodeTree
 
 
 @dataclass(frozen=True)
@@ -27,8 +27,8 @@ class FactTransform:
 
 
 class TransformContext:
-    def __init__(self, view: ViewTree, transforms: Iterable[FactTransform]):
-        self._view = view
+    def __init__(self, view: NodeTree, transforms: Iterable[FactTransform]):
+        self._tree = view
         self._owners: dict[tuple[str, str], FactTransform] = {}
         self._pending: dict[tuple[str, str], Any] = {}
         self._active: set[tuple[str, int]] = set()
@@ -46,7 +46,7 @@ class TransformContext:
                     self._owners[key] = transform
 
     def children(self, node: Node) -> list[Node]:
-        return self._view.children(node)
+        return self._tree.children(node)
 
     def get(self, node: Node, name: str) -> Any:
         """Resolve a fact dependency within a materialization; raw spans are not an input."""
@@ -78,14 +78,14 @@ class TransformContext:
         """Compute selected outputs and their dependencies; all outputs become node facts."""
         try:
             for node, name in requests:
-                if self._view.by_id.get(node.node_id) is not node:
+                if self._tree.by_id.get(node.node_id) is not node:
                     raise ValueError(f"node does not belong to this trace: {node.node_id}")
                 self.get(node, name)
             for node_id, name in self._pending:
-                if name in self._view.by_id[node_id].facts:
+                if name in self._tree.by_id[node_id].facts:
                     raise ValueError(f"conflicting fact write: {(node_id, name)}")
             for (node_id, name), value in self._pending.items():
-                self._view.by_id[node_id].facts[name] = value
+                self._tree.by_id[node_id].facts[name] = value
             self._done.update(self._completed)
         finally:
             self._pending.clear()

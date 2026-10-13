@@ -1,4 +1,4 @@
-"""渲染引擎 —— 走原生 ViewTree，每 node 分派 facet，执行 ChildOp，产出 DisplayNode 树。
+"""渲染引擎 —— 走原生 NodeTree，每 node 分派 facet，执行 ChildOp，产出 DisplayNode 树。
 
 职责分工：**facet 只声明意图（brief + layout 的 ChildOp），递归与执行在 engine**。这样
 facet 不持有遍历逻辑、不自己 recurse，机制集中、可换序列化器。
@@ -16,7 +16,7 @@ from __future__ import annotations
 from trace_harness.kinds.base import _fmt_ms
 from trace_harness.model.context import TraceContext
 from trace_harness.model.node import Field, Finding, Node
-from trace_harness.model.viewtree import ViewTree
+from trace_harness.model.node_tree import NodeTree
 from trace_harness.view.callstack import (
     _SEV_FLAG,
     _SEV_ORDER,
@@ -38,13 +38,12 @@ from trace_harness.view.facet import (
 )
 from trace_harness.view.facets import builtin_facets
 from trace_harness.view.http import group_http_calls, group_http_services, http_call_groups
-from trace_harness.view.perspective import project_perspective
 from trace_harness.view.registry import FacetRegistry
 
 # —— 剪枝/折叠辅助（与 callstack._subtree_flagged / _subtree_size 同口径）——
 
 
-def _flagged(view: ViewTree, findings: dict[str, list[Finding]]) -> dict[str, bool]:
+def _flagged(view: NodeTree, findings: dict[str, list[Finding]]) -> dict[str, bool]:
     flagged: dict[str, bool] = {}
 
     def mark(n: Node) -> bool:
@@ -59,7 +58,7 @@ def _flagged(view: ViewTree, findings: dict[str, list[Finding]]) -> dict[str, bo
     return flagged
 
 
-def _subtree_size(view: ViewTree, n: Node) -> tuple[int, float]:
+def _subtree_size(view: NodeTree, n: Node) -> tuple[int, float]:
     cnt, total = 1, n.duration_ms
     for c in view.children(n):
         cc, ct = _subtree_size(view, c)
@@ -68,7 +67,7 @@ def _subtree_size(view: ViewTree, n: Node) -> tuple[int, float]:
     return cnt, total
 
 
-def _collapse_line(view: ViewTree, folded: list[Node], cut: float) -> DisplayNode:
+def _collapse_line(view: NodeTree, folded: list[Node], cut: float) -> DisplayNode:
     cnt = sum(_subtree_size(view, c)[0] for c in folded)
     total = sum(c.duration_ms for c in folded)
     return DisplayNode(
@@ -91,7 +90,7 @@ def _aggregate_line(op: Aggregate) -> DisplayNode:
     )
 
 
-def _group_line(view: ViewTree, op: Group) -> DisplayNode:
+def _group_line(view: NodeTree, op: Group) -> DisplayNode:
     """命名虚拟概念合成行：label 由 facet 自定义，brief 附 cost 等徽标，成员由调用方渲进 children。
     collapsed → folded 计**整子树** node 数（静态 md 据此只出摘要、不下降）；展开态 folded=0。
     node_ids 留成员供 finding 上浮 / 交互层展开。"""
@@ -153,13 +152,13 @@ def _fold_iso_groups(ops: list[ChildOp]) -> list[ChildOp]:
 
 
 def render(
-    view: ViewTree,
+    view: NodeTree,
     findings: dict[str, list[Finding]] | None = None,
     *,
     registry: FacetRegistry | None = None,
     config: RenderConfig | None = None,
 ) -> list[DisplayNode]:
-    """渲染整棵 ViewTree 为 DisplayNode（每个 root 一棵）。"""
+    """渲染整棵 NodeTree 为 DisplayNode（每个 root 一棵）。"""
     findings = findings or {}
     registry = registry or FacetRegistry(builtin_facets())
     config = config or RenderConfig()
@@ -228,11 +227,11 @@ def render(
 
     roots = render_ops([Expand(r) for r in view.roots])
     _bind_findings(view, findings, visible)
-    return project_perspective(roots, view.by_id, registry, config.perspective)
+    return roots
 
 
 def _bind_findings(
-    view: ViewTree, findings: dict[str, list[Finding]], visible: dict[str, DisplayNode]
+    view: NodeTree, findings: dict[str, list[Finding]], visible: dict[str, DisplayNode]
 ) -> None:
     """finding 锚 node_id：可见则挂该 DisplayNode；被折叠则上浮到最近可见祖先 node。"""
     by_id = view.by_id
@@ -308,7 +307,7 @@ def render_md(
     """facet-engine 版 markdown 全树（默认）/剪枝树（给 prune_below_ms），对齐旧
     `callstack.render_md`（`# trace` 头 + 缩进树），但经 facet 折叠（http/代理链等）。"""
     roots = render(
-        ctx.view(),
+        ctx.tree(),
         findings or {},
         registry=registry,
         config=RenderConfig(prune_below_ms=prune_below_ms),
@@ -339,7 +338,7 @@ def render_callstack(
         head += f"  [骨架 {len(skel)}>{node_threshold}，剪枝树：留大头+错误+判读]"
         prune = _prune_cutoff(skel)
     roots = render(
-        ctx.view(), findings or {}, registry=registry, config=RenderConfig(prune_below_ms=prune)
+        ctx.tree(), findings or {}, registry=registry, config=RenderConfig(prune_below_ms=prune)
     )
     lines: list[str] = []
     for d in roots:

@@ -22,7 +22,7 @@ function sourcePayload(
   status = "",
 ): Record<string, unknown> {
   const nodes = sourceNodeIds
-    .map((nodeId) => context.view().by_id.get(nodeId))
+    .map((nodeId) => context.tree().by_id.get(nodeId))
     .filter((node): node is Node => Boolean(node));
   const spanIds = [...new Set(nodes.flatMap((node) => node.span_ids))];
   const errorSpanIds = [...new Set(nodes.flatMap((node) => node.error_span_ids))];
@@ -31,7 +31,7 @@ function sourcePayload(
     source_node_ids: sourceNodeIds,
     service: nodes[0]?.service ?? "",
     has_error: errorSpanIds.length > 0 || statusError,
-    error: errorSpanIds.length ? context.error_text(errorSpanIds[0]!) : status,
+    error: errorSpanIds.length ? context.error_text(errorSpanIds[0]!) || nodes.find(node => node.error_text)?.error_text || status : status,
     findings: nodes.flatMap((node) => (findings[node.node_id] ?? []).map((finding) => ({
       severity: finding.severity,
       source: finding.source,

@@ -6,7 +6,7 @@ export interface NodeTreeExtractor<T> {
   extract(context: TraceContext): T;
 }
 
-export class ViewTree {
+export class NodeTree {
   readonly roots: Node[];
   readonly by_id: Map<string, Node>;
   readonly by_span: Map<string, Node>;
@@ -35,6 +35,6 @@ export class ViewTree {
   }
 }
 
-export function buildView(nodes: Node[]): ViewTree {
-  return new ViewTree(nodes);
+export function buildNodeTree(nodes: Node[]): NodeTree {
+  return new NodeTree(nodes);
 }

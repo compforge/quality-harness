@@ -140,7 +140,7 @@ export function assemble(
 
   traceId ??= String(spans.values().next().value?.raw.traceID ?? "?");
   const context = new TraceContext(traceId, spans, nodes, realized);
-  const transformContext = new TransformContext(context.view(), transforms);
+  const transformContext = new TransformContext(context.tree(), transforms);
   if (prepare) transformContext.materialize(nodes.flatMap((node) =>
     (realized.get(node.kind)?.project_requires ?? []).map((name) => [node, name] as const)
   ));

@@ -1,7 +1,7 @@
 import type { TraceContext } from "./model/context";
 import type { Dependency } from "./loading/facts";
 import type { Node } from "./model/node";
-import type { ViewTree } from "./model/viewtree";
+import type { NodeTree } from "./model/node-tree";
 
 /** Named fact outputs; scheduling and presentation belong to consumers. */
 export interface FactTransform {
@@ -17,7 +17,7 @@ export class TransformContext {
   readonly #active = new Map<Node, Set<FactTransform>>();
   readonly #completed = new Map<Node, Set<FactTransform>>();
   readonly #done = new Map<Node, Set<FactTransform>>();
-  constructor(readonly view: ViewTree, transforms: Iterable<FactTransform>) {
+  constructor(readonly view: NodeTree, transforms: Iterable<FactTransform>) {
     const items = [...transforms];
     for (const node of view.by_id.values()) {
       const owners = new Map<string, FactTransform>();

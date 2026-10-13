@@ -26,8 +26,8 @@ from trace_harness.ingest.assemble import assemble
 from trace_harness.ingest.load import build_context
 from trace_harness.ingest.sources.jaeger_file import load_jaeger_file, normalize_es_doc
 from trace_harness.kinds import genai
+from trace_harness.model.node_tree import build_node_tree
 from trace_harness.model.span import NormSpan
-from trace_harness.model.viewtree import build_view
 from trace_harness.view.series import render_series
 from trace_harness.view.text import render_text
 
@@ -198,9 +198,9 @@ def test_node_edges_skip_satellites(ctx):
 
 
 def test_node_has_no_children_attr(ctx):
-    # 立场①：Node 不内嵌 children，子节点是 viewtree 视图期产物
+    # 立场①：Node 不内嵌 children，子节点是 node_tree 视图期产物
     assert not hasattr(ctx.nodes[0], "children")
-    view = build_view(ctx.nodes)
+    view = build_node_tree(ctx.nodes)
     agent = next(n for n in ctx.nodes if n.kind == "agent")
     assert len(view.children(agent)) == 3
 
@@ -358,7 +358,7 @@ def test_render_series_sparkline():
 
 
 async def test_render_interactive_single_file_page(ctx):
-    from trace_harness.view.interactive import render_interactive
+    from trace_harness.tests.view_fixture import prepared_html as render_interactive
 
     page = render_interactive(ctx, (await diagnose(ctx)))
     assert "chat planner" in page  # 节点名进左树 payload

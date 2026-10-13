@@ -50,7 +50,7 @@ def obs_hole(node: Node, analysis: AnalysisContext) -> list[Finding]:
     spec = ctx.specs.get(node.kind)
     if spec is not None and not spec.obs_hole:
         return []  # 聚合容器 kind 自行声明退出（误报教训见 spec.obs_hole 注释）
-    kids = ctx.view().children(node)
+    kids = ctx.tree().children(node)
     if not kids:
         return []  # 叶子在干活、不是编排，整段都不是"洞"
     lo, hi = node.start_ms, node.end_ms
@@ -80,7 +80,7 @@ def propagated(node: Node, analysis: AnalysisContext) -> list[Finding]:
     if not node.has_error:
         return []
     sig = _error_sig(ctx, node)
-    view = ctx.view()
+    view = ctx.tree()
     stack = list(view.children(node))
     while stack:
         d = stack.pop()

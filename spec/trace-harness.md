@@ -64,15 +64,15 @@ synthetic context connector, but it MUST retain the represented node IDs and MUS
 
 ## 3. Analysis IR
 
-The canonical JSON projection is `trace-harness/analysis@2`, defined by
-[`analysis.schema.json`](../schema/trace/v2/analysis.schema.json).
+The canonical JSON projection is `trace-harness/analysis@3`, defined by
+[`analysis.schema.json`](../schema/trace/v3/analysis.schema.json).
 
 - `NormSpan` is one normalized physical span and retains raw data for provenance.
 - `Node` is the node-grain Unit Observation: one logical operation backed by one or more physical spans.
 - `facts` contains standardized JSON-compatible observations produced by build and fact transformation.
 - `Measurement` describes a computed quantity with identity, scope, anchor, units, dimensions,
   values and evidence selection. It carries no severity or verdict.
-- `measurements` stores specs, a shared call source index and results grouped by anchor node ID.
+- `measurements` stores specs, a shared call source index and results attached to trace or node owners.
   Every result carries `measured`, `not_applicable` or `error`; unmeasured results MUST have empty
   values, and failures MUST NOT be represented as zero.
 - `Finding` is the diagnostic output of detection attached to a node, trace, or cohort. A finding is not a verdict.
@@ -116,66 +116,60 @@ cached partial computations, so a later request can retry.
 without transforms or raw spans. Long strings and structured values MAY use expandable fact
 presentation; display policy does not alter their role as facts.
 
-### Measurement scopes and evidence
+### Measurement ownership, kinds and evidence
 
-A spec declares `id`, `scope`, `units` by value key, `description` and `dimensions`. A result
-references `spec_id` and `anchor_node_id`, then provides `status`, `values`, `evidence` and `error`.
-Measurement has the same descriptive role across trace and trajectory, but each domain owns
-its types, observation model and algorithms; sharing a runtime class is not required.
+`Measurer → Measurement` describes observed behavior under an explicit calculation convention.
+It does not change observations or judge quality. `Detector → Finding` applies a selected rule or
+expectation; detectors may consume observations and prepared Measurements. Changing a threshold
+changes Findings, not the measurements from the same observations and calculation convention.
 
-`self_ms` has node scope. It is the node duration minus the union of direct-child intervals,
-clipped to the node interval. A leaf therefore reports its full duration.
+A MeasurementSpec declares `kind`, `scope` (`trace` or `node`), units, dimensions and description.
+A Measurement has `kind`, `node_id` (null for the containing trace), status, values, evidence and error.
+The containing analysis identifies the trace. `measurements.trace` holds trace results;
+`measurements.nodes[node_id]` holds results attached to that node, separately from reusable raw facts.
+Each kind has at most one result per owner. The measurement kind is distinct from the call/node kind.
+Failed and not-applicable results have no numeric values; measured zero remains a real result.
 
-`calls_until_node_end` has trace-prefix scope and a `kind` dimension:
+- `self_ms` belongs to a node: duration minus the union of direct-child intervals clipped to that node.
+- `calls_until_node_end` also belongs to a node. Its evidence window begins at the earliest observed
+  trace start and ends at that node's end; ownership does not restrict the input to its subtree.
+  It counts calls starting at or before the cutoff, clipping in-flight calls. A call starting at the
+  cutoff counts once with zero elapsed duration. Results are dimensioned by `call_kind`.
+- Build one shared call index and sweep prefix events by call kind. Direct HTTP pairs count once
+  using caller timing and retain both span references. Residual service and display groups are excluded.
+- `call_breakdown` is prepared explicitly for requested nodes from saved prefix evidence. Its values
+  contain the window, clipped calls and operation groups (call kind, caller service, target, operation),
+  including count, total, average and maximum. It retains source IDs and original intervals. Preparation
+  must finish before building a View; no renderer performs this calculation.
+- Nested and parallel durations and kind coverage overlap. Neither sum nor coverage is a causal
+  or exclusive wall-clock contribution. The window is observed time, not a claim of complete capture.
 
-- The window starts at the earliest observed span/node start in the current trace and ends at
-  the anchor node's end. It includes siblings and other roots, not only the anchor's subtree.
-- Count every logical call whose start is **at or before** the cutoff. Calls still in flight
-  contribute their elapsed duration through the cutoff. A call starting exactly at the cutoff
-  counts once with zero elapsed duration.
-- Each kind reports `count` (calls), `duration_sum_ms` (clipped interval sum) and `covered_ms`
-  (clipped interval union). Zero is a measured value; no applicable result and failure are distinct.
-- Count genuine modeled operations even if they have children. Exclude coarse residual `service`
-  nodes and presentation groups. Count direct HTTP client/server pairs once using caller timing;
-  retain both span references in the source index. Include model HTTP and streaming requests.
-- Kinds overlap: neither duration sums nor kind coverage may be summed as total wall-clock time
-  or presented as a causal contribution to latency.
-- Build the call index once and sweep time events per kind. Implementations MUST NOT rescan
-  all previous calls for every node or repeat cumulative evidence arrays in each result.
-  `evidence={source:"calls", start_ms, end_ms}` selects the shared `sources` records by start
-  through the cutoff; kind selects a dimensional row. Durations are clipped to that window.
-  `self_ms` uses `{source:"direct_children", node_id}` to select from the persisted node table.
+Analysis schema `trace-harness/analysis@3` persists Measurements and optionally prepared AgentRun IR.
+Reload never invokes measurers, extractors or detectors. Derivations remain available offline.
 
-A subtree cumulative measurement would have a different scope; it is not defined by this version.
+### Views and rendering
 
-The analysis artifact MUST retain measured results independently of facts and Findings. Offline
-reload MUST render persisted results without recomputation. Interactive node details show scope,
-kind, counts, duration sum and coverage even with no Finding; Markdown exposes the same values.
+A View selects and organizes already-prepared trace/node data. It owns no source reads, extraction,
+measurement or diagnosis. `NodeTree` is the structural index (`TraceContext.tree()`), not a View.
 
-### Offline inspection projections
+`buildView(analysis, request)` (Python: `build_view`) accepts:
 
-HTML, text and JSON inspection consume the same prepared TraceContext, Measurements and optional
-AgentRun IR. Packaging these artifacts does not change their analysis semantics. Inspection MUST NOT
-read a remote Source or rerun analysis; hosts retain acquisition scope/completeness alongside them.
+- Trace: `{scope: "trace", view: "default" | "agent"}`; default organizes the node tree using facets;
+  agent uses prepared AgentRun IR. Missing IR is `not_available`, never a guessed semantic tree.
+- Node: `{scope: "node", nodeId, view: "default" | "measurements" | "timeline"}`. Default shows basic
+  facts, details and span evidence. Measurements selects the node's measurements and operation groups;
+  timeline selects prepared clipped calls. Unknown nodes are errors. Node queries ignore report filters.
+- `offset` and `limit` page selected rows/groups/calls. Total and continuation offset are explicit.
+  A page retains original display parent/depth and source node/span IDs even if the parent is off-page.
 
-- Agent stack is one concern-specific trace view with HTML and text renderings. Both MUST share
-  selected rows, ordering, hierarchy and source references; text adds pagination, not selection rules.
-  Inspection follows the existing AgentRun projection used by HTML, keeps display IDs distinct
-  from source node IDs, and retains span references. Missing AgentRun IR is unavailable, not a
-  guessed tree. Stack output excludes model/tool input and output payloads.
-- Explicit node inspection reads all persisted measurements for that anchor, independently of
-  the report visibility filter. Missing, not-applicable, failed and measured-zero values remain
-  distinct. Unknown node IDs are errors.
-- Prefix detail uses the saved evidence window and shared call index. Group by kind, caller service,
-  target and operation; compute count, clipped duration sum, average and maximum before pagination.
-  A hierarchy-preserving timeline keeps original intervals, window-relative offsets and source IDs.
-  These projections do not claim exclusive time or a critical path. Sibling rows are chronological.
-- Bounded row output reports total count, offset and continuation offset; paging does not change
-  aggregates or the measurement window. Names and arbitrary text must not create extra output rows.
+`render(view, {format: "html" | "text" | "json"})` returns a string. Python uses `render(view, format=...)`.
+All formats consume the same format-neutral View. JSON directly serializes it; a parsed JSON View is
+renderable without its analysis context. Internal format-specific renderers are not public entrypoints.
+Views carry only the selected subject and focus. HTML can compose separately built default/agent views
+internally without re-extracting data. Trace/node metadata and measurement ownership are preserved.
+Report visibility changes presentation only. A yellow measurement button does not grant or deny access
+to measurements and does not trigger computation.
 
-The TypeScript SDK supplies convenience inspection/text functions; these are view projections,
-not a new persisted IR or a change to analysis/AgentRun schemas. The shared boundary fixture is
-[`inspection-window.json`](../conformance/trace/fixtures/inspection-window.json).
 
 ## 4. AgentRun IR
 
@@ -230,7 +224,7 @@ these explicit extension slots:
 | --- | --- | --- |
 | `specs` | assemble and per-kind diagnose | first matching spec wins |
 | `transforms` | facts requested by projection, analysis or inspection | dependencies via pull/memo; conflicts fail |
-| `measurers` | whole-trace measurement | each runs once; spec IDs must be unique |
+| `measurers` | whole-trace measurement | each runs once; measurement kinds must be unique |
 | `detectors` | diagnose | declaration order within each post-order node |
 | `facets` | render | highest priority wins; declaration order breaks ties; an undefined perspective level falls through |
 | `measurement_filter` | report rows only | first contributed predicate wins; absent means show all |

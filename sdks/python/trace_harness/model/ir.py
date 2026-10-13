@@ -1,9 +1,9 @@
-"""TraceView —— 渲染/探索的可序列化 IR（doc 立场①「树是视图期产物」的落盘形态）。
+"""TraceSnapshot —— 渲染/探索的可序列化 IR（doc 立场①「树是视图期产物」的落盘形态）。
 
 assemble 把 per-kind 投影一次烤进 `Node.brief` 之后，渲染只需要一个窄「可渲染面」：
-`trace_id / nodes / span_count / view()`。`TraceContext`（内存事实源）与 `TraceView`
+`trace_id / nodes / span_count / view()`。`TraceContext`（内存事实源）与 `TraceSnapshot`
 （落盘 `nodes.json`）都满足这个面——**同一渲染接口，两种 transport**。treecli 读
-`nodes.json` 即得 TraceView，零域依赖、不碰 raw span，只在导航时按 span 指针回原文。
+`nodes.json` 即得 TraceSnapshot，零域依赖、不碰 raw span，只在导航时按 span 指针回原文。
 
 `nodes.json` 是 assemble（域感知：span→node + 投影）与 explore（通用：逛树）之间唯一契约：
 左侧随便换 kind/数据源，只要还吐这个 schema，treecli 一行不用改。
@@ -17,38 +17,38 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from trace_harness.model.node import Field, Node
-from trace_harness.model.viewtree import ViewTree, build_view
+from trace_harness.model.node_tree import NodeTree, build_node_tree
 
 SCHEMA = "trace-harness/nodes@1"
 
 
 @runtime_checkable
 class Renderable(Protocol):
-    """渲染器/explore 依赖的结构面——ctx 与 TraceView 都满足（接口隔离）。"""
+    """渲染器/explore 依赖的结构面——ctx 与 TraceSnapshot 都满足（接口隔离）。"""
 
     trace_id: str
     nodes: list[Node]
     span_count: int
 
-    def view(self) -> ViewTree: ...
+    def tree(self) -> NodeTree: ...
 
 
 @dataclass
-class TraceView:
+class TraceSnapshot:
     """nodes.json 反序列化后的可渲染体；结构面与 TraceContext 对齐，但**不含 raw span**。"""
 
     trace_id: str
     nodes: list[Node]
     span_count: int
-    _view: ViewTree | None = field(default=None, repr=False)
+    _tree: NodeTree | None = field(default=None, repr=False)
 
-    def view(self) -> ViewTree:
-        if self._view is None:
-            self._view = build_view(self.nodes)
-        return self._view
+    def tree(self) -> NodeTree:
+        if self._tree is None:
+            self._tree = build_node_tree(self.nodes)
+        return self._tree
 
     @classmethod
-    def from_context(cls, ctx: Renderable) -> TraceView:
+    def from_context(cls, ctx: Renderable) -> TraceSnapshot:
         """内存 ctx → 渲染体（同进程直接用，不必落盘）。"""
         return cls(trace_id=ctx.trace_id, nodes=list(ctx.nodes), span_count=ctx.span_count)
 
@@ -92,8 +92,8 @@ def _node_from_dict(d: dict) -> Node:
     )
 
 
-def dump_view(view: Renderable, path: str | Path) -> Path:
-    """ctx/TraceView → nodes.json（自包含 IR）。assemble 侧产出，explore 侧消费。"""
+def dump_nodes(view: Renderable, path: str | Path) -> Path:
+    """ctx/TraceSnapshot → nodes.json（自包含 IR）。assemble 侧产出，explore 侧消费。"""
     path = Path(path)
     payload = {
         "schema": SCHEMA,
@@ -105,11 +105,11 @@ def dump_view(view: Renderable, path: str | Path) -> Path:
     return path
 
 
-def load_view(path: str | Path) -> TraceView:
+def load_nodes(path: str | Path) -> TraceSnapshot:
     d = json.loads(Path(path).read_text(encoding="utf-8"))
     if d.get("schema") != SCHEMA:
         raise ValueError(f"not a {SCHEMA} nodes file: {path}")
-    return TraceView(
+    return TraceSnapshot(
         trace_id=d.get("trace_id") or "?",
         nodes=[_node_from_dict(x) for x in (d.get("nodes") or [])],
         span_count=int(d.get("span_count") or 0),

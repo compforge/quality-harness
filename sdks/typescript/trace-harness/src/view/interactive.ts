@@ -1,141 +1,15 @@
+import type { TraceView } from "./model";
 import { TraceArchive, ARCHIVE_SCRIPT } from "./archive";
 import echartsSource from "echarts/dist/echarts.min.js" with { type: "text" };
-import { measurementCallDetails, MEASUREMENT_DIALOG_SCRIPT, MEASUREMENT_DIALOG_HTML, MEASUREMENT_DIALOG_CSS } from "./measurement-dialog";
+import { MEASUREMENT_DIALOG_SCRIPT, MEASUREMENT_DIALOG_HTML, MEASUREMENT_DIALOG_CSS } from "./measurement-dialog";
 import renderJsonSource from "renderjson/renderjson.js" with { type: "text" };
 
-import { Measurements } from "../model/measurement";
-import { measurementRows } from "./measurements";
-import type { AgentRunIR } from "../model/agent";
-import type { TraceContext } from "../model/context";
-import type { Finding, Node } from "../model/node";
-import { DisplayName, nameProjections, type DisplayNode } from "./display";
-import { agentRunRoots } from "./agent-run";
-import { renderDisplay } from "./engine";
-import { builtinFacets } from "./facets";
-import { FacetRegistry } from "./registry";
-import { toolNameDetail } from "./tool-name";
 
-const JSON_DECODE_LIMIT = 4;
 
 function htmlEscape(value: unknown): string {
   return String(value).replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
   })[char]!);
-}
-
-function structuredJson(value: unknown): unknown | undefined {
-  let candidate = value;
-  for (let depth = 0; depth < JSON_DECODE_LIMIT && typeof candidate === "string"; depth += 1) {
-    const text = candidate.trim();
-    if (!text) return undefined;
-    try {
-      candidate = JSON.parse(text) as unknown;
-    } catch {
-      return undefined;
-    }
-  }
-  return candidate !== null && typeof candidate === "object" ? candidate : undefined;
-}
-
-function attrPayload(value: unknown): Record<string, unknown> {
-  const json = structuredJson(value);
-  if (json !== undefined) return { kind: "json", value: json };
-  let text = typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
-  return { kind: "text", value: text };
-}
-
-function displayPayload(
-  context: TraceContext,
-  display: DisplayNode,
-  byId: Map<string, Node>,
-  measurements: Measurements,
-  path: string,
-): Record<string, unknown> {
-  const children = display.children.map((child, i) => (
-    displayPayload(context, child, byId, measurements, `${path}.${i}`)
-  ));
-  const findings = display.findings.map((finding) => ({
-    severity: finding.severity,
-    source: finding.source,
-    note: finding.note ?? "",
-  }));
-  const node = display.kind && display.node_ids.length ? byId.get(display.node_ids[0]!) : undefined;
-  if (node) {
-    const displayName = node.kind === "tool-call"
-      ? String(node.facts.tool ?? display.name)
-      : display.name;
-    const argumentsValue = node.kind === "tool-call"
-      ? context.raw_attr(String(node.facts.io_span ?? node.primary_span_id))["gen_ai.tool.call.arguments"]
-      : undefined;
-    const compact = typeof display.compact === "function"
-      ? display
-      : node.kind === "tool-call"
-      ? new DisplayName(displayName, toolNameDetail(argumentsValue))
-      : display;
-    return {
-      node_id: node.node_id,
-      kind: display.kind,
-      name: display.name,
-      name_variants: nameProjections(compact, display.name),
-      service: node.service ?? "",
-      start_ms: node.start_ms,
-      duration_ms: Number(node.facts.wall_ms ?? node.duration_ms),
-      has_error: node.has_error,
-      error: node.has_error ? node.error_text : "",
-      brief: display.brief.map((field) => `${field.label}=${field.value}`).join("  "),
-      findings,
-      facts: Object.fromEntries(
-        Object.entries(node.facts)
-          .filter(([key]) => !key.startsWith("_"))
-          .map(([key, value]) => [key, value]),
-      ),
-      measurements: measurementRows(measurements, node.node_id),
-      span_ids: node.span_ids,
-      primary_span_id: node.primary_span_id,
-      error_span_ids: node.error_span_ids,
-      folded: display.folded,
-      children,
-    };
-  }
-  const nodes = display.node_ids.map((id) => byId.get(id)).filter((item): item is Node => Boolean(item));
-  const start = nodes.length ? Math.min(...nodes.map((item) => item.start_ms)) : 0;
-  const end = nodes.length ? Math.max(...nodes.map((item) => item.end_ms)) : 0;
-  return {
-    // Nested service/API groups can reference identical members; use their unique display path.
-    node_id: `fold:${path}`,
-    kind: "",
-    name: display.name,
-    name_variants: nameProjections(display),
-    service: "",
-    start_ms: start,
-    duration_ms: end - start,
-    has_error: false,
-    error: "",
-    brief: display.brief.map((field) => `${field.label}=${field.value}`).join("  "),
-    findings,
-    facts: {},
-    details: {},
-    span_ids: [],
-    primary_span_id: "",
-    error_span_ids: [],
-    folded: display.folded,
-    children,
-  };
-}
-
-function spanPayload(context: TraceContext, spanId: string): Record<string, unknown> {
-  const span = context.spans.get(spanId)!;
-  const attrs = Object.fromEntries(
-    Object.entries(span.attrs).map(([key, value]) => [key, attrPayload(value)]),
-  );
-  return {
-    service: span.service ?? "",
-    operation: span.name,
-    duration_ms: span.dur_ms,
-    has_error: span.has_error,
-    error: span.has_error ? context.error_text(spanId) : "",
-    attrs,
-  };
 }
 
 const CSS = String.raw`
@@ -196,7 +70,7 @@ const SCRIPT = `${renderJsonSource}\n${MEASUREMENT_DIALOG_SCRIPT}\n${String.raw`
 const {trees:TREES,spans:SPANS}=readTraceEntry('index.json');
 const KCOLOR={agent:'#7c3aed','agent-run':'#7c3aed','agent-turn':'#4f46e5',framework:'#2563eb',node:'#2563eb','model-call':'#059669','tool-call':'#d97706',action:'#0891b2',operation:'#0891b2',service:'#6b7280'};
 const stackEl=document.getElementById('view-stack'),treeEl=document.getElementById('tree'),splitterEl=document.getElementById('splitter'),paneEl=document.getElementById('pane');
-let perspective='full',layout='tree',tree=TREES.full,selectedId=location.hash.slice(1);
+let perspective=Object.keys(TREES)[0],layout='tree',tree=TREES[perspective],selectedId=location.hash.slice(1);
 let byId={},parentOf={},boxOf={},twOf={},flameBuilt=false,stackMaxDuration=1;
 let searchValues;
 function nodeSearchValue(id){searchValues??=readTraceEntry('values.json');return searchValues[id]??'';}
@@ -212,12 +86,12 @@ function paintSearch(){
     row.classList.toggle('search-hit',hits.has(row.dataset.id));
     row.classList.toggle('search-current',row.dataset.id===searchHits[searchIndex]);
   });
-  searchStatus.textContent=perspective!=='full'||!searchInput.value.trim()?'':searchHits.length
+  searchStatus.textContent=perspective!=='default'||!searchInput.value.trim()?'':searchHits.length
     ?(searchIndex<0?'':(searchIndex+1)+' / ')+searchHits.length+' 个命中':'无匹配节点';
   searchPrev.disabled=searchNext.disabled=!searchHits.length;
 }
 function updateSearch(){
-  const enabled=perspective==='full';
+  const enabled=perspective==='default';
   searchInput.disabled=!enabled;
   searchInput.placeholder=enabled?'搜索节点内容':'节点搜索请切换到完整视图';
   const keyword=enabled?searchInput.value.trim().toLowerCase():'';
@@ -284,27 +158,27 @@ function measurementValue(value,unit){
   return esc(text)+(unit&&unit!=='call'?' '+esc(unit):'');
 }
 function measurementGroup(rows){
-  const first=rows[0],prefix=first.scope==='trace_prefix',calls=first.id==='calls_until_node_end';
-  const label=calls?'累计调用':first.id;
+  const first=rows[0],prefix=first.kind==='calls_until_node_end',calls=first.kind==='calls_until_node_end';
+  const label=calls?'累计调用':first.kind;
   const scope=prefix?'请求开始 → 此节点结束（含进行中的调用）':first.scope==='node'?'此节点内部':first.scope;
   const elapsed=prefix&&typeof first.evidence.start_ms==='number'&&typeof first.evidence.end_ms==='number'?fmtMs(first.evidence.end_ms-first.evidence.start_ms)+' wall-clock':'';
   const keys=[...new Set(rows.flatMap(r=>Object.keys(r.values)))];
   const names={count:'调用次数',duration_sum_ms:'累计耗时',covered_ms:'覆盖时间'};
-  const dimension=rows.some(r=>r.kind),status=rows.some(r=>r.status!=='measured');
+  const dimension=rows.some(r=>r.call_kind),status=rows.some(r=>r.status!=='measured');
   const header=(dimension?'<th scope="col">Kind</th>':'')+keys.map(k=>'<th scope="col" class="numeric">'+esc(names[k]||k)+'</th>').join('')+(status?'<th scope="col">状态</th>':'');
-  const body=rows.map(r=>'<tr>'+(dimension?'<th scope="row">'+esc(r.kind||'—')+'</th>':'')+keys.map(k=>'<td class="numeric">'+(r.status==='measured'?measurementValue(r.values[k],r.units[k]):'—')+'</td>').join('')+(status?'<td class="measurement-status">'+esc(r.status==='measured'?'已测量':r.status==='not_applicable'?'不适用':'错误：'+(r.error||'未知错误'))+'</td>':'')+'</tr>').join('');
+  const body=rows.map(r=>'<tr>'+(dimension?'<th scope="row">'+esc(r.call_kind||'—')+'</th>':'')+keys.map(k=>'<td class="numeric">'+(r.status==='measured'?measurementValue(r.values[k],r.units[k]):'—')+'</td>').join('')+(status?'<td class="measurement-status">'+esc(r.status==='measured'?'已测量':r.status==='not_applicable'?'不适用':'错误：'+(r.error||'未知错误'))+'</td>':'')+'</tr>').join('');
   return '<div class="measurement-group"><h4>'+esc(label)+'</h4><p class="measurement-scope">'+esc(scope)+(elapsed?' · '+esc(elapsed):'')+'</p><div class="measurement-table-wrap"><table class="measurement-table"><thead><tr>'+header+'</tr></thead><tbody>'+body+'</tbody></table></div>'+(prefix?'<p class="measurement-note">累计耗时是各调用耗时之和；覆盖时间对重叠区间去重。各 kind 可重叠，不代表独占的 wall-clock 贡献。</p>':'')+'</div>';
 }
 function measurementBlock(n){
   const rows=n.measurements||[];if(!rows.length)return '';
-  const groups=new Map();for(const row of rows){if(!groups.has(row.id))groups.set(row.id,[]);groups.get(row.id).push(row);}
+  const groups=new Map();for(const row of rows){if(!groups.has(row.kind))groups.set(row.kind,[]);groups.get(row.kind).push(row);}
   return '<section class="measurement-section" aria-labelledby="measurements"><h3 id="measurements" tabindex="-1">Measurements</h3>'+[...groups.values()].map(measurementGroup).join('')+'</section>';
 }
 function select(id){document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));unfold(id);const row=document.querySelector('.row[data-id="'+CSS.escape(id)+'"]');if(row){row.classList.add('sel');row.scrollIntoView({block:'nearest'});}const summary=byId[id];if(!summary)return;const n=loadNode(summary);selectedId=id;location.hash=id;paneEl.innerHTML='<h2>'+esc(n.name)+'</h2><div class="meta">'+esc(n.kind)+' · '+fmtMs(n.duration_ms)+(n.service?' · '+esc(n.service):'')+(n.has_error?' · <b style="color:#dc2626">ERROR：'+esc(n.error)+'</b>':'')+'</div>'+findings(n)+facts(n)+details(n)+'<div class="meta">溯源 span（'+n.span_ids.length+'）：</div><div class="chips">'+n.span_ids.map(sid=>'<span class="chip'+((n.error_span_ids||[]).includes(sid)?' errc':'')+'" data-sid="'+esc(sid)+'">'+(sid===n.primary_span_id?'primary':'卫星')+' · '+esc((SPANS[sid]||{}).operation||sid)+'</span>').join('')+'</div><div id="attrs"></div>';paneEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>showSpan(c.dataset.sid));paneEl.querySelectorAll('.feat-h').forEach(h=>h.onclick=()=>h.parentElement.classList.toggle('open'));const download=document.createElement('button');download.textContent='下载节点完整详情';download.onclick=()=>downloadValue('node.json',n);paneEl.appendChild(download);const sid=(n.error_span_ids||[])[0]||n.primary_span_id;if(sid)showSpan(sid);else document.getElementById('attrs').innerHTML='<div class="meta">视图压缩节点，无独立 span</div>';}
 function showSpan(sid){paneEl.querySelectorAll('.chip').forEach(c=>c.classList.toggle('sel',c.dataset.sid===sid));const sp=loadSpan(sid),box=document.getElementById('attrs');box.replaceChildren();if(!sp){const missing=document.createElement('div');missing.className='meta';missing.textContent='span 不在快照内';box.appendChild(missing);return;}const meta=document.createElement('div');meta.className='meta';meta.textContent='span '+sid+' · '+sp.operation+' · '+fmtMs(sp.duration_ms);box.appendChild(meta);const attrs=document.createElement('dl');attrs.className='attrs';for(const [key,value] of Object.entries(sp.attrs)){const name=document.createElement('dt');name.textContent=key;attrs.append(name,attrValue(value));}box.appendChild(attrs);}
 function firstError(ns){for(const n of ns){if(n.has_error&&n.kind)return n.node_id;const child=firstError(n.children);if(child)return child;}return null;}
 function firstReal(ns){for(const n of ns){if(n.kind)return n.node_id;const child=firstReal(n.children);if(child)return child;}return null;}
-function renderTree(){tree=TREES[perspective]||{roots:[]};treeEl.replaceChildren();stackMaxDuration=perspective==='agent'?maxLeafDuration(tree.roots):1;byId={};parentOf={};boxOf={};twOf={};flameBuilt=false;(function index(ns,parent){for(const n of ns){byId[n.node_id]=n;parentOf[n.node_id]=parent;index(n.children,n.node_id);}})(tree.roots,null);tree.roots.forEach(r=>treeEl.appendChild(renderInto(r,0,null)));refreshTreeNames();if(!tree.roots.length){treeEl.innerHTML='<div class="empty">当前侧重点没有可展示节点</div>';paneEl.innerHTML='<div class="empty">切换到“完整”查看全部节点</div>';updateSearch();if(layout==='flame')buildFlame();return;}const wanted=selectedId&&byId[selectedId]?selectedId:null;select(wanted||firstError(tree.roots)||firstReal(tree.roots)||tree.roots[0].node_id);updateSearch();if(layout==='flame')buildFlame();}
+function renderTree(){tree=TREES[perspective]||{roots:[]};treeEl.replaceChildren();stackMaxDuration=perspective==='agent'?maxLeafDuration(tree.roots):1;byId={};parentOf={};boxOf={};twOf={};flameBuilt=false;(function index(ns,parent){for(const n of ns){byId[n.node_id]=n;parentOf[n.node_id]=parent;index(n.children,n.node_id);}})(tree.roots,null);tree.roots.forEach(r=>treeEl.appendChild(renderInto(r,r.depth||0,null)));refreshTreeNames();if(!tree.roots.length){treeEl.innerHTML='<div class="empty">当前侧重点没有可展示节点</div>';paneEl.innerHTML='<div class="empty">此视图为空或尚未准备数据</div>';updateSearch();if(layout==='flame')buildFlame();return;}const wanted=selectedId&&byId[selectedId]?selectedId:null;select(wanted||firstError(tree.roots)||firstReal(tree.roots)||tree.roots[0].node_id);updateSearch();if(layout==='flame')buildFlame();}
 function splitBounds(){const available=Math.max(0,stackEl.clientWidth-splitterEl.offsetWidth),minTree=Math.min(220,Math.max(120,available*.35)),minPane=Math.min(280,Math.max(160,available*.35));return{min:minTree,max:Math.max(minTree,available-minPane)};}
 let pendingTreeWidth=null,splitFrame=0;
 function applyTreeWidth(){splitFrame=0;if(pendingTreeWidth===null)return;const bounds=splitBounds(),width=Math.max(bounds.min,Math.min(bounds.max,pendingTreeWidth));pendingTreeWidth=null;stackEl.style.setProperty('--tree-width',width+'px');splitterEl.setAttribute('aria-valuemin',String(Math.round(bounds.min)));splitterEl.setAttribute('aria-valuemax',String(Math.round(bounds.max)));splitterEl.setAttribute('aria-valuenow',String(Math.round(width)));refreshTreeNames();}
@@ -325,33 +199,27 @@ function buildFlame(){const box=document.getElementById('flame'),axis=document.g
 initMeasurementDialog();renderTree();showLayout('tree');
 `}`;
 
-export function renderInteractive(
-  context: TraceContext,
-  findings: Readonly<Record<string, readonly Finding[]>> = {},
-  options: {
-    measurements?: Measurements;
-    facetRegistry?: FacetRegistry;
-    agentRunIR?: AgentRunIR;
-  } = {},
-): string {
-  const measurements = options.measurements ?? new Measurements();
-  const facetRegistry = options.facetRegistry ?? new FacetRegistry(builtinFacets());
-  const byId = new Map(context.nodes.map((node) => [node.node_id, node]));
-  const trees: Record<string, { roots: Array<Record<string, unknown>> }> = {
-    full: {
-      roots: renderDisplay(context.view(), findings, facetRegistry, { perspective: "full" })
-        .map((root, i) => displayPayload(context, root, byId, measurements, String(i))),
-    },
-  };
-  if (options.agentRunIR?.runs.length) {
-    trees.agent = { roots: agentRunRoots(context, options.agentRunIR, findings) };
-  }
-  const referenced = new Set(context.nodes.flatMap((node) => node.span_ids));
+/** HTML serializes prepared views; it has no access to TraceContext or analysis services. */
+export function renderTraceHtml(views: readonly TraceView[]): string {
+  if (!views.length) throw new Error("HTML requires a trace view");
+  const first = views[0]!;
+  if (views.some(view => view.trace_id !== first.trace_id)) throw new Error("HTML views must belong to the same trace");
+  if (new Set(views.map(view => view.view)).size !== views.length) throw new Error("Duplicate trace view");
+  const trees = Object.fromEntries(views.map(view => {
+    const nodes = new Map(view.rows.items.map(row => [row.node_id, { ...row, timing: view.timings[row.node_id], children: [] as Record<string, unknown>[] }]));
+    const roots: Record<string, unknown>[] = [];
+    for (const row of view.rows.items) {
+      const node = nodes.get(row.node_id)!;
+      const parent = row.parent_id ? nodes.get(row.parent_id) : undefined;
+      if (parent) parent.children.push(node); else roots.push(node);
+    }
+    return [view.view, { roots }];
+  }));
   const archive = new TraceArchive();
   let sequence = 0;
   const splitNode = (node: Record<string, unknown>): Record<string, unknown> => {
-    const { children, facts, details, findings, measurements, error, name, ...skeleton } = node;
-    const payload = archive.add(`nodes/${sequence++}.json`, { facts, details, findings, measurements, error, name });
+    const { children, facts, details, findings, measurements, timing, error, name, ...skeleton } = node;
+    const payload = archive.add(`nodes/${sequence++}.json`, { facts, details, findings, measurements, timing, error, name });
     return { ...skeleton, name: String(name ?? "").slice(0, 256),
       name_variants: [...new Set((node.name_variants as string[] ?? []).map(value => value.slice(0, 256)))],
       brief: String(node.brief ?? "").slice(0, 256),
@@ -359,26 +227,26 @@ export function renderInteractive(
       children: (children as Record<string, unknown>[]).map(splitNode) };
   };
   const skeletons = Object.fromEntries(Object.entries(trees).map(([key, tree]) => [key, { roots: tree.roots.map(splitNode) }]));
-  const spans = Object.fromEntries([...referenced].filter(id => context.spans.has(id)).map((id, i) => [id, {
-    operation: context.spans.get(id)!.name.slice(0, 256),
-    payload: archive.add(`spans/${i}.json`, spanPayload(context, id)),
+  const allSpans = Object.assign({}, ...views.map(view => view.spans)) as Record<string, Record<string, unknown>>;
+  const spans = Object.fromEntries(Object.entries(allSpans).map(([id, span], i) => [id, {
+    operation: String(span.operation ?? "").slice(0, 256), payload: archive.add(`spans/${i}.json`, span),
   }]));
-  // Load the complete search text separately; do not inflate raw spans or node details to search.
-  archive.add("values.json", Object.fromEntries(context.nodes.filter(node => node.value).map(node => [node.node_id, node.value])));
+  archive.add("values.json", Object.assign({}, ...views.map(view => view.values)));
   archive.add("index.json", { trees: skeletons, spans });
-  archive.add("measurement-calls.json", measurementCallDetails(context, measurements));
-  // Only reports with a prefix analysis need charts; keep the browser library compressed until opened.
-  if (Object.values(measurements.results).some(results => results.some(result => result.spec_id === "calls_until_node_end" && result.status === "measured"))) {
+  if (views.some(view => Object.values(view.timings).some(timing => timing.status === "measured"))) {
     archive.add("measurement-chart.json", echartsSource);
   }
   const script = ARCHIVE_SCRIPT + SCRIPT;
-  const title = htmlEscape(context.trace_id);
-  const errorCount = context.nodes.filter((node) => node.has_error).length;
-  const agentButton = trees.agent ? '<button data-perspective="agent">Agent</button>' : "";
+  const title = htmlEscape(first.trace_id);
+  const errorCount = first.error_count;
+  const buttons = views.map((view, index) => `<button data-perspective="${view.view}"${index === 0 ? ' class="active"' : ""}>${view.view === "agent" ? "Agent" : "完整"}</button>`).join("");
+  const traceMeasurements = first.measurements.length ? `<details><summary>Trace measurements</summary><pre>${htmlEscape(JSON.stringify(first.measurements, null, 2))}</pre></details>` : "";
+  const pageInfo = views.map(view => `${view.view}: ${view.rows.items.length}/${view.rows.total} rows; offset=${view.rows.offset}; next=${view.rows.next_offset ?? "none"}; ${view.status}`).join(" · ");
   return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>trace ${title}</title><style>${CSS}${MEASUREMENT_DIALOG_CSS}</style></head>
-<body><header><h1>trace <b>${title}</b> · ${context.nodes.length} nodes / ${context.span_count} spans · errors ${errorCount}</h1>
-<nav class="switch"><span>侧重点</span><button data-perspective="full" class="active">完整</button>${agentButton}</nav>
+<body><header><h1>trace <b>${title}</b> · ${first.node_count} nodes / ${first.span_count} spans · errors ${errorCount}</h1>
+<nav class="switch"><span>侧重点</span>${buttons}</nav>
 <nav class="switch"><span>形态</span><button data-layout="tree" class="active">调用栈</button><button data-layout="flame">火焰图</button></nav><button id="expand">全部展开</button><button id="fold">全部折叠</button></header>
+<div class="meta">${htmlEscape(pageInfo)}</div>${traceMeasurements}
 <div class="trace-search" role="search"><input id="node-search" type="search" aria-label="搜索节点内容" placeholder="搜索节点内容" title="搜索业务指定的节点内容；Enter 下一个，Shift+Enter 上一个，Esc 清空"><button id="search-prev" aria-label="上一个匹配节点" disabled>↑</button><button id="search-next" aria-label="下一个匹配节点" disabled>↓</button><span id="search-status" role="status" aria-live="polite"></span></div>
 <div class="wrap" id="view-stack"><div class="tree" id="tree"></div><div class="splitter" id="splitter" role="separator" aria-label="调整调用栈与节点详情宽度" aria-orientation="vertical" tabindex="0"></div><div class="pane" id="pane"></div></div>
 <div id="view-flame"><div class="faxis" id="faxis"></div><div class="flame" id="flame"></div></div>${MEASUREMENT_DIALOG_HTML}${archive.embed()}<script>${script.replace(/<\/script/gi, "<\\/script")}</script></body></html>\n`;

@@ -14,4 +14,4 @@ another instance's contributed transforms, measurements, detectors, or facets.
 `cases/measurements.json` defines hand-calculated prefix cases: serial, parallel/in-flight,
 cutoff equality, zero duration, other branches/roots, client/server clock skew, model and stream
 HTTP, and empty calls. Both SDKs also compare the interval sweep against an independent naive
-oracle. `genai-basic.analysis.json` is the canonical analysis@2 artifact.
+oracle. `genai-basic.analysis.json` is the canonical analysis@3 artifact.

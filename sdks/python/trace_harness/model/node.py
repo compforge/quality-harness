@@ -1,7 +1,7 @@
 """Node —— 分析本体：一次逻辑调用 = 1..N 个物理 span（primary + 卫星）熔成。
 
 贫血 dataclass，per-kind 标准化行为不在这（走 KindSpec）。
-**不内嵌 children**：只带 `parent_node_id` 边，子节点列表是 viewtree 视图期产物
+**不内嵌 children**：只带 `parent_node_id` 边，子节点列表是 node_tree 视图期产物
 （doc 立场①：tree 退为视图期索引）。
 
 facts 二分（doc 核心模型）：度量填值（duration_ms/in_tokens，自洽可排序），

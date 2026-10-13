@@ -1,145 +1,13 @@
-"""交互式 trace 页面——菜单 + 功能区，单文件零网络，trace 深看的人用视图。
+"""Serialize prepared trace Views into offline interactive HTML.
 
-页面有两个正交维度：
-- perspective：完整 Node Tree / 业务提取的 AgentRun IR，决定看什么；
-- layout：调用栈 / 火焰图，决定怎么画。调用栈是左树右详情，火焰图是时间轴 icicle。
-
-HTML 只此一个交互页：非交互的 HTML 无保留价值（要静态/可粘贴版用 md），故旧的
-view/html.py（report_kit 静态表格）已删。**刻意不走 report_kit**——交互能力超出中立文档 IR
-的表达范围，硬塞会把 report_kit 变成 UI 框架。
-
-数据面：
-- 左树 = **`engine.render()` 的 DisplayNode 树**（facet + perspective 投影后）；
-  brief / findings 由 facet+engine 算好，folded 合成行（`内部调用 ×N` / `turn ×N`）**默认收起、
-  点开展开成员**（虚拟节点可下钻；`folded>0` 由 payload 透出给前端）
-- timing / 原文 / facts 不在 DisplayNode 上 → 用其 `node_ids` 回查 ctx（duration 优先 `wall_ms`）
-- 右详情 = node.facts 表 + 溯源 span chips（primary/卫星/错误标注）+ attrs 下钻
-- attrs 超长截断并指向 dump-io（token 漏斗：页面是中分辨率视图，全文留给专项下钻）
-- Finding 内联在 node payload（engine 已绑/上浮），右栏判读区展示
+The builder owns selection and payload preparation. This renderer only lays out rows,
+findings and source evidence; it never holds a TraceContext or invokes analysis.
 """
 
 from __future__ import annotations
 
 import html as html_mod
 import json
-
-from trace_harness.model.agent import AgentRunIR
-from trace_harness.model.context import TraceContext
-from trace_harness.model.measurement import Measurements
-from trace_harness.model.node import Finding, Node
-from trace_harness.view.agent_run import agent_run_roots
-from trace_harness.view.display import Compact, DisplayName, DisplayNode, name_projections
-from trace_harness.view.engine import render as _engine_render
-from trace_harness.view.facet import RenderConfig
-from trace_harness.view.facets import builtin_facets
-from trace_harness.view.measurements import measurement_rows
-from trace_harness.view.registry import FacetRegistry
-from trace_harness.view.tool_name import tool_name_detail
-
-ATTR_TRUNCATE = 4000  # 单 attr 值超过即截断；完整原文按 span_id 走 dump-io
-
-
-def _disp_payload(
-    ctx: TraceContext,
-    d: DisplayNode,
-    byid: dict[str, Node],
-    measurements: Measurements,
-    path: str,
-) -> dict:
-    """DisplayNode（facet 折叠后的显示树）→ 交互页 payload。timing/原文/facts 用 `node_ids`
-    回查底层 Node（duration 优先 wall_ms = 含子孙的 wall-clock duration）；折叠/聚合合成行（kind 空）无底层 node，
-    时间用所聚合 node 的包络。findings 由 engine 绑在 DisplayNode 上（折叠则已上浮）。"""
-    brief = "  ".join(f"{f.label}={f.value}" for f in d.brief)
-    fnd = [{"severity": f.severity, "source": f.source, "note": f.note} for f in d.findings]
-    kids = [
-        _disp_payload(ctx, c, byid, measurements, f"{path}.{i}") for i, c in enumerate(d.children)
-    ]
-    node = byid.get(d.node_ids[0]) if (d.kind and d.node_ids) else None
-    if node is not None:
-        display_name = str(node.facts.get("tool") or d.name) if node.kind == "tool-call" else d.name
-        arguments = (
-            ctx.raw_attr(str(node.facts.get("io_span") or node.primary_span_id)).get(
-                "gen_ai.tool.call.arguments"
-            )
-            if node.kind == "tool-call"
-            else None
-        )
-        compact = (
-            d
-            if isinstance(d, Compact)
-            else (
-                DisplayName(display_name, tool_name_detail(arguments))
-                if node.kind == "tool-call"
-                else d
-            )
-        )
-        return {
-            "node_id": node.node_id,
-            "kind": d.kind,
-            "name": d.name,
-            "name_variants": name_projections(compact, d.name),
-            "service": node.service,
-            "start_ms": node.start_ms,
-            "duration_ms": node.facts.get("wall_ms", node.duration_ms),
-            "has_error": node.has_error,
-            "error": node.error_text if node.has_error else "",
-            "brief": brief,
-            "findings": fnd,
-            "facts": {k: v for k, v in node.facts.items() if not k.startswith("_")},
-            "measurements": measurement_rows(measurements, node.node_id),
-            "span_ids": node.span_ids,
-            "primary_span_id": node.primary_span_id,
-            "error_span_ids": node.error_span_ids,
-            "folded": d.folded,  # >0 = 折叠合成节点，前端默认收起（点开才展）
-            "children": kids,
-        }
-    # 合成行（折叠/聚合摘要，kind 空、无单一底层 node）：时间取所聚合 node 的包络
-    folded = [byid[nid] for nid in d.node_ids if nid in byid]
-    start = min((n.start_ms for n in folded), default=0.0)
-    end = max((n.end_ms for n in folded), default=0.0)
-    return {
-        # Nested service/API groups can reference identical members; the display path is unique.
-        "node_id": f"fold:{path}",
-        "kind": "",
-        "name": d.name,
-        "name_variants": name_projections(d),
-        "service": "",
-        "start_ms": start,
-        "duration_ms": end - start,
-        "has_error": False,
-        "error": "",
-        "brief": brief,
-        "findings": fnd,
-        "facts": {},
-        "details": {},
-        "span_ids": [],
-        "primary_span_id": "",
-        "error_span_ids": [],
-        "folded": d.folded,  # >0 = 折叠合成节点，前端默认收起
-        "children": kids,
-    }
-
-
-def _span_payload(ctx: TraceContext, sid: str) -> dict:
-    s = ctx.spans[sid]
-    attrs = {}
-    for k, v in (s.attrs or {}).items():
-        text = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
-        if len(text) > ATTR_TRUNCATE:
-            text = (
-                text[:ATTR_TRUNCATE]
-                + f"\n…[已截断，共 {len(text)} 字符；完整原文：dump-io --span {sid}]"
-            )
-        attrs[k] = text
-    return {
-        "service": s.service,
-        "operation": s.name,
-        "duration_ms": s.dur_ms,
-        "has_error": s.has_error,
-        "error": ctx.error_text(sid) if s.has_error else "",
-        "attrs": attrs,
-    }
-
 
 _CSS = """
 *{box-sizing:border-box}
@@ -235,7 +103,7 @@ const SEV={error:'✗',warn:'▲',info:'·'};
 const KCOLOR={agent:'#7c3aed','agent-run':'#7c3aed','agent-turn':'#4f46e5',framework:'#2563eb',
   node:'#2563eb','model-call':'#059669','tool-call':'#d97706',action:'#0891b2',operation:'#0891b2',service:'#6b7280'};
 const treeEl=document.getElementById('tree'),paneEl=document.getElementById('pane');
-let perspective='full',layout='tree',tree=TREES.full,selectedId=location.hash.slice(1);
+let perspective=Object.keys(TREES)[0],layout='tree',tree=TREES[perspective],selectedId=location.hash.slice(1);
 let byId={},parentOf={},boxOf={},twOf={},flameBuilt=false,stackMaxDuration=1;
 const searchValues=__VALUES__;
 function nodeSearchValue(id){return searchValues[id]??'';}
@@ -251,12 +119,12 @@ function paintSearch(){
     row.classList.toggle('search-hit',hits.has(row.dataset.id));
     row.classList.toggle('search-current',row.dataset.id===searchHits[searchIndex]);
   });
-  searchStatus.textContent=perspective!=='full'||!searchInput.value.trim()?'':searchHits.length
+  searchStatus.textContent=perspective!=='default'||!searchInput.value.trim()?'':searchHits.length
     ?(searchIndex<0?'':(searchIndex+1)+' / ')+searchHits.length+' 个命中':'无匹配节点';
   searchPrev.disabled=searchNext.disabled=!searchHits.length;
 }
 function updateSearch(){
-  const enabled=perspective==='full';
+  const enabled=perspective==='default';
   searchInput.disabled=!enabled;
   searchInput.placeholder=enabled?'搜索节点内容':'节点搜索请切换到完整视图';
   const keyword=enabled?searchInput.value.trim().toLowerCase():'';
@@ -375,7 +243,7 @@ function measurementValue(value,unit){
   return esc(text)+(unit&&unit!=='call'?' '+esc(unit):'');
 }
 function measurementGroup(rows){
-  const first=rows[0],prefix=first.scope==='trace_prefix',calls=first.id==='calls_until_node_end';
+  const first=rows[0],prefix=first.scope==='node',calls=first.id==='calls_until_node_end';
   const label=calls?'累计调用':first.id;
   const scope=prefix?'请求开始 → 此节点结束（含进行中的调用）':first.scope==='node'?'此节点内部':first.scope;
   const elapsed=prefix&&typeof first.evidence.start_ms==='number'&&typeof first.evidence.end_ms==='number'?fmtMs(first.evidence.end_ms-first.evidence.start_ms)+' wall-clock':'';
@@ -455,7 +323,7 @@ function renderTree(){
   tree=TREES[perspective]||{roots:[]};treeEl.replaceChildren();
   stackMaxDuration=perspective==='agent'?maxLeafDuration(tree.roots):1;
   byId={};parentOf={};boxOf={};twOf={};flameBuilt=false;
-  tree.roots.forEach(r=>treeEl.appendChild(renderInto(r,0,null)));
+  tree.roots.forEach(r=>treeEl.appendChild(renderInto(r,r.depth||0,null)));
   if(!tree.roots.length){treeEl.innerHTML='<div class="empty">当前侧重点没有可展示节点</div>';
     paneEl.innerHTML='<div class="empty">切换到“完整”查看全部节点</div>';
     updateSearch();if(layout==='flame')buildFlame();return;}
@@ -493,57 +361,52 @@ renderTree();showLayout('tree');
 """
 
 
-def render_interactive(
-    ctx: TraceContext,
-    findings: dict[str, list[Finding]] | None = None,
-    *,
-    facet_registry: FacetRegistry | None = None,
-    measurements: Measurements | None = None,
-    agent_run_ir: AgentRunIR | None = None,
-) -> str:
-    """渲染为单文件交互 HTML（菜单：调用栈=左树右详情 / 火焰图）。findings 为 diagnose 输出，可省。"""
-    findings = findings or {}
-    facet_registry = facet_registry or FacetRegistry(builtin_facets())
-    measurements = measurements if measurements is not None else Measurements()
-    byid = {n.node_id: n for n in ctx.nodes}
-    roots = _engine_render(
-        ctx.view(),
-        findings,
-        registry=facet_registry,
-        config=RenderConfig(perspective="full"),
-    )
-    trees_payload = {
-        "full": {
-            "roots": [
-                _disp_payload(ctx, d, byid, measurements, str(i)) for i, d in enumerate(roots)
-            ]
-        }
-    }
-    if agent_run_ir is not None and agent_run_ir.runs:
-        trees_payload["agent"] = {"roots": agent_run_roots(ctx, agent_run_ir, findings)}
-    referenced = {sid for n in ctx.nodes for sid in n.span_ids}
-    spans_payload = {sid: _span_payload(ctx, sid) for sid in referenced if sid in ctx.spans}
+def render_trace_html(views: list[dict]) -> str:
+    """Serialize prepared trace views; no analysis context is available here."""
+    view = views[0]
+    trees_payload = {}
+    spans_payload = {}
+    for selected in views:
+        nodes = {row["node_id"]: {**row, "children": []} for row in selected["rows"]["items"]}
+        roots = []
+        for row in selected["rows"]["items"]:
+            parent = nodes.get(row.get("parent_id"))
+            (parent["children"] if parent else roots).append(nodes[row["node_id"]])
+        trees_payload[selected["view"]] = {"roots": roots}
+        spans_payload.update(selected["spans"])
 
     # 嵌入 <script> 的 JSON 必须转义 "</"，防止 "</script>" 提前闭合标签
     def _embed(obj: object) -> str:
         return json.dumps(obj, ensure_ascii=False).replace("</", "<\\/")
 
     js = _JS.replace("__TREES__", _embed(trees_payload)).replace("__SPANS__", _embed(spans_payload))
-    js = js.replace("__VALUES__", _embed({n.node_id: n.value for n in ctx.nodes if n.value}))
-    title = html_mod.escape(ctx.trace_id)
-    n_err = sum(1 for n in ctx.nodes if n.has_error)
-    agent_button = (
-        '<button data-perspective="agent">Agent</button>' if "agent" in trees_payload else ""
+    js = js.replace("__VALUES__", _embed(view["values"]))
+    title = html_mod.escape(view["trace_id"])
+    n_err = view["error_count"]
+    buttons = "".join(
+        f'<button data-perspective="{item["view"]}">{item["view"]}</button>' for item in views
+    )
+    trace_measurements = (
+        "<details><summary>Trace measurements</summary><pre>"
+        + html_mod.escape(json.dumps(view["measurements"], ensure_ascii=False, indent=2))
+        + "</pre></details>"
+        if view["measurements"]
+        else ""
+    )
+    page_info = html_mod.escape(
+        f"{len(view['rows']['items'])}/{view['rows']['total']} rows; "
+        f"offset={view['rows']['offset']}; next_offset={view['rows']['next_offset']}"
     )
     return f"""<!doctype html>
 <html lang="zh"><head><meta charset="utf-8">
 <title>trace {title}</title>
 <style>{_CSS}</style></head>
 <body>
-<header><h1>trace <b>{title}</b> · {len(ctx.nodes)} nodes / {len(ctx.spans)} spans · errors {n_err}</h1>
-<nav class="switch"><span>侧重点</span><button data-perspective="full" class="active">完整</button>{agent_button}</nav>
+<header><h1>trace <b>{title}</b> · {view["node_count"]} nodes / {view["span_count"]} spans · errors {n_err}</h1>
+<nav class="switch"><span>侧重点</span>{buttons}</nav>
 <nav class="switch"><span>形态</span><button data-layout="tree" class="active">调用栈</button><button data-layout="flame">火焰图</button></nav>
 <button id="expand">全部展开</button><button id="fold">全部折叠</button></header>
+<div class="meta">{page_info}</div>{trace_measurements}
 <div class="trace-search" role="search"><input id="node-search" type="search" aria-label="搜索节点内容" placeholder="搜索节点内容" title="搜索业务指定的节点内容；Enter 下一个，Shift+Enter 上一个，Esc 清空"><button id="search-prev" aria-label="上一个匹配节点" disabled>↑</button><button id="search-next" aria-label="下一个匹配节点" disabled>↓</button><span id="search-status" role="status" aria-live="polite"></span></div>
 <div class="wrap" id="view-stack">
   <div class="tree" id="tree"></div>

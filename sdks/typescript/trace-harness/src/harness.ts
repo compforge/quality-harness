@@ -14,12 +14,12 @@ import type { TraceContext } from "./model/context";
 import type { Finding, Node } from "./model/node";
 import type { NormSpan } from "./model/span";
 import { SpecSet, type KindSpec } from "./model/spec";
-import type { NodeTreeExtractor } from "./model/viewtree";
-import type { DisplayNode } from "./view/display";
-import { renderDisplay } from "./view/engine";
-import type { Facet, RenderConfig } from "./view/facet";
+import type { NodeTreeExtractor } from "./model/node-tree";
+import type { Facet } from "./view/facet";
 import { builtinFacets } from "./view/facets";
-import { renderInteractive } from "./view/interactive";
+import { buildView } from "./view/build";
+import type { View, ViewRequest } from "./view/model";
+import { prepareCallBreakdown } from "./analyze/call-breakdown";
 import { FacetRegistry } from "./view/registry";
 import { filterMeasurements, type MeasurementFilter } from "./view/measurements";
 
@@ -110,28 +110,19 @@ export class TraceHarness {
     return extractor ? validateAgentRunIR(extractor.extract(context), context) : undefined;
   }
 
-  renderDisplay(
-    context: TraceContext,
-    findings: Readonly<Record<string, readonly Finding[]>> = {},
-    config: RenderConfig = {},
-  ): DisplayNode[] {
-    return renderDisplay(context.view(), findings, this.facets, config);
-  }
-
   /** Report projection only: detectors and saved analysis retain all measurements. */
   visibleMeasurements(context: TraceContext, measurements: Measurements): Measurements {
     return filterMeasurements(context, measurements, this.contributions.measurementFilter);
   }
 
-  renderInteractive(
-    context: TraceContext,
-    findings: Readonly<Record<string, readonly Finding[]>> = {},
-    options: { measurements?: Measurements } = {},
-  ): string {
-    return renderInteractive(context, findings, {
-      measurements: options.measurements ? this.visibleMeasurements(context, options.measurements) : undefined,
-      facetRegistry: this.facets,
-      agentRunIR: this.extractAgentRuns(context),
-    });
+  /** Prepare derived data explicitly, independently of any display selection or format. */
+  prepare(analysis: AnalysisContext, options: { agentRuns?: boolean; callBreakdowns?: readonly string[] }): AnalysisContext {
+    if (options.agentRuns && !analysis.agentRuns) analysis.agentRuns = this.extractAgentRuns(analysis.trace);
+    for (const nodeId of options.callBreakdowns ?? []) prepareCallBreakdown(analysis.trace, analysis.measurements, nodeId);
+    return analysis;
+  }
+
+  buildView(analysis: AnalysisContext, request: ViewRequest): View {
+    return buildView(analysis, request, { facets: this.facets, measurementFilter: this.contributions.measurementFilter });
   }
 }

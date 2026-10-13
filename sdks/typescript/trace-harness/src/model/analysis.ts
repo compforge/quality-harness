@@ -5,7 +5,7 @@ import { Measurements } from "./measurement";
 import { Node } from "./node";
 import type { Emphasis, Severity } from "./node";
 
-export const ANALYSIS_SCHEMA = "trace-harness/analysis@2";
+export const ANALYSIS_SCHEMA = "trace-harness/analysis@3";
 
 export interface AnalysisNode {
   node_id: string;
@@ -43,6 +43,7 @@ export interface AnalysisSnapshot {
   nodes: AnalysisNode[];
   findings: AnalysisFinding[];
   measurements: Measurements;
+  agent_runs?: import("./agent").AgentRunIR;
 }
 
 export function analysisSnapshot(
@@ -82,6 +83,7 @@ export function analysisSnapshot(
     trace_id: context.trace_id,
     span_count: context.span_count,
     measurements: analysis.measurements,
+    ...(analysis.agentRuns ? { agent_runs: analysis.agentRuns } : {}),
     nodes,
     findings: flattened.map((finding): AnalysisFinding => ({
       ref: finding.ref ?? null,
@@ -108,5 +110,7 @@ export function loadAnalysis(data: AnalysisSnapshot): AnalysisContext {
     const value = { ...finding, ref: finding.ref ?? undefined, rank: finding.rank ?? undefined };
     (findings[finding.ref ?? ""] ??= []).push(value);
   }
-  return new AnalysisContext(trace, new Measurements(data.measurements.specs, data.measurements.sources, data.measurements.results), findings);
+  const analysis = new AnalysisContext(trace, new Measurements(data.measurements.specs, data.measurements.sources, data.measurements.nodes, data.measurements.trace), findings);
+  analysis.agentRuns = data.agent_runs;
+  return analysis;
 }

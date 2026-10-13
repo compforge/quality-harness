@@ -1,6 +1,6 @@
 export interface MeasurementSpec {
-  id: string;
-  scope: "node" | "trace_prefix";
+  kind: string;
+  scope: "node" | "trace";
   units: Record<string, string>;
   description: string;
   dimensions: string[];
@@ -14,8 +14,8 @@ export interface CallSource {
   span_ids: string[];
 }
 export interface Measurement {
-  spec_id: string;
-  anchor_node_id: string;
+  kind: string;
+  node_id: string | null;
   status: "measured" | "not_applicable" | "error";
   values: Record<string, unknown>;
   evidence: Record<string, unknown>;
@@ -25,9 +25,10 @@ export class Measurements {
   constructor(
     readonly specs: MeasurementSpec[] = [],
     readonly sources: CallSource[] = [],
-    readonly results: Record<string, Measurement[]> = {},
+    readonly nodes: Record<string, Measurement[]> = {},
+    readonly trace: Measurement[] = [],
   ) {}
-  get(nodeId: string, specId: string): Measurement | undefined {
-    return this.results[nodeId]?.find((result) => result.spec_id === specId);
+  get(nodeId: string | null, kind: string): Measurement | undefined {
+    return (nodeId === null ? this.trace : this.nodes[nodeId])?.find((result) => result.kind === kind);
   }
 }

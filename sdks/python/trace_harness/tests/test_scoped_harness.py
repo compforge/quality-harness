@@ -8,6 +8,7 @@ from trace_harness import FactTransform, TraceContributions, TraceHarness
 from trace_harness.ingest.sources.jaeger_file import load_jaeger_file
 from trace_harness.kinds import genai
 from trace_harness.model.node import Finding
+from trace_harness.tests.view_fixture import display, report_html
 from trace_harness.view.facet import DefaultFacet
 
 FIXTURE = Path(__file__).parents[4] / "conformance" / "trace" / "fixtures" / "genai-basic.jsonl"
@@ -87,13 +88,13 @@ async def test_contributions_do_not_leak_between_harnesses():
         if node.kind == "http" and node.facts.get("status") == 200
     )
     assert success_http.node_id in _displayed_node_ids(
-        alpha.render_display(alpha_context, alpha_findings)
+        display(alpha, alpha_context, alpha_findings)
     )
     assert success_http.node_id not in _displayed_node_ids(
-        plain.render_display(plain_context, plain_findings)
+        display(plain, plain_context, plain_findings)
     )
-    assert "alpha-action" in alpha.render_interactive(alpha_context, alpha_findings)
-    assert "alpha-action" not in plain.render_interactive(plain_context, plain_findings)
+    assert "alpha-action" in report_html(alpha, alpha_context, alpha_findings)
+    assert "alpha-action" not in report_html(plain, plain_context, plain_findings)
 
 
 async def test_probe_side_effect_remains_explicit(tmp_path: Path):

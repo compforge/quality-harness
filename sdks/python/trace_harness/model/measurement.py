@@ -8,8 +8,8 @@ from typing import Literal
 
 @dataclass(frozen=True)
 class MeasurementSpec:
-    id: str
-    scope: Literal["node", "trace_prefix"]
+    kind: str
+    scope: Literal["node", "trace"]
     units: dict[str, str]
     description: str
     dimensions: tuple[str, ...] = ()
@@ -27,8 +27,8 @@ class CallSource:
 
 @dataclass(frozen=True)
 class Measurement:
-    spec_id: str
-    anchor_node_id: str
+    kind: str
+    node_id: str | None
     status: Literal["measured", "not_applicable", "error"]
     values: dict = field(default_factory=dict)
     evidence: dict = field(default_factory=dict)
@@ -39,7 +39,16 @@ class Measurement:
 class Measurements:
     specs: list[MeasurementSpec] = field(default_factory=list)
     sources: list[CallSource] = field(default_factory=list)
-    results: dict[str, list[Measurement]] = field(default_factory=dict)
+    nodes: dict[str, list[Measurement]] = field(default_factory=dict)
 
-    def get(self, node_id: str, spec_id: str) -> Measurement | None:
-        return next((m for m in self.results.get(node_id, ()) if m.spec_id == spec_id), None)
+    trace: list[Measurement] = field(default_factory=list)
+
+    def get(self, node_id: str | None, kind: str) -> Measurement | None:
+        return next(
+            (
+                m
+                for m in (self.trace if node_id is None else self.nodes.get(node_id, ()))
+                if m.kind == kind
+            ),
+            None,
+        )

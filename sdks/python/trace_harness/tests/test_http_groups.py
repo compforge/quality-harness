@@ -8,8 +8,10 @@ import pytest
 
 from trace_harness import TraceContributions, TraceHarness
 from trace_harness.kinds import genai
-from trace_harness.model.ir import dump_view, load_view
+from trace_harness.model.ir import dump_nodes, load_nodes
 from trace_harness.model.span import NormSpan
+from trace_harness.tests.view_fixture import display as display_tree
+from trace_harness.tests.view_fixture import report_html
 from trace_harness.view.engine import render
 
 CASES = json.loads(
@@ -47,15 +49,15 @@ async def test_http_group_conformance(case, tmp_path):
     )
     findings = (await harness.diagnose(context)) if case.get("diagnose", True) else {}
     before = [asdict(node) for node in context.nodes]
-    display = harness.render_display(context, findings)
+    display = display_tree(harness, context, findings)
     assert [outline(node) for node in display] == case["expected"]
     assert [asdict(node) for node in context.nodes] == before
     # The grouping projection must work from saved IR, with no raw HTTP attributes.
-    saved = load_view(dump_view(context, tmp_path / "nodes.json"))
-    assert [outline(node) for node in render(saved.view(), findings)] == case["expected"]
-    html = harness.render_interactive(context, findings)
+    saved = load_nodes(dump_nodes(context, tmp_path / "nodes.json"))
+    assert [outline(node) for node in render(saved.tree(), findings)] == case["expected"]
+    html = report_html(harness, context, findings)
     payload = json.loads(html.split("const TREES=", 1)[1].split(",SPANS=", 1)[0])
-    nodes = list(walk(payload["full"]["roots"]))
+    nodes = list(walk(payload["default"]["roots"]))
     ids = [node["node_id"] for node in nodes]
     assert len(ids) == len(set(ids))  # Service and API group can contain identical members.
     assert {node["primary_span_id"] for node in nodes if node["kind"]} == {

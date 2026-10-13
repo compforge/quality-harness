@@ -24,19 +24,18 @@ from trace_harness.ingest.sources.jaeger_file import JaegerFileSource
 from trace_harness.kinds import genai
 from trace_harness.kinds.base import _fmt_ms
 from trace_harness.model.analysis import dump_analysis, load_analysis
-from trace_harness.model.ir import TraceView, is_nodes_file, load_view
+from trace_harness.model.ir import TraceSnapshot, is_nodes_file, load_nodes
+from trace_harness.view import build_view, render
 from trace_harness.view.explore import render_explore
-from trace_harness.view.interactive import render_interactive
 from trace_harness.view.measurements import measurements_md
 from trace_harness.view.series import render_series
 from trace_harness.view.state import ViewState, handle, resolve_selector
-from trace_harness.view.text import render_text
 
 
 async def _cmd_single(args: argparse.Namespace) -> int:
     path = Path(args.path)
     with path.open(encoding="utf-8") as source:
-        is_analysis = '"trace-harness/analysis@2"' in source.read(256)
+        is_analysis = '"trace-harness/analysis@3"' in source.read(256)
     saved = load_analysis(path) if is_analysis else None
     if saved:
         ctx = saved.trace
@@ -77,7 +76,11 @@ async def _cmd_single(args: argparse.Namespace) -> int:
     )
     if args.html:
         Path(args.html).write_text(
-            render_interactive(ctx, findings, measurements=measurements), encoding="utf-8"
+            render(
+                build_view(AnalysisContext(ctx, measurements, findings or {}), {"scope": "trace"}),
+                format="html",
+            ),
+            encoding="utf-8",
         )
         dump_analysis(
             AnalysisContext(ctx, measurements, findings or {}),
@@ -85,7 +88,12 @@ async def _cmd_single(args: argparse.Namespace) -> int:
         )
         print(f"wrote {args.html}")
         return 0
-    print(render_text(ctx, findings))
+    print(
+        render(
+            build_view(AnalysisContext(ctx, measurements, findings or {}), {"scope": "trace"}),
+            format="text",
+        )
+    )
     print(measurements_md(ctx, measurements))
     return 0
 
@@ -112,15 +120,15 @@ async def _cmd_cohort(args: argparse.Namespace) -> int:
     return 0
 
 
-def _load_view(path: Path):
-    """nodes.json IR → TraceView（域无关，零 raw span）；非 IR 的 jaeger 快照走 build_context。"""
+def _load_nodes(path: Path):
+    """Load a node snapshot or build a context from a Jaeger snapshot."""
     if is_nodes_file(path):
-        return load_view(path)
-    return TraceView.from_context(build_context(path))
+        return load_nodes(path)
+    return TraceSnapshot.from_context(build_context(path))
 
 
 def _find(view, query: str) -> str:
-    hits = [view.view().by_id[nid] for nid in resolve_selector(view.nodes, query)]
+    hits = [view.tree().by_id[nid] for nid in resolve_selector(view.nodes, query)]
     if not hits:
         return f"find {query!r}: 无匹配"
     hits.sort(key=lambda n: -n.duration_ms)
@@ -135,7 +143,7 @@ def _peek(view, sel: str) -> str:
     ids = resolve_selector(view.nodes, sel)
     if not ids:
         return f"peek {sel!r}: 无匹配"
-    n = view.view().by_id[ids[0]]
+    n = view.tree().by_id[ids[0]]
     out = [
         f"{n.kind} {n.name}  handle={handle(n)}  cost={_fmt_ms(n.duration_ms)}",
         f"  brief: {'  '.join(f'{f.label}={f.value}' for f in n.brief) or '(无)'}",
@@ -150,7 +158,7 @@ def _peek(view, sel: str) -> str:
 
 def _cmd_treecli(args: argparse.Namespace) -> int:
     path = Path(args.path)
-    view = _load_view(path)
+    view = _load_nodes(path)
     state_path = path.with_name(path.name + ".view.json")
     state = ViewState.load(state_path)
     verb, sels = args.verb, args.handles or []
@@ -163,7 +171,7 @@ def _cmd_treecli(args: argparse.Namespace) -> int:
     if verb == "reset":
         state = ViewState()
     elif verb == "expand":
-        vt = view.view()
+        vt = view.tree()
         for s in sels:
             for nid in resolve_selector(view.nodes, s):
                 # 展开目标 + 其祖先链：否则深层节点（如 expand slowest）会藏在折叠父里看不见

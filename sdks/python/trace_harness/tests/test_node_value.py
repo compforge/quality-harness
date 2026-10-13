@@ -6,7 +6,7 @@ from pathlib import Path
 from trace_harness.ingest.assemble import assemble
 from trace_harness.kinds import genai
 from trace_harness.model.analysis import load_analysis
-from trace_harness.model.ir import dump_view, load_view
+from trace_harness.model.ir import dump_nodes, load_nodes
 from trace_harness.model.span import NormSpan
 from trace_harness.model.spec import KindSpec, SpecSet
 
@@ -25,8 +25,8 @@ def test_http_value_shared_contract(tmp_path):
             context = assemble({"root": primary}, genai.specs(), prepare=prepare)
             assert context.nodes[0].kind == "http"
             assert context.nodes[0].value == case["value"]
-            path = dump_view(context, tmp_path / "nodes.json")
-            assert load_view(path).nodes[0].value == case["value"]
+            path = dump_nodes(context, tmp_path / "nodes.json")
+            assert load_nodes(path).nodes[0].value == case["value"]
 
 
 def test_business_value_uses_claimed_spans_without_child_concatenation():
@@ -66,16 +66,16 @@ def test_old_snapshots_default_to_empty_value(tmp_path):
     path.write_text(json.dumps(payload))
     context = load_analysis(path).trace
     assert all(n.value == "" for n in context.nodes)
-    nodes_path = dump_view(context, tmp_path / "nodes.json")
+    nodes_path = dump_nodes(context, tmp_path / "nodes.json")
     nodes = json.loads(nodes_path.read_text())
     for node in nodes["nodes"]:
         del node["value"]
     nodes_path.write_text(json.dumps(nodes))
-    assert all(n.value == "" for n in load_view(nodes_path).nodes)
+    assert all(n.value == "" for n in load_nodes(nodes_path).nodes)
 
 
 def test_interactive_search_preserves_value_without_script_injection():
-    from trace_harness.view.interactive import render_interactive
+    from trace_harness.tests.view_fixture import prepared_html as render_interactive
 
     primary = span("root", {"http.method": "POST", "url.path": "/api/v1/resources</script>"})
     context = assemble({"root": primary}, genai.specs())

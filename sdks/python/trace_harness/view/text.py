@@ -17,8 +17,8 @@ _SEV_ICON = {"error": "✗", "warn": "▲", "info": "·"}
 
 def render_text(ctx: TraceContext, findings: dict[str, list[Finding]] | None = None) -> str:
     findings = findings or {}
-    roots = render(ctx.view(), findings)  # DisplayNode 树（facet 折叠 http 等）
-    by_id = ctx.view().by_id
+    roots = render(ctx.tree(), findings)  # DisplayNode 树（facet 折叠 http 等）
+    by_id = ctx.tree().by_id
     lines: list[str] = [f"trace {ctx.trace_id}  ({len(ctx.nodes)} nodes)"]
 
     def emit(d: DisplayNode, prefix: str, is_last: bool, is_root: bool) -> None:

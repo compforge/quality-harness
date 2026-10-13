@@ -23,6 +23,7 @@ from trace_harness.kinds import genai
 from trace_harness.model.measurement import CallSource
 from trace_harness.model.node import Finding
 from trace_harness.model.span import NormSpan
+from trace_harness.tests.view_fixture import markdown, report_html
 from trace_harness.view.measurements import measurements_md
 
 ROOT = Path(__file__).parents[4]
@@ -44,14 +45,14 @@ async def test_shared_measurement_semantics(case):
     result = await harness.analyze(trace, diagnosis=False)
     assert result.findings == {}
     for span_id, expected in case["expected"].items():
-        node = trace.view().by_span[span_id]
+        node = trace.tree().by_span[span_id]
         measurement = result.measurements.get(node.node_id, "calls_until_node_end")
         assert measurement.status == "measured"
         assert measurement.values == expected
         assert measurement.evidence["end_ms"] == node.end_ms
     assert all("self_ms" not in node.facts for node in trace.nodes)
     for source in result.measurements.sources:
-        assert source.node_id in trace.view().by_id
+        assert source.node_id in trace.tree().by_id
     if case["name"] == "paired-caller-clock":
         assert result.measurements.sources[0].span_ids == ("a", "server")
 
@@ -73,11 +74,11 @@ async def test_measurers_run_once_and_detectors_read_results_and_previous_findin
 
     def compute(trace, sources):
         calls.append(trace.trace_id)
-        return [Measurement(spec.id, n.node_id, "measured", {"size": 7}) for n in trace.nodes]
+        return [Measurement(spec.kind, n.node_id, "measured", {"size": 7}) for n in trace.nodes]
 
     def first(node, analysis):
         assert analysis.measurements.get(node.node_id, "custom").values == {"size": 7}
-        assert analysis.trace.view().by_id[node.node_id] is node
+        assert analysis.trace.tree().by_id[node.node_id] is node
         return [Finding(node.node_id, "custom", "info")]
 
     def second(node, analysis):
@@ -141,12 +142,12 @@ async def test_roundtrip_renders_saved_measurements_without_execution(tmp_path):
     assert analysis_snapshot(loaded) == analysis_snapshot(analysis)
     assert not loaded.trace.spans
     assert loaded.trace.span_count == trace.span_count
-    html = harness.render_interactive(loaded.trace, measurements=loaded.measurements)
+    html = report_html(harness, loaded.trace, measurements=loaded.measurements)
     assert '"duration_sum_ms": 50' in html
-    assert '"scope": "trace_prefix"' in html
+    assert '"scope": "node"' in html
     assert "calls_until_node_end" in measurements_md(loaded.trace, loaded.measurements)
     # Rendering never computes absent measurements or invokes transforms.
-    assert '"measurements": []' in harness.render_interactive(trace)
+    assert '"measurements": []' in report_html(harness, trace)
 
 
 def test_index_matches_independent_naive_oracle():
@@ -180,22 +181,20 @@ def test_evidence_size_is_linear_in_trace_size():
     ]
     result = TraceHarness(TraceContributions()).measure(TraceContext("large", {}, nodes, {}))
     assert len(result.sources) == len(nodes)
-    assert sum(len(m.evidence) for group in result.results.values() for m in group) == 5 * len(
-        nodes
-    )
+    assert sum(len(m.evidence) for group in result.nodes.values() for m in group) == 5 * len(nodes)
 
 
 def test_invalid_interval_is_an_error_not_zero():
     node = Node("tool", "bad", "bad", ["bad"], {}, 0, -1, service=None, node_id="bad")
     result = TraceHarness(TraceContributions()).measure(TraceContext("bad", {}, [node], {}))
-    assert all(m.status == "error" and not m.values for m in result.results["bad"])
+    assert all(m.status == "error" and not m.values for m in result.nodes["bad"])
 
 
 def test_failed_result_cannot_carry_numeric_values():
     spec = MeasurementSpec("invalid", "node", {"n": "item"}, "Invalid output")
 
     def compute(trace, sources):
-        return [Measurement(spec.id, n.node_id, "error", {"n": 0}) for n in trace.nodes]
+        return [Measurement(spec.kind, n.node_id, "error", {"n": 0}) for n in trace.nodes]
 
     harness, trace = build(
         CASES[0],
@@ -220,10 +219,10 @@ async def test_report_selection_preserves_analysis_and_offline_evidence(tmp_path
         return []
 
     def selected(node, measurement, trace):
-        assert trace.view().by_id[node.node_id] is node
+        assert trace.tree().by_id[node.node_id] is node
         return (
             node.primary_span_id in selection["anchor_span_ids"]
-            and measurement.spec_id in selection["spec_ids"]
+            and measurement.kind in selection["kinds"]
         )
 
     contributions = merge_trace_contributions(
@@ -237,21 +236,17 @@ async def test_report_selection_preserves_analysis_and_offline_evidence(tmp_path
     assert all(seen) and len(seen) == len(trace.nodes)
     before = analysis_snapshot(analysis)
     visible = harness.visible_measurements(trace, analysis.measurements)
-    assert set(visible.results) == {trace.view().by_span["b"].node_id}
-    assert [m.spec_id for values in visible.results.values() for m in values] == [
-        "calls_until_node_end"
-    ]
+    assert set(visible.nodes) == {trace.tree().by_span["b"].node_id}
+    assert [m.kind for values in visible.nodes.values() for m in values] == ["calls_until_node_end"]
     assert visible.sources is analysis.measurements.sources
-    md = harness.render_md(trace, measurements=analysis.measurements)
+    md = markdown(harness, trace, measurements=analysis.measurements)
     assert "| b | calls_until_node_end |" in md and "| a | calls_until_node_end |" not in md
     assert "self_ms" not in md
     loaded = load_analysis(dump_analysis(analysis, tmp_path / "filtered.json"))
-    html = harness.render_interactive(loaded.trace, measurements=loaded.measurements)
+    html = report_html(harness, loaded.trace, measurements=loaded.measurements)
     assert '"duration_sum_ms": 30' in html and '"id": "self_ms"' not in html
     assert analysis_snapshot(analysis) == before == analysis_snapshot(loaded)
     hidden = TraceHarness(TraceContributions(measurement_filter=lambda node, m, ctx: False))
-    assert hidden.visible_measurements(trace, analysis.measurements).results == {}
-    assert "### Measurements" not in hidden.render_md(trace, measurements=analysis.measurements)
-    assert '"measurements": []' in hidden.render_interactive(
-        trace, measurements=analysis.measurements
-    )
+    assert hidden.visible_measurements(trace, analysis.measurements).nodes == {}
+    assert "### Measurements" not in markdown(hidden, trace, measurements=analysis.measurements)
+    assert '"measurements": []' in report_html(hidden, trace, measurements=analysis.measurements)

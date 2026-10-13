@@ -2,10 +2,10 @@ import type { TransformContext } from "../transform";
 import type { Node } from "./node";
 import type { KindSpec } from "./spec";
 import { spanErrorText, type NormSpan } from "./span";
-import { buildView, type ViewTree } from "./viewtree";
+import { buildNodeTree, type NodeTree } from "./node-tree";
 
 export class TraceContext {
-  #view?: ViewTree;
+  #tree?: NodeTree;
   transforms?: TransformContext;
 
   constructor(
@@ -20,8 +20,8 @@ export class TraceContext {
     return this.observed_span_count ?? this.spans.size;
   }
 
-  view(): ViewTree {
-    return this.#view ??= buildView(this.nodes);
+  tree(): NodeTree {
+    return this.#tree ??= buildNodeTree(this.nodes);
   }
 
   raw(spanId: string): Record<string, unknown> {

@@ -26,11 +26,11 @@ class Measurer:
 
 CALLS = MeasurementSpec(
     "calls_until_node_end",
-    "trace_prefix",
+    "node",
     {"count": "call", "duration_sum_ms": "ms", "covered_ms": "ms"},
     "Calls started from earliest observed trace start through anchor end; "
     "in-flight durations clipped. Kind coverage can overlap.",
-    ("kind",),
+    ("call_kind",),
 )
 SELF = MeasurementSpec(
     "self_ms",
@@ -50,7 +50,7 @@ def call_sources(trace: TraceContext) -> list[CallSource]:
             "http",
             request.start_ms,
             request.end_ms,
-            trace.view().by_span[request.span.span_id].node_id,
+            trace.tree().by_span[request.span.span_id].node_id,
             tuple(span.span_id for span in request.spans),
         )
         for request in requests
@@ -132,7 +132,7 @@ def _calls(trace: TraceContext, sources: list[CallSource]) -> Iterable[Measureme
     values = prefix_values(sources, (node.end_ms for node in trace.nodes), start)
     for node in trace.nodes:
         yield Measurement(
-            CALLS.id,
+            CALLS.kind,
             node.node_id,
             "measured",
             values[node.end_ms],
@@ -151,11 +151,11 @@ def _self(trace: TraceContext, sources: list[CallSource]) -> Iterable[Measuremen
             raise ValueError("invalid measurement interval")
         intervals = [
             (max(node.start_ms, child.start_ms), min(node.end_ms, child.end_ms))
-            for child in trace.view().children(node)
+            for child in trace.tree().children(node)
         ]
         covered = interval_union([(start, end) for start, end in intervals if end > start])
         yield Measurement(
-            SELF.id,
+            SELF.kind,
             node.node_id,
             "measured",
             {"self_ms": _rounded(max(0, node.duration_ms - covered))},
@@ -168,17 +168,19 @@ BUILTIN_MEASURERS = (Measurer(SELF, _self), Measurer(CALLS, _calls))
 
 def measure(trace: TraceContext, measurers: Iterable[Measurer] = BUILTIN_MEASURERS) -> Measurements:
     items = tuple(measurers)
-    if len({item.spec.id for item in items}) != len(items):
+    if len({item.spec.kind for item in items}) != len(items):
         raise ValueError("duplicate measurement id")
     sources = call_sources(trace)
     output = Measurements([item.spec for item in items], sources)
     for item in items:
+        owners = [None] if item.spec.scope == "trace" else [node.node_id for node in trace.nodes]
+        valid_owners = set(owners)
         try:
             results = list(item.compute(trace, sources))
-            by_node = {result.anchor_node_id: result for result in results}
+            by_node = {result.node_id: result for result in results}
             if len(by_node) != len(results) or any(
-                result.spec_id != item.spec.id
-                or result.anchor_node_id not in trace.view().by_id
+                result.kind != item.spec.kind
+                or result.node_id not in valid_owners
                 or result.status not in {"measured", "not_applicable", "error"}
                 or (result.status != "measured" and bool(result.values))
                 for result in results
@@ -187,11 +189,12 @@ def measure(trace: TraceContext, measurers: Iterable[Measurer] = BUILTIN_MEASURE
         except Exception as exc:
             # A failed computation is visible and has no numeric value; never substitute zero.
             by_node = {
-                node.node_id: Measurement(item.spec.id, node.node_id, "error", error=str(exc))
-                for node in trace.nodes
+                node_id: Measurement(item.spec.kind, node_id, "error", error=str(exc))
+                for node_id in owners
             }
-        for node in trace.nodes:
-            output.results.setdefault(node.node_id, []).append(
-                by_node.get(node.node_id, Measurement(item.spec.id, node.node_id, "not_applicable"))
+        for node_id in owners:
+            target = output.trace if node_id is None else output.nodes.setdefault(node_id, [])
+            target.append(
+                by_node.get(node_id, Measurement(item.spec.kind, node_id, "not_applicable"))
             )
     return output

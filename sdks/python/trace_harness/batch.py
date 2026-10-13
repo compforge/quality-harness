@@ -259,7 +259,7 @@ async def run_batch(
     plan = plan_detectors(session.harness.contributions.batch_detectors, batch_detectors)
     node_plan = session.harness.detectors.plan(detectors)
     if metrics is not None and (
-        unknown := set(metrics) - {m.spec.id for m in session.harness.measurers}
+        unknown := set(metrics) - {m.spec.kind for m in session.harness.measurers}
     ):
         raise KeyError(f"unknown metrics: {sorted(unknown)}")
     path = session.work_dir / "runs" / uuid4().hex
@@ -325,16 +325,14 @@ async def run_batch(
                                 "INSERT INTO values_ VALUES(?,?,?,?)",
                                 (row["kind"], row["name"], metric, value),
                             )
-                    for node_id, measurements in analysis.measurements.results.items():
-                        node = trace.view().by_id[node_id]
+                    for node_id, measurements in analysis.measurements.nodes.items():
+                        node = trace.tree().by_id[node_id]
                         for measurement in measurements:
                             write("measurements", {"trace_id": tid, **asdict(measurement)})
-                            statuses = metric_statuses.setdefault(measurement.spec_id, {})
+                            statuses = metric_statuses.setdefault(measurement.kind, {})
                             statuses[measurement.status] = statuses.get(measurement.status, 0) + 1
                             if measurement.status == "measured":
-                                for metric, value in _numbers(
-                                    measurement.values, measurement.spec_id
-                                ):
+                                for metric, value in _numbers(measurement.values, measurement.kind):
                                     db.execute(
                                         "INSERT INTO values_ VALUES(?,?,?,?)",
                                         (node.kind, node.name, metric, value),

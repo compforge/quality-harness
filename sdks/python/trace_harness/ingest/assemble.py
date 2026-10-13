@@ -146,7 +146,7 @@ def assemble(
     # Projection requests only the facts it consumes; other transforms remain unevaluated.
     trace_id = next(iter(spans.values())).raw.get("traceID", "?") if spans else "?"
     context = TraceContext(trace_id=trace_id, spans=spans, nodes=nodes, specs=realized)
-    transform_context = TransformContext(context.view(), transforms)
+    transform_context = TransformContext(context.tree(), transforms)
     context.transforms = transform_context
     if not prepare:
         return context

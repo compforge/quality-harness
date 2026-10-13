@@ -1,7 +1,7 @@
-"""ViewTree —— 视图期惰性索引（doc 立场①）。
+"""NodeTree —— 视图期惰性索引（doc 立场①）。
 
 node 集本身是**平的**：所有 diagnose 算子吃 `iter_nodes`，只用成对父子关系。真正需要
-递归整棵树的只有渲染缩进、火焰图路径、最近祖先——全是视图时刻。ViewTree 按 node 的
+递归整棵树的只有渲染缩进、火焰图路径、最近祖先——全是视图时刻。NodeTree 按 node 的
 `parent_node_id` 边现搭 children 索引，**没有任何分析算子需要持有它**。
 """
 
@@ -31,7 +31,7 @@ def iter_nodes(nodes: list[Node]) -> Iterator[Node]:
 
 
 @dataclass
-class ViewTree:
+class NodeTree:
     """按父子边现搭的索引；roots 按开始时间排序，children 同。"""
 
     roots: list[Node]
@@ -54,7 +54,7 @@ class ViewTree:
             yield from rec(r, 0)
 
 
-def build_view(nodes: list[Node]) -> ViewTree:
+def build_node_tree(nodes: list[Node]) -> NodeTree:
     """list[Node] + parent 边 → 视图期树索引。孤儿（parent 不在集中）按 root 处理。"""
     by_id = {n.node_id: n for n in nodes}
     by_span = {sid: n for n in nodes for sid in n.span_ids}
@@ -69,4 +69,4 @@ def build_view(nodes: list[Node]) -> ViewTree:
     for lst in children.values():
         lst.sort(key=lambda x: x.start_ms)
     roots.sort(key=lambda x: x.start_ms)
-    return ViewTree(roots=roots, by_id=by_id, by_span=by_span, _children=children)
+    return NodeTree(roots=roots, by_id=by_id, by_span=by_span, _children=children)

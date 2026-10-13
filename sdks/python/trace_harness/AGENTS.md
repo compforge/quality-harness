@@ -27,12 +27,12 @@ trace_harness/
 │   ├── span.py       #   NormSpan：归一物理 span，刻意不带语义 kind 字段
 │   ├── node.py       #   Node 分析本体(不内嵌 children，只带 parent 边；brief/error_text 在展示前准备)/Field/Finding
 │   ├── spec.py       #   KindSpec(matches/claims/build + metrics/rules/obs_hole + project) + SpecSet + merge
-│   ├── context.py    #   TraceContext：单 trace 建模单元(内存事实源)，dispatch 挂这；view() 惰性建树
-│   ├── viewtree.py   #   按需关系索引(分析与渲染共用)
+│   ├── context.py    #   TraceContext：单 trace 建模单元(内存事实源)，dispatch 挂这；tree() 惰性建树
+│   ├── node_tree.py   #   按需关系索引(分析与渲染共用)
 │   ├── agent.py      #   AgentRun IR + 递归校验/序列化；Operation/AgentRun 均可递归嵌套
 │   ├── measurement.py # MeasurementSpec / Measurement / Measurements：独立量化结果及共享证据
-│   ├── analysis.py   # analysis@2 snapshot/dump/load；离线渲染不重算
-│   └── ir.py         #   TraceView + nodes.json dump/load：模型的可序列化形态(渲染面契约·域无关)
+│   ├── analysis.py   # analysis@3 snapshot/dump/load；离线渲染不重算
+│   └── ir.py         #   TraceSnapshot + nodes.json dump/load：模型的可序列化形态(渲染面契约·域无关)
 ├── kinds/            # 唯一领域代码(通用 genai；域专属 AS kinds 留消费方，spec.merge 叠加)
 │   ├── base.py       #   generic 残余 spec + duration 基线度量
 │   └── genai.py      #   OTel GenAI 通用 spec：model-call / tool-call / agent / http(识别出的 HTTP 请求自成 node，分组在 view 层完成)
@@ -46,18 +46,18 @@ trace_harness/
 │   ├── measure.py    # Measurer：整 trace 一次计算；prefix 时间索引与 self_ms
 │   ├── diagnose/     #   node-scope 判读：scoped DetectorRegistry / 内置拓扑 / outliers / trend / patterns / probes
 │   └── verdict.py    #   gates → verdict.json 投影(统一判定出口，照 perf 模式)
-├── view/             # model(+findings) → 各种呈现（perspective 层：node tree 只管结构，重点在这定）
+├── view/             # build_view 选择已有属性；render 按 html/text/json 序列化
 │   ├── facet.py      #   Facet(match/priority/brief/layout)+ChildOp(Expand/Fold/Aggregate/Group/Hide/Summarize)：biz 只声明展示意图，不接管递归或序列化
 │   ├── registry.py   #   FacetRegistry：priority 择一(DefaultFacet 兜底)，TraceHarness 作用域内组合 biz facet
 │   ├── engine.py     #   render(view,findings)→DisplayNode + 序列化 to_md_lines/render_md/render_callstack：dispatch facet·执行 ChildOp·finding 按 node_id 绑(折叠上浮)；signal-aware collapse(信号免疫·≥error 浮出) + 同构 Group 合并 ×N
 │   ├── display.py    #   DisplayNode：脱 ctx/kind 的显示树(md/html/treecli 共用)
-│   ├── perspective.py #  同一 DisplayNode 树的 full/agent 侧重点投影；上下文路径压缩但不改 Node 父子边
 │   ├── agent_run.py  #   AgentRun IR → 通用交互层级 payload，保留 Node/span 溯源
 │   ├── facets/       #   harness 通用 facet：Service / Agent / ToolCall / ModelCall(默认 Hide http 子)；biz facet 随域包显式贡献
 │   ├── callstack.py  #   findings_block + render_callstack(legacy 无 facet 原样树)；md/show/html 已切 engine·facet
 │   ├── explore.py    #   render_explore：treecli 渲染核(缩略图 + expand + 同构兄弟折叠)
 │   ├── state.py      #   ViewState(展开集/focus) + selector + iso_sig：treecli 的状态与寻址
 │   ├── text.py       #   调用栈框线 tree(├─└─，读 Finding 上色)
+│   ├── build.py / render.py # 统一 View 构建与格式输出；不读 Source、不执行分析
 │   ├── interactive.py #   bespoke 交互 HTML(折叠展开·火焰图·span 下钻)，走 engine·DisplayNode·facet 折叠；唯一 HTML(静态用 md，旧 html.py 已删)
 │   └── series.py     #   (kind,metric) 跨迭代 sparkline 文本
 ├── corpus/           # many-model → 三表 + 算子：error_signature/fleet_outlier/contrast/diff/pattern_rates；
@@ -85,7 +85,7 @@ corpus parquet 走可选 extra `quality-harness[trace-corpus]`（pyarrow），�
 
 - **Kernel 对齐**：raw span 经 normalize / assemble 得到的 `Node` 是 Observation，`trace_id + node_id` 定义 node-grain Unit；nodes / corpus 构成可复评 Dataset，本次选择的 detector 与 gate 直接定义评估侧重点，detect 输出 Finding。若使用 trace 或 cohort grain，应建立对应 Worksheet，不把多种 grain 混在同一行模型；详见 [`../../../docs/kernel.md`](../../../docs/kernel.md#dataset-与反复评估)。
 - **node 是分析本体，tree 是只读关系索引**：分析输入保持平 node 集，transform 和渲染按需
-  复用 `ctx.view()` 的关系索引，不另建或修改父子结构。
+  复用 `ctx.tree()` 的关系索引，不另建或修改父子结构。
 - **输出责任独立**：transform 由消费方请求并写 facts，measure 写 Measurement，diagnose 写 Finding，
   render 写 DisplayNode。各阶段只读父子关系，永不 re-parent。
   renderer 只消费准备好的结果，不能调用 FactTransform、Measurer 或 detector。

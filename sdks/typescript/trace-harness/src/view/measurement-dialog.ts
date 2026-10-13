@@ -1,9 +1,8 @@
 import browserSource from "./measurement-dialog.browser.js" with { type: "text" };
-import { measurementWindow, aggregateMeasurementCalls, measurementTimelineRows } from "./measurement-calls";
-export { measurementCallDetails } from "./measurement-calls";
+import { measurementTimelineRows } from "./timeline";
 
 // The offline browser runs the same pure projections as SDK queries. No second implementation.
-const projectionSource = Object.entries({ measurementWindow, aggregateMeasurementCalls, measurementTimelineRows })
+const projectionSource = Object.entries({ measurementTimelineRows })
   .map(([name, fn]) => `const ${name} = ${fn.toString()};`).join("\n");
 export const MEASUREMENT_DIALOG_SCRIPT = projectionSource + "\n" + browserSource;
 export const MEASUREMENT_DIALOG_HTML = `<dialog id="measurement-dialog" aria-labelledby="measurement-title">

@@ -1,7 +1,18 @@
 # Trace Harness
 
-Trace Harness 将请求留下的遥测建模为逻辑事件，提供度量、诊断与证据展示，支持单条排障和
-跨 trace 分析。本文介绍各语言实现共享的概念、职责和边界；详细流程归所属 SDK 的文档。
+Trace Harness 定义标准 Node 格式，将各 Source 的证据（通常是 trace/span）标准化建模，
+以此为基础计算 Measurement、执行 Detector，再通过 View 与 renderer 呈现结果。
+本文介绍各语言实现共享的概念、职责和边界；详细流程归所属 SDK 的文档。
+
+```text
+Source → NormSpan → Node → Measurer → Measurement
+                        → Detector → Finding
+                        → buildView → render(html / text / json)
+```
+
+Measurement 描述客观发生的行为，计算口径不包含好坏判断；Detector 根据人为选择的规则、
+阈值和预期产生 Finding，并可读取 Measurement。Measurement 可归属于 trace 或 node，
+由自己的 kind 标识计算类型。View 只选择和组织已有属性，renderer 只转换输出格式。
 
 跨语言行为以 [规范](../spec/trace-harness.md)、`schema/trace/` 和 `conformance/trace/`
 为准。Python 与 TypeScript 遵守共享契约，功能覆盖可以不同；下面的 SDK 设计不自动代表
@@ -31,7 +42,8 @@ trace 解释执行过程，eval 评估产出质量，perf 验证负载下的性�
 | Node | 由一个或多个物理 span 建模得到的逻辑事件，持有 facts、parent 边与 span 溯源 |
 | KindSpec | 识别事件、认领关联 span、构造基础 facts，并声明 kind 的判读与投影 |
 | FactTransform | 从已有 facts 和关系派生新的具名 fact |
-| Measurement | 独立量化结果，包含指标定义、scope、单位、维度、状态与证据 |
+| Measurement | 归属于 trace 或 node 的中性衍生结果；kind 标识计算类型，保留单位、维度、状态与证据 |
+| View | 对 trace/node 已有数据的选择与组织；default/agent 或 default/measurements/timeline |
 | Finding | 有依据的诊断发现，保留来源、严重程度及锚点；不等于验收 Verdict |
 | TraceContext | 单条 trace 的模型、证据与按需关系索引 |
 | AnalysisContext | 引用原 trace，持有本轮 Measurement 与 Finding |

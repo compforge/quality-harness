@@ -29,7 +29,7 @@ def findings_block(
     by_src: dict[str, list[Finding]] = {}
     for f in flat:
         by_src.setdefault(f.source, []).append(f)
-    view = ctx.view()
+    view = ctx.tree()
     lines = [f"findings: {len(flat)}（{len(by_src)} 类）"]
     for src in sorted(by_src, key=lambda s: min(sev.get(f.severity, 9) for f in by_src[s])):
         fs = by_src[src]

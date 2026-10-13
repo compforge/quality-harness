@@ -1,134 +1,98 @@
 # @compforge/trace-harness
 
-TypeScript implementation of the Trace Harness contract. It consumes Jaeger
-span documents, fuses physical spans into logical nodes, derives facts, computes cumulative call measurements and diagnoses findings, and renders
-a self-contained interactive HTML report. A domain may additionally extract AgentRun IR from the
-complete node tree; the same report then exposes an Agent view with ordered turns, model calls,
-tool calls, and framework operations.
+Trace Harness normalizes source evidence (usually trace/span data) into logical Nodes, computes
+Measurements, applies Detectors, and presents the prepared results through Views.
 
-```ts
-import {
-  genAiSpecs,
-  normalizeJaegerSpans,
-  TraceHarness,
-} from "@compforge/trace-harness";
-
-const spans = normalizeJaegerSpans(rawJaegerDocuments);
-const harness = new TraceHarness({ specs: genAiSpecs() });
-const context = harness.assemble(spans);
-const analysis = await harness.analyze(context);
-const html = harness.renderInteractive(context, analysis.findings, {
-  measurements: analysis.measurements,
-});
+```text
+Source → normalized spans → Nodes → Measurer → Measurement
+                                  → Detector → Finding
+                                  → buildView → render
 ```
 
-The report is one offline HTML file: open it directly in a browser, without a server or extraction.
-Its embedded ZIP stores a lightweight tree index separately from node and span details. Selecting a
-node inflates only that node's details and the selected span; folded branches mount when expanded.
-Large text has a bounded preview with a complete-content download. Compressed data still resides in
-browser memory, so this format does not remove the browser's overall memory limit.
-
-Domain-specific behavior stays in the consumer and is passed explicitly as scoped
-`TraceContributions` (`specs`, `transforms`, `measurers`, `detectors`, declarative `facets`, and an optional
-`agentRunExtractor`). The extractor implements `NodeTreeExtractor<AgentRunIR>` and owns the
-framework-specific run/turn/call correlation. The harness validates the AgentRun IR and owns both
-NodeTree and recursive AgentRun rendering, including nested operations and runs owned by a ToolCall
-or Operation.
-The language-neutral contract is
-[`spec/trace-harness.md`](../../../spec/trace-harness.md).
-
-Transform existing facts into additional facts by contributing `FactTransform` values. Each
-transform declares `produces`, `applies` and `compute`; a curl representation and a derived HTTP
-status use the same contract. Request output names with `harness.transform(node, context, "curl")`
-or `harness.transformAll(context, "curl")` before rendering. Outputs become `node.facts` and are
-cached within that trace. The renderer never runs transformations.
-
-
-For large or remotely accessed evidence, use a managed Session. It keeps a fixed Dataset, loads only
-needed fields by default, and shares evidence reads across analyses. Choose preloading with
-`config: { lazy: false }`; this prepares the active trace, not the whole Dataset.
+Measurements describe what happened under a declared calculation convention. Detectors apply
+chosen rules and expectations, using facts and Measurements as inputs. A View selects and organizes
+existing data; rendering changes its format. Neither stage fetches evidence or runs analysis.
 
 ```ts
-import { JaegerFileSource, TraceHarness, genAiSpecs } from "@compforge/trace-harness";
+import { TraceHarness, genAiSpecs, normalizeJaegerSpans, render } from "@compforge/trace-harness";
 
 const harness = new TraceHarness({ specs: genAiSpecs() });
-await using session = harness.open(new JaegerFileSource("traces.jsonl"), {
-  workDir: "./trace-workspace",
-  config: { lazy: true, concurrency: 8, activeTraces: 4 },
-});
-const dataset = await session.select({ limit: 100 });
-for await (const input of session.trees(dataset)) {
-  const result = await session.analyze(input);
-  await session.prepareView(result, { full: true });
-  const html = harness.renderInteractive(result.trace, result.findings, {
-    measurements: result.measurements,
-  });
-  // Write each HTML string to its destination before requesting the next trace.
-}
+const trace = harness.assemble(normalizeJaegerSpans(rawJaegerDocuments));
+const analysis = await harness.analyze(trace);
+const view = harness.buildView(analysis, { scope: "trace", view: "default" });
+const html = render(view, { format: "html" });
+const text = render(view, { format: "text" });
+const json = render(view, { format: "json" });
 ```
 
-A Session owns its Source; close it with `await using` or `try/finally`. Remote consumers implement
-`Source` using their existing clients. See the [loading guide](docs/loading.md) for dependency declarations,
-individual trace leases, persisted evidence reuse, and import/resource limits. `analyze` and `diagnose`
-are asynchronous; pure `assemble`, `measure`, fact transformation and rendering remain synchronous.
+The trace HTML is a self-contained offline file with compressed evidence, expandable nodes, span
+inspection, search and a flame graph. Browser memory remains a practical size limit.
 
-### Interactive timing analysis
+## Select a subject and focus
 
-Nodes selected by `measurementFilter` expose a yellow balloon **耗时分析** button.
-Clicking a node still opens its normal details; clicking the button opens a modal
-with **调用聚合** (operation summary) and **调用时间线** (trace waterfall) tabs.
-Prefix measurements cover the earliest observed trace start through the selected
-node end, including in-flight calls clipped to that boundary. Summary rows group
-by kind, caller service, target and operation; totals include overlapping calls,
-not exclusive latency contributions. Selecting a summary row highlights matching
-calls with their parent context in the timeline. The timeline supports folding,
-vertical scrolling, horizontal zoom (Ctrl + wheel or slider), and navigation back
-to the source node. Other measurement specifications remain available in the modal.
+| Subject | View | Selected content |
+| --- | --- | --- |
+| trace | default | Node tree organized by contributed facets |
+| trace | agent | Prepared AgentRun, turns, model/tool calls and operations |
+| node | default | Basic node facts, details, Findings and span evidence |
+| node | measurements | Node Measurements and prepared operation aggregates |
+| node | timeline | Prepared calls through the node's end, with source references |
 
-ECharts is bundled as a compressed, lazily loaded report asset: the HTML works
-offline without a CDN or runtime package installation.
-
-## Offline inspection for agents and CLI hosts
-
-All outputs derive from prepared local evidence. HTML is a human view; text and JSON inspection
-are bounded views over the same analysis. Artifact packaging belongs to the host. These APIs do
-not connect to a backend, compute new measurements or assert collection completeness.
+The default view name is `default`. `offset` and `limit` page selected rows, groups or calls; outputs
+include total count and `next_offset`. Parent IDs and depth survive page boundaries. JSON is the
+View's direct serialization; `render(JSON.parse(json), {format: "html"})` needs no analysis context.
 
 ```ts
-import {
-  loadAnalysis, inspectAgentStack, renderAgentStackText,
-  inspectNodeMeasurements, renderNodeMeasurementsText,
-} from "@compforge/trace-harness";
-
-const analysis = loadAnalysis(savedAnalysis);
-// Reuse the same prepared Agent view data supplied to HTML as agentRunIR.
-const stack = inspectAgentStack(analysis.trace, savedAgentRunIR, { limit: 100 });
-console.log(renderAgentStackText(stack));
-const detail = inspectNodeMeasurements(analysis.trace, analysis.measurements, nodeId, {
-  groups: { limit: 20 }, calls: { limit: 50, offset: 0 },
-});
-console.log(renderNodeMeasurementsText(detail));
-// Both query results are also JSON-serializable. Follow each page's next_offset.
+// Prepare only the needed derived data. This is explicit analysis work, before building views.
+harness.prepare(analysis, { agentRuns: true, callBreakdowns: [nodeId] });
+const agent = harness.buildView(analysis, { scope: "trace", view: "agent", limit: 100 });
+const metrics = harness.buildView(analysis, { scope: "node", nodeId, view: "measurements" });
+const timeline = harness.buildView(analysis, { scope: "node", nodeId, view: "timeline", limit: 100 });
+console.log(render(agent, { format: "text" }));
 ```
 
-`inspectNodeMeasurements` ignores UI visibility filters: a node without a balloon remains
-queryable. Its `node.duration_ms` is the node's own elapsed time; `prefix.window.elapsed_ms`
-is the earliest observed trace start through that node's end. Absent or failed prefix measurements
-have null windows/groups/calls, while measured-zero results contain an empty page.
+AgentRun is a derived representation retaining original Node/span references. Its framework-specific
+extraction belongs to a contributed `agentRunExtractor`. Missing extraction is unavailable, never
+inferred from node names. The same selected Agent rows feed HTML, text and JSON.
 
-Call groups expose `count`, `total`, `average`, `max` (durations in milliseconds), and a stable
-operation key. Timeline calls retain original `start_ms`/`end_ms`, clipped relative `start`/`end`,
-`duration`, `clipped`, hierarchy and node/span references. Nested calls and different kinds overlap:
-aggregate totals must not be reported as exclusive wall-clock contributions. A page defaults to
-100 rows and returns total/offset/next_offset; limits are row limits, not a token budget.
+## Measurements and ownership
 
-Agent stack is the Agent-focused view of the trace. HTML and text share the same selection,
-ordering, hierarchy and source references through `agentRunRoots`; text is a paginated rendering
-of that view. Pass the same persisted `agentRunIR` used by `renderInteractive` to `inspectAgentStack`.
-The consumer's existing Agent projection determines which operations/calls appear; text rendering
-adds no separate node filter or business selection rules. Full trace evidence remains available
-for drill-down.
+Each spec has a `kind` and `scope` (`trace` or `node`). Results attach to the containing trace
+(`analysis.measurements.trace`) or a node (`analysis.measurements.nodes[nodeId]`), independently of
+raw observations. `get(null, kind)` reads a trace measurement; `get(nodeId, kind)` reads a node one.
+The measurement kind is distinct from a call's kind. Error, not-applicable and measured zero differ.
 
-Agent stack IDs are display identities; use `source_node_ids` and `span_ids` to drill down.
-Missing AgentRun IR is `not_available`; an explicitly empty IR is available with zero rows.
-Hosts should report evidence completeness and any acquisition gaps next to these projections.
+`calls_until_node_end` belongs to its node but includes the whole observed trace prefix, not just its
+subtree. Counts include calls starting at the cutoff; in-flight duration is clipped to it.
+`call_breakdown` stores explicitly prepared clipped calls and operation groups, enabling the
+measurement bar chart and timeline. Overlapping/nested duration sums are not exclusive waiting time
+or critical-path contributions. Changing a detector's threshold never changes these measurements.
+
+A contributed `measurementFilter` selects which nodes show the yellow **耗时分析** button in the trace
+report. Prepare call breakdowns for those nodes to enable the dialog's aggregate and timeline tabs.
+Explicit node views read all saved measurements independently of this display filter.
+
+`analysisSnapshot` / `loadAnalysis` use `trace-harness/analysis@3`, preserving measurements and optional
+AgentRun derivations. Offline rendering never reruns extensions. Acquire full source evidence before
+rendering if span inspection is needed; a saved analysis without raw spans says they are unavailable.
+
+## Domain contributions and managed loading
+
+Pass `TraceContributions` explicitly: specs, transforms, measurers, detectors, facets and an optional
+AgentRun extractor. Registries belong to the harness instance; importing a domain has no side effects.
+`TraceContext.tree()` exposes the structural `NodeTree`; it is independent of presentation Views.
+
+For managed Source selection, caching, loading budgets and lease lifecycle, see [loading](docs/loading.md).
+The shared [contract](../../../spec/trace-harness.md) and [fixtures](../../../conformance/trace/) define
+cross-language behavior. Python exposes idiomatic `build_view` and `render(view, format=...)` APIs.
+
+## Development
+
+```sh
+bun install --frozen-lockfile
+make lint
+make test
+```
+
+This release intentionally removes the old inspection/render entrypoints and `view()` relationship
+index naming. Consumers must migrate to `prepare`, `buildView`, `render`, `tree()` and measurement kinds.

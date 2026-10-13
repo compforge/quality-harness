@@ -1,3 +1,4 @@
+import { reportHtml } from "./view-fixture";
 import { archiveContents, traceTrees } from "./archive-fixture";
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -32,13 +33,13 @@ for (const fixture of cases) {
       const hit = hits[0]!;
       const actual: Record<string, unknown> = { source: hit.source, severity: hit.severity, ...hit.data };
       expect(Object.fromEntries(Object.keys(expected).map((key) => [key, actual[key]]))).toEqual(expected);
-      expect(context.view().by_id.has(hit.ref)).toBe(true);
+      expect(context.tree().by_id.has(hit.ref)).toBe(true);
       if (hit.source === "http_serial_same_api") {
         expect(Number(hit.data!.http_total_ms) + Number(hit.data!.gap_ms)).toBe(hit.data!.wall_ms);
       }
       expect(hit.note).not.toContain("secret");
     }
-    const html = harness.renderInteractive(context, await harness.diagnose(context));
+    const html = reportHtml(harness, context, await harness.diagnose(context));
     for (const finding of findings) expect(html + archiveContents(html)).toContain(finding.source);
   });
 }

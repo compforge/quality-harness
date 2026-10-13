@@ -1,12 +1,12 @@
 /** Project HTTP sequence findings into Group operations; never reinterpret raw spans. */
 import { formatMs } from "../kinds/base";
 import type { Finding, Node } from "../model/node";
-import type { ViewTree } from "../model/viewtree";
+import type { NodeTree } from "../model/node-tree";
 import type { ChildOp } from "./facet";
 
 type Group = Extract<ChildOp, { type: "group" }>;
 
-export function httpCallGroups(view: ViewTree, findings: Readonly<Record<string, readonly Finding[]>>): Map<string, Group> {
+export function httpCallGroups(view: NodeTree, findings: Readonly<Record<string, readonly Finding[]>>): Map<string, Group> {
   const groups = new Map<string, Group>();
   for (const finding of Object.values(findings).flat()) {
     if (finding.source !== "http_serial_same_api") continue;

@@ -51,7 +51,7 @@ export class TraceSession {
     this.config = loadConfig(options.config);
     this.#reads = new ConcurrencyPool(this.config.concurrency);
     this.#slots = new ConcurrencyPool(this.config.activeTraces);
-    const ids = harness.measurers.map(item => item.spec.id);
+    const ids = harness.measurers.map(item => item.spec.kind);
     if (new Set(ids).size !== ids.length) throw new Error("duplicate measurement id");
   }
   #check(): void { this.#abort.signal.throwIfAborted(); }
@@ -145,10 +145,9 @@ export class TraceSession {
   }
   async analyze(analysis: AnalysisContext, options: { metrics?: readonly string[]; diagnosis?: boolean } = {}): Promise<AnalysisContext> {
     this.#runtime(analysis);
-    const names = options.metrics ?? this.harness.measurers.map(item => item.spec.id);
-    for (const name of names) if (!this.harness.measurers.some(item => item.spec.id === name)) throw new Error(`unknown measurement: ${name}`);
-    const anchor = analysis.trace.nodes[0];
-    if (anchor) await Promise.all(names.map(name => analysis.measure(anchor, name)));
+    const names = options.metrics ?? this.harness.measurers.map(item => item.spec.kind);
+    for (const name of names) if (!this.harness.measurers.some(item => item.spec.kind === name)) throw new Error(`unknown measurement: ${name}`);
+    await Promise.all(names.map(name => analysis.measure(analysis.trace.nodes[0] ?? null, name)));
     if (options.diagnosis === false) return analysis;
     await Promise.all(analysis.trace.nodes.flatMap(node => Object.keys(analysis.trace.specs.get(node.kind)?.metrics ?? {})
       .map(name => analysis.fact(node, name))));

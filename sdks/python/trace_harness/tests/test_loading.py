@@ -18,6 +18,7 @@ from trace_harness import (
 from trace_harness.ingest.sources.jaeger_file import normalize_es_doc
 from trace_harness.kinds import genai
 from trace_harness.loading.model import EvidenceMissing
+from trace_harness.tests.view_fixture import report_html
 
 
 class MemorySource:
@@ -130,8 +131,11 @@ async def test_lazy_and_eager_equal(tmp_path):
                     (
                         size,
                         result.measurements,
-                        session.harness.render_interactive(
-                            result.trace, result.findings, measurements=result.measurements
+                        report_html(
+                            session.harness,
+                            result.trace,
+                            result.findings,
+                            measurements=result.measurements,
                         ),
                     )
                 )

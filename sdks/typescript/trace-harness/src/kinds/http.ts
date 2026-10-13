@@ -88,7 +88,7 @@ export function httpRequests(context: TraceContext): HttpRequest[] {
     }
   }
   const requests: HttpRequest[] = [];
-  const view = context.view();
+  const view = context.tree();
   for (const [id, [method, target, initialRoute]] of endpoints) {
     if (paired.has(id)) continue;
     const span = context.spans.get(id)!;

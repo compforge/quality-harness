@@ -164,7 +164,7 @@ def http_requests(ctx: TraceContext) -> list[HttpRequest]:
         seen: set[str] = set()
         while ordinary and parent is not None and parent.span_id not in seen:
             seen.add(parent.span_id)
-            if (owner := ctx.view().by_span.get(parent.span_id)) and owner.kind == "model-call":
+            if (owner := ctx.tree().by_span.get(parent.span_id)) and owner.kind == "model-call":
                 ordinary = False
                 break
             parent = ctx.spans.get(parent.parent_span_id)
