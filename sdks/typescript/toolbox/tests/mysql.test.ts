@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import type { Connection } from "mysql2/promise";
+import { createConnection, type Connection } from "mysql2/promise";
+import { createServer } from "node:net";
+import { ToolboxError } from "../src/errors";
 import { MysqlDatabase, type DatabaseTarget } from "../src/mysql";
-import { DirectTransport, PodPythonTransport } from "../src/transport";
+import { DirectTransport, PodPythonTransport, PortForwardTransport } from "../src/transport";
 import { preparePodSql } from "../src/mysql/pod";
 
 const target: DatabaseTarget = { host: "rds.example", port: 3306, database: "db", user: "reader", password: "stdin-only-password" };
@@ -146,4 +148,83 @@ test("Pod batch error aborts the batch and reports the statement class only", as
   const db = new MysqlDatabase([new DirectTransport(), pod], options, async () => { throw networkError(); });
   await expect(db.queryBatch(target, [{ sql: "SELECT 1", values: [] }])).rejects.toThrow("batch failed: OperationalError (1146)");
   await db.close();
+});
+
+
+test("mysql2 handshake close selects the next TCP transport and reuses its session", async () => {
+  const server = createServer(socket => socket.end());
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  const routes: unknown[] = [];
+  let connects = 0;
+  let executed = 0;
+  const connection = {
+    execute: async () => { executed++; return [[{ ok: 1 }]]; },
+    connection: { stream: { destroy: () => {} } }, destroy: () => {},
+  } as unknown as Connection;
+  const db = new MysqlDatabase([
+    new PortForwardTransport(async () => ({ host: "127.0.0.1", port })), new DirectTransport(),
+  ], { ...options, connectTimeoutMs: 1000, onRoute: route => routes.push(route) }, async config => {
+    connects++;
+    return config.host === "127.0.0.1" ? createConnection(config) : connection;
+  });
+  try {
+    await db.initialize(target);
+    expect(executed).toBe(0);
+    expect(await db.queryOne(target, "SELECT 1", [])).toEqual({ ok: 1 });
+    expect(await db.queryOne(target, "SELECT 1", [])).toEqual({ ok: 1 });
+    expect(connects).toBe(2);
+    expect(executed).toBe(2);
+    expect(routes).toEqual([{ transport: "direct", reason: "PROTOCOL_CONNECTION_LOST" }]);
+  } finally {
+    await db.close();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
+test.each(["initialize", "query"] as const)("exhausted connection routes report connect phase through %s", async operation => {
+  const cause = Object.assign(new Error("private driver details"), { code: "PROTOCOL_CONNECTION_LOST" });
+  let connects = 0;
+  const db = new MysqlDatabase([new DirectTransport(), new DirectTransport()], options, async () => { connects++; throw cause; });
+  try {
+    const result = operation === "initialize" ? db.initialize(target) : db.query(target, "SELECT 1", []);
+    const error = await result.catch(error => error);
+    expect(error).toBeInstanceOf(ToolboxError);
+    expect(error).toMatchObject({ kind: "connection_lost", code: "PROTOCOL_CONNECTION_LOST", cause });
+    expect(error.message).toBe("MySQL connect failed: connection lost (PROTOCOL_CONNECTION_LOST)");
+    expect(error.message).not.toContain("private driver details");
+    expect(connects).toBe(2);
+  } finally { await db.close(); }
+});
+
+test.each(["query", "queryBatch", "queryReadonly"] as const)("%s disconnect reports query phase without replay", async operation => {
+  const cause = Object.assign(new Error("private SQL and bound values"), { code: "PROTOCOL_CONNECTION_LOST" });
+  let connects = 0;
+  let executed = 0;
+  let fallback = 0;
+  let destroyed = 0;
+  const fail = async () => { executed++; throw cause; };
+  const connection = {
+    query: fail, execute: fail,
+    connection: { stream: { destroy: () => { destroyed++; } } }, destroy: () => {},
+  } as unknown as Connection;
+  const db = new MysqlDatabase([
+    new DirectTransport(), new PortForwardTransport(async () => { fallback++; throw new Error("unexpected fallback"); }),
+  ], options, async () => { connects++; return connection; });
+  try {
+    const result = operation === "queryBatch"
+      ? db.queryBatch(target, [{ sql: "SELECT 1", values: [] }, { sql: "SELECT 2", values: [] }])
+      : operation === "queryReadonly"
+        ? db.queryReadonly(target, "SELECT 1", [], { timeoutMs: 500, maxRows: 1, maxBytes: 100 })
+        : db.query(target, "SELECT 1", []);
+    const error = await result.catch(error => error);
+    expect(error).toBeInstanceOf(ToolboxError);
+    expect(error).toMatchObject({ kind: "connection_lost", code: "PROTOCOL_CONNECTION_LOST", cause });
+    expect(error.message).toBe("MySQL query failed: connection lost (PROTOCOL_CONNECTION_LOST)");
+    expect(error.message).not.toContain("private SQL");
+    expect(connects).toBe(1);
+    expect(executed).toBe(1);
+    expect(fallback).toBe(0);
+    expect(destroyed).toBeGreaterThan(0);
+  } finally { await db.close(); }
 });
