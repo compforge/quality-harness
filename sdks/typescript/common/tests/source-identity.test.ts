@@ -38,5 +38,13 @@ test("Product shares the neutral business identity contract", () => {
   const fixture = JSON.parse(readFileSync(
     new URL("../../../../conformance/common/source-identities.json", import.meta.url), "utf8",
   )) as { products: import("../src/index.js").Product[] };
-  expect(fixture.products).toEqual([{ name: "example-product" }]);
+  const [bare, described] = fixture.products;
+  expect(bare).toEqual({ name: "example-product" });
+  const product: import("../src/index.js").Product = {
+    name: bare.name, concepts: described.concepts, workflows: described.workflows,
+  };
+  expect(product.name).toBe(bare.name);
+  expect(product.concepts).toBeTypeOf("string");
+  expect(product.workflows).toContain("\n");
+  expect(JSON.parse(JSON.stringify(product))).toEqual(described);
 });

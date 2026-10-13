@@ -6,10 +6,16 @@ import type { Workload } from "./workload.js";
  * One Component's logical runtime presence in an Environment.
  * @spec Identity is scoped by name, Component and Environment, not platform resource names.
  * @rule Workload mappings may change without changing Service identity; declarations prove no live instances.
+ * @spec Description, concepts and workflows are discovery metadata, not identity or runtime evidence.
+ * @see {@link component://docs/kernel.md}
  * Consumers extend this model with their own capabilities and execution policy.
  */
 export interface Service<E extends Environment = Environment> {
   readonly name: string;
+  /** Optional Markdown: domain objects, relationships and constraints. */
+  readonly concepts?: string;
+  /** Optional Markdown: collaboration from trigger to completion; not an executable plan. */
+  readonly workflows?: string;
   /** Human-readable discovery metadata; not part of Service identity. */
   readonly description?: string;
   readonly component: Component;

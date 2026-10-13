@@ -14,8 +14,21 @@ type Repository struct {
 
 // Product is a business identity independent of repository layout. A registry
 // owns its many-to-many relationship with Components.
+//
+// +spec=`Concepts and workflows are optional discovery metadata, not identity or runtime evidence`
+// +link=component://docs/kernel.md
 type Product struct {
 	Name string `json:"name" yaml:"name"`
+	// Concepts is Markdown describing domain objects, relationships and constraints.
+	Concepts string `json:"concepts,omitempty" yaml:"concepts,omitempty"`
+	// Workflows is Markdown describing cross-service flows, not executable plans.
+	Workflows string `json:"workflows,omitempty" yaml:"workflows,omitempty"`
+}
+
+// SameIdentity compares product names, excluding descriptive metadata.
+// Use it instead of struct equality when product metadata may differ.
+func (p Product) SameIdentity(other Product) bool {
+	return p.Name == other.Name
 }
 
 // Component is a named, independently buildable or releasable unit in a

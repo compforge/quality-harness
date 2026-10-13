@@ -28,6 +28,13 @@ def test_source_identity_conformance() -> None:
         for item in fixture["components"]
     ]
 
+    assert products[0].concepts is None
+    assert products[0].workflows is None
+    assert products[1].concepts == fixture["products"][1]["concepts"]
+    assert products[1].workflows == fixture["products"][1]["workflows"]
+    assert products[0] == products[1]
+    assert hash(products[0]) == hash(products[1])
+    assert replace(products[1], name="other-product") != products[1]
     assert len(set(components)) == 3
     assert replace(components[0], description="Different description") == components[0]
     relabeled = replace(components[0], language="typescript")
@@ -36,7 +43,10 @@ def test_source_identity_conformance() -> None:
     assert components[2].language is None
     assert components[2].ecosystem is None
     assert {
-        "products": [asdict(item) for item in products],
+        "products": [
+            {key: value for key, value in asdict(item).items() if value is not None}
+            for item in products
+        ],
         "repositories": [asdict(item) for item in repositories],
         "components": [
             {key: value for key, value in asdict(item).items() if value is not None}

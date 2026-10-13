@@ -2,6 +2,11 @@
   "products": [
     {
       "name": "example-product"
+    },
+    {
+      "name": "example-product",
+      "concepts": "A Task owns one or more Attempts. An Attempt records one execution.",
+      "workflows": "Submit Task → schedule Attempt → execute → persist result.\nAcceptance does not imply completion."
     }
   ],
   "repositories": [

@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   ClientManager, EnvironmentContext,
   type Client, type ClientProvider, type Component, type Environment,
-  type Forge, type Host, type HostEnvironment, type Repository,
+  type Forge, type Host, type HostEnvironment, type Product, type Repository,
   type Service, type ServiceDataSource, type Workload,
 } from "../src/index.js";
 
@@ -35,6 +36,24 @@ test("Service binds code identity, environment and zero or more workload declara
   expect(service.workloads).toEqual([]);
   expect(deployed.workloads).toEqual([workload]);
   expect("clientKey" in service.environment).toBe(false);
+});
+
+test("Service domain guidance survives JSON without changing identity fields", () => {
+  const fixture = JSON.parse(readFileSync(
+    new URL("../../../../conformance/common/source-identities.json", import.meta.url), "utf8",
+  )) as { products: Product[] };
+  const service: Service = { name: "tasks", component, environment, workloads: [] };
+  expect(service.concepts).toBeUndefined();
+  expect(service.workflows).toBeUndefined();
+  const described: Service = {
+    ...service, concepts: fixture.products[1].concepts, workflows: fixture.products[1].workflows,
+  };
+  expect(described.name).toBe(service.name);
+  expect(described.component).toBe(service.component);
+  expect(described.environment).toBe(service.environment);
+  expect(JSON.parse(JSON.stringify(described))).toEqual({
+    ...service, concepts: fixture.products[1].concepts, workflows: fixture.products[1].workflows,
+  });
 });
 
 test("consumers extend Service without replacing its shared topology", () => {
