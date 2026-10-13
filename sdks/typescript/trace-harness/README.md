@@ -71,3 +71,19 @@ A Session owns its Source; close it with `await using` or `try/finally`. Remote 
 `Source` using their existing clients. See the [loading guide](docs/loading.md) for dependency declarations,
 individual trace leases, persisted evidence reuse, and import/resource limits. `analyze` and `diagnose`
 are asynchronous; pure `assemble`, `measure`, fact transformation and rendering remain synchronous.
+
+### Interactive timing analysis
+
+Nodes selected by `measurementFilter` expose a yellow balloon **耗时分析** button.
+Clicking a node still opens its normal details; clicking the button opens a modal
+with **调用聚合** (operation summary) and **调用时间线** (trace waterfall) tabs.
+Prefix measurements cover the earliest observed trace start through the selected
+node end, including in-flight calls clipped to that boundary. Summary rows group
+by kind, caller service, target and operation; totals include overlapping calls,
+not exclusive latency contributions. Selecting a summary row highlights matching
+calls with their parent context in the timeline. The timeline supports folding,
+vertical scrolling, horizontal zoom (Ctrl + wheel or slider), and navigation back
+to the source node. Other measurement specifications remain available in the modal.
+
+ECharts is bundled as a compressed, lazily loaded report asset: the HTML works
+offline without a CDN or runtime package installation.

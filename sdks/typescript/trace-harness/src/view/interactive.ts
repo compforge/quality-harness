@@ -1,4 +1,6 @@
 import { TraceArchive, ARCHIVE_SCRIPT } from "./archive";
+import echartsSource from "echarts/dist/echarts.min.js" with { type: "text" };
+import { measurementCallDetails, MEASUREMENT_DIALOG_SCRIPT, MEASUREMENT_DIALOG_HTML, MEASUREMENT_DIALOG_CSS } from "./measurement-dialog";
 import renderJsonSource from "renderjson/renderjson.js" with { type: "text" };
 
 import { Measurements } from "../model/measurement";
@@ -157,7 +159,7 @@ nav.switch button.active{background:#2563eb;color:#fff}
 .tree{flex:0 0 var(--tree-width);min-width:0;overflow:auto;background:#fff;padding:8px 0}
 .splitter{flex:0 0 6px;background:#e5e7eb;cursor:col-resize;touch-action:none;position:relative;outline:0}.splitter::after{content:"";position:absolute;inset:0 -3px}.splitter:hover,.splitter.dragging,.splitter:focus-visible{background:#3b82f6}body.split-resizing{cursor:col-resize;user-select:none}
 .pane{flex:1;min-width:0;overflow:auto;padding:16px}.row{white-space:nowrap;cursor:pointer;font-size:12px;padding:2px 8px;border-left:3px solid transparent;display:flex;align-items:baseline;gap:6px;position:relative}.row.agent-row::before{content:"";position:absolute;left:var(--node-indent,4px);top:3px;bottom:3px;width:3px;border-radius:2px;background:var(--node-color,#9ca3af)}
-.measurement-marker{border:0;background:transparent;padding:0;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;flex:none;cursor:pointer;border-radius:4px;align-self:center}
+.measurement-marker{border:1px solid #d1d5db;background:#fff;padding:0 6px;height:22px;display:inline-flex;align-items:center;justify-content:center;gap:3px;flex:none;cursor:pointer;border-radius:4px;align-self:center;color:#475569;font:11px var(--mono)}
 .measurement-marker:hover{background:#fef3c7}.measurement-marker:focus-visible{outline:2px solid #ca8a04;outline-offset:1px}
 .row:hover{background:#f1f5f9}.row.sel{background:#e0edff;border-left-color:#3b82f6}.row.err{color:#b91c1c}.row.err.sel{background:#fee2e2;border-left-color:#dc2626}
 .tw{display:inline-block;width:14px;color:#9ca3af;cursor:pointer;text-align:center;flex:none}.kind{font-size:10px;border-radius:3px;padding:0 5px;flex:none;color:#fff;background:#9ca3af}
@@ -190,7 +192,7 @@ dl.attrs{margin:0}dl.attrs dt{font-size:11px;color:#6b7280;margin-top:10px}dl.at
 
 // The report must remain a single offline HTML file, so embed the dependency's
 // browser source at build time instead of loading it from a CDN at view time.
-const SCRIPT = `${renderJsonSource}\n${String.raw`
+const SCRIPT = `${renderJsonSource}\n${MEASUREMENT_DIALOG_SCRIPT}\n${String.raw`
 const {trees:TREES,spans:SPANS}=readTraceEntry('index.json');
 const KCOLOR={agent:'#7c3aed','agent-run':'#7c3aed','agent-turn':'#4f46e5',framework:'#2563eb',node:'#2563eb','model-call':'#059669','tool-call':'#d97706',action:'#0891b2',operation:'#0891b2',service:'#6b7280'};
 const stackEl=document.getElementById('view-stack'),treeEl=document.getElementById('tree'),splitterEl=document.getElementById('splitter'),paneEl=document.getElementById('pane');
@@ -258,9 +260,9 @@ function refreshTreeNames(){treeEl.querySelectorAll('.row[data-id]').forEach(row
 function appendMeasurementMarker(row,n){
   if(!n.has_measurements)return;
   const marker=document.createElement('button');marker.type='button';marker.className='measurement-marker';
-  marker.title='查看 Measurements';marker.setAttribute('aria-label','查看 Measurements');
-  marker.innerHTML='<svg width="16" height="20" viewBox="0 0 16 20" aria-hidden="true" focusable="false"><path d="M8 14c-3 2 3 3 0 5" fill="none" stroke="#78716c" stroke-width="1"/><path d="m8 12-2 3h4z" fill="#facc15" stroke="#ca8a04" stroke-width=".7"/><ellipse cx="8" cy="6.5" rx="5.5" ry="6" fill="#facc15" stroke="#ca8a04" stroke-width=".8"/><path d="M5 3.5c-1 .7-1.4 1.6-1.4 2.5" fill="none" stroke="#fef9c3" stroke-width="1.5" stroke-linecap="round"/></svg>';
-  marker.onclick=event=>{event.stopPropagation();select(n.node_id);const heading=paneEl.querySelector('#measurements');heading.scrollIntoView({block:'start'});heading.focus({preventScroll:true});};
+  marker.title='查看调用聚合与时间线';marker.setAttribute('aria-label','查看耗时分析');marker.setAttribute('aria-haspopup','dialog');
+  marker.innerHTML='<svg width="16" height="20" viewBox="0 0 16 20" aria-hidden="true" focusable="false"><path d="M8 14c-3 2 3 3 0 5" fill="none" stroke="#78716c" stroke-width="1"/><path d="m8 12-2 3h4z" fill="#facc15" stroke="#ca8a04" stroke-width=".7"/><ellipse cx="8" cy="6.5" rx="5.5" ry="6" fill="#facc15" stroke="#ca8a04" stroke-width=".8"/><path d="M5 3.5c-1 .7-1.4 1.6-1.4 2.5" fill="none" stroke="#fef9c3" stroke-width="1.5" stroke-linecap="round"/></svg><span>耗时分析</span>';
+  marker.onclick=event=>{event.stopPropagation();openMeasurements(n);};
   row.appendChild(marker);
 }
 function renderInto(n,depth,parent){byId[n.node_id]=n;parentOf[n.node_id]=parent&&parent.node_id;const box=document.createElement('div'),row=document.createElement('div');row.className='row'+(n.has_error?' err':'');row.dataset.id=n.node_id;row.dataset.depth=String(depth);row.style.paddingLeft=(depth*16+8)+'px';const timedLeaf=perspective==='agent'&&!n.children.length,rowHeight=timedLeaf?timeHeight(n.duration_ms,stackMaxDuration):22;row.dataset.rowHeight=String(rowHeight);
@@ -298,7 +300,7 @@ function measurementBlock(n){
   const groups=new Map();for(const row of rows){if(!groups.has(row.id))groups.set(row.id,[]);groups.get(row.id).push(row);}
   return '<section class="measurement-section" aria-labelledby="measurements"><h3 id="measurements" tabindex="-1">Measurements</h3>'+[...groups.values()].map(measurementGroup).join('')+'</section>';
 }
-function select(id){document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));unfold(id);const row=document.querySelector('.row[data-id="'+CSS.escape(id)+'"]');if(row){row.classList.add('sel');row.scrollIntoView({block:'nearest'});}const summary=byId[id];if(!summary)return;const n=loadNode(summary);selectedId=id;location.hash=id;paneEl.innerHTML='<h2>'+esc(n.name)+'</h2><div class="meta">'+esc(n.kind)+' · '+fmtMs(n.duration_ms)+(n.service?' · '+esc(n.service):'')+(n.has_error?' · <b style="color:#dc2626">ERROR：'+esc(n.error)+'</b>':'')+'</div>'+findings(n)+measurementBlock(n)+facts(n)+details(n)+'<div class="meta">溯源 span（'+n.span_ids.length+'）：</div><div class="chips">'+n.span_ids.map(sid=>'<span class="chip'+((n.error_span_ids||[]).includes(sid)?' errc':'')+'" data-sid="'+esc(sid)+'">'+(sid===n.primary_span_id?'primary':'卫星')+' · '+esc((SPANS[sid]||{}).operation||sid)+'</span>').join('')+'</div><div id="attrs"></div>';paneEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>showSpan(c.dataset.sid));paneEl.querySelectorAll('.feat-h').forEach(h=>h.onclick=()=>h.parentElement.classList.toggle('open'));const download=document.createElement('button');download.textContent='下载节点完整详情';download.onclick=()=>downloadValue('node.json',n);paneEl.appendChild(download);const sid=(n.error_span_ids||[])[0]||n.primary_span_id;if(sid)showSpan(sid);else document.getElementById('attrs').innerHTML='<div class="meta">视图压缩节点，无独立 span</div>';}
+function select(id){document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));unfold(id);const row=document.querySelector('.row[data-id="'+CSS.escape(id)+'"]');if(row){row.classList.add('sel');row.scrollIntoView({block:'nearest'});}const summary=byId[id];if(!summary)return;const n=loadNode(summary);selectedId=id;location.hash=id;paneEl.innerHTML='<h2>'+esc(n.name)+'</h2><div class="meta">'+esc(n.kind)+' · '+fmtMs(n.duration_ms)+(n.service?' · '+esc(n.service):'')+(n.has_error?' · <b style="color:#dc2626">ERROR：'+esc(n.error)+'</b>':'')+'</div>'+findings(n)+facts(n)+details(n)+'<div class="meta">溯源 span（'+n.span_ids.length+'）：</div><div class="chips">'+n.span_ids.map(sid=>'<span class="chip'+((n.error_span_ids||[]).includes(sid)?' errc':'')+'" data-sid="'+esc(sid)+'">'+(sid===n.primary_span_id?'primary':'卫星')+' · '+esc((SPANS[sid]||{}).operation||sid)+'</span>').join('')+'</div><div id="attrs"></div>';paneEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>showSpan(c.dataset.sid));paneEl.querySelectorAll('.feat-h').forEach(h=>h.onclick=()=>h.parentElement.classList.toggle('open'));const download=document.createElement('button');download.textContent='下载节点完整详情';download.onclick=()=>downloadValue('node.json',n);paneEl.appendChild(download);const sid=(n.error_span_ids||[])[0]||n.primary_span_id;if(sid)showSpan(sid);else document.getElementById('attrs').innerHTML='<div class="meta">视图压缩节点，无独立 span</div>';}
 function showSpan(sid){paneEl.querySelectorAll('.chip').forEach(c=>c.classList.toggle('sel',c.dataset.sid===sid));const sp=loadSpan(sid),box=document.getElementById('attrs');box.replaceChildren();if(!sp){const missing=document.createElement('div');missing.className='meta';missing.textContent='span 不在快照内';box.appendChild(missing);return;}const meta=document.createElement('div');meta.className='meta';meta.textContent='span '+sid+' · '+sp.operation+' · '+fmtMs(sp.duration_ms);box.appendChild(meta);const attrs=document.createElement('dl');attrs.className='attrs';for(const [key,value] of Object.entries(sp.attrs)){const name=document.createElement('dt');name.textContent=key;attrs.append(name,attrValue(value));}box.appendChild(attrs);}
 function firstError(ns){for(const n of ns){if(n.has_error&&n.kind)return n.node_id;const child=firstError(n.children);if(child)return child;}return null;}
 function firstReal(ns){for(const n of ns){if(n.kind)return n.node_id;const child=firstReal(n.children);if(child)return child;}return null;}
@@ -320,7 +322,7 @@ function showLayout(next){layout=next;Object.entries(views).forEach(([key,elemen
 function showPerspective(next){perspective=next;document.querySelectorAll('[data-perspective]').forEach(button=>button.classList.toggle('active',button.dataset.perspective===next));renderTree();}
 document.querySelectorAll('[data-layout]').forEach(button=>button.onclick=()=>showLayout(button.dataset.layout));document.querySelectorAll('[data-perspective]').forEach(button=>button.onclick=()=>showPerspective(button.dataset.perspective));
 function buildFlame(){const box=document.getElementById('flame'),axis=document.getElementById('faxis');box.replaceChildren();axis.replaceChildren();if(!tree.roots.length){box.innerHTML='<div class="empty">当前侧重点没有可展示节点</div>';flameBuilt=true;return;}let t0=Infinity,t1=-Infinity,maxD=0;(function scan(ns,d){ns.forEach(n=>{t0=Math.min(t0,n.start_ms);t1=Math.max(t1,n.start_ms+n.duration_ms);maxD=Math.max(maxD,d);scan(n.children,d+1);});})(tree.roots,0);const span=Math.max(t1-t0,1e-6),rowH=20;box.style.height=((maxD+1)*rowH+4)+'px';for(let i=0;i<=10;i++){const s=document.createElement('span');s.style.left=(i*10)+'%';s.textContent=fmtMs(span*i/10);axis.appendChild(s);}(function place(ns,d){ns.forEach(n=>{const c=document.createElement('div');c.dataset.id=n.node_id;c.className='fcell'+(n.has_error?' err':'');c.style.left=((n.start_ms-t0)/span*100)+'%';c.style.width=Math.max(n.duration_ms/span*100,.15)+'%';c.style.top=(d*rowH)+'px';c.style.background=KCOLOR[n.kind]||'#9ca3af';box.appendChild(c);c.textContent=nameForBudget(n,Math.max(1,Math.floor(c.clientWidth/7)));c.title=compactName(n,1)[0]+' · '+n.kind+' · '+fmtMs(n.duration_ms)+(n.service?' · '+n.service:'')+(n.has_error?' · ERROR':'');c.onclick=()=>{showLayout('tree');select(n.node_id);};place(n.children,d+1);});})(tree.roots,0);flameBuilt=true;paintSearch();}
-renderTree();showLayout('tree');
+initMeasurementDialog();renderTree();showLayout('tree');
 `}`;
 
 export function renderInteractive(
@@ -364,15 +366,20 @@ export function renderInteractive(
   // Load the complete search text separately; do not inflate raw spans or node details to search.
   archive.add("values.json", Object.fromEntries(context.nodes.filter(node => node.value).map(node => [node.node_id, node.value])));
   archive.add("index.json", { trees: skeletons, spans });
+  archive.add("measurement-calls.json", measurementCallDetails(context, measurements));
+  // Only reports with a prefix analysis need charts; keep the browser library compressed until opened.
+  if (Object.values(measurements.results).some(results => results.some(result => result.spec_id === "calls_until_node_end" && result.status === "measured"))) {
+    archive.add("measurement-chart.json", echartsSource);
+  }
   const script = ARCHIVE_SCRIPT + SCRIPT;
   const title = htmlEscape(context.trace_id);
   const errorCount = context.nodes.filter((node) => node.has_error).length;
   const agentButton = trees.agent ? '<button data-perspective="agent">Agent</button>' : "";
-  return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>trace ${title}</title><style>${CSS}</style></head>
+  return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>trace ${title}</title><style>${CSS}${MEASUREMENT_DIALOG_CSS}</style></head>
 <body><header><h1>trace <b>${title}</b> · ${context.nodes.length} nodes / ${context.span_count} spans · errors ${errorCount}</h1>
 <nav class="switch"><span>侧重点</span><button data-perspective="full" class="active">完整</button>${agentButton}</nav>
 <nav class="switch"><span>形态</span><button data-layout="tree" class="active">调用栈</button><button data-layout="flame">火焰图</button></nav><button id="expand">全部展开</button><button id="fold">全部折叠</button></header>
 <div class="trace-search" role="search"><input id="node-search" type="search" aria-label="搜索节点内容" placeholder="搜索节点内容" title="搜索业务指定的节点内容；Enter 下一个，Shift+Enter 上一个，Esc 清空"><button id="search-prev" aria-label="上一个匹配节点" disabled>↑</button><button id="search-next" aria-label="下一个匹配节点" disabled>↓</button><span id="search-status" role="status" aria-live="polite"></span></div>
 <div class="wrap" id="view-stack"><div class="tree" id="tree"></div><div class="splitter" id="splitter" role="separator" aria-label="调整调用栈与节点详情宽度" aria-orientation="vertical" tabindex="0"></div><div class="pane" id="pane"></div></div>
-<div id="view-flame"><div class="faxis" id="faxis"></div><div class="flame" id="flame"></div></div>${archive.embed()}<script>${script}</script></body></html>\n`;
+<div id="view-flame"><div class="faxis" id="faxis"></div><div class="flame" id="flame"></div></div>${MEASUREMENT_DIALOG_HTML}${archive.embed()}<script>${script.replace(/<\/script/gi, "<\\/script")}</script></body></html>\n`;
 }
