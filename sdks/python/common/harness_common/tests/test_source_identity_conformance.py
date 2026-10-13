@@ -28,6 +28,8 @@ def test_source_identity_conformance() -> None:
         for item in fixture["components"]
     ]
 
+    assert products[0].description is None
+    assert products[1].description == fixture["products"][1]["description"]
     assert products[0].concepts is None
     assert products[0].workflows is None
     assert products[1].concepts == fixture["products"][1]["concepts"]

@@ -41,9 +41,12 @@ test("Product shares the neutral business identity contract", () => {
   const [bare, described] = fixture.products;
   expect(bare).toEqual({ name: "example-product" });
   const product: import("../src/index.js").Product = {
-    name: bare.name, concepts: described.concepts, workflows: described.workflows,
+    name: bare.name, description: described.description,
+    concepts: described.concepts, workflows: described.workflows,
   };
   expect(product.name).toBe(bare.name);
+  expect(bare.description).toBeUndefined();
+  expect(product.description).toBeTypeOf("string");
   expect(product.concepts).toBeTypeOf("string");
   expect(product.workflows).toContain("\n");
   expect(JSON.parse(JSON.stringify(product))).toEqual(described);

@@ -52,7 +52,8 @@ const service: Service = {
 };
 ```
 
-Service and Product accept optional concepts and workflows Markdown text. Concepts explain
+Service and Product accept an optional description for a short introduction, plus optional
+concepts and workflows Markdown text. Concepts explain
 objects, relationships and constraints; workflows explain collaboration from trigger to completion.
 Service knowledge covers its own responsibilities, while Product knowledge covers end-to-end flows.
 Consumers maintain this offline metadata; it does not change identity, execute a workflow or prove runtime state.

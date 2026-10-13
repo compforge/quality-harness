@@ -58,7 +58,7 @@ ClientProvider 通过客户端标识与构造方法显式连接可访问 Environ
 DataSource 仅表达数据来源语义，ClientManager 统一接收两者。
 Transport 管理各类基础设施访问通道，ClientManager 管理执行期客户端；见 [toolbox](toolbox.md)。
 
-Service 与 Product 可用可选的 concepts、workflows Markdown 文本提供离线业务知识。
+Service 与 Product 可用可选的 description 提供简短介绍，concepts、workflows Markdown 文本提供离线业务知识。
 concepts 描述核心对象、关系、状态与约束；workflows 描述从触发到完成的协作过程和证据落点。
 Service 聚焦自身职责与交接边界，Product 承载跨服务的端到端模型；内容由消费项目维护并随版本交付。
 这些字段不参与身份，也不构成可执行计划或现场观测。Python 的相等与哈希忽略它们；Go Product

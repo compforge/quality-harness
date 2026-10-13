@@ -15,10 +15,12 @@ type Repository struct {
 // Product is a business identity independent of repository layout. A registry
 // owns its many-to-many relationship with Components.
 //
-// +spec=`Concepts and workflows are optional discovery metadata, not identity or runtime evidence`
+// +spec=`Description, concepts and workflows are optional discovery metadata, not identity or runtime evidence`
 // +link=component://docs/kernel.md
 type Product struct {
 	Name string `json:"name" yaml:"name"`
+	// Description is an optional short introduction, not part of Product identity.
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 	// Concepts is Markdown describing domain objects, relationships and constraints.
 	Concepts string `json:"concepts,omitempty" yaml:"concepts,omitempty"`
 	// Workflows is Markdown describing cross-service flows, not executable plans.

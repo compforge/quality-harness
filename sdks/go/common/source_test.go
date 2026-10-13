@@ -24,6 +24,9 @@ func TestSourceIdentityConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	bare, describedProduct := fixture.Products[0], fixture.Products[1]
+	if bare.Description != "" || describedProduct.Description == "" {
+		t.Fatal("optional product description was not preserved")
+	}
 	if bare.Concepts != "" || bare.Workflows != "" || describedProduct.Concepts == "" || describedProduct.Workflows == "" {
 		t.Fatal("optional product guidance was not preserved")
 	}
