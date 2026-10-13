@@ -165,3 +165,43 @@ def test_agent_derivation_survives_snapshot_without_extraction(tmp_path):
     assert view["rows"]["items"][0]["error"] == "saved error without raw spans"
     assert "tool preparation" in render(view, format="text")
     assert "tool preparation" in render(json.loads(render(view, format="json")), format="html")
+
+
+def test_html_perspective_buttons_identify_the_initial_view():
+    from html.parser import HTMLParser
+
+    from trace_harness.view.interactive import render_trace_html
+
+    class Buttons(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.items = []
+            self.current = None
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "button" and "data-perspective" in attrs:
+                self.current = {**attrs, "label": ""}
+                self.items.append(self.current)
+
+        def handle_data(self, data):
+            if self.current is not None:
+                self.current["label"] += data
+
+        def handle_endtag(self, tag):
+            if tag == "button":
+                self.current = None
+
+    analysis = AnalysisContext(TraceContext("buttons", {}, [], {}))
+    default = build_view(analysis, {"scope": "trace"})
+    agent = build_view(analysis, {"scope": "trace", "view": "agent"})
+    for views in ([default], [agent], [default, agent], [agent, default]):
+        buttons = Buttons()
+        buttons.feed(render_trace_html(views))
+        assert [b["data-perspective"] for b in buttons.items] == [v["view"] for v in views]
+        assert [b["data-perspective"] for b in buttons.items if b.get("class") == "active"] == [
+            views[0]["view"]
+        ]
+        assert [b["label"] for b in buttons.items] == [
+            "Agent" if v["view"] == "agent" else "完整" for v in views
+        ]
