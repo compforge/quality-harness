@@ -11,8 +11,4 @@ export interface Product {
   readonly knowledge?: Knowledge;
   /** Optional short introduction; not part of Product identity. */
   readonly description?: string;
-  /** @deprecated Declare domain objects, relationships and constraints in knowledge.concepts. */
-  readonly concepts?: string;
-  /** @deprecated Declare business processes in knowledge.workflows. */
-  readonly workflows?: string;
 }

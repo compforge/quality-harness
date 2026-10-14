@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-common",
-  "version": "0.3.8",
+  "version": "0.4.0",
   "description": "Execution-neutral client lifecycle and datasource contracts for harnesses",
   "type": "module",
   "scripts": {

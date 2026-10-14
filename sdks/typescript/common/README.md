@@ -38,8 +38,13 @@ import type { Service } from "@compforge/harness-common";
 
 const service: Service = {
   name: "chat",
-  concepts: "A Conversation contains Messages; each Message may have multiple execution Attempts.",
-  workflows: "Accept message → execute attempt → persist response. Acceptance does not imply completion.",
+  knowledge: {
+    concepts: [{ id: "conversation", name: "Conversation", description: "Contains Messages; each Message may have multiple execution Attempts." }],
+    workflows: [{ id: "reply", title: "Reply", summary: "Accept and answer a message.", steps: [
+      { id: "execute", title: "Execute", description: "Execute an attempt and persist its response." },
+    ] }],
+  },
+  upstream: ["gateway"],
   component: {
     name: "api",
     repository: { forge: { name: "github" }, path: "example/app" },
@@ -52,11 +57,14 @@ const service: Service = {
 };
 ```
 
-Service and Product accept an optional description for a short introduction, plus optional
-concepts and workflows Markdown text. Concepts explain
-objects, relationships and constraints; workflows explain collaboration from trigger to completion.
-Service knowledge covers its own responsibilities, while Product knowledge covers end-to-end flows.
-Consumers maintain this offline metadata; it does not change identity, execute a workflow or prove runtime state.
+Service and Product accept an optional description for a short introduction, and structured
+`knowledge` for concepts, workflows, articles and dictionaries. Service knowledge covers its own
+responsibilities, while Product knowledge covers end-to-end flows. Consumers maintain this offline
+metadata; it does not change identity, execute a workflow or prove runtime state.
+
+Service `upstream` lists the canonical names of Services that call it, resolved in the consumer's
+catalog. Omission means the relationship is undeclared; `[]` declares no upstream callers.
+This describes architecture; runtime traces determine which calls actually occurred.
 
 Environment carries identity and an optional local/SSH Host declaration, not a connection. HostEnvironment
 describes a target running directly on that host. Concrete accessible environments, such as toolbox's
@@ -79,7 +87,6 @@ Product and Service accept an optional `knowledge` declaration. `Knowledge` grou
 `Concept`, `Workflow` (with parent-scoped `Step` records), `Article` (with `Section`
 records), and typed `Dictionary<Entry>` collections. These are plain offline data:
 JSON preserves their content, and the containing consumer owns distribution and version selection.
-The older `concepts` and `workflows` string fields are deprecated during consumer migration.
 
 IDs are unique per kind within the owner, and per child collection within its parent.
 Step `parentId` expresses inclusion; sibling order follows the array even when a parent
@@ -94,3 +101,9 @@ published definitions independently of a containing distribution's version.
 Dictionary entries retain their typed domain fields; consumers can supply an entry
 renderer to include these fields. The default renderer uses name, description and aliases.
 Terminal presentation, exact lookup, search, source loading and vector indexes belong to consumers.
+
+## Upgrade to 0.4
+
+Move the removed Product/Service `concepts` and `workflows` string fields into
+`knowledge.concepts` and `knowledge.workflows`. Use Concept records for domain objects
+and Workflow/Step records for business processes. Knowledge remains optional.

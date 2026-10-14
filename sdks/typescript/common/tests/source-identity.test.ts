@@ -40,14 +40,25 @@ test("Product shares the neutral business identity contract", () => {
   )) as { products: import("../src/index.js").Product[] };
   const [bare, described] = fixture.products;
   expect(bare).toEqual({ name: "example-product" });
+  const knowledge: import("../src/index.js").Knowledge = {
+    concepts: [{ id: "message", name: "Message", description: "A persisted conversation turn." }],
+    workflows: [{ id: "reply", title: "Reply", summary: "Accept and answer a message.", steps: [
+      { id: "accept", title: "Accept", description: "Store the incoming message." },
+      { id: "answer", title: "Answer", description: "Execute and persist the reply." },
+    ] }],
+  };
   const product: import("../src/index.js").Product = {
-    name: bare.name, description: described.description,
-    concepts: described.concepts, workflows: described.workflows,
+    name: bare.name, description: described.description, knowledge,
   };
   expect(product.name).toBe(bare.name);
   expect(bare.description).toBeUndefined();
   expect(product.description).toBeTypeOf("string");
-  expect(product.concepts).toBeTypeOf("string");
-  expect(product.workflows).toContain("\n");
-  expect(JSON.parse(JSON.stringify(product))).toEqual(described);
+  expect(JSON.parse(JSON.stringify(product))).toEqual({
+    name: bare.name, description: described.description, knowledge,
+  });
+  // Type-level check: legacy fields cannot reappear on Product or Service.
+  type LegacyFields = Extract<keyof import("../src/index.js").Product | keyof import("../src/index.js").Service,
+    "concepts" | "workflows">;
+  const knowledgeOnly: [LegacyFields] extends [never] ? true : false = true;
+  expect(knowledgeOnly).toBe(true);
 });
