@@ -18,6 +18,7 @@ src/
 ├── client-manager.ts  # 根执行内共享客户端与回收
 ├── workload.ts        # 负载声明与运行实例，不执行平台 I/O
 ├── service.ts         # Component 在 Environment 中的具名运行体现及 Workload 归属
+├── knowledge.ts       # 离线知识、层级与身份约束、确定性 Markdown 投影
 ├── product.ts         # 与仓库布局无关的业务身份，关联由消费方持有
 ├── component.ts       # Repository 内的可构建组件
 ├── repository.ts      # Forge 内的代码仓身份

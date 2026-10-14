@@ -12,3 +12,4 @@ export * from "./environment.js";
 export * from "./service.js";
 export * from "./execution.js";
 export type { Product } from "./product.js";
+export * from "./knowledge.js";

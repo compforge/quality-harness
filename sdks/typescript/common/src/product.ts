@@ -1,14 +1,18 @@
+import type { Knowledge } from "./knowledge.js";
+
 /** A business identity independent of repository layout.
  * Consumers own its many-to-many associations with Components.
- * @spec Description, concepts and workflows describe product-wide knowledge, not identity or runtime evidence.
+ * @spec Description and Knowledge describe the product, independently of identity and runtime evidence.
  * @see {@link component://docs/kernel.md}
  */
 export interface Product {
   readonly name: string;
+  /** Structured offline knowledge; not part of identity or runtime evidence. */
+  readonly knowledge?: Knowledge;
   /** Optional short introduction; not part of Product identity. */
   readonly description?: string;
-  /** Optional Markdown: domain objects, relationships and constraints. */
+  /** @deprecated Declare domain objects, relationships and constraints in knowledge.concepts. */
   readonly concepts?: string;
-  /** Optional Markdown: collaboration from trigger to completion; not an executable plan. */
+  /** @deprecated Declare business processes in knowledge.workflows. */
   readonly workflows?: string;
 }
