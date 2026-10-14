@@ -7,9 +7,21 @@ type Forge struct {
 
 // Repository is identified by its forge and its path within that forge.
 // A checkout directory is location information, not repository identity.
+//
+// +spec=`ForkedFrom is the direct parent path within the same Forge instance and does not participate in repository identity`
+// +link=component://docs/kernel.md
 type Repository struct {
 	Forge Forge  `json:"forge" yaml:"forge"`
 	Path  string `json:"path" yaml:"path"`
+	// ForkedFrom is the direct parent path within this same Forge instance; empty is unspecified.
+	// Cross-Forge import/mirror provenance belongs in separate metadata.
+	ForkedFrom string `json:"forked_from,omitempty" yaml:"forked_from,omitempty"`
+}
+
+// SameIdentity compares forge and path, excluding fork provenance.
+// Use it instead of struct equality when repository metadata may differ.
+func (r Repository) SameIdentity(other Repository) bool {
+	return r.Forge == other.Forge && r.Path == other.Path
 }
 
 // Product is a business identity independent of repository layout. A registry
@@ -47,7 +59,7 @@ type Component struct {
 // SameIdentity compares stable identity, excluding descriptive metadata.
 // Use it instead of struct equality when component metadata may differ.
 func (c Component) SameIdentity(other Component) bool {
-	return c.Repository == other.Repository && c.Name == other.Name
+	return c.Repository.SameIdentity(other.Repository) && c.Name == other.Name
 }
 
 // Ecosystem derives the tool ecosystem from Language without storing a second

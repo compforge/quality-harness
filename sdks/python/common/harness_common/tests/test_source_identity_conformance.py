@@ -14,7 +14,11 @@ def test_source_identity_conformance() -> None:
     )
 
     def repository(value: dict) -> Repository:
-        return Repository(forge=Forge(**value["forge"]), path=value["path"])
+        return Repository(
+            forge=Forge(**value["forge"]),
+            path=value["path"],
+            forked_from=value.get("forked_from"),
+        )
 
     products = [Product(**item) for item in fixture["products"]]
     repositories = [repository(item) for item in fixture["repositories"]]
@@ -28,6 +32,24 @@ def test_source_identity_conformance() -> None:
         for item in fixture["components"]
     ]
 
+    def wire(value):
+        return asdict(
+            value,
+            dict_factory=lambda pairs: {
+                key: item for key, item in pairs if item is not None
+            },
+        )
+
+    assert repositories[0].forked_from is None
+    fork = repositories[3]
+    assert fork.forked_from == repositories[0].path
+    parent = Repository(forge=fork.forge, path=fork.forked_from)
+    assert parent == repositories[0]
+    bare_fork = replace(fork, forked_from=None)
+    assert fork == bare_fork
+    assert hash(fork) == hash(bare_fork)
+    assert fork != parent
+    assert Component(fork, "api") == Component(bare_fork, "api")
     assert products[0].description is None
     assert products[1].description == fixture["products"][1]["description"]
     assert products[0].concepts is None
@@ -45,15 +67,9 @@ def test_source_identity_conformance() -> None:
     assert components[2].language is None
     assert components[2].ecosystem is None
     assert {
-        "products": [
-            {key: value for key, value in asdict(item).items() if value is not None}
-            for item in products
-        ],
-        "repositories": [asdict(item) for item in repositories],
-        "components": [
-            {key: value for key, value in asdict(item).items() if value is not None}
-            for item in components
-        ],
+        "products": [wire(item) for item in products],
+        "repositories": [wire(item) for item in repositories],
+        "components": [wire(item) for item in components],
     } == fixture
 
 
