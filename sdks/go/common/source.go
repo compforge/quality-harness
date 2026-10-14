@@ -18,6 +18,13 @@ type Repository struct {
 	ForkedFrom string `json:"forked_from,omitempty" yaml:"forked_from,omitempty"`
 }
 
+// ID returns forge name/path, excluding fork provenance.
+//
+// +spec=`Repository identity is derived from Forge.Name and Path only`
+func (r Repository) ID() string {
+	return r.Forge.Name + "/" + r.Path
+}
+
 // SameIdentity compares forge and path, excluding fork provenance.
 // Use it instead of struct equality when repository metadata may differ.
 func (r Repository) SameIdentity(other Repository) bool {

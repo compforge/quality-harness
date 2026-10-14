@@ -1,0 +1,48 @@
+[
+  {
+    "repository": {
+      "forge": {
+        "name": "github"
+      },
+      "path": "example/api"
+    },
+    "id": "github/example/api"
+  },
+  {
+    "repository": {
+      "forge": {
+        "name": "github"
+      },
+      "path": "example/api",
+      "forked_from": "upstream/api"
+    },
+    "id": "github/example/api"
+  },
+  {
+    "repository": {
+      "forge": {
+        "name": "gitlab"
+      },
+      "path": "example/api"
+    },
+    "id": "gitlab/example/api"
+  },
+  {
+    "repository": {
+      "forge": {
+        "name": "github"
+      },
+      "path": "example/worker"
+    },
+    "id": "github/example/worker"
+  },
+  {
+    "repository": {
+      "forge": {
+        "name": "gitlab-work"
+      },
+      "path": "group/subgroup/api"
+    },
+    "id": "gitlab-work/group/subgroup/api"
+  }
+]
