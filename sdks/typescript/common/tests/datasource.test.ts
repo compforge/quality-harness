@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { ClientManager, clientKey, type Service, type ServiceDataSource, type Client, type DataSource } from "../src/index.js";
+import { repositoryId, ClientManager, clientKey, type Service, type ServiceDataSource, type Client, type DataSource } from "../src/index.js";
 
 test("datasource description is optional discovery metadata, not client identity", async () => {
   const source: DataSource<Client> = {
@@ -30,7 +30,7 @@ test("service associations share the source client without owning its lifetime",
     initialize: async () => { starts++; },
     dispose: async () => { closes++; },
   }) };
-  const component = { name: "api", repository: { forge: { name: "github" }, path: "example/app" } };
+  const component = { name: "api", repository: { forge: { name: "github" }, path: "example/app", id() { return repositoryId(this); } } };
   const environment = { name: "test" };
   const bindings: ServiceDataSource<Service, Client>[] = ["one", "two"].map(name => ({
     service: { name, component, environment, workloads: [] }, source,

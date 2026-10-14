@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ClientManager, EnvironmentContext, type Service } from "@compforge/harness-common";
+import { repositoryId, ClientManager, EnvironmentContext, type Service } from "@compforge/harness-common";
 import { KubernetesEnvironment } from "../src/kubernetes/environment";
 
 test("environment context acquires a shared Kubernetes client without discovery I/O", async () => {
@@ -9,7 +9,7 @@ test("environment context acquires a shared Kubernetes client without discovery 
   const provider = new KubernetesEnvironment("dev", environment, limits);
   const service: Service<KubernetesEnvironment> = {
     name: "chat",
-    component: { name: "api", repository: { forge: { name: "github" }, path: "example/app" } },
+    component: { name: "api", repository: { forge: { name: "github" }, path: "example/app", id() { return repositoryId(this); } } },
     environment: provider,
     workloads: [{ name: "web", platform: "kubernetes", location: { kind: "service", name: "api" } }],
   };

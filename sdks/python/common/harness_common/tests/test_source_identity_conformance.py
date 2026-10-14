@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict, replace
 from pathlib import Path
 
-from harness_common import Component, Forge, Product, Repository
+from harness_common import Component, Forge, Identity, Product, Repository
 
 
 def test_source_identity_conformance() -> None:
@@ -83,3 +83,19 @@ def test_component_ecosystem_conformance() -> None:
         component = Component(repository=repo, name="api", language=case["language"])
         assert component.ecosystem == case["ecosystem"]
         assert "ecosystem" not in asdict(component)
+
+
+def test_repository_id_conformance() -> None:
+    """@case Repository implements Identity with shared IDs independent of provenance."""
+    root = Path(__file__).resolve().parents[5]
+    cases = json.loads((root / "conformance/common/repository-ids.json").read_text())
+    for case in cases:
+        value = case["repository"]
+        repository = Repository(
+            forge=Forge(**value["forge"]),
+            path=value["path"],
+            forked_from=value.get("forked_from"),
+        )
+        identity: Identity = repository
+        assert identity.id() == case["id"]
+        assert "id" not in asdict(repository)

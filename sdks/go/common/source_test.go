@@ -118,3 +118,24 @@ func TestComponentEcosystemConformance(t *testing.T) {
 		}
 	}
 }
+
+// +case=`Repository implements Identity with shared IDs independent of provenance`
+func TestRepositoryIDConformance(t *testing.T) {
+	data, err := os.ReadFile("../../../conformance/common/repository-ids.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Repository common.Repository `json:"repository"`
+		ID         string            `json:"id"`
+	}
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range cases {
+		var identity common.Identity = tc.Repository
+		if got := identity.ID(); got != tc.ID {
+			t.Errorf("repository %#v: ID %q, want %q", tc.Repository, got, tc.ID)
+		}
+	}
+}

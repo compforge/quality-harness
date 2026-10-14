@@ -65,6 +65,13 @@ Service 聚焦自身职责与交接边界，Product 承载跨服务的端到端�
 通过 SameIdentity 比较业务身份，结构体相等仍会比较所有字段。未提供表示知识缺省，Markdown 正文
 由消费方保留；公共层不执行其中的命令。
 
+Identity 是公共身份协议，提供返回字符串的 `id()`（Go：`ID()`）。具体模型定义标识格式与唯一性范围；
+同一业务身份返回相同标识，描述性元数据不参与标识。
+Repository 实现 Identity，标识为 `forge.name + "/" + path`，例如 `github/compforge/quality-harness`；
+`forked_from` 不参与标识。该标识由当前 Forge 名称与仓库路径派生，改名或迁移会改变标识，
+不承诺平台原生 ID 的永久稳定性。TypeScript 的 `id()` 可委托公共函数 `repositoryId(this)`；
+JSON 只保存数据字段，消费方加载后恢复方法。
+
 这些名字定义共同语义。Python Harness 共享 `harness_common` 中的身份基类；TypeScript common 通过
 只读接口表达 Service、Component、Repository、Forge 与 Environment/Host 的同一关系，消费方扩展业务能力。
 Service.workloads 使用共享 Workload 声明；不同语言保持惯用 API，但遵守相同关系和落盘契约。

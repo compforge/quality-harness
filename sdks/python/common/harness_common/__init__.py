@@ -37,6 +37,7 @@ from harness_common.execution import Execution as Execution
 from harness_common.experiment import Experiment as Experiment
 from harness_common.experiment import ExperimentRun as ExperimentRun
 from harness_common.forge import Forge as Forge
+from harness_common.identity import Identity as Identity
 from harness_common.operation import HttpOperation as HttpOperation
 from harness_common.operation import Operation as Operation
 from harness_common.operation import OperationRun as OperationRun

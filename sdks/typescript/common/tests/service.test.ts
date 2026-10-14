@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import {
-  articleToMarkdown, conceptToMarkdown, knowledgeToMarkdown, ClientManager, EnvironmentContext,
+  repositoryId, articleToMarkdown, conceptToMarkdown, knowledgeToMarkdown, ClientManager, EnvironmentContext,
   type Knowledge, type Client, type ClientProvider, type Component, type Environment,
   type Forge, type Host, type HostEnvironment, type Repository,
   type Service, type ServiceDataSource, type Workload,
 } from "../src/index.js";
 
 const forge: Forge = { name: "github" };
-const repository: Repository = { forge, path: "example/app" };
+const repository: Repository = { forge, path: "example/app", id() { return repositoryId(this); } };
 const component: Component = { repository, name: "api" };
 const environment: Environment = { name: "test" };
 const workload: Workload = {

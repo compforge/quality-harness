@@ -1,12 +1,15 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { conceptToMarkdown, knowledgeToMarkdown, stepToMarkdown, workflowToMarkdown, componentEcosystem, type Component } from "../src/index.js";
+import { repositoryId, type Identity, type Repository, conceptToMarkdown, knowledgeToMarkdown, stepToMarkdown, workflowToMarkdown, componentEcosystem, type Component } from "../src/index.js";
 
 test("Component metadata follows the shared optional metadata contract", () => {
   const fixture = JSON.parse(readFileSync(
     new URL("../../../../conformance/common/source-identities.json", import.meta.url), "utf8",
-  )) as { components: Component[] };
-  const [first, , unspecified] = fixture.components;
+  )) as { components: (Omit<Component, "repository"> & { repository: Omit<Repository, "id"> })[] };
+  const components: Component[] = fixture.components.map(component => ({
+    ...component, repository: { ...component.repository, id() { return repositoryId(this); } },
+  }));
+  const [first, , unspecified] = components;
   expect(first.language).toBe("go");
   expect(componentEcosystem(first)).toBe("go");
   expect(unspecified.language).toBeUndefined();
@@ -26,7 +29,7 @@ test("ecosystem is derived from language across the shared contract", () => {
   )) as { language: string | null; ecosystem: string | null }[];
   for (const item of cases) {
     const component: Component = {
-      repository: { forge: { name: "github" }, path: "example/api" },
+      repository: { forge: { name: "github" }, path: "example/api", id() { return repositoryId(this); } },
       name: "api",
       ...(item.language === null ? {} : { language: item.language }),
     };
@@ -72,16 +75,37 @@ test("Repository preserves the direct fork parent without changing its identity 
   const value = fixture.repositories[3];
   const fork: import("../src/index.js").Repository = {
     forge: value.forge, path: value.path, forkedFrom: value.forked_from,
+    id() { return repositoryId(this); },
   };
-  const bare: import("../src/index.js").Repository = { forge: fork.forge, path: fork.path };
+  const bare: import("../src/index.js").Repository = { forge: fork.forge, path: fork.path, id() { return repositoryId(this); } };
   const empty: import("../src/index.js").Repository = { ...bare, forkedFrom: null };
   expect(fork.forkedFrom).toBe(fixture.repositories[0].path);
-  const parent: import("../src/index.js").Repository = { forge: fork.forge, path: fork.forkedFrom! };
-  expect(parent).toEqual(fixture.repositories[0]);
+  const parent: import("../src/index.js").Repository = { forge: fork.forge, path: fork.forkedFrom!, id() { return repositoryId(this); } };
+  expect(JSON.parse(JSON.stringify(parent))).toEqual(fixture.repositories[0]);
+  expect(fork.id()).toBe(bare.id());
+  expect(empty.id()).toBe(bare.id());
+  expect(fork.id()).not.toBe(parent.id());
   expect(bare.forkedFrom).toBeUndefined();
   expect(empty.forkedFrom).toBeNull();
   expect(fork.forge).toEqual(bare.forge);
   expect(fork.path).toBe(bare.path);
   expect(JSON.parse(JSON.stringify(fork)).forkedFrom).toEqual(value.forked_from);
   expect(JSON.parse(JSON.stringify(bare))).not.toHaveProperty("forkedFrom");
+});
+
+// @case Repository implements Identity with shared IDs independent of provenance.
+test("Repository ID follows the shared identity contract", () => {
+  const cases = JSON.parse(readFileSync(
+    new URL("../../../../conformance/common/repository-ids.json", import.meta.url), "utf8",
+  )) as { repository: { forge: { name: string }; path: string; forked_from?: string }; id: string }[];
+  for (const item of cases) {
+    const repository: Repository = {
+      forge: item.repository.forge, path: item.repository.path,
+      forkedFrom: item.repository.forked_from,
+      id() { return repositoryId(this); },
+    };
+    const identity: Identity = repository;
+    expect(identity.id()).toBe(item.id);
+    expect(JSON.parse(JSON.stringify(repository))).not.toHaveProperty("id");
+  }
 });
