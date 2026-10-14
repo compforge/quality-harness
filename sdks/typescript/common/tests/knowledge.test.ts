@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   articleToMarkdown, conceptToMarkdown, dictionaryToMarkdown, knowledgeToMarkdown,
   validateKnowledge, validateWorkflow, workflowToMarkdown, stepToMarkdown, sectionToMarkdown, entryToMarkdown,
-  type Concept, type Dictionary, type Entry, type Knowledge, type Markdown, type Product, type Workflow,
+  type Article, type Concept, type Dictionary, type Entry, type Knowledge, type Markdown, type Product, type Workflow,
 } from "../src/index.js";
 
 const workflow: Workflow = {
@@ -39,13 +39,13 @@ test("JSON preserves Knowledge content; consumers restore methods before using t
   expect(concept.markdown()).toBe(knowledge.concepts![0]!.markdown());
   expect(JSON.stringify(concept)).toBe(JSON.stringify(restored.knowledge.concepts[0]));
   const before = JSON.stringify(restored);
-  expect(knowledgeToMarkdown(restored.knowledge!)).toBe(knowledgeToMarkdown(knowledge));
+  expect(() => knowledgeToMarkdown(restored.knowledge)).toThrow("markdown");
   expect(JSON.stringify(restored)).toBe(before);
 });
 
 test("workflow parent inclusion supports forward references and preserves sibling order", () => {
   const text = workflowToMarkdown(workflow);
-  expect(text).toContain("1. **Prepare**\n\n   Create runtime.\n   1. **Restore**");
+  expect(text).toContain("1. **Prepare**\n   \n   Create runtime.\n   1. **Restore**");
   expect(text).toContain("   2. **Initialize**");
   expect(text).toContain("2. **Ready**");
   expect(text.indexOf("Restore")).toBeLessThan(text.indexOf("Initialize"));
@@ -78,21 +78,22 @@ test("IDs are scoped by kind and container; duplicate and empty references fail"
 
 test("dictionary retains typed fields, ambiguous codes and source independently of distribution", () => {
   interface ErrorEntry extends Entry { readonly code: string; readonly defaultHttpStatus: number }
+  const render = (entry: ErrorEntry) => `${entryToMarkdown(entry)}\n\nCode: ${entry.code}; HTTP ${entry.defaultHttpStatus}`;
   const dictionary: Dictionary<ErrorEntry> = {
     markdown() { return dictionaryToMarkdown(this); },
     id: "errors", title: "Errors", summary: "Published defaults.",
     source: { name: "api", version: "1.2.3", reference: "https://example.com/errors" },
     entries: [
-      { id: "bad-request", code: "001", name: "BadRequest", description: "Invalid request.", defaultHttpStatus: 400, markdown() { return entryToMarkdown(this); } },
-      { id: "format-error", code: "001", name: "FormatError", description: "Invalid format.", aliases: ["InvalidInput"], defaultHttpStatus: 400, markdown() { return entryToMarkdown(this); } },
+      { id: "bad-request", code: "001", name: "BadRequest", description: "Invalid request.", defaultHttpStatus: 400, markdown() { return render(this); } },
+      { id: "format-error", code: "001", name: "FormatError", description: "Invalid format.", aliases: ["InvalidInput"], defaultHttpStatus: 400, markdown() { return render(this); } },
     ],
   };
   validateKnowledge({ markdown() { return knowledgeToMarkdown(this); }, dictionaries: [dictionary] });
   const before = JSON.stringify(dictionary);
-  const render = (entry: ErrorEntry) => `## ${entry.code} · ${entry.name}\n\n${entry.description}\n\nHTTP ${entry.defaultHttpStatus}`;
-  expect(dictionaryToMarkdown(dictionary, render)).toContain("001 · BadRequest");
-  expect(dictionaryToMarkdown(dictionary, render)).toContain("001 · FormatError");
-  expect(dictionaryToMarkdown(dictionary, render)).toContain("Source: api@1.2.3");
+  expect(dictionaryToMarkdown(dictionary)).toContain("### BadRequest");
+  expect(dictionaryToMarkdown(dictionary)).toContain("### FormatError");
+  expect(dictionaryToMarkdown(dictionary)).toContain("Source: api@1.2.3");
+  expect(dictionary.markdown()).toContain("Code: 001; HTTP 400");
   expect(dictionaryToMarkdown(dictionary)).toContain("Aliases: InvalidInput");
   expect(JSON.stringify(dictionary)).toBe(before);
   expect(() => dictionaryToMarkdown({ ...dictionary, entries: [dictionary.entries[0]!, dictionary.entries[0]!] })).toThrow("duplicate ID");
@@ -100,13 +101,13 @@ test("dictionary retains typed fields, ambiguous codes and source independently 
 
 test("Markdown preserves authored bodies and omits absent categories", () => {
   expect(knowledgeToMarkdown({ markdown() { return knowledgeToMarkdown(this); } })).toBe("");
-  expect(conceptToMarkdown(knowledge.concepts![0]!)).toBe("# Carrier\nInfrastructure capacity.");
+  expect(conceptToMarkdown(knowledge.concepts![0]!)).toBe("## Carrier\nInfrastructure capacity.");
   const article = knowledge.articles![0]!;
   expect(articleToMarkdown(article)).toContain(article.sections[0]!.body);
   const text = knowledgeToMarkdown(knowledge);
-  expect(text).toContain("## Concepts\n\n### Carrier");
-  expect(text).toContain("## Articles\n\n### Workspace\nPersistence rules.\n\n#### Restore");
-  expect(text).not.toContain("## Dictionaries");
+  expect(text).toContain("# Concepts\n\n## Carrier");
+  expect(text).toContain("# Articles\n\n## Workspace\nPersistence rules.\n\n### Restore");
+  expect(text).not.toContain("# Dictionaries");
 });
 
 test("nested Markdown accounts for ordered-list markers with multiple digits", () => {
@@ -117,7 +118,7 @@ test("nested Markdown accounts for ordered-list markers with multiple digits", (
   const text = workflowToMarkdown({ ...workflow, steps: [
     ...steps, { id: "nested", parentId: "step-9", title: "Nested", description: "Child details.", markdown() { return stepToMarkdown(this); } },
   ] });
-  expect(text).toContain("10. **Step 9**\n\n    Details.\n    1. **Nested**\n\n       Child details.");
+  expect(text).toContain("10. **Step 9**\n    \n    Details.\n    1. **Nested**\n       \n       Child details.");
 });
 
 
@@ -140,7 +141,7 @@ test("compact steps preserve authored paragraphs and fenced blocks", () => {
     { id: "one", title: "One", description, markdown() { return stepToMarkdown(this); } },
     { id: "two", title: "Two", description: "Next step.", markdown() { return stepToMarkdown(this); } },
   ] };
-  expect(value.markdown()).toContain(`1. **One**\n\n${description.split("\n").map(line => `   ${line}`).join("\n")}\n2. **Two**\n\n   Next step.`);
+  expect(value.markdown()).toContain(`1. **One**\n   \n${description.split("\n").map(line => `   ${line}`).join("\n")}\n2. **Two**\n   \n   Next step.`);
 });
 
 
@@ -149,5 +150,43 @@ test("step descriptions keep a Markdown block boundary", () => {
     { id: "code", title: "Code", description: "    echo one", markdown() { return stepToMarkdown(this); } },
     { id: "rule", title: "Rule", description: "---", markdown() { return stepToMarkdown(this); } },
   ] };
-  expect(value.markdown()).toContain("1. **Code**\n\n       echo one\n2. **Rule**\n\n   ---");
+  expect(value.markdown()).toContain("1. **Code**\n   \n       echo one\n2. **Rule**\n   \n   ---");
+});
+
+
+test("parents compose custom child Markdown through the entire knowledge tree", () => {
+  const calls: string[] = [];
+  const customWorkflow: Workflow = {
+    ...workflow,
+    markdown() { calls.push("workflow"); return workflowToMarkdown(this); },
+    steps: [{ ...workflow.steps[0]!, parentId: undefined,
+      markdown() { calls.push("step"); return "Custom step\n\n```md\n# Keep this heading\n```"; } }],
+  };
+  const customArticle: Article = {
+    ...knowledge.articles![0]!,
+    markdown() { calls.push("article"); return articleToMarkdown(this); },
+    sections: [{ ...knowledge.articles![0]!.sections[0]!,
+      markdown() { calls.push("section"); return "Custom section\n\n```md\n## Keep this too\n```"; } }],
+  };
+  const customDictionary: Dictionary = {
+    id: "terms", title: "Terms", summary: "Definitions.",
+    markdown() { calls.push("dictionary"); return dictionaryToMarkdown(this); },
+    entries: [{ id: "one", name: "One", description: "Default entry.",
+      markdown() { calls.push("entry"); return "Custom entry"; } }],
+  };
+  const value: Knowledge = {
+    markdown() { return knowledgeToMarkdown(this); },
+    concepts: [{ ...knowledge.concepts![0]!,
+      markdown() { calls.push("concept"); return "Custom concept"; } }],
+    workflows: [customWorkflow], articles: [customArticle], dictionaries: [customDictionary],
+  };
+  const text = value.markdown();
+  expect(calls).toEqual(["concept", "workflow", "step", "article", "section", "dictionary", "entry"]);
+  expect(text).toContain("# Concepts\n\nCustom concept");
+  expect(text).toContain("1. Custom step\n   \n   ```md\n   # Keep this heading\n   ```");
+  expect(text).toContain("Custom section\n\n```md\n## Keep this too\n```");
+  expect(text).toContain("# Dictionaries\n\n## Terms\nDefinitions.\n\nCustom entry");
+  expect(text).not.toContain("Infrastructure capacity.");
+  expect(text).not.toContain("Restore files.");
+  expect(text).not.toContain("Default entry.");
 });

@@ -135,19 +135,19 @@ function paragraphs(...parts: readonly (string | undefined)[]): string {
 }
 
 export function conceptToMarkdown(concept: Concept): string {
-  return `${heading(concept.name, 1)}\n${concept.description}`;
+  return `${heading(concept.name, 2)}\n${concept.description}`;
 }
 
 export function sectionToMarkdown(section: Section): string {
-  return `${heading(section.title, 2)}\n${section.body}`;
+  return `${heading(section.title, 3)}\n${section.body}`;
 }
 
 export function articleToMarkdown(article: Article): string {
   requireIds(`article '${article.id}'`, article.sections);
-  return paragraphs(`${heading(article.title, 1)}\n${article.summary}`, ...article.sections.map(sectionToMarkdown));
+  return paragraphs(`${heading(article.title, 2)}\n${article.summary}`, ...article.sections.map(section => section.markdown()));
 }
 
-function workflowMarkdown(workflow: Workflow, level: number): string {
+export function workflowToMarkdown(workflow: Workflow): string {
   validateWorkflow(workflow);
   const children = new Map<string | undefined, Step[]>();
   for (const step of workflow.steps) {
@@ -159,68 +159,49 @@ function workflowMarkdown(workflow: Workflow, level: number): string {
     return (children.get(parentId) ?? []).map((step, index) => {
       const marker = `${index + 1}. `;
       const childIndent = indent + " ".repeat(marker.length);
-      const body = step.description.split("\n").map(line => childIndent + line).join("\n");
-      // Keep a block boundary before authored Markdown (including indented code and thematic breaks).
-      return [paragraphs(`${indent}${marker}**${step.title}**`, body), render(step.id, childIndent)]
+      const body = step.markdown().split("\n").map((line, lineIndex) =>
+        lineIndex === 0 ? `${indent}${marker}${line}` : `${childIndent}${line}`).join("\n");
+      return [body, render(step.id, childIndent)]
         .filter(part => part.length > 0).join("\n");
     }).join("\n");
   };
-  return paragraphs(`${heading(workflow.title, level)}\n${workflow.summary}`, render(undefined, ""));
+  return paragraphs(`${heading(workflow.title, 2)}\n${workflow.summary}`, render(undefined, ""));
 }
 
 export function stepToMarkdown(step: Step): string {
-  return `${heading(step.title, 1)}\n${step.description}`;
-}
-
-export function workflowToMarkdown(workflow: Workflow): string {
-  return workflowMarkdown(workflow, 1);
+  // Preserve a block boundary before authored descriptions such as indented code and thematic breaks.
+  return paragraphs(`**${step.title}**`, step.description);
 }
 
 export function entryToMarkdown(entry: Entry): string {
-  return paragraphs(`${heading(entry.name, 2)}\n${entry.description}`,
+  return paragraphs(`${heading(entry.name, 3)}\n${entry.description}`,
     entry.aliases?.length ? `Aliases: ${entry.aliases.join(", ")}` : undefined);
 }
 
-/** Domain renderers can include fields beyond the common entry reading contract. */
-export function dictionaryToMarkdown<T extends Entry>(dictionary: Dictionary<T>,
-  renderEntry: (entry: T) => string = entryToMarkdown): string {
+/** Entries own their domain-specific output; the dictionary owns its title, source and order. */
+export function dictionaryToMarkdown<T extends Entry>(dictionary: Dictionary<T>): string {
   requireIds(`dictionary '${dictionary.id}'`, dictionary.entries);
   const source = dictionary.source;
-  return paragraphs(`${heading(dictionary.title, 1)}\n${dictionary.summary}`,
+  return paragraphs(`${heading(dictionary.title, 2)}\n${dictionary.summary}`,
     source ? `Source: ${source.name}@${source.version}${source.reference ? `\n\n${source.reference}` : ""}` : undefined,
-    ...dictionary.entries.map(entry => renderEntry(entry)));
+    ...dictionary.entries.map(entry => entry.markdown()));
 }
 
-export interface KnowledgeMarkdownOptions {
-  /** Consumers own domain-specific entry formatting; omitted renderers use name/description/aliases. */
-  readonly renderEntry?: (dictionary: Dictionary, entry: Entry) => string;
-}
-
-function articleMarkdown(article: Article, level: number): string {
-  return paragraphs(`${heading(article.title, level)}\n${article.summary}`,
-    ...article.sections.map(section => `${heading(section.title, level + 1)}\n${section.body}`));
-}
-
-/** Deterministic Markdown projection. It performs no I/O and does not mutate declarations. */
-export function knowledgeToMarkdown(knowledge: Knowledge, options: KnowledgeMarkdownOptions = {}): string {
+/**
+ * @spec Parents compose child markdown() output; only the child owns its content rendering.
+ * @rule Helpers never invoke the receiver's own markdown(), so declarations can safely delegate to them.
+ * @case id=knowledge_composition,desc=`Nested objects customize Markdown`,expect=`Root output preserves each child result`
+ */
+export function knowledgeToMarkdown(knowledge: Knowledge): string {
   validateKnowledge(knowledge);
   const concepts = knowledge.concepts ?? [];
   const workflows = knowledge.workflows ?? [];
   const articles = knowledge.articles ?? [];
   const dictionaries = knowledge.dictionaries ?? [];
   return paragraphs(
-    concepts.length ? paragraphs("## Concepts", ...concepts.map(concept =>
-      `${heading(concept.name, 3)}\n${concept.description}`)) : undefined,
-    workflows.length ? paragraphs("## Workflows", ...workflows.map(workflow => workflowMarkdown(workflow, 3))) : undefined,
-    articles.length ? paragraphs("## Articles", ...articles.map(article => articleMarkdown(article, 3))) : undefined,
-    dictionaries.length ? paragraphs("## Dictionaries", ...dictionaries.map(dictionary => {
-      const source = dictionary.source;
-      return paragraphs(`${heading(dictionary.title, 3)}\n${dictionary.summary}`,
-        source ? `Source: ${source.name}@${source.version}${source.reference ? `\n\n${source.reference}` : ""}` : undefined,
-        ...dictionary.entries.map(entry => options.renderEntry
-          ? options.renderEntry(dictionary, entry)
-          : paragraphs(`${heading(entry.name, 4)}\n${entry.description}`,
-            entry.aliases?.length ? `Aliases: ${entry.aliases.join(", ")}` : undefined)));
-    })) : undefined,
+    concepts.length ? paragraphs("# Concepts", ...concepts.map(concept => concept.markdown())) : undefined,
+    workflows.length ? paragraphs("# Workflows", ...workflows.map(workflow => workflow.markdown())) : undefined,
+    articles.length ? paragraphs("# Articles", ...articles.map(article => article.markdown())) : undefined,
+    dictionaries.length ? paragraphs("# Dictionaries", ...dictionaries.map(dictionary => dictionary.markdown())) : undefined,
   );
 }

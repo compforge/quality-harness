@@ -111,8 +111,8 @@ published definitions independently of a containing distribution's version.
 `knowledge.ts` also provides deterministic, I/O-free Markdown projections:
 `knowledgeToMarkdown`, `conceptToMarkdown`, `workflowToMarkdown`, `stepToMarkdown`, `articleToMarkdown`,
 `sectionToMarkdown`, `dictionaryToMarkdown` and `entryToMarkdown`.
-Dictionary entries retain their typed domain fields; consumers can supply an entry
-renderer to include these fields. The default renderer uses name, description and aliases.
+Dictionary entries retain their typed domain fields; implement `Entry.markdown()` to
+include these fields. The shared `entryToMarkdown` uses name, description and aliases.
 Generated headings and ordered steps use compact spacing; authored paragraphs and code
 blocks retain their content. Terminal presentation, exact lookup, search, source loading
 and vector indexes belong to consumers.
@@ -141,8 +141,19 @@ const concept: Concept = {
 console.log(concept.markdown());
 ```
 
-Existing `...ToMarkdown` functions remain available as shared implementations. They
-read structured fields without calling `markdown()`, so delegation does not recurse.
-They retain the default composition rules; custom nested method implementations are
-not implicitly invoked by these converters. A consumer can implement its own composition
-or use the dictionary entry renderer when it needs domain-specific output.
+Existing `...ToMarkdown` functions remain available as shared implementations. Each
+parent calls its children's `markdown()` methods: Knowledge groups concepts, workflows,
+articles and dictionaries; Article renders Sections; Dictionary renders Entries; Workflow
+numbers and indents Steps according to `parentId`. Parents preserve child output instead
+of rebuilding it from the child's fields. Helpers never call the receiver's own method,
+so `markdown() { return knowledgeToMarkdown(this); }` does not recurse.
+
+Default headings follow the composition tree: Knowledge categories use level 1; Concepts,
+Workflows, Articles and Dictionaries use level 2; Sections and Entries use level 3.
+Steps return a bold title and body, with numbering supplied by Workflow. Standalone output
+uses the same format. Custom methods own their heading choices; parents do not rewrite
+headings or code blocks in child output.
+
+Move `KnowledgeMarkdownOptions.renderEntry` or `dictionaryToMarkdown` renderer callbacks
+into each Entry's `markdown()` method. These callback arguments are removed in 0.5; a
+custom Entry now renders consistently when shown alone or through its Dictionary and Knowledge.
