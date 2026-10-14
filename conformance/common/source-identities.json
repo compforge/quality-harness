@@ -28,6 +28,13 @@
         "name": "github"
       },
       "path": "example/worker"
+    },
+    {
+      "forge": {
+        "name": "github"
+      },
+      "path": "example-fork/api",
+      "forked_from": "example/api"
     }
   ],
   "components": [

@@ -63,3 +63,25 @@ test("Product shares the neutral business identity contract", () => {
   const knowledgeOnly: [LegacyFields] extends [never] ? true : false = true;
   expect(knowledgeOnly).toBe(true);
 });
+
+
+test("Repository preserves the direct fork parent without changing its identity fields", () => {
+  const fixture = JSON.parse(readFileSync(
+    new URL("../../../../conformance/common/source-identities.json", import.meta.url), "utf8",
+  )) as { repositories: { forge: { name: string }; path: string; forked_from?: string }[] };
+  const value = fixture.repositories[3];
+  const fork: import("../src/index.js").Repository = {
+    forge: value.forge, path: value.path, forkedFrom: value.forked_from,
+  };
+  const bare: import("../src/index.js").Repository = { forge: fork.forge, path: fork.path };
+  const empty: import("../src/index.js").Repository = { ...bare, forkedFrom: null };
+  expect(fork.forkedFrom).toBe(fixture.repositories[0].path);
+  const parent: import("../src/index.js").Repository = { forge: fork.forge, path: fork.forkedFrom! };
+  expect(parent).toEqual(fixture.repositories[0]);
+  expect(bare.forkedFrom).toBeUndefined();
+  expect(empty.forkedFrom).toBeNull();
+  expect(fork.forge).toEqual(bare.forge);
+  expect(fork.path).toBe(bare.path);
+  expect(JSON.parse(JSON.stringify(fork)).forkedFrom).toEqual(value.forked_from);
+  expect(JSON.parse(JSON.stringify(bare))).not.toHaveProperty("forkedFrom");
+});

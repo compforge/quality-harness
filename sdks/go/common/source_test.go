@@ -23,6 +23,20 @@ func TestSourceIdentityConformance(t *testing.T) {
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
 	}
+	fork := fixture.Repositories[3]
+	parent := common.Repository{Forge: fork.Forge, Path: fork.ForkedFrom}
+	if fixture.Repositories[0].ForkedFrom != "" || fork.ForkedFrom == "" ||
+		!parent.SameIdentity(fixture.Repositories[0]) {
+		t.Fatal("direct fork parent was not preserved")
+	}
+	bareFork := fork
+	bareFork.ForkedFrom = ""
+	if !fork.SameIdentity(bareFork) || fork.SameIdentity(parent) {
+		t.Fatal("fork provenance changed identity or repository path was ignored")
+	}
+	if !(common.Component{Repository: fork, Name: "api"}).SameIdentity(common.Component{Repository: bareFork, Name: "api"}) {
+		t.Fatal("fork provenance changed component identity")
+	}
 	bare, describedProduct := fixture.Products[0], fixture.Products[1]
 	if bare.Description != "" || describedProduct.Description == "" {
 		t.Fatal("optional product description was not preserved")
