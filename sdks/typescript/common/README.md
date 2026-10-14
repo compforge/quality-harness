@@ -72,3 +72,25 @@ Python's corresponding package is sdks/python/common (harness-common). Languages
 and independently versioned packages; they need not implement every model in lockstep.
 
 Development: bun install, make lint, make test. Published artifacts are Node-compatible ESM and declarations.
+
+## Structured knowledge
+
+Product and Service accept an optional `knowledge` declaration. `Knowledge` groups
+`Concept`, `Workflow` (with parent-scoped `Step` records), `Article` (with `Section`
+records), and typed `Dictionary<Entry>` collections. These are plain offline data:
+JSON preserves their content, and the containing consumer owns distribution and version selection.
+The older `concepts` and `workflows` string fields are deprecated during consumer migration.
+
+IDs are unique per kind within the owner, and per child collection within its parent.
+Step `parentId` expresses inclusion; sibling order follows the array even when a parent
+appears after its child. `validateKnowledge` rejects duplicate/empty IDs, unknown parents
+and parent cycles before references are exposed. Dictionary entry IDs are unique, while
+names and domain keys such as error codes may repeat. `source.version` describes the
+published definitions independently of a containing distribution's version.
+
+`knowledge.ts` also provides deterministic, I/O-free Markdown projections:
+`knowledgeToMarkdown`, `conceptToMarkdown`, `workflowToMarkdown`, `stepToMarkdown`, `articleToMarkdown`,
+`sectionToMarkdown`, `dictionaryToMarkdown` and `entryToMarkdown`.
+Dictionary entries retain their typed domain fields; consumers can supply an entry
+renderer to include these fields. The default renderer uses name, description and aliases.
+Terminal presentation, exact lookup, search, source loading and vector indexes belong to consumers.

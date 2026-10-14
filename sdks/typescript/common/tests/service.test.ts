@@ -128,3 +128,14 @@ test("Service preserves accessible Environment type and shares the root client l
   }
   expect(closes).toBe(1);
 });
+
+test("structured knowledge is optional Service metadata and survives JSON", () => {
+  const knowledge = {
+    concepts: [{ id: "message", name: "Message", description: "A persisted turn." }],
+    articles: [{ id: "history", title: "History", summary: "Stored turns.", sections: [] }],
+  };
+  const service: Service = { name: "chat", component, environment, workloads: [], knowledge };
+  expect(JSON.parse(JSON.stringify(service)).knowledge).toEqual(knowledge);
+  expect(service.component).toBe(component);
+  expect(service.environment).toBe(environment);
+});

@@ -69,6 +69,15 @@ Markdown、换行和流程顺序由消费方原样保留；公共层不解析或
 只读接口表达 Service、Component、Repository、Forge 与 Environment/Host 的同一关系，消费方扩展业务能力。
 Service.workloads 使用共享 Workload 声明；不同语言保持惯用 API，但遵守相同关系和落盘契约。
 
+### 静态知识
+
+TypeScript common 的 Product 与 Service 可贡献 `Knowledge`：Concept 解释核心对象、关系与约束，
+Workflow 用具名 Step 描述业务过程，Article 用 Section 展开专题，Dictionary 保存可逐条查询的类型化词条。
+知识是消费方维护的离线声明，拥有可引用的内容身份，不改变产品或服务身份，也不证明目标环境的运行状态。
+Step 的 parentId 只表达包含关系，同级顺序由数组决定；词典允许同码多定义，稳定引用由词条 ID 承担。
+common 提供结构约束与确定性 Markdown 投影；领域词条的额外字段由消费方的 renderer 展开。
+发行、内容加载、查询、搜索与索引由消费方负责，词典定义来源版本独立于其分发版本。
+
 ### Experiment 执行骨架
 
 ```text
