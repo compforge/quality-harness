@@ -58,20 +58,23 @@ ClientProvider 通过客户端标识与构造方法显式连接可访问 Environ
 DataSource 仅表达数据来源语义，ClientManager 统一接收两者。
 Transport 管理各类基础设施访问通道，ClientManager 管理执行期客户端；见 [toolbox](toolbox.md)。
 
-Service 与 Product 可用可选的 description 提供简短介绍，concepts、workflows Markdown 文本提供离线业务知识。
-concepts 描述核心对象、关系、状态与约束；workflows 描述从触发到完成的协作过程和证据落点。
+Service 与 Product 可用可选的 description 提供简短介绍，并声明离线业务知识。
+TypeScript 通过 knowledge 统一组织结构化内容；Python 与 Go 的已有说明字段保持各自 API。
 Service 聚焦自身职责与交接边界，Product 承载跨服务的端到端模型；内容由消费项目维护并随版本交付。
-这些字段不参与身份，也不构成可执行计划或现场观测。Python 的相等与哈希忽略它们；Go Product
-通过 SameIdentity 比较业务身份，结构体相等仍会比较所有字段。未提供表示知识缺省，文本中的
-Markdown、换行和流程顺序由消费方原样保留；公共层不解析或执行其中的命令。
+这些元数据不参与身份，也不构成可执行计划或现场观测。Python 的相等与哈希忽略它们；Go Product
+通过 SameIdentity 比较业务身份，结构体相等仍会比较所有字段。未提供表示知识缺省，Markdown 正文
+由消费方保留；公共层不执行其中的命令。
 
 这些名字定义共同语义。Python Harness 共享 `harness_common` 中的身份基类；TypeScript common 通过
 只读接口表达 Service、Component、Repository、Forge 与 Environment/Host 的同一关系，消费方扩展业务能力。
 Service.workloads 使用共享 Workload 声明；不同语言保持惯用 API，但遵守相同关系和落盘契约。
 
+TypeScript Service 的可选 upstream 引用调用当前 Service 的标准名称，由消费方目录解析。
+省略表示关系未声明，空数组表示声明无上游；该关系不改变身份，也不表示某次请求实际经过的路径。
+
 ### 静态知识
 
-TypeScript common 的 Product 与 Service 可贡献 `Knowledge`：Concept 解释核心对象、关系与约束，
+TypeScript common 的 Product 与 Service 通过可选的 `knowledge` 贡献 `Knowledge`：Concept 解释核心对象、关系与约束，
 Workflow 用具名 Step 描述业务过程，Article 用 Section 展开专题，Dictionary 保存可逐条查询的类型化词条。
 知识是消费方维护的离线声明，拥有可引用的内容身份，不改变产品或服务身份，也不证明目标环境的运行状态。
 Step 的 parentId 只表达包含关系，同级顺序由数组决定；词典允许同码多定义，稳定引用由词条 ID 承担。
