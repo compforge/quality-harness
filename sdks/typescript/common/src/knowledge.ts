@@ -1,19 +1,27 @@
+/**
+ * @spec Knowledge objects provide an I/O-free Markdown representation of their content.
+ * @rule JSON preserves content only; consumers restore methods when loading declarations.
+ */
+export interface Markdown {
+  markdown(): string;
+}
+
 /** A named domain object and its relationships or constraints. */
-export interface Concept {
+export interface Concept extends Markdown {
   readonly id: string;
   readonly name: string;
   readonly description: string;
 }
 
 /** A documented business process; steps are descriptions, not executable actions. */
-export interface Workflow {
+export interface Workflow extends Markdown {
   readonly id: string;
   readonly title: string;
   readonly summary: string;
   readonly steps: readonly Step[];
 }
 
-export interface Step {
+export interface Step extends Markdown {
   readonly id: string;
   /** Inclusion within this Workflow. Array order determines sibling order. */
   readonly parentId?: string;
@@ -22,14 +30,14 @@ export interface Step {
 }
 
 /** A self-contained explanation of a topic. */
-export interface Article {
+export interface Article extends Markdown {
   readonly id: string;
   readonly title: string;
   readonly summary: string;
   readonly sections: readonly Section[];
 }
 
-export interface Section {
+export interface Section extends Markdown {
   readonly id: string;
   readonly title: string;
   /** Markdown authored by the knowledge owner. */
@@ -37,7 +45,7 @@ export interface Section {
 }
 
 /** Common reading identity; consumers extend entries with their typed domain fields. */
-export interface Entry {
+export interface Entry extends Markdown {
   readonly id: string;
   readonly name: string;
   readonly description: string;
@@ -52,7 +60,7 @@ export interface KnowledgeSource {
 }
 
 /** Entries retain domain fields. Names and codes need not be unique; IDs must be. */
-export interface Dictionary<T extends Entry = Entry> {
+export interface Dictionary<T extends Entry = Entry> extends Markdown {
   readonly id: string;
   readonly title: string;
   readonly summary: string;
@@ -65,7 +73,7 @@ export interface Dictionary<T extends Entry = Entry> {
  * @rule Top-level IDs are unique per kind; child IDs are unique within their containing object.
  * @see {@link component://docs/kernel.md}
  */
-export interface Knowledge {
+export interface Knowledge extends Markdown {
   readonly concepts?: readonly Concept[];
   readonly workflows?: readonly Workflow[];
   readonly articles?: readonly Article[];
@@ -127,16 +135,16 @@ function paragraphs(...parts: readonly (string | undefined)[]): string {
 }
 
 export function conceptToMarkdown(concept: Concept): string {
-  return paragraphs(heading(concept.name, 1), concept.description);
+  return `${heading(concept.name, 1)}\n${concept.description}`;
 }
 
 export function sectionToMarkdown(section: Section): string {
-  return paragraphs(heading(section.title, 2), section.body);
+  return `${heading(section.title, 2)}\n${section.body}`;
 }
 
 export function articleToMarkdown(article: Article): string {
   requireIds(`article '${article.id}'`, article.sections);
-  return paragraphs(heading(article.title, 1), article.summary, ...article.sections.map(sectionToMarkdown));
+  return paragraphs(`${heading(article.title, 1)}\n${article.summary}`, ...article.sections.map(sectionToMarkdown));
 }
 
 function workflowMarkdown(workflow: Workflow, level: number): string {
@@ -152,14 +160,16 @@ function workflowMarkdown(workflow: Workflow, level: number): string {
       const marker = `${index + 1}. `;
       const childIndent = indent + " ".repeat(marker.length);
       const body = step.description.split("\n").map(line => childIndent + line).join("\n");
-      return paragraphs(`${indent}${marker}**${step.title}**`, body, render(step.id, childIndent));
-    }).join("\n\n");
+      // Keep a block boundary before authored Markdown (including indented code and thematic breaks).
+      return [paragraphs(`${indent}${marker}**${step.title}**`, body), render(step.id, childIndent)]
+        .filter(part => part.length > 0).join("\n");
+    }).join("\n");
   };
-  return paragraphs(heading(workflow.title, level), workflow.summary, render(undefined, ""));
+  return paragraphs(`${heading(workflow.title, level)}\n${workflow.summary}`, render(undefined, ""));
 }
 
 export function stepToMarkdown(step: Step): string {
-  return paragraphs(heading(step.title, 1), step.description);
+  return `${heading(step.title, 1)}\n${step.description}`;
 }
 
 export function workflowToMarkdown(workflow: Workflow): string {
@@ -167,7 +177,7 @@ export function workflowToMarkdown(workflow: Workflow): string {
 }
 
 export function entryToMarkdown(entry: Entry): string {
-  return paragraphs(heading(entry.name, 2), entry.description,
+  return paragraphs(`${heading(entry.name, 2)}\n${entry.description}`,
     entry.aliases?.length ? `Aliases: ${entry.aliases.join(", ")}` : undefined);
 }
 
@@ -176,7 +186,7 @@ export function dictionaryToMarkdown<T extends Entry>(dictionary: Dictionary<T>,
   renderEntry: (entry: T) => string = entryToMarkdown): string {
   requireIds(`dictionary '${dictionary.id}'`, dictionary.entries);
   const source = dictionary.source;
-  return paragraphs(heading(dictionary.title, 1), dictionary.summary,
+  return paragraphs(`${heading(dictionary.title, 1)}\n${dictionary.summary}`,
     source ? `Source: ${source.name}@${source.version}${source.reference ? `\n\n${source.reference}` : ""}` : undefined,
     ...dictionary.entries.map(entry => renderEntry(entry)));
 }
@@ -187,8 +197,8 @@ export interface KnowledgeMarkdownOptions {
 }
 
 function articleMarkdown(article: Article, level: number): string {
-  return paragraphs(heading(article.title, level), article.summary,
-    ...article.sections.map(section => paragraphs(heading(section.title, level + 1), section.body)));
+  return paragraphs(`${heading(article.title, level)}\n${article.summary}`,
+    ...article.sections.map(section => `${heading(section.title, level + 1)}\n${section.body}`));
 }
 
 /** Deterministic Markdown projection. It performs no I/O and does not mutate declarations. */
@@ -200,16 +210,16 @@ export function knowledgeToMarkdown(knowledge: Knowledge, options: KnowledgeMark
   const dictionaries = knowledge.dictionaries ?? [];
   return paragraphs(
     concepts.length ? paragraphs("## Concepts", ...concepts.map(concept =>
-      paragraphs(heading(concept.name, 3), concept.description))) : undefined,
+      `${heading(concept.name, 3)}\n${concept.description}`)) : undefined,
     workflows.length ? paragraphs("## Workflows", ...workflows.map(workflow => workflowMarkdown(workflow, 3))) : undefined,
     articles.length ? paragraphs("## Articles", ...articles.map(article => articleMarkdown(article, 3))) : undefined,
     dictionaries.length ? paragraphs("## Dictionaries", ...dictionaries.map(dictionary => {
       const source = dictionary.source;
-      return paragraphs(heading(dictionary.title, 3), dictionary.summary,
+      return paragraphs(`${heading(dictionary.title, 3)}\n${dictionary.summary}`,
         source ? `Source: ${source.name}@${source.version}${source.reference ? `\n\n${source.reference}` : ""}` : undefined,
         ...dictionary.entries.map(entry => options.renderEntry
           ? options.renderEntry(dictionary, entry)
-          : paragraphs(heading(entry.name, 4), entry.description,
+          : paragraphs(`${heading(entry.name, 4)}\n${entry.description}`,
             entry.aliases?.length ? `Aliases: ${entry.aliases.join(", ")}` : undefined)));
     })) : undefined,
   );

@@ -34,14 +34,20 @@ A Service explicitly declares zero or more Workloads. Consumers extend Service w
 capabilities, without duplicating these identities. For example:
 
 ```typescript
-import type { Service } from "@compforge/harness-common";
+import {
+  conceptToMarkdown, knowledgeToMarkdown, stepToMarkdown, workflowToMarkdown,
+  type Service,
+} from "@compforge/harness-common";
 
 const service: Service = {
   name: "chat",
   knowledge: {
-    concepts: [{ id: "conversation", name: "Conversation", description: "Contains Messages; each Message may have multiple execution Attempts." }],
-    workflows: [{ id: "reply", title: "Reply", summary: "Accept and answer a message.", steps: [
-      { id: "execute", title: "Execute", description: "Execute an attempt and persist its response." },
+    markdown() { return knowledgeToMarkdown(this); },
+    concepts: [{ id: "conversation", name: "Conversation", description: "Contains Messages; each Message may have multiple execution Attempts.",
+      markdown() { return conceptToMarkdown(this); } }],
+    workflows: [{ markdown() { return workflowToMarkdown(this); }, id: "reply", title: "Reply", summary: "Accept and answer a message.", steps: [
+      { id: "execute", title: "Execute", description: "Execute an attempt and persist its response.",
+        markdown() { return stepToMarkdown(this); } },
     ] }],
   },
   upstream: ["gateway"],
@@ -85,8 +91,15 @@ Development: bun install, make lint, make test. Published artifacts are Node-com
 
 Product and Service accept an optional `knowledge` declaration. `Knowledge` groups
 `Concept`, `Workflow` (with parent-scoped `Step` records), `Article` (with `Section`
-records), and typed `Dictionary<Entry>` collections. These are plain offline data:
-JSON preserves their content, and the containing consumer owns distribution and version selection.
+records), and typed `Dictionary<Entry>` collections. All eight content interfaces extend
+`Markdown`, whose `markdown(): string` method returns an I/O-free representation.
+Declarations remain ordinary objects; methods can delegate to the shared converters below.
+`KnowledgeSource` describes provenance and does not carry this rendering contract.
+
+JSON preserves the content fields, but not methods. Consumers own source validation,
+method restoration, distribution and version selection. Parsing JSON or asserting a type
+does not create a callable Knowledge object; restore methods on each content object before
+exposing it through these interfaces.
 
 IDs are unique per kind within the owner, and per child collection within its parent.
 Step `parentId` expresses inclusion; sibling order follows the array even when a parent
@@ -100,10 +113,36 @@ published definitions independently of a containing distribution's version.
 `sectionToMarkdown`, `dictionaryToMarkdown` and `entryToMarkdown`.
 Dictionary entries retain their typed domain fields; consumers can supply an entry
 renderer to include these fields. The default renderer uses name, description and aliases.
-Terminal presentation, exact lookup, search, source loading and vector indexes belong to consumers.
+Generated headings and ordered steps use compact spacing; authored paragraphs and code
+blocks retain their content. Terminal presentation, exact lookup, search, source loading
+and vector indexes belong to consumers.
 
 ## Upgrade to 0.4
 
 Move the removed Product/Service `concepts` and `workflows` string fields into
 `knowledge.concepts` and `knowledge.workflows`. Use Concept records for domain objects
 and Workflow/Step records for business processes. Knowledge remains optional.
+
+## Upgrade to 0.5
+
+Implement `markdown()` on Knowledge and each contained Concept, Workflow, Step, Article,
+Section, Dictionary and Entry. For example:
+
+```typescript
+import { conceptToMarkdown, type Concept } from "@compforge/harness-common";
+
+const concept: Concept = {
+  id: "carrier",
+  name: "Carrier",
+  description: "Infrastructure capacity.",
+  markdown() { return conceptToMarkdown(this); },
+};
+
+console.log(concept.markdown());
+```
+
+Existing `...ToMarkdown` functions remain available as shared implementations. They
+read structured fields without calling `markdown()`, so delegation does not recurse.
+They retain the default composition rules; custom nested method implementations are
+not implicitly invoked by these converters. A consumer can implement its own composition
+or use the dictionary entry renderer when it needs domain-specific output.

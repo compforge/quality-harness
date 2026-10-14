@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { componentEcosystem, type Component } from "../src/index.js";
+import { conceptToMarkdown, knowledgeToMarkdown, stepToMarkdown, workflowToMarkdown, componentEcosystem, type Component } from "../src/index.js";
 
 test("Component metadata follows the shared optional metadata contract", () => {
   const fixture = JSON.parse(readFileSync(
@@ -41,10 +41,11 @@ test("Product shares the neutral business identity contract", () => {
   const [bare, described] = fixture.products;
   expect(bare).toEqual({ name: "example-product" });
   const knowledge: import("../src/index.js").Knowledge = {
-    concepts: [{ id: "message", name: "Message", description: "A persisted conversation turn." }],
-    workflows: [{ id: "reply", title: "Reply", summary: "Accept and answer a message.", steps: [
-      { id: "accept", title: "Accept", description: "Store the incoming message." },
-      { id: "answer", title: "Answer", description: "Execute and persist the reply." },
+    markdown() { return knowledgeToMarkdown(this); },
+    concepts: [{ id: "message", name: "Message", description: "A persisted conversation turn.", markdown() { return conceptToMarkdown(this); } }],
+    workflows: [{ markdown() { return workflowToMarkdown(this); }, id: "reply", title: "Reply", summary: "Accept and answer a message.", steps: [
+      { id: "accept", title: "Accept", description: "Store the incoming message.", markdown() { return stepToMarkdown(this); } },
+      { id: "answer", title: "Answer", description: "Execute and persist the reply.", markdown() { return stepToMarkdown(this); } },
     ] }],
   };
   const product: import("../src/index.js").Product = {
@@ -54,7 +55,7 @@ test("Product shares the neutral business identity contract", () => {
   expect(bare.description).toBeUndefined();
   expect(product.description).toBeTypeOf("string");
   expect(JSON.parse(JSON.stringify(product))).toEqual({
-    name: bare.name, description: described.description, knowledge,
+    name: bare.name, description: described.description, knowledge: JSON.parse(JSON.stringify(knowledge)),
   });
   // Type-level check: legacy fields cannot reappear on Product or Service.
   type LegacyFields = Extract<keyof import("../src/index.js").Product | keyof import("../src/index.js").Service,
