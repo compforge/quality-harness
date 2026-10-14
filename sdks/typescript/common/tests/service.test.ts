@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import {
-  ClientManager, EnvironmentContext,
-  type Client, type ClientProvider, type Component, type Environment,
+  articleToMarkdown, conceptToMarkdown, knowledgeToMarkdown, ClientManager, EnvironmentContext,
+  type Knowledge, type Client, type ClientProvider, type Component, type Environment,
   type Forge, type Host, type HostEnvironment, type Repository,
   type Service, type ServiceDataSource, type Workload,
 } from "../src/index.js";
@@ -111,12 +111,13 @@ test("Service preserves accessible Environment type and shares the root client l
 });
 
 test("structured knowledge is optional Service metadata and survives JSON", () => {
-  const knowledge = {
-    concepts: [{ id: "message", name: "Message", description: "A persisted turn." }],
-    articles: [{ id: "history", title: "History", summary: "Stored turns.", sections: [] }],
+  const knowledge: Knowledge = {
+    markdown() { return knowledgeToMarkdown(this); },
+    concepts: [{ id: "message", name: "Message", description: "A persisted turn.", markdown() { return conceptToMarkdown(this); } }],
+    articles: [{ id: "history", title: "History", summary: "Stored turns.", sections: [], markdown() { return articleToMarkdown(this); } }],
   };
   const service: Service = { name: "chat", component, environment, workloads: [], knowledge };
-  expect(JSON.parse(JSON.stringify(service)).knowledge).toEqual(knowledge);
+  expect(JSON.parse(JSON.stringify(service)).knowledge).toEqual(JSON.parse(JSON.stringify(knowledge)));
   expect(service.component).toBe(component);
   expect(service.environment).toBe(environment);
 });

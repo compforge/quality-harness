@@ -78,7 +78,9 @@ TypeScript common 的 Product 与 Service 通过可选的 `knowledge` 贡献 `Kn
 Workflow 用具名 Step 描述业务过程，Article 用 Section 展开专题，Dictionary 保存可逐条查询的类型化词条。
 知识是消费方维护的离线声明，拥有可引用的内容身份，不改变产品或服务身份，也不证明目标环境的运行状态。
 Step 的 parentId 只表达包含关系，同级顺序由数组决定；词典允许同码多定义，稳定引用由词条 ID 承担。
-common 提供结构约束与确定性 Markdown 投影；领域词条的额外字段由消费方的 renderer 展开。
+知识内容接口统一继承 Markdown，以 `markdown(): string` 提供无 I/O 的文本表示；KnowledgeSource 仅记录来源。
+common 提供结构约束与确定性 Markdown 转换函数，声明方法可委托这些函数；父对象调用子对象的 `markdown()` 组合输出，领域词条的额外字段由 Entry 自身展示。
+JSON 只保留内容字段，消费方加载后须为各层知识对象补齐方法，再作为可调用的知识声明暴露。
 发行、内容加载、查询、搜索与索引由消费方负责，词典定义来源版本独立于其分发版本。
 
 ### Experiment 执行骨架
