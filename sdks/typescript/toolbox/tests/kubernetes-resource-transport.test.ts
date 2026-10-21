@@ -1,5 +1,6 @@
 import { expect, test, spyOn } from "bun:test";
-import { Headers } from "node-fetch";
+import { KubeConfig } from "@kubernetes/client-node";
+import type { RequestOptions } from "node:https";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -7,9 +8,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KubernetesClient } from "../src/kubernetes/client";
 import { KubectlExecutor, type ExecResult } from "../src/kubernetes/executor";
-import { kubernetesCommandError } from "../src/errors";
-import { resourceGetCommand } from "../src/kubernetes/resource-command";
-import { PooledKubeConfig } from "../src/kubernetes/pooled-config";
+
+
+
 
 const result = (): ExecResult => ({ ok: true, stdout: "compatibility", stderr: "", exitCode: 0, timedOut: false, durationMs: 0, command: ["kubectl"] });
 const tlsFixture = (name: string) => readFileSync(join(import.meta.dir, "fixtures/pod-log-tls", name));
@@ -63,114 +64,148 @@ async function fixture(tls = false) {
   };
 }
 
+const pods = { apiVersion: "v1", resource: "pods" };
+
 for (const tls of [false, true]) {
-  test(`JSON GET/LIST share one ${tls ? "mutually authenticated TLS" : "TCP"} connection across namespaces`, async () => {
+  test(`resource reads share one ${tls ? "mutually authenticated TLS" : "TCP"} connection across namespace views`, async () => {
     const f = await fixture(tls);
     try {
-      const streamed: Uint8Array[] = [];
-      expect((await f.client.run("first", ["get", "services", "api", "-o", "json"])).ok).toBe(true);
-      const next = await f.client.run("second", ["get", "pods", "-l", "app=api", "-o", "json"], {
-        collectStdout: false, onStdoutBytes: bytes => streamed.push(bytes),
-      });
-      expect(next.ok).toBe(true); expect(next.stdout).toBe("");
-      expect(next.command[0]).toBe("kubernetes-api");
-      expect(JSON.parse(new TextDecoder().decode(streamed[0]))).toEqual({ items: [] });
+      const first = f.client.inNamespace("first");
+      const second = f.client.inNamespace("second");
+      f.respond = (_request, response) => response.end(JSON.stringify({ metadata: { name: "api" }, spec: { ports: [80] } }));
+      expect(await first.get({ apiVersion: "v1", resource: "services", name: "api" }))
+        .toEqual({ metadata: { name: "api" }, spec: { ports: [80] } });
+      f.respond = (_request, response) => response.end(JSON.stringify({ items: [], metadata: { continue: "next-page" } }));
+      expect(await second.list({ ...pods, labelSelector: "app=api" }))
+        .toEqual({ items: [], metadata: { continue: "next-page" } });
       expect(f.connections).toBe(1); expect(f.fallbacks).toBe(0);
       expect(f.requests).toEqual([
         { path: "/api/v1/namespaces/first/services/api", authorization: "Bearer fixture-token" },
         { path: "/api/v1/namespaces/second/pods?labelSelector=app%3Dapi", authorization: "Bearer fixture-token" },
       ]);
-      expect((await f.client.run("first", ["get", "deployments.apps", "api", "-o", "json"])).ok).toBe(true);
+      await first.get({ apiVersion: "apps/v1", resource: "deployments", name: "api" });
       expect(f.requests[2]?.path).toBe("/apis/apps/v1/namespaces/first/deployments/api");
       expect(f.connections).toBe(1);
+      await f.client.dispose();
+      expect(() => second.list(pods)).toThrow("disposed");
+      expect("dispose" in second).toBe(false);
     } finally { await f.dispose(); }
   });
 }
 
-test("native errors never replay, preserve HTTP failure meaning, and omit response bodies", async () => {
+test("GVR queries support custom resources, selectors and explicit pages without a resource allowlist", async () => {
+  const f = await fixture();
+  try {
+    await f.client.list({ apiVersion: "example.io/v1alpha1", resource: "widgets", namespace: "other",
+      labelSelector: "app=api", fieldSelector: "metadata.name=widget", limit: 10, continue: "page/+=" });
+    const url = new URL(f.requests[0]!.path, "http://fixture");
+    expect(url.pathname).toBe("/apis/example.io/v1alpha1/namespaces/other/widgets");
+    expect(Object.fromEntries(url.searchParams)).toEqual({ labelSelector: "app=api", fieldSelector: "metadata.name=widget", limit: "10", continue: "page/+=" });
+    expect(f.requests).toHaveLength(1);
+    for (const query of [{ ...pods, apiVersion: "../../v1" }, { ...pods, resource: "pods/status" },
+      { ...pods, namespace: "../other" }, { ...pods, limit: 0 }]) {
+      await expect(f.client.list(query)).rejects.toMatchObject({ kind: "invalid_argument" });
+    }
+    await expect(f.client.get({ ...pods, name: "" })).rejects.toMatchObject({ kind: "invalid_argument" });
+    expect(f.requests).toHaveLength(1);
+  } finally { await f.dispose(); }
+});
+
+test("API errors preserve structured kind and HTTP status without shell results or replay", async () => {
   const f = await fixture();
   try {
     for (const [status, kind] of [[401, "authentication_failed"], [403, "permission_denied"],
       [404, "resource_not_found"], [429, "limit_exceeded"], [500, "operation_failed"]] as const) {
       f.respond = (_request, response) => { response.writeHead(status); response.end("private-response-body"); };
-      const failed = await f.client.run("first", ["get", "secrets", "credentials", "-o", "json"]);
-      expect(failed.ok).toBe(false);
-      expect(failed.stderr).not.toContain("private-response-body");
-      expect(failed.command[0]).toBe("kubernetes-api");
-      expect(kubernetesCommandError(failed).kind).toBe(kind);
+      const error = await f.client.get({ apiVersion: "v1", resource: "secrets", name: "credentials" }).catch(error => error);
+      expect(error).toMatchObject({ kind, code: status });
+      expect(error.message).not.toContain("private-response-body");
+      expect(error.message).toContain("/namespaces/first/secrets/credentials");
     }
     expect(f.requests).toHaveLength(5); expect(f.fallbacks).toBe(0);
   } finally { await f.dispose(); }
 });
 
-test("per-call deadlines, byte limits and abort preserve the pool for later reads", async () => {
+test("deadlines, byte limits, malformed data and caller abort preserve later reads", async () => {
   const f = await fixture();
   try {
     f.respond = () => {};
-    const timedOut = await f.client.run("first", ["get", "pods", "-o", "json"], { timeoutMs: 30 });
-    expect(timedOut.ok).toBe(false); expect(timedOut.timedOut).toBe(true);
+    await expect(f.client.list(pods, { timeoutMs: 30 })).rejects.toMatchObject({ kind: "timeout" });
     const controller = new AbortController();
-    const aborted = f.client.run("first", ["get", "pods", "-o", "json"], { signal: controller.signal });
+    const aborted = f.client.list(pods, { signal: controller.signal });
     setTimeout(() => controller.abort(new Error("cancel request")), 15);
-    expect((await aborted).stderr).toBe("[aborted]");
-    f.respond = (_request, response) => response.end("x".repeat(2048));
-    expect((await f.client.run("first", ["get", "pods", "-o", "json"])).ok).toBe(false);
+    await expect(aborted).rejects.toThrow("cancel request");
+    for (const [body, kind] of [["x".repeat(2048), "limit_exceeded"], ["{", "invalid_response"],
+      ["null", "invalid_response"], ['{"items":[null]}', "invalid_response"], ["{}", "invalid_response"]]) {
+      f.respond = (_request, response) => response.end(body);
+      await expect(f.client.list(pods)).rejects.toMatchObject({ kind });
+    }
     f.respond = (_request, response) => response.end(JSON.stringify({ items: [] }));
-    expect((await f.client.run("first", ["get", "pods", "-o", "json"])).ok).toBe(true);
+    expect(await f.client.list(pods)).toEqual({ items: [] });
     f.respond = () => {};
-    const active = f.client.run("first", ["get", "pods", "-o", "json"]);
+    const active = f.client.list(pods).catch(error => error);
     await new Promise(resolve => setTimeout(resolve, 15));
     await f.client.dispose();
-    expect((await active).ok).toBe(false);
-    expect(() => f.client.run("first", ["get", "pods", "-o", "json"])).toThrow("disposed");
+    expect((await active).message).toContain("disposed");
+    expect(() => f.client.list(pods)).toThrow("disposed");
     expect(f.fallbacks).toBe(0);
   } finally { await f.dispose(); }
 });
 
-test("uncovered argv, stdin, exec and custom executors keep their existing behavior", async () => {
+test("queued requests expire without authentication or HTTP dispatch", async () => {
+  const f = await fixture();
+  const controller = new AbortController();
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  f.respond = () => { started(); };
+  const first = f.client.list(pods, { signal: controller.signal }).catch(error => error);
+  try {
+    await ready;
+    await expect(f.client.list(pods, { timeoutMs: 20 })).rejects.toMatchObject({ kind: "timeout" });
+    expect(f.requests).toHaveLength(1);
+    controller.abort();
+    await first;
+    f.respond = (_request, response) => response.end(JSON.stringify({ items: [] }));
+    expect(await f.client.list(pods)).toEqual({ items: [] });
+  } finally { controller.abort(); await first; await f.dispose(); }
+});
+
+test("exec is a separate capability and an injected executor never intercepts resource reads", async () => {
   const f = await fixture();
   try {
-    for (const command of [["get", "pods"], ["get", "pods", "-o", "yaml"],
-      ["get", "pods", "--watch", "-o", "json"], ["get", "custom.example", "-o", "json"]]) {
-      expect((await f.client.run("first", command)).stdout).toBe("compatibility");
-    }
-    expect((await f.client.run("first", ["get", "pods", "-o", "json"], { stdin: "input" })).stdout).toBe("compatibility");
+    expect(await f.client.list(pods)).toEqual({ items: [] });
     expect((await f.client.exec("first", { pod: "pod", container: "main" }, ["printenv", "-0"])).stdout).toBe("compatibility");
-    expect(f.fallbacks).toBe(6); expect(f.requests).toHaveLength(0);
-    const custom = new KubernetesClient({ namespace: "first", kubeconfig: "/missing" }, undefined, {
-      run: async () => result(), exec: async () => result(),
-    });
-    try { expect((await custom.run("first", ["get", "pods", "-o", "json"])).stdout).toBe("compatibility"); }
-    finally { await custom.dispose(); }
+    expect(f.fallbacks).toBe(1); expect(f.requests).toHaveLength(1);
+    expect("run" in f.client).toBe(false);
   } finally { await f.dispose(); }
 });
 
-test("request matching rejects kubectl syntax with different semantics", () => {
-  expect(resourceGetCommand(["get", "pods.apps", "-o", "json"])).toBeUndefined();
-  expect(resourceGetCommand(["get", "constructor", "-o", "json"])).toBeUndefined();
-  expect(resourceGetCommand(["get", "pods", "pod-a", "pod-b", "-o", "json"])).toBeUndefined();
-  expect(resourceGetCommand(["get", "pods", "pod-a,pod-b", "-o", "json"])).toBeUndefined();
-  expect(resourceGetCommand(["get", "pods", "-l", "--watch", "-o", "json"])).toBeUndefined();
-  expect(resourceGetCommand(["get", "pods", "--all-namespaces", "-o", "json"])).toBeUndefined();
-});
-
-test("credential headers refresh while TLS identity changes select a different Agent", async () => {
-  const config = new PooledKubeConfig(1);
-  config.loadFromOptions({ clusters: [{ name: "fixture", server: "https://localhost" }],
-    users: [{ name: "fixture", token: "first-token" }],
-    contexts: [{ name: "fixture", cluster: "fixture", user: "fixture" }], currentContext: "fixture" });
+test("credential headers refresh on the existing connection; TLS policy changes select a new pool", async () => {
+  const original = KubeConfig.prototype.applyToHTTPSOptions;
+  let token = "first-token";
+  let servername = "first";
+  const destroyed: boolean[] = [];
+  const auth = spyOn(KubeConfig.prototype, "applyToHTTPSOptions").mockImplementation(async function(this: KubeConfig, options: RequestOptions) {
+    this.users = this.users.map(user => ({ ...user, token }));
+    await original.call(this, options);
+    options.servername = servername;
+    const index = destroyed.push(false) - 1;
+    const agent = options.agent as import("node:http").Agent;
+    const destroy = agent.destroy.bind(agent);
+    agent.destroy = () => { destroyed[index] = true; destroy(); };
+  });
+  const f = await fixture();
   try {
-    const first = await config.applyToFetchOptions({});
-    config.users = config.users.map(user => ({ ...user, token: "second-token" }));
-    const second = await config.applyToFetchOptions({});
-    expect(second.agent).toBe(first.agent);
-    expect(new Headers(second.headers).get("authorization")).toBe("Bearer second-token");
-    config.clusters = config.clusters.map(cluster => ({ ...cluster, skipTLSVerify: true }));
-    const changed = await config.applyToFetchOptions({});
-    expect(changed.agent).not.toBe(first.agent);
-  } finally { config.dispose(); }
+    await f.client.list(pods);
+    token = "second-token";
+    await f.client.list(pods);
+    expect(f.connections).toBe(1);
+    expect(f.requests.map(request => request.authorization)).toEqual(["Bearer first-token", "Bearer second-token"]);
+    servername = "second";
+    await f.client.list(pods);
+    expect(destroyed).toEqual([true, true, false]);
+  } finally { auth.mockRestore(); await f.dispose(); }
 });
-
 
 test("native reads preserve TLS verification failures and never fall back", async () => {
   const f = await fixture(true);
@@ -178,43 +213,30 @@ test("native reads preserve TLS verification failures and never fall back", asyn
     const document = JSON.parse(readFileSync(f.kubeconfig, "utf8"));
     delete document.clusters[0].cluster["certificate-authority-data"];
     writeFileSync(f.kubeconfig, JSON.stringify(document));
-    const result = await f.client.run("first", ["get", "pods", "-o", "json"]);
-    expect(result.ok).toBe(false);
-    expect(result.command[0]).toBe("kubernetes-api");
+    await expect(f.client.list(pods)).rejects.toMatchObject({ kind: "tls_verification_failed" });
     expect(f.fallbacks).toBe(0); expect(f.requests).toHaveLength(0);
   } finally { await f.dispose(); }
 });
 
-
-test("environment proxy routing retains the kubectl path", async () => {
+test("credential preparation observes the deadline and late completion releases its unused Agent", async () => {
   const f = await fixture();
-  const previous = process.env.HTTPS_PROXY;
-  let client: KubernetesClient;
-  try {
-    process.env.HTTPS_PROXY = "http://proxy.invalid:1234";
-    client = new KubernetesClient({ namespace: "first", kubeconfig: f.kubeconfig }, undefined, f.executor);
-  } finally {
-    if (previous === undefined) delete process.env.HTTPS_PROXY;
-    else process.env.HTTPS_PROXY = previous;
-  }
-  try {
-    expect((await client.run("first", ["get", "pods", "-o", "json"])).stdout).toBe("compatibility");
-    expect(f.fallbacks).toBe(1); expect(f.requests).toHaveLength(0);
-  } finally { await client.dispose(); await f.dispose(); }
-});
-
-
-test("credential preparation observes the request deadline before dispatch", async () => {
-  const f = await fixture();
-  let complete!: (value: Awaited<ReturnType<PooledKubeConfig["applyToFetchOptions"]>>) => void;
-  const prepared = new Promise<Awaited<ReturnType<PooledKubeConfig["applyToFetchOptions"]>>>(resolve => { complete = resolve; });
-  const auth = spyOn(PooledKubeConfig.prototype, "applyToFetchOptions").mockImplementation(() => prepared);
-  try {
-    const timedOut = await f.client.run("first", ["get", "pods", "-o", "json"], { timeoutMs: 20 });
-    expect(timedOut.timedOut).toBe(true);
-    await f.client.dispose();
-    complete({ headers: {} });
+  const original = KubeConfig.prototype.applyToHTTPSOptions;
+  let complete!: () => void;
+  const prepared = new Promise<void>(resolve => { complete = resolve; });
+  let destroyed = false;
+  const auth = spyOn(KubeConfig.prototype, "applyToHTTPSOptions").mockImplementation(async function(this: KubeConfig, options: RequestOptions) {
+    await original.call(this, options);
+    const agent = options.agent as import("node:http").Agent;
+    const destroy = agent.destroy.bind(agent);
+    agent.destroy = () => { destroyed = true; destroy(); };
     await prepared;
+  });
+  try {
+    await expect(f.client.list(pods, { timeoutMs: 20 })).rejects.toMatchObject({ kind: "timeout" });
+    await f.client.dispose();
+    complete();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(destroyed).toBe(true);
     expect(f.requests).toHaveLength(0); expect(f.fallbacks).toBe(0);
-  } finally { auth.mockRestore(); complete({ headers: {} }); await f.dispose(); }
+  } finally { auth.mockRestore(); complete(); await f.dispose(); }
 });

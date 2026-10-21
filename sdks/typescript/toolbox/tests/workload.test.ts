@@ -13,13 +13,15 @@ const pod = (namespace = "ns", uid = "uid-1"): Resource =>
 test("client resolves all three locations with namespace override and no readiness filter", async () => {
   const calls: unknown[] = [];
   const access: ResourceAccess = {
-    async get(namespace, resource, name, selector) {
-      calls.push([namespace, resource, name, selector]);
-      if (resource === "pods") return name ? pod(namespace) : { items: [pod(namespace), {
-        metadata: { name: "pod-2", namespace, uid: "uid-2" },
-      }] };
+    async get({ namespace, resource }) {
+      calls.push([namespace, resource]);
+      if (resource === "pods") return pod(namespace);
       return { spec: { selector: resource === "services" ? { app: "api" }
         : { matchLabels: { app: "api" }, matchExpressions: [{ key: "tier", operator: "In", values: ["b", "a"] }] } } };
+    },
+    async list({ namespace, resource, labelSelector }) {
+      calls.push([namespace, resource, labelSelector]);
+      return { items: [pod(namespace), { metadata: { name: "pod-2", namespace, uid: "uid-2" } }] };
     },
   };
   const client = new KubernetesClient({ namespace: "ns" }, undefined, undefined, undefined, access);
@@ -32,23 +34,23 @@ test("client resolves all three locations with namespace override and no readine
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({ workload: "logical", namespace: "other", uid: "uid-1", container: "app" });
   }
-  expect(calls[1]).toEqual(["other", "pods", undefined, "app=api,tier in (a,b)"]);
+  expect(calls[1]).toEqual(["other", "pods", "app=api,tier in (a,b)"]);
   await client.dispose();
   expect(() => client.resolveWorkload({ platform: "kubernetes", name: "api", location: { kind: "labels", labels: { app: "api" } } }, "env")).toThrow("disposed");
 });
 
 test("empty inventory differs from missing resource and selectorless Service", async () => {
   const workload: Workload = { platform: "kubernetes", name: "api", location: { kind: "service", name: "api" } };
-  const access: ResourceAccess = { get: async () => ({ spec: {} }) };
+  const access: ResourceAccess = { get: async () => ({ spec: {} }), list: async () => ({ items: [] }) };
   await expect(resolveWorkload(access, workload, "ns", "env")).rejects.toMatchObject({ kind: "unsupported_operation" });
   access.get = async () => { throw kubernetesHttpError(404); };
   await expect(resolveWorkload(access, workload, "ns", "env")).rejects.toMatchObject({ kind: "resource_not_found" });
-  access.get = async () => ({ items: [] });
+  access.list = async () => ({ items: [] });
   const labels: Workload = { ...workload, location: { kind: "labels", labels: { app: "api" } } };
   expect(await resolveWorkload(access, labels, "ns", "env")).toEqual([]);
   await expect(resolveWorkload(access, labels, "", "env")).rejects.toMatchObject({ kind: "invalid_argument" });
   await expect(resolveWorkload(access, labels, "ns", " ")).rejects.toMatchObject({ kind: "invalid_argument" });
-  access.get = async () => ({ items: [pod("ns", "")] });
+  access.list = async () => ({ items: [pod("ns", "")] });
   await expect(resolveWorkload(access, labels, "ns", "env")).rejects.toMatchObject({ kind: "invalid_response" });
 });
 
@@ -77,7 +79,7 @@ test("shared target identity stays independent of connection keys and access ali
     const options = { ...binding.access, namespace: "ns" };
     keys.push(new KubernetesEnvironment("dev", options, limits).clientKey);
     const client = new KubernetesClient(options, undefined, undefined, limits, {
-      get: async () => ({ items: [pod()] }),
+      get: async () => pod(), list: async () => ({ items: [pod()] }),
     });
     try {
       const result = await client.resolveWorkload({

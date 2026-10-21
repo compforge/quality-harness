@@ -108,12 +108,20 @@ SQL/搜索执行失败不重放。TLS 保留原始 servername 与 HTTP Host，�
 
 ## 2. Kubernetes
 
-TypeScript 的根 `KubernetesClient` 对支持的内置资源 JSON GET/LIST 复用原生 HTTP 连接池，
-同一集群可跨 namespace 共用连接；每次读取仍重新应用 kubeconfig 认证，不缓存查询结果。
-代理/TLS 身份变化使用不同 Agent，根调用结束统一销毁。保留请求超时、字节预算与取消语义，
-原生请求失败不通过另一条路径重放。自定义 Executor、环境代理、未覆盖的 argv、exec 与
-port-forward 保留既有路径；本次优化不改变并发度。原生路径与 kubectl 路径在请求证据中明确区分。
+TypeScript 的根 `KubernetesClient` 直接提供 `get(ref)` / `list(query)`，返回资源对象和结构化
+`KubernetesError`。查询声明 API version 与 resource 的 REST 复数名，适用于内置资源与 CRD；
+不解析 kubectl argv，不把 API 结果转换成 stdout/stderr。列表保留分页 metadata，调用方显式选择
+后续页。根客户端使用配置的 namespace，查询可覆盖；`inNamespace()` 返回固定 namespace 的借用视图。
 
+根客户端拥有一个长期存活的 HTTP transport，跨 namespace 与资源类型复用连接；Workload 解析走
+相同 get/list 入口。每次请求重新应用 kubeconfig 认证，不缓存查询结果。认证配置与连接生命周期
+分别由 KubeConfig 和 transport 持有；SDK 的 Agent 创建细节只存在于 transport 的认证适配处。
+TLS/代理身份变化时旧池待在途读取结束后回收。期限覆盖排队、认证与响应读取，根客户端关闭时取消
+在途任务并销毁池。借用视图没有关闭权，外部注入的资源读取器由其创建方管理。
+
+资源读取使用 kubeconfig 中的显式 `proxy-url`，不依据 shell 代理环境变量切换执行方式。失败直接
+返回，不通过另一条路径重放。`exec` 与 `forward` 是独立流式操作；根客户端不提供 `run(argv)`。
+连接复用不改变采集调度并发度。
 
 Kubernetes Driver 是面向 e2e、perf 等多个 Harness 的中立工具，不是独立的 Kube Harness。Go
 实现位于 `sdks/go/toolbox/kube`，Python async 实现位于 `sdks/python/toolbox/harness_toolbox/kube`；两端使用语言惯用

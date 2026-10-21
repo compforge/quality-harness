@@ -58,21 +58,39 @@ a UID fence; callers needing incarnation guarantees must verify discovery around
 sources borrow Kubernetes access from the root manager and never close it themselves. Unsupported
 commands, missing paths and denied reads fail explicitly; they are not empty file results.
 
-## Kubernetes query transport
+## Kubernetes resources
 
-`KubernetesClient.run(namespace, ["get", "pods", "-o", "json"])` uses bounded native
-JSON reads for supported built-in resources. A root client owns the HTTP keep-alive pool and
-shares it across namespaces. Kubeconfig authentication runs on every request; proxy/TLS settings
-identify the pooled Agent, so credentials can refresh without caching resource results.
-`dispose()` cancels outstanding work and closes the pool. Request provenance identifies the native
-`kubernetes-api` path rather than claiming a kubectl process ran.
+Borrow a root `KubernetesClient` through `KubernetesEnvironment` and `ClientManager`. Use
+`get(ref)` and `list(query)` for resource reads; `inNamespace(namespace)` binds a borrowed view
+to a namespace without creating a second client or pool:
 
-The compatibility subset accepts an optional object name, `-l <selector>` and `-o json` for
-Pods, Services, ConfigMaps, Secrets, core Events and apps/v1 workload controllers. Unknown resources,
-other formats/flags, stdin, exec and port-forward retain their existing execution paths.
-Custom injected Executors remain authoritative. Environment proxy variables retain kubectl routing;
-explicit kubeconfig `proxy-url` is supported by the native path. Native failures never retry through
-kubectl, including authentication, TLS and permission errors. Concurrency is not increased.
+```ts
+const kube = await clients.get(environment);
+const ns = kube.inNamespace("app");
+const service = await ns.get({ apiVersion: "v1", resource: "services", name: "api" });
+const pods = await ns.list({ apiVersion: "v1", resource: "pods", labelSelector: "app=api" },
+  { timeoutMs: 15_000, signal });
+```
+
+`resource` is the plural REST resource name, not a Kind or kubectl alias. Explicit API versions
+support built-in resources and custom resources without a discovery request or local allowlist.
+The root uses its configured namespace unless the query overrides it; namespace views enforce
+their bound namespace. Resource objects and list metadata are returned intact. List requests
+accept label/field selectors and explicit `limit`/`continue` pages; they do not silently read all pages.
+Errors are `KubernetesError` objects carrying a stable kind and the HTTP status when available.
+Callers retain the query with their evidence; resource operations do not produce shell command results.
+
+The root owns one HTTP transport with keep-alive connections shared across namespaces and resource
+kinds. Authentication refreshes on each request. TLS/proxy identity changes select a new pool and
+retire the previous one after its active reads finish. Requests have bounded bytes and a deadline
+covering queueing, authentication and body consumption. `dispose()` cancels work, waits for tracked
+operations, and closes connections. Views and injected borrowed resource readers have no ownership
+of that lifecycle. No query results are cached and failures are never replayed through another transport.
+
+Native resource access uses kubeconfig authentication, TLS and explicit `proxy-url`. It does not
+select transports based on shell proxy environment variables. `exec` and `forward` are separate
+streaming operations; their implementation does not intercept resource reads. `KubernetesClient`
+has no `run(argv)` method. Concurrency remains caller-configured rather than inferred from pool size.
 
 ## Workload discovery
 

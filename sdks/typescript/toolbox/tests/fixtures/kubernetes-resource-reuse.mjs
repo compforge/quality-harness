@@ -7,19 +7,36 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KubernetesClient } from "../../dist/kubernetes/client.js";
+import { KubeConfig } from "@kubernetes/client-node";
 import { KubectlExecutor } from "../../dist/kubernetes/executor.js";
 
 const tls = process.argv[2] === "tls";
 const proxied = process.argv[2] === "proxy";
+const rotatingActive = process.argv[2] === "active-rotation";
+const rotated = process.argv[2] === "rotation" || rotatingActive;
+let authorizations = 0;
+if (rotated) {
+  const apply = KubeConfig.prototype.applyToHTTPSOptions;
+  KubeConfig.prototype.applyToHTTPSOptions = async function(options) {
+    await apply.call(this, options);
+    options.servername = authorizations++ < (rotatingActive ? 1 : 2) ? "first" : "second";
+  };
+}
 const cert = name => readFileSync(fileURLToPath(new URL(`./pod-log-tls/${name}`, import.meta.url)));
 let connections = 0;
 let requests = 0;
 const directory = mkdtempSync(join(tmpdir(), "toolbox-node-kubernetes-reuse-"));
+let releaseFirst;
+let firstStarted;
+const firstReady = new Promise(resolve => { firstStarted = resolve; });
 const handler = (request, response) => {
   requests++;
   assert.equal(request.headers.authorization, "Bearer fixture-token");
   if (tls) assert.equal(request.socket.authorized, true);
-  response.end(JSON.stringify({ items: [] }));
+  if (rotatingActive && requests === 1) {
+    releaseFirst = () => response.end(JSON.stringify({ items: [] }));
+    firstStarted();
+  } else response.end(JSON.stringify({ items: [] }));
 };
 const server = tls ? createHttpsServer({ key: cert("server-key.pem"), cert: cert("server-cert.pem"),
   ca: cert("ca.pem"), requestCert: true, rejectUnauthorized: true }, handler) : createServer(handler);
@@ -66,13 +83,20 @@ executor.run = () => { throw new Error("Unexpected kubectl fallback"); };
 const client = new KubernetesClient(kube, undefined, executor);
 try {
   await client.initialize();
-  for (const namespace of ["first", "second", "third"]) {
-    const result = await client.run(namespace, ["get", "pods", "-o", "json"]);
-    assert.equal(result.ok, true, result.stderr);
-    assert.equal(result.command[0], "kubernetes-api");
+  const list = namespace => client.inNamespace(namespace).list({ apiVersion: "v1", resource: "pods" });
+  if (rotatingActive) {
+    const first = list("first");
+    await firstReady;
+    assert.deepEqual(await list("second"), { items: [] });
+    assert.equal(sockets.size, 2, "old pool must remain alive while its response is pending");
+    releaseFirst();
+    assert.deepEqual(await first, { items: [] });
+    assert.deepEqual(await list("third"), { items: [] });
+  } else {
+    for (const namespace of ["first", "second", "third"]) assert.deepEqual(await list(namespace), { items: [] });
   }
   assert.equal(requests, 3);
-  assert.equal(connections, 1, "sequential requests must reuse the physical connection");
+  assert.equal(connections, rotated ? 2 : 1, "requests reuse connections until TLS identity changes");
   await client.dispose();
   // Observe peer closure before server.close(), which would itself close idle connections in Node.
   await new Promise((resolve, reject) => {

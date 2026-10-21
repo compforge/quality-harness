@@ -48,7 +48,7 @@ export async function resolveWorkload(access: ResourceAccess, workload: Workload
   if (location.kind === "labels") {
     if (!Object.keys(location.labels).length) return failure("Pod labels must be nonempty", "invalid_argument");
     selected = selector(location.labels, true);
-    const result = await access.get(namespace, "pods", undefined, selected);
+    const result = await access.list({ namespace, apiVersion: "v1", resource: "pods", labelSelector: selected });
     if (!Array.isArray(result.items)) return failure("Pod list lacks items", "invalid_response");
     pods = result.items;
   } else {
@@ -57,11 +57,12 @@ export async function resolveWorkload(access: ResourceAccess, workload: Workload
     } as const)[location.resource_kind];
     if (!resource) return failure("Unsupported workload resource", "unsupported_operation");
     if (!location.name.trim()) return failure("Resource name is required", "invalid_argument");
-    const item = await access.get(namespace, resource, location.name);
+    const item = await access.get({ namespace, resource, name: location.name,
+      apiVersion: resource === "pods" || resource === "services" ? "v1" : "apps/v1" });
     if (resource === "pods") pods = [item];
     else {
       selected = selector(item.spec?.selector, resource === "services");
-      const result = await access.get(namespace, "pods", undefined, selected);
+      const result = await access.list({ namespace, apiVersion: "v1", resource: "pods", labelSelector: selected });
       if (!Array.isArray(result.items)) return failure("Pod list lacks items", "invalid_response");
       pods = result.items;
     }
