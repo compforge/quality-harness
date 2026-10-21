@@ -18,45 +18,49 @@ not load database or Kubernetes drivers.
 
 ## File sources
 
-Use `LocalFileDataSource` for a local file or `PodFileDataSource` for a file in an explicit
-namespace/Pod/container. Both extend Common's `FileDataSource`, so a Service can store them directly
-as DataSources and consumers can recognize files with `instanceof FileDataSource`. No additional
-`id` or `kind` wrapper is required; consumer-owned selection names remain separate from client identity.
+A FileDataSource is a caller-declared acquisition group. Use `LocalFileDataSource` for local paths
+or `PodFileDataSource` for paths in one explicit namespace/Pod/container. Both extend Common's
+`FileDataSource`; no additional id/kind wrapper is required.
 
 ```ts
-import { ClientManager, FileDataSource } from "@compforge/harness-common";
+import { ClientManager } from "@compforge/harness-common";
 import { LocalFileDataSource, PodFileDataSource } from "@compforge/harness-toolbox/file";
 
-const source = new LocalFileDataSource("./config.yaml", { concurrency: 2 });
+const source = new LocalFileDataSource(["./config.yaml", "./secret/config.yaml"], { concurrency: 2 });
 const clients = new ClientManager();
 try {
-  if (source instanceof FileDataSource) {
-    const file = await clients.get(source);
-    const bytes = await file.read({ maxBytes: 1024 * 1024, timeoutMs: 15_000 });
-    console.log(source.path, new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  const file = await clients.get(source);
+  const results = await file.read({ maxBytes: 1024 * 1024, maxTotalBytes: 2 * 1024 * 1024, timeoutMs: 15_000 });
+  for (const result of results) {
+    if (result.status === "error") console.error(result.path, result.error.message);
+    else console.log(result.path, new TextDecoder("utf-8", { fatal: true }).decode(result.bytes));
   }
-} finally {
-  await clients.dispose();
-}
+} finally { await clients.dispose(); }
 
-// `environment` is a KubernetesEnvironment (or an equivalent ClientProvider).
-// Resolve Workloads first and create one source per chosen Pod/container.
+// Resolve Workloads first. This entire group is fetched through one exec session.
 const podSource = new PodFileDataSource(environment,
   { namespace: "app", pod: "worker-abc", container: "worker" },
-  "/etc/app/config.yaml", { concurrency: 2 });
+  ["/etc/app/config.yaml", "/etc/app/secret/config.yaml"], { concurrency: 2 });
 ```
 
-Each read reopens the file; the manager shares clients, not previous file contents. The byte limit
-rejects oversized reads, including a zero-byte limit on a nonempty file. Timeouts include queue time;
-caller cancellation and disposal cancel active reads. Keep the source path and Pod target with any
-persisted evidence. A successful read describes bytes at that location, not the application's parsed
-or effective configuration and not an atomic filesystem snapshot.
+Every read reopens all declared paths and returns one ordered result per path. Empty files succeed;
+missing, denied, nonregular and oversized files return individual errors with no partial bytes.
+An error in one file does not discard sibling results. Per-file limits reset for each path; the total
+budget bounds retained decoded bytes, including incomplete files. Queueing and the whole group
+share one deadline. Cancellation, total-budget exhaustion, deadline and transport/protocol failure
+reject the operation. Sources share clients, never previous file contents.
 
-Local files may be symlinks to regular files. Pod reads require `pods/exec` access and `head -c` in the
-selected container; paths are passed as argv without a shell. A Pod name is an access location, not
-a UID fence; callers needing incarnation guarantees must verify discovery around collection. Pod
-sources borrow Kubernetes access from the root manager and never close it themselves. Unsupported
-commands, missing paths and denied reads fail explicitly; they are not empty file results.
+Pod groups use one exec and require `sh`, `head -c`, `base64` and `tr`. Paths remain positional
+arguments even when they contain shell syntax or newlines. Indexed base64 records carry raw binary
+bytes plus each file's exit status; truncated or malformed records reject without replay. No remote
+temporary files are written. Local reads allow symlinks to regular files and reject nonregular files.
+Keep the path and Pod target on evidence; grouping guarantees neither an atomic filesystem snapshot
+nor application configuration precedence. A Pod name is not a UID fence; callers needing incarnation
+guarantees must check discovery around collection. File clients borrow root Kubernetes access and
+never close it themselves.
+
+Version 0.4.2 requires Common 0.5.4. Replace single path arguments with arrays, supply `maxTotalBytes`,
+and handle per-file results. Publish Common before Toolbox; this change has no single-file legacy adapter.
 
 ## Kubernetes resources
 
