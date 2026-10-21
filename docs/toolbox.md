@@ -246,11 +246,20 @@ LitmusChaos 已经包含 Workflow、Probe 和 Result 等平台模型。接入这
 
 ## 文件数据源
 
-文件来源绑定访问环境和路径，Common 的 `FileDataSource` 提供运行时识别，`FileClient` 提供有界
-字节读取契约。Toolbox 的 `LocalFileDataSource` 和 `PodFileDataSource` 分别完成本机与容器内访问。
-Service 可以直接关联来源对象；客户端复用身份由访问配置、目标路径和并发策略决定。
+Common 的 `FileDataSource.paths` 声明一组可以共同获取的文件；一个来源就是一个获取单元。
+`FileClient.read` 每次获取整组，按声明顺序逐路径返回成功字节或独立错误。Toolbox 的
+`LocalFileDataSource` 与 `PodFileDataSource` 分别完成本机和同一 Pod/Container 的读取。
+来源身份覆盖完整路径组、访问目标和容量策略，构造时冻结声明，声明来源不做 I/O。
 
-调用方先完成 Workload 发现与业务 Container 选择，再逐副本创建 Pod 文件来源。ClientManager
-初始化文件 Client 时借用 Kubernetes Client，在根调用结束时按依赖顺序关闭。每次读取重新访问
-文件，字节上限、排队在内的超时和取消信号约束这次操作；超限与读取失败不会交付部分文件。
-路径和 Pod target 是来源元数据，配置格式解析、覆盖规则与证据保存由消费方负责。
+调用方完成 Workload/Container 选择后创建来源；文件客户端借用根 Kubernetes Client，根按依赖顺序销毁。
+Pod 文件组只发起一次 exec，要求 sh、head -c、base64、tr，以索引和编码记录传输原始字节及每文件状态；
+路径通过 argv 传入，不插入 shell 源码，不写容器临时文件，也不在失败后改成逐文件重放。
+本机来源只读常规文件（可经过 symlink），不因 FIFO 等非常规路径阻塞初始化。
+
+每文件 maxBytes 独立计算，错误文件不交付部分字节，不丢弃成功的其它文件。maxTotalBytes 限制整个读取
+保留的字节（包含在途文件）；整次 timeoutMs 包含排队、访问和完整传输。取消、总量超限、整次超时与
+传输/协议失败拒绝整次操作。每次 read 重新读取路径，不缓存内容；共同获取不承诺原子文件系统快照。
+路径和 Pod target 为来源元数据，配置解析、覆盖规则和证据持久化由消费方负责。
+
+Common 0.5.4 与 Toolbox 0.4.2 用 paths 和逐文件结果替代旧的单 path/单字节返回接口，单文件也声明为
+一个元素的组；先发布 Common，再发布依赖它的 Toolbox，最后由消费方升级。

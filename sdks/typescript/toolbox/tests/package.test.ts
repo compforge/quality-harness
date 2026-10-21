@@ -217,22 +217,31 @@ test("published file sources preserve Common type identity and read bytes in Nod
       import { ClientManager, FileDataSource as Common } from '@compforge/harness-common';
       import { FileDataSource, LocalFileDataSource, PodFileDataSource } from '@compforge/harness-toolbox/file';
       assert.equal(FileDataSource, Common);
-      const source = new LocalFileDataSource('./config', {concurrency:1});
+      const source = new LocalFileDataSource(['./config', './missing'], {concurrency:1});
       assert.ok(source instanceof Common);
       const manager = new ClientManager();
       try {
         const client = await manager.get(source);
-        assert.deepEqual(await client.read({maxBytes:4,timeoutMs:1000}), new Uint8Array([0,255,128,10]));
-        await assert.rejects(client.read({maxBytes:3,timeoutMs:1000}), {kind:'limit_exceeded'});
+        const result = await client.read({maxBytes:4,maxTotalBytes:4,timeoutMs:1000});
+        assert.equal(result[0].status, 'ok'); assert.deepEqual(result[0].bytes, new Uint8Array([0,255,128,10]));
+        assert.equal(result[1].status, 'error'); assert.equal(result[1].error.kind, 'resource_not_found');
+        assert.equal((await client.read({maxBytes:3,maxTotalBytes:4,timeoutMs:1000}))[0].error.kind, 'limit_exceeded');
+        let execs = 0;
         const access = {clientKey:'test',createClient:() => ({
           initialize:async()=>{},dispose:async()=>{},exec:async(_namespace,_target,_command,options)=>{
-            options.onStdoutBytes(new Uint8Array([255,0]));
+            execs++;
+            const wire = Buffer.concat([Buffer.from([255,0,0]), Buffer.from('000')]).toString('base64');
+            const failed = Buffer.concat([Buffer.from([0]), Buffer.from('001')]).toString('base64');
+            options.onStdoutBytes(Buffer.from('0 '+wire+'\\n1 '+failed+'\\n'));
             return {ok:true};
           }
         })};
-        const pod = new PodFileDataSource(access, {namespace:'ns',pod:'p',container:'app'}, '/config', {concurrency:1});
+        const pod = new PodFileDataSource(access, {namespace:'ns',pod:'p',container:'app'}, ['/config', '/missing'], {concurrency:1});
         assert.ok(pod instanceof Common);
-        assert.deepEqual(await (await manager.get(pod)).read({maxBytes:2,timeoutMs:1000}), new Uint8Array([255,0]));
+        const podResults = await (await manager.get(pod)).read({maxBytes:2,maxTotalBytes:2,timeoutMs:1000});
+        assert.equal(execs, 1);
+        assert.equal(podResults[0].status, 'ok'); assert.deepEqual(podResults[0].bytes, new Uint8Array([255,0]));
+        assert.equal(podResults[1].status, 'error'); assert.equal(podResults[1].error.kind, 'operation_failed');
       } finally { await manager.dispose(); }
     `], { cwd: root, encoding: "utf8", timeout: 10_000 });
     expect(result.error).toBeUndefined();

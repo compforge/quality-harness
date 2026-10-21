@@ -27,11 +27,20 @@ view during initialize, so concurrent consumers share them and dispose before th
 Dependency graphs must be acyclic. A failed initialization permits retry only after successful cleanup;
 failed cleanup poisons that key and is reported again when the root manager is disposed.
 
-`FileDataSource` is an abstract, runtime-recognizable DataSource for one file path. Its `FileClient.read`
-returns fresh `Uint8Array` bytes with explicit `maxBytes`, `timeoutMs` and optional cancellation.
-An empty file succeeds; an oversized or incomplete read rejects. The source's `path` and concrete
-location metadata let consumers attach provenance. Parsing, configuration precedence and persistence
-belong to consumers. Platform implementations live in `@compforge/harness-toolbox/file`.
+`FileDataSource` declares a nonempty group of distinct `paths` that can be acquired together.
+`FileClient.read` obtains the whole group once and returns one `FileReadResult` per declared path,
+in order: `{ path, status: "ok", bytes }` or `{ path, status: "error", error }`. Empty files succeed;
+missing and oversized files keep independent errors without discarding successful siblings.
+
+Callers specify `maxBytes` per file, `maxTotalBytes` for all retained bytes (including in-progress
+files), `timeoutMs` for the complete operation including queueing, and optional cancellation.
+Cancellation, total-budget exhaustion, the group deadline and transport/protocol failures reject
+the whole operation. Every read observes fresh bytes; a co-acquisition group is not an atomic
+filesystem snapshot. Parsing, configuration precedence and persistence belong to consumers.
+Platform implementations live in `@compforge/harness-toolbox/file`.
+
+Version 0.5.4 replaces the single `path` and byte-only return value; single-file consumers declare
+`paths: [path]` and consume the sole per-file result. There is no implicit legacy adapter.
 
 Service identifies a Component's runtime presence in an Environment. A Component belongs to a Repository
 on a Forge. Product is a separate business identity; consumers own its many-to-many associations
