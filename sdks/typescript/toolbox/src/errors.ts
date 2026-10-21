@@ -17,6 +17,7 @@ export class ToolboxError extends Error {
 }
 
 export class KubernetesError extends ToolboxError {}
+export class FileError extends ToolboxError {}
 
 export function kubernetesHttpError(status: number): KubernetesError {
   const kind: ErrorKind = ({

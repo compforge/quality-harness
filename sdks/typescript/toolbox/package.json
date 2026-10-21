@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -88,6 +88,10 @@
     "./data-loader": {
       "types": "./dist/data-loader.d.ts",
       "import": "./dist/data-loader.js"
+    },
+    "./file": {
+      "types": "./dist/file/index.d.ts",
+      "import": "./dist/file/index.js"
     }
   },
   "files": [
@@ -95,7 +99,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@compforge/harness-common": "0.3.0",
+    "@compforge/harness-common": "0.5.3",
     "@aws-sdk/client-s3": "3.1133.0",
     "@kubernetes/client-node": "1.4.0",
     "@opensearch-project/opensearch": "3.6.0",

@@ -16,6 +16,48 @@ claiming snapshot consistency; callers supply cancellation and decide how to per
 Protocol adapters have separate entry points; importing lifecycle or transport contracts does
 not load database or Kubernetes drivers.
 
+## File sources
+
+Use `LocalFileDataSource` for a local file or `PodFileDataSource` for a file in an explicit
+namespace/Pod/container. Both extend Common's `FileDataSource`, so a Service can store them directly
+as DataSources and consumers can recognize files with `instanceof FileDataSource`. No additional
+`id` or `kind` wrapper is required; consumer-owned selection names remain separate from client identity.
+
+```ts
+import { ClientManager, FileDataSource } from "@compforge/harness-common";
+import { LocalFileDataSource, PodFileDataSource } from "@compforge/harness-toolbox/file";
+
+const source = new LocalFileDataSource("./config.yaml", { concurrency: 2 });
+const clients = new ClientManager();
+try {
+  if (source instanceof FileDataSource) {
+    const file = await clients.get(source);
+    const bytes = await file.read({ maxBytes: 1024 * 1024, timeoutMs: 15_000 });
+    console.log(source.path, new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  }
+} finally {
+  await clients.dispose();
+}
+
+// `environment` is a KubernetesEnvironment (or an equivalent ClientProvider).
+// Resolve Workloads first and create one source per chosen Pod/container.
+const podSource = new PodFileDataSource(environment,
+  { namespace: "app", pod: "worker-abc", container: "worker" },
+  "/etc/app/config.yaml", { concurrency: 2 });
+```
+
+Each read reopens the file; the manager shares clients, not previous file contents. The byte limit
+rejects oversized reads, including a zero-byte limit on a nonempty file. Timeouts include queue time;
+caller cancellation and disposal cancel active reads. Keep the source path and Pod target with any
+persisted evidence. A successful read describes bytes at that location, not the application's parsed
+or effective configuration and not an atomic filesystem snapshot.
+
+Local files may be symlinks to regular files. Pod reads require `pods/exec` access and `head -c` in the
+selected container; paths are passed as argv without a shell. A Pod name is an access location, not
+a UID fence; callers needing incarnation guarantees must verify discovery around collection. Pod
+sources borrow Kubernetes access from the root manager and never close it themselves. Unsupported
+commands, missing paths and denied reads fail explicitly; they are not empty file results.
+
 ## Workload discovery
 
 Borrow a KubernetesClient through KubernetesEnvironment and the shared ClientManager lifecycle, then call

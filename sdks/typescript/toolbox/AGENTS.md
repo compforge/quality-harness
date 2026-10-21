@@ -15,6 +15,7 @@ toolbox/
 ├── src/errors.ts        # 稳定错误 kind/code；原始 cause 只供调试
 ├── src/transport/       # TCP、端口转发与 Pod Python 路径
 ├── src/kubernetes/      # 集群访问、日志源共享与字节预算
+├── src/file/            # 本机及 Pod 文件来源、有界读取与取消
 ├── src/mysql/          # MySQL 原生与 Pod 协议执行
 ├── src/redis/           # Redis 连接与拓扑
 ├── src/opensearch/      # OpenSearch 访问

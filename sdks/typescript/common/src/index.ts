@@ -14,3 +14,4 @@ export * from "./execution.js";
 export type { Product } from "./product.js";
 export * from "./knowledge.js";
 export type { Identity } from "./identity.js";
+export * from "./file.js";
