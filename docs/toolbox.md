@@ -108,6 +108,13 @@ SQL/搜索执行失败不重放。TLS 保留原始 servername 与 HTTP Host，�
 
 ## 2. Kubernetes
 
+TypeScript 的根 `KubernetesClient` 对支持的内置资源 JSON GET/LIST 复用原生 HTTP 连接池，
+同一集群可跨 namespace 共用连接；每次读取仍重新应用 kubeconfig 认证，不缓存查询结果。
+代理/TLS 身份变化使用不同 Agent，根调用结束统一销毁。保留请求超时、字节预算与取消语义，
+原生请求失败不通过另一条路径重放。自定义 Executor、环境代理、未覆盖的 argv、exec 与
+port-forward 保留既有路径；本次优化不改变并发度。原生路径与 kubectl 路径在请求证据中明确区分。
+
+
 Kubernetes Driver 是面向 e2e、perf 等多个 Harness 的中立工具，不是独立的 Kube Harness。Go
 实现位于 `sdks/go/toolbox/kube`，Python async 实现位于 `sdks/python/toolbox/harness_toolbox/kube`；两端使用语言惯用
 API，共享以下控制与观测语义：

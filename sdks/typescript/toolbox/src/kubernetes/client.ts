@@ -6,6 +6,7 @@ import type { Workload, WorkloadInstance } from "@compforge/harness-common";
 import { resourceAccess, type ResourceAccess, type ResourceLimits } from "./resources";
 import { resolveWorkload } from "./workload";
 import { KubernetesError } from "../errors";
+import { resourceGetCommand, runResourceGet } from "./resource-command";
 
 /** Owns cluster transports; protocol callers borrow this client without closing it. */
 export class KubernetesClient implements Client {
@@ -16,6 +17,8 @@ export class KubernetesClient implements Client {
   readonly #operations = new Set<Promise<unknown>>();
   #disposal?: Promise<void>;
   #resources?: ResourceAccess;
+  readonly #ownsResources: boolean;
+  readonly #nativeResourceReads: boolean;
 
   constructor(private readonly kube: KubectlOptions & { namespace: string }, signal?: AbortSignal, executor?: Executor,
     private readonly resourceLimits: ResourceLimits = { timeoutMs: 30_000, concurrency: 4, maxBytes: 8 * 1024 * 1024 },
@@ -23,6 +26,12 @@ export class KubernetesClient implements Client {
     this.signal = signal ? AbortSignal.any([signal, this.#controller.signal]) : this.#controller.signal;
     if (executor) this.#executors.set(kube.namespace, executor);
     this.#resources = resources;
+    this.#ownsResources = resources === undefined;
+    // Injected custom executors remain authoritative. Environment proxy routing belongs to kubectl;
+    // client-node native reads support the explicit kubeconfig proxy-url instead.
+    const proxyEnvironment = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]
+      .some(name => !!process.env[name]);
+    this.#nativeResourceReads = (!executor || executor.constructor === KubectlExecutor) && !proxyEnvironment;
   }
 
   async initialize(): Promise<void> { this.signal.throwIfAborted(); }
@@ -33,9 +42,12 @@ export class KubernetesClient implements Client {
       const namespace = workload.namespace ?? this.kube.namespace;
       if (!namespace.trim()) throw new KubernetesError("Workload namespace is required", { kind: "invalid_argument" });
       if (!environment.trim()) throw new KubernetesError("Environment identity is required", { kind: "invalid_argument" });
-      this.#resources ??= resourceAccess(this.kube, this.signal, this.resourceLimits);
-      return resolveWorkload(this.#resources, workload, namespace, environment);
+      return resolveWorkload(this.#resourceAccess(), workload, namespace, environment);
     });
+  }
+
+  #resourceAccess(): ResourceAccess {
+    return this.#resources ??= resourceAccess(this.kube, this.signal, this.resourceLimits);
   }
 
   #executor(namespace: string): Executor {
@@ -56,8 +68,17 @@ export class KubernetesClient implements Client {
     return { ...options, signal: options?.signal ? AbortSignal.any([this.signal, options.signal]) : this.signal };
   }
 
+  /**
+   * @spec JSON GET/LIST reuse one native HTTP pool per root client, across namespaces.
+   * @rule Native failures never replay through kubectl; custom executors and unsupported syntax retain their path.
+   * @see {@link docs/toolbox.md}
+   */
   run(namespace: string, command: string[], options?: RunOptions) {
-    return this.#track(() => this.#executor(namespace).run(command, this.#options(options)));
+    const request = this.#nativeResourceReads && namespace && options?.stdin === undefined
+      ? resourceGetCommand(command) : undefined;
+    return this.#track(() => request
+      ? runResourceGet(() => this.#resourceAccess(), namespace, request, this.#options(options))
+      : this.#executor(namespace).run(command, this.#options(options)));
   }
   exec(namespace: string, target: ExecTarget, command: string[], options?: RunOptions) {
     return this.#track(() => this.#executor(namespace).exec(target, command, this.#options(options)));
@@ -84,6 +105,7 @@ export class KubernetesClient implements Client {
         forwarder?.stop();
       }));
       this.#forwarders.clear();
+      if (this.#ownsResources) this.#resources?.dispose?.();
       const errors = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
       if (errors.length) throw new AggregateError(errors, "Kubernetes client cleanup failed");
     })();

@@ -58,6 +58,22 @@ a UID fence; callers needing incarnation guarantees must verify discovery around
 sources borrow Kubernetes access from the root manager and never close it themselves. Unsupported
 commands, missing paths and denied reads fail explicitly; they are not empty file results.
 
+## Kubernetes query transport
+
+`KubernetesClient.run(namespace, ["get", "pods", "-o", "json"])` uses bounded native
+JSON reads for supported built-in resources. A root client owns the HTTP keep-alive pool and
+shares it across namespaces. Kubeconfig authentication runs on every request; proxy/TLS settings
+identify the pooled Agent, so credentials can refresh without caching resource results.
+`dispose()` cancels outstanding work and closes the pool. Request provenance identifies the native
+`kubernetes-api` path rather than claiming a kubectl process ran.
+
+The compatibility subset accepts an optional object name, `-l <selector>` and `-o json` for
+Pods, Services, ConfigMaps, Secrets, core Events and apps/v1 workload controllers. Unknown resources,
+other formats/flags, stdin, exec and port-forward retain their existing execution paths.
+Custom injected Executors remain authoritative. Environment proxy variables retain kubectl routing;
+explicit kubeconfig `proxy-url` is supported by the native path. Native failures never retry through
+kubectl, including authentication, TLS and permission errors. Concurrency is not increased.
+
 ## Workload discovery
 
 Borrow a KubernetesClient through KubernetesEnvironment and the shared ClientManager lifecycle, then call
