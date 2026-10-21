@@ -54,3 +54,11 @@ for (const mode of ["http", "tls", "proxy", "rotation", "active-rotation"]) {
     expect(JSON.parse(result.stdout)).toEqual({ requests: 3, connections: mode.includes("rotation") ? 2 : 1, disposed: true, tls: mode === "tls" });
   }, 6000);
 }
+
+for (const runtime of ["node", "bun"]) for (const route of ["direct", "proxy", "proxy-name"]) test(`native Kubernetes ${runtime} ${route} exec authenticates with TLS and releases streams on completion, timeout and disposal`, () => {
+  const result = spawnSync("node", [fileURLToPath(new URL("./fixtures/kubernetes-exec.mjs", import.meta.url)), runtime, route],
+    { encoding: "utf8", timeout: 5000 });
+  expect(result.error).toBeUndefined();
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout.trim()).toBe("disposed");
+}, 6000);
