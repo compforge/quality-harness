@@ -1,7 +1,7 @@
 import { clientKey, type ClientProvider, type ClientManager } from "../client";
 import type { Environment } from "@compforge/harness-common";
 import { KubernetesClient } from "./client";
-import type { KubectlOptions } from "./executor";
+import type { KubernetesConnectionOptions } from "./resource-transport";
 import type { ResourceLimits } from "./resources";
 
 /** Cluster access is a client provider; the execution owns client lifetime. */
@@ -10,10 +10,10 @@ export class KubernetesEnvironment implements Environment, ClientProvider<Kubern
   readonly clientKey: string;
   /** Deployment metadata only; not part of client reuse or access configuration. */
   readonly imageRegistry?: string;
-  readonly #kube: KubectlOptions & { namespace: string };
+  readonly #kube: KubernetesConnectionOptions & { namespace: string };
   readonly #limits: ResourceLimits;
 
-  constructor(readonly name: string, kube: KubectlOptions & { namespace: string; imageRegistry?: string }, limits: ResourceLimits) {
+  constructor(readonly name: string, kube: KubernetesConnectionOptions & { namespace: string; imageRegistry?: string }, limits: ResourceLimits) {
     this.imageRegistry = kube.imageRegistry;
     // A structural environment object may carry names/IDs; only access fields key reuse.
     this.#kube = Object.freeze({

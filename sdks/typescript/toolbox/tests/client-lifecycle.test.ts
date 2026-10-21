@@ -73,22 +73,23 @@ test("Kubernetes dispose cancels active operations and waits for them", async ()
   const started = gate();
   let signal: AbortSignal | undefined;
   const client = new KubernetesClient({ namespace: "test" }, undefined, {
-    run: async (command, options) => {
+    run: async () => { throw new Error("unexpected"); },
+    exec: async (_target, command, options) => {
       signal = options?.signal;
       started.release();
       await new Promise<void>(resolve => signal!.addEventListener("abort", () => resolve(), { once: true }));
       return { ok: false, exitCode: 1, stdout: "", stderr: "cancelled", command, durationMs: 0, timedOut: false };
-    }, exec: async () => { throw new Error("unexpected"); },
+    },
   });
   await client.initialize();
-  const pending = client.run("test", ["get", "pods"]);
+  const pending = client.exec("test", { pod: "test" }, ["printenv"]);
   await started.promise;
   const closing = client.dispose();
   expect(client.dispose()).toBe(closing);
   await closing;
   await pending;
   expect(signal?.aborted).toBe(true);
-  expect(() => client.run("test", ["get", "pods"])).toThrow("disposed");
+  expect(() => client.exec("test", { pod: "test" }, ["printenv"])).toThrow("disposed");
 });
 
 test("datasource identity is stable, credential-sensitive, and hides credentials", () => {

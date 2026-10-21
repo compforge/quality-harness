@@ -14,7 +14,7 @@ toolbox/
 ├── src/concurrency.ts   # 可取消的共享容量
 ├── src/errors.ts        # 稳定错误 kind/code；原始 cause 只供调试
 ├── src/transport/       # TCP、端口转发与 Pod Python 路径
-├── src/kubernetes/      # 集群访问、日志源共享与字节预算
+├── src/kubernetes/      # 资源 get/list、根 HTTP 连接池、exec/forward 与日志采集
 ├── src/file/            # 本机及 Pod 文件来源、有界读取与取消
 ├── src/mysql/          # MySQL 原生与 Pod 协议执行
 ├── src/redis/           # Redis 连接与拓扑
@@ -34,6 +34,8 @@ toolbox/
 - 只在连接建立失败时选择另一 Transport，不重放可能已执行的协议操作。
 - Python/Go/TypeScript 对齐已有公共行为语义，各自可以有不同能力覆盖；不为目录对称补实现。
 - 发布内容只有构建后的 ESM、类型声明和 README；测试运行于 Bun，独立包 smoke 必须在 Node 下验证。
+- Kubernetes 资源使用 get/list 和结构化错误；namespace 视图借用根 HTTP transport，不解析命令 argv。
+  认证按请求刷新，连接池由 transport 持有；期限覆盖排队，TLS 身份变化后旧池待在途请求结束再回收。
 - Workload 解析复用 KubernetesClient 生命周期，不过滤实例就绪状态；平台错误转换为 KubernetesError，
   不能把访问失败当作空实例列表。common 的本地开发 override 不替代发布依赖，先发布 common 再发布 toolbox。
 

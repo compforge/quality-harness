@@ -58,6 +58,40 @@ a UID fence; callers needing incarnation guarantees must verify discovery around
 sources borrow Kubernetes access from the root manager and never close it themselves. Unsupported
 commands, missing paths and denied reads fail explicitly; they are not empty file results.
 
+## Kubernetes resources
+
+Borrow a root `KubernetesClient` through `KubernetesEnvironment` and `ClientManager`. Use
+`get(ref)` and `list(query)` for resource reads; `inNamespace(namespace)` binds a borrowed view
+to a namespace without creating a second client or pool:
+
+```ts
+const kube = await clients.get(environment);
+const ns = kube.inNamespace("app");
+const service = await ns.get({ apiVersion: "v1", resource: "services", name: "api" });
+const pods = await ns.list({ apiVersion: "v1", resource: "pods", labelSelector: "app=api" },
+  { timeoutMs: 15_000, signal });
+```
+
+`resource` is the plural REST resource name, not a Kind or kubectl alias. Explicit API versions
+support built-in resources and custom resources without a discovery request or local allowlist.
+The root uses its configured namespace unless the query overrides it; namespace views enforce
+their bound namespace. Resource objects and list metadata are returned intact. List requests
+accept label/field selectors and explicit `limit`/`continue` pages; they do not silently read all pages.
+Errors are `KubernetesError` objects carrying a stable kind and the HTTP status when available.
+Callers retain the query with their evidence; resource operations do not produce shell command results.
+
+The root owns one HTTP transport with keep-alive connections shared across namespaces and resource
+kinds. Authentication refreshes on each request. TLS/proxy identity changes select a new pool and
+retire the previous one after its active reads finish. Requests have bounded bytes and a deadline
+covering queueing, authentication and body consumption. `dispose()` cancels work, waits for tracked
+operations, and closes connections. Views and injected borrowed resource readers have no ownership
+of that lifecycle. No query results are cached and failures are never replayed through another transport.
+
+Native resource access uses kubeconfig authentication, TLS and explicit `proxy-url`. It does not
+select transports based on shell proxy environment variables. `exec` and `forward` are separate
+streaming operations; their implementation does not intercept resource reads. `KubernetesClient`
+has no `run(argv)` method. Concurrency remains caller-configured rather than inferred from pool size.
+
 ## Workload discovery
 
 Borrow a KubernetesClient through KubernetesEnvironment and the shared ClientManager lifecycle, then call

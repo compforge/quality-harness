@@ -44,3 +44,13 @@ setTimeout(() => process.exit(0), 1000);
     } finally { rmSync(root, { recursive: true, force: true }); }
   }, 5000);
 }
+
+for (const mode of ["http", "tls", "proxy", "rotation", "active-rotation"]) {
+  test(`native Kubernetes ${mode} reuses a physical connection and releases it on root disposal in Node`, () => {
+    const result = spawnSync("node", [fileURLToPath(new URL("./fixtures/kubernetes-resource-reuse.mjs", import.meta.url)), mode],
+      { encoding: "utf8", timeout: 5000 });
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ requests: 3, connections: mode.includes("rotation") ? 2 : 1, disposed: true, tls: mode === "tls" });
+  }, 6000);
+}
