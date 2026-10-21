@@ -103,7 +103,23 @@ selectorless Services and failed access raise KubernetesError.
 
 The resource path uses client-node kubeconfig authentication/TLS and bounded native JSON reads,
 not kubectl error text. Configure request timeout, concurrency and response bytes with the
-client's ResourceLimits constructor argument. Existing exec/port-forward operations remain unchanged.
+client's ResourceLimits constructor argument. Native exec uses the same root capacity/byte policy
+with a separate slot pool; its per-call timeout defaults to that policy and covers queueing,
+authentication, upgrade and execution. Explicit per-call timeouts support longer commands.
+
+Exec requires `get pods/exec` permission for the WebSocket upgrade (kubectl/SPDY paths may use
+`create pods/exec`). It connects directly to the Pod exec WebSocket endpoint without a preliminary Pod GET or
+kubectl subprocess. Each command owns a stream session; failures are never retried or replayed.
+Kubeconfig controls authentication, TLS and proxy access. stdout/stderr and remote exit status
+remain separate; retained output and individual messages are bounded. Streaming callers may
+set `collectStdout: false` and enforce their own total byte budget. Root disposal cancels active
+and queued sessions. Protocol v4 is accepted for output-only commands; stdin requires v5 to
+close input without losing remaining output/status. Bun does not expose HTTP upgrade rejection
+status, so those failures retain an unknown connection error. Native exec with a kubeconfig
+proxy requires Node: Bun cannot reliably release proxy sockets or preserve TLS name overrides.
+It fails before opening a session on Bun; use Node or explicitly provide an Executor adapter.
+The transport never bypasses the proxy or TLS checks.
+Port-forward still uses kubectl.
 See [the shared Workload model](../../../docs/workload.md).
 
 ```ts

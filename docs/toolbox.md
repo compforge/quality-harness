@@ -121,6 +121,15 @@ TLS/代理身份变化时旧池待在途读取结束后回收。期限覆盖排�
 
 资源读取使用 kubeconfig 中的显式 `proxy-url`，不依据 shell 代理环境变量切换执行方式。失败直接
 返回，不通过另一条路径重放。`exec` 与 `forward` 是独立流式操作；根客户端不提供 `run(argv)`。
+TypeScript exec 直接连接 Pod exec WebSocket，不启动 kubectl、不预读 Pod，也不重放失败命令。
+每次 exec 使用独立流式会话，根持有配置和容量，认证随请求刷新；取消根会终止在途和排队会话。
+exec 使用独立槽位池，容量和字节预算取根 ResourceLimits；单次 timeout 可覆盖默认期限，
+期限覆盖排队、认证、握手和执行。stdout/stderr 分流，按远端 status 判定退出码；
+保留输出与单帧有字节上限，关闭 collectStdout 后由流式消费方控制总量。
+无 stdin 时支持 v4/v5，有 stdin 时要求 v5 的输入半关闭语义。forward 仍由 kubectl 承载。
+Bun 不暴露握手拒绝的 HTTP 状态，保持 unknown connection failure。Bun 代理 WebSocket 的
+销毁和 TLS 名称覆盖存在限制，因此 kubeconfig proxy 下原生 exec 明确拒绝，需使用 Node Host
+或调用方显式提供 Executor；不绕过代理、不关闭证书验证、不在命令可能执行后重放。
 连接复用不改变采集调度并发度。
 
 Kubernetes Driver 是面向 e2e、perf 等多个 Harness 的中立工具，不是独立的 Kube Harness。Go

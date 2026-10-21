@@ -1,3 +1,4 @@
+import { KubernetesExecTransport } from "./exec-transport";
 import type { Client } from "../client";
 import { KubectlExecutor, type Executor, type ExecTarget, type RunOptions } from "./executor";
 import { ServicePortForwarder } from "./service-port-forward";
@@ -16,12 +17,15 @@ export class KubernetesClient implements Client {
   readonly #forwarders = new Map<string, Promise<ServicePortForwarder>>();
   readonly #operations = new Set<Promise<unknown>>();
   #disposal?: Promise<void>;
+  #exec?: KubernetesExecTransport;
+  readonly #injectedExecutor?: Executor;
   #resources?: ResourceAccess;
   #transport?: KubernetesResourceTransport;
 
   constructor(private readonly kube: KubernetesConnectionOptions & { namespace: string }, signal?: AbortSignal, executor?: Executor,
     private readonly resourceLimits: ResourceLimits = { timeoutMs: 30_000, concurrency: 4, maxBytes: 8 * 1024 * 1024 },
     resources?: ResourceAccess) {
+    this.#injectedExecutor = executor;
     this.signal = signal ? AbortSignal.any([signal, this.#controller.signal]) : this.#controller.signal;
     if (executor) this.#executors.set(kube.namespace, executor);
     this.#resources = resources;
@@ -84,7 +88,10 @@ export class KubernetesClient implements Client {
     };
   }
   exec(namespace: string, target: ExecTarget, command: string[], options?: RunOptions) {
-    return this.#track(() => this.#executor(namespace).exec(target, command, this.#options(options)));
+    return this.#track(() => this.#injectedExecutor && namespace === this.kube.namespace
+      ? this.#injectedExecutor.exec(target, command, this.#options(options))
+      : (this.#exec ??= new KubernetesExecTransport(this.kube, this.signal, this.resourceLimits))
+        .exec(namespace, target, command, this.#options(options)));
   }
   forward(namespace: string, target: KubernetesEndpoint) {
     return this.#track(async () => {
