@@ -14,6 +14,7 @@ src/
 ├── client.ts          # 初始化与幂等回收契约
 ├── client-provider.ts  # Environment/DataSource 共同的客户端标识与构造契约
 ├── datasource.ts      # 数据来源语义与 Service 关联
+├── file.ts            # 文件来源识别与有界原始字节读取契约
 ├── context.ts         # 执行期环境、借用入口与预算，不依赖 Fixture
 ├── client-manager.ts  # 根执行内共享客户端与回收
 ├── workload.ts        # 负载声明与运行实例，不执行平台 I/O

@@ -27,6 +27,12 @@ view during initialize, so concurrent consumers share them and dispose before th
 Dependency graphs must be acyclic. A failed initialization permits retry only after successful cleanup;
 failed cleanup poisons that key and is reported again when the root manager is disposed.
 
+`FileDataSource` is an abstract, runtime-recognizable DataSource for one file path. Its `FileClient.read`
+returns fresh `Uint8Array` bytes with explicit `maxBytes`, `timeoutMs` and optional cancellation.
+An empty file succeeds; an oversized or incomplete read rejects. The source's `path` and concrete
+location metadata let consumers attach provenance. Parsing, configuration precedence and persistence
+belong to consumers. Platform implementations live in `@compforge/harness-toolbox/file`.
+
 Service identifies a Component's runtime presence in an Environment. A Component belongs to a Repository
 on a Forge. Product is a separate business identity; consumers own its many-to-many associations
 with Components. Repository discovery and directory ownership remain consumer responsibilities.

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
@@ -196,6 +196,45 @@ test("published OpenSearch entry falls back and does not replay reads on a reuse
         await new Promise(resolve => server.close(resolve));
       }
     `], { cwd: root, encoding: "utf8", timeout: 5000 });
+    expect(result.error).toBeUndefined();
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("published file sources preserve Common type identity and read bytes in Node without protocol drivers", () => {
+  const root = mkdtempSync(join(tmpdir(), "harness-toolbox-file-package-"));
+  const target = join(root, "node_modules/@compforge/harness-toolbox");
+  mkdirSync(target, { recursive: true });
+  try {
+    installCommon(root);
+    cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
+    cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
+    writeFileSync(join(root, "config"), new Uint8Array([0, 255, 128, 10]));
+    const result = spawnSync("node", ["--input-type=module", "-e", `
+      import assert from 'node:assert/strict';
+      import { ClientManager, FileDataSource as Common } from '@compforge/harness-common';
+      import { FileDataSource, LocalFileDataSource, PodFileDataSource } from '@compforge/harness-toolbox/file';
+      assert.equal(FileDataSource, Common);
+      const source = new LocalFileDataSource('./config', {concurrency:1});
+      assert.ok(source instanceof Common);
+      const manager = new ClientManager();
+      try {
+        const client = await manager.get(source);
+        assert.deepEqual(await client.read({maxBytes:4,timeoutMs:1000}), new Uint8Array([0,255,128,10]));
+        await assert.rejects(client.read({maxBytes:3,timeoutMs:1000}), {kind:'limit_exceeded'});
+        const access = {clientKey:'test',createClient:() => ({
+          initialize:async()=>{},dispose:async()=>{},exec:async(_namespace,_target,_command,options)=>{
+            options.onStdoutBytes(new Uint8Array([255,0]));
+            return {ok:true};
+          }
+        })};
+        const pod = new PodFileDataSource(access, {namespace:'ns',pod:'p',container:'app'}, '/config', {concurrency:1});
+        assert.ok(pod instanceof Common);
+        assert.deepEqual(await (await manager.get(pod)).read({maxBytes:2,timeoutMs:1000}), new Uint8Array([255,0]));
+      } finally { await manager.dispose(); }
+    `], { cwd: root, encoding: "utf8", timeout: 10_000 });
     expect(result.error).toBeUndefined();
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
