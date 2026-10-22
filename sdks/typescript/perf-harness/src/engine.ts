@@ -35,6 +35,7 @@ export interface Experiment {
   loads: LoadPlan[];
   caseSet?: CaseSet;
   caseMix?: readonly CaseMixEntry[];
+  /** @spec Host cancellation reaches every Runner phase and in-flight request with its original reason. */
   signal?: AbortSignal;
   onArmStart?(context: ArmContext, startedAt: Date): Promise<void> | void;
   onArmFinish?(arm_run: ArmRun): Promise<void> | void;
@@ -200,14 +201,11 @@ export class Engine {
     for (const arm of resolvedArms) {
       if (this.#experiment.signal?.aborted) break;
       const started = new Date();
-      const controller = new AbortController();
-      const abort = () => controller.abort(this.#experiment.signal?.reason);
-      this.#experiment.signal?.addEventListener("abort", abort, { once: true });
       const context: ArmContext = {
         service: this.#experiment.service,
         arm,
         run_id: this.#runId,
-        signal: controller.signal,
+        signal: this.#experiment.signal ?? new AbortController().signal,
       };
       const execution = new ArmExecutionContext(context);
       const result: ArmRun = {
@@ -233,8 +231,10 @@ export class Engine {
       };
       try {
         await this.#experiment.runner.setup?.(execution.runner);
+        execution.runner.signal.throwIfAborted();
         execution.enter("warmup");
         await this.#experiment.onArmStart?.(execution.runner, started);
+        execution.runner.signal.throwIfAborted();
         await drive({
           state: execution.drive,
           judge: this.#experiment.judge ?? defaultJudge,
@@ -257,7 +257,6 @@ export class Engine {
           execution.record(error);
         }
       } finally {
-        this.#experiment.signal?.removeEventListener("abort", abort);
         try {
           await this.#experiment.runner.cleanup?.(execution.runner);
         } catch (cleanupError) {
@@ -301,6 +300,7 @@ export class Engine {
       created_at: created.toISOString(),
       service: this.#experiment.service.name,
       passed:
+        !this.#experiment.signal?.aborted &&
         arm_runs.length === resolvedArms.length &&
         arm_runs.every(
           (arm_run) =>

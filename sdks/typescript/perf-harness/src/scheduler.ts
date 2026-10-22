@@ -41,13 +41,19 @@ export async function drive(options: {
       cases,
       weights,
       execution,
-      signal,
+      signal: externalSignal,
       state,
     } = options,
     load = arm.load;
+  const signal = externalSignal
+    ? AbortSignal.any([context.signal, externalSignal])
+    : context.signal;
   const start = performance.now(),
     now = () => (performance.now() - start) / 1000;
   const active = new Map<Promise<void>, AbortController>();
+  // Request cancellation can finish calls before the scheduler resumes; retain the boundary census.
+  let inflightAtCancellation: number | undefined;
+  const onCancel = () => { inflightAtCancellation = active.size; };
   const errors: unknown[] = [];
   let completed = 0,
     failed = 0,
@@ -85,6 +91,7 @@ export async function drive(options: {
     };
     execution.requests.push(record);
     const controller = new AbortController();
+    const requestSignal = AbortSignal.any([signal, controller.signal]);
     record.dispatched_at = now();
     record.operation_run_id = record.id;
     record.state = "dispatched";
@@ -95,17 +102,18 @@ export async function drive(options: {
         const fireContext = {
           ...context,
           case: item,
-          signal: controller.signal,
+          signal: requestSignal,
         };
         let operation = { name: runner.name };
         try {
           operation = runner.operation?.(fireContext) ?? operation;
+          requestSignal.throwIfAborted();
           outcome = await runner.fire(fireContext);
         } catch (error) {
           outcome = {
             status: null,
             duration_ms: (now() - record.dispatched_at!) * 1000,
-            meta: controller.signal.aborted
+            meta: requestSignal.aborted
               ? { interrupted: true }
               : {
                   exc: error instanceof Error ? error.name : "Error",
@@ -114,7 +122,7 @@ export async function drive(options: {
           };
         }
         record.finished_at = now();
-        record.state = controller.signal.aborted ? "interrupted" : "finished";
+        record.state = requestSignal.aborted ? "interrupted" : "finished";
         if (record.state === "interrupted") record.reason = "cancelled";
         outcome = {
           ...outcome,
@@ -165,6 +173,7 @@ export async function drive(options: {
       if (abort) signal?.removeEventListener("abort", abort);
     }
   }
+  signal.addEventListener("abort", onCancel, { once: true });
   try {
     while (!signal?.aborted) {
       const elapsed = now();
@@ -226,7 +235,7 @@ export async function drive(options: {
     state.measurement_end_s = control.end_s!;
     state.measurement_start_s = control.hold_start_s ?? control.end_s!;
     state.stop = {
-      reason, snapshot, inflight_at_stop: active.size,
+      reason, snapshot, inflight_at_stop: inflightAtCancellation ?? active.size,
       interrupted: 0, force_cancelled: false,
     };
     state.phase = "cooldown";
@@ -235,17 +244,18 @@ export async function drive(options: {
       await wait(deadline - now());
     if (signal?.aborted) state.stop.reason = "aborted";
   } finally {
+    signal.removeEventListener("abort", onCancel);
     // Capture the load boundary before cancellation; cleanup latency is not measurement.
     if (state.measurement_end_s === undefined) {
       control.abort(now());
       state.measurement_end_s = control.end_s!;
       state.measurement_start_s = control.hold_start_s ?? control.end_s!;
       state.stop = {
-        reason: "aborted", inflight_at_stop: active.size,
+        reason: "aborted", inflight_at_stop: inflightAtCancellation ?? active.size,
         interrupted: 0, force_cancelled: false,
       };
     }
-    for (const controller of active.values()) controller.abort();
+    for (const controller of active.values()) controller.abort(signal.reason);
     await Promise.all(active.keys());
     state.stop.interrupted = execution.requests.filter((r) => r.state === "interrupted").length;
     state.stop.force_cancelled = state.stop.interrupted > 0;
