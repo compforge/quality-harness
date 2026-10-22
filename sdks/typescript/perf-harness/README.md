@@ -33,7 +33,15 @@ A full inflight cap pauses the source without queued or dropped arrivals. `Infin
 in hold and replenishes available slots. Cooldown waits for calls to finish, then cancels and joins
 remaining calls at `cooldown_timeout_s` (default 180).
 A decreasing cap does not cancel existing calls. Each Runner must cooperate with AbortSignal and fully
-consume its response; use a streaming parser with bounded buffers for real SSE. A separate `judge`
+consume its response; use a streaming parser with bounded buffers for real SSE.
+
+Pass the host's cancellation signal as `Experiment.signal`. Aborting it immediately notifies
+in-flight requests and all Runner lifecycle hooks with the original reason, stops further load,
+and joins requests before cleanup. Cancellation bypasses the normal cooldown wait; interrupted
+requests remain in the raw evidence and are not judged. An already cancelled experiment acquires
+no Runner resources. The host owns Ctrl+C/SIGINT handling; the SDK does not install process handlers.
+
+A separate `judge`
 function evaluates raw Outcomes; the default checks transport/status, not business completion.
 
 `caseSet` and `caseMix` select canonical Case IDs and experiment-local weights. `run.executions` holds
