@@ -121,8 +121,6 @@ test("Redis Cluster 拓扑发现保留每个节点的逻辑 endpoint", async () 
     endpoints: [{ host: "redis", port: 6379 }],
     database: 0,
     clusterType: "cluster",
-    sentinelHosts: [],
-    sentinelMasterName: "mymaster",
   });
   expect(topology.clusterType).toBe("cluster");
   expect(topology.masters).toEqual([
@@ -161,9 +159,8 @@ test("Redis command deadline 淘汰无响应连接，且不使用 idle socket ti
 
   expect(options.socket.socketTimeout).toBeUndefined();
   expect(options.commandOptions.timeout).toBe(20);
-  expect(options.socket.reconnectStrategy(0)).toBe(100);
-  expect(options.socket.reconnectStrategy(1)).toBe(200);
-  expect(options.socket.reconnectStrategy(2)).toBeFalse();
+  expect(options.socket.reconnectStrategy).toBeFalse();
+  expect(options.disableOfflineQueue).toBeTrue();
   await expect(connection.ping()).rejects.toThrow(
     "Redis PING timed out after 20ms (redis.example.test:6379)",
   );

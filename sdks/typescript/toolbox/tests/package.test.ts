@@ -249,3 +249,27 @@ test("published file sources preserve Common type identity and read bytes in Nod
     expect(result.status).toBe(0);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+for (const mode of ["fallback", "no-replay", "cancel", "sentinel", "cluster"]) {
+  test(`published Redis client ${mode} uses actual sockets and releases them in Node`, () => {
+    const root = mkdtempSync(join(tmpdir(), "harness-toolbox-redis-package-"));
+    const target = join(root, "node_modules/@compforge/harness-toolbox");
+    try {
+      installCommon(root);
+      mkdirSync(target, { recursive: true });
+      cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
+      cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
+      const require = createRequire(import.meta.url);
+      const redis = dirname(dirname(require.resolve("@redis/client")));
+      mkdirSync(join(root, "node_modules/@redis"), { recursive: true });
+      symlinkSync(redis, join(root, "node_modules/@redis/client"));
+      const result = spawnSync("node", [fileURLToPath(new URL("./fixtures/redis-client.mjs", import.meta.url)), mode], {
+        cwd: root, encoding: "utf8", timeout: 4000,
+        env: { ...process.env, REDIS_PACKAGE_ENTRY: join(target, "dist/redis/index.js") },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout.trim()).toBe("disposed");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }, 5000);
+}

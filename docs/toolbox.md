@@ -42,6 +42,13 @@ MySQL、Redis、OpenSearch、S3 和 Kubernetes 客户端实现这些原语。连
 Transport，认证错误或已开始执行的 SQL 错误不得触发重放。相互独立的语句可用 `queryBatch` 合并提交：
 Pod Transport 下进程启动、exec 握手与认证只发生一次，语句按提交顺序执行，任一失败即整批失败（fail-fast）。
 
+TypeScript RedisClient 持有完整的 single / sentinel / cluster 配置。endpoints 在三种模式下分别表示
+单机、Cluster 或 Sentinel 的种子地址，Sentinel 与数据节点的身份分别保存。所有节点使用同一组有序
+TCP Transport；只在建连网络失败时切换，鉴权失败不切换，命令和 pipeline 不自动重放。connectTimeoutMs
+约束单条路径的地址映射与握手，默认使用命令的 timeoutMs；acquireTimeoutMs 约束全部候选路径的总期限，
+默认按单条路径预算乘候选数量。总预算耗尽不再启动下一条路径。根 signal 取消建连与在途命令；失效连接在下一次获取时重建，最终 dispose 后不可重开。
+拓扑发现实现属于 toolbox，Client.topology() 按需刷新；诊断采样、业务 key 与结果缓存策略由消费方决定。
+
 TypeScript MySQL 的有界查询 helper 为调用方提供的 SQL 追加经过整数校验的 LIMIT，并通过额外一行
 判断截断；表结构、过滤条件和查询优先级仍由业务方拥有。`queryReadonly` 继续负责独立只读会话的
 行数、字节与时间预算，两种能力不混用语义。

@@ -62,6 +62,26 @@ never close it themselves.
 Version 0.4.2 requires Common 0.5.4. Replace single path arguments with arrays, supply `maxTotalBytes`,
 and handle per-file results. Publish Common before Toolbox; this change has no single-file legacy adapter.
 
+## Redis sources
+
+`RedisClient` owns resolved configuration and reusable node connections. Use `clusterType` to
+select `single`, `cluster` or `sentinel`; `endpoints` contains that mode's seed addresses. Sentinel
+configuration additionally provides `sentinelMasterName` and optional Sentinel credentials,
+separate from data-node credentials. Cluster connections require database zero.
+
+Supply ordered TCP transports through `ConnectionSource`. Only mapping or handshake network
+failures advance to the next transport; authentication and TLS verification failures stop immediately.
+`connectTimeoutMs` bounds each route (mapping and handshake); it defaults to the command
+`timeoutMs`. `acquireTimeoutMs` bounds all candidates together and defaults to the per-route budget
+times the number of routes. A spent total budget does not start another route.
+`onRoute` reports the selected route and the preceding failure code without credentials.
+
+`client.topology()` refreshes topology using the same connections and route policy as
+`client.access.connection(endpoint, database)`. A root signal cancels connection preparation and
+active commands. Commands and pipelines are sent once, with no offline queue or automatic replay;
+a subsequent acquisition replaces an unhealthy connection. The caller owns `dispose()` and transport
+cleanup, and diagnostics own sampling policy and collected observations.
+
 ## Kubernetes resources
 
 Borrow a root `KubernetesClient` through `KubernetesEnvironment` and `ClientManager`. Use

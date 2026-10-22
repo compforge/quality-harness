@@ -1,14 +1,15 @@
 import type { RedisAccessApi, RedisCredentials, RedisEndpoint } from "./client";
 
-export interface RedisTopologyConfig extends RedisCredentials {
+/** Endpoints are standalone/cluster seeds or Sentinel seeds according to clusterType. */
+export type RedisTopologyConfig = RedisCredentials & {
   endpoints: RedisEndpoint[];
   database: number;
-  clusterType: "single" | "sentinel" | "cluster";
-  sentinelHosts: RedisEndpoint[];
+} & ({ clusterType: "single" | "cluster" } | {
+  clusterType: "sentinel";
   sentinelMasterName: string;
   sentinelUsername?: string;
   sentinelPassword?: string;
-}
+});
 
 export interface RedisSlotRange {
   start: number;
@@ -50,8 +51,8 @@ function sentinelRows(value: unknown): Record<string, string>[] {
   });
 }
 
-async function discoverSentinel(access: RedisAccessApi, config: RedisTopologyConfig): Promise<RedisTopology> {
-  const sentinels = config.sentinelHosts.length ? config.sentinelHosts : config.endpoints;
+async function discoverSentinel(access: RedisAccessApi, config: Extract<RedisTopologyConfig, { clusterType: "sentinel" }>): Promise<RedisTopology> {
+  const sentinels = config.endpoints;
   let lastError: unknown;
   for (const sentinel of sentinels) {
     try {
