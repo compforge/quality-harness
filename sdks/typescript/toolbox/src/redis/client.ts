@@ -1,7 +1,9 @@
 import type { Client } from "../client";
 import type { ConnectionSource, ClientLifecycle } from "../datasource";
-import type { TcpTransport } from "../transport";
-import { createClient, type RedisClientType } from "@redis/client";
+import { isConnectionNetworkError, type TcpTransport } from "../transport";
+import { ToolboxError } from "../errors";
+import { discoverRedisTopology, type RedisTopologyConfig, type RedisTopology } from "./topology";
+import { createClient, SocketClosedUnexpectedlyError, ConnectionTimeoutError, type RedisClientType } from "@redis/client";
 
 export interface RedisEndpoint {
   host: string;
@@ -21,6 +23,10 @@ export interface RedisConnectionConfig extends RedisCredentials {
   database: number;
   useSsl: boolean;
   timeoutMs: number;
+  /** Per-route mapping and handshake budget; defaults to timeoutMs. */
+  connectTimeoutMs?: number;
+  /** Total acquisition budget; defaults to connectTimeoutMs times the number of routes. */
+  acquireTimeoutMs?: number;
 }
 
 export type RedisEndpointMapper = (endpoint: RedisEndpoint) => Promise<RedisMappedEndpoint>;
@@ -36,7 +42,7 @@ export interface RedisManagedConnection extends RedisConnectionApi {
 export type RedisConnectionFactory = (
   endpoint: RedisEndpoint,
   mapped: RedisMappedEndpoint,
-  config: RedisConnectionConfig,
+  config: RedisConnectionConfig & { signal?: AbortSignal; connectSignal?: AbortSignal },
 ) => Promise<RedisManagedConnection>;
 
 function stringValue(value: unknown): string {
@@ -89,86 +95,87 @@ export interface RedisAccessApi {
   close(): Promise<void>;
 }
 
+/** Await cancellation even when an injected transport cannot cancel its own preparation. */
+async function abortable<T>(pending: Promise<T>, signal: AbortSignal, cancel?: () => void): Promise<T> {
+  if (signal.aborted) {
+    cancel?.();
+    void pending.catch(() => {});
+    signal.throwIfAborted();
+  }
+  let abort!: () => void;
+  const cancelled = new Promise<never>((_, reject) => {
+    abort = () => { cancel?.(); reject(signal.reason); };
+    signal.addEventListener("abort", abort, { once: true });
+  });
+  try { return await Promise.race([pending, cancelled]); }
+  finally { signal.removeEventListener("abort", abort); }
+}
+
+/** @spec A command is sent once; a later operation may acquire a new connection after failure. */
 export class RedisConnection implements RedisManagedConnection {
+  #abort?: () => void;
   private constructor(
     readonly endpoint: RedisEndpoint,
     private readonly client: NodeRedisClient,
     private readonly timeoutMs: number,
     private readonly lastError: () => Error | undefined,
-  ) {}
+    private readonly signal?: AbortSignal,
+  ) {
+    this.#abort = () => this.close();
+    signal?.addEventListener("abort", this.#abort, { once: true });
+  }
 
   static async connect(
     endpoint: RedisEndpoint,
     mapped: RedisMappedEndpoint,
-    config: RedisConnectionConfig,
+    config: RedisConnectionConfig & { signal?: AbortSignal; connectSignal?: AbortSignal },
     clientFactory: NodeRedisClientFactory = createClient as NodeRedisClientFactory,
   ): Promise<RedisConnection> {
+    config.signal?.throwIfAborted();
+    config.connectSignal?.throwIfAborted();
     const baseSocket = {
-      host: mapped.host,
-      port: mapped.port,
-      connectTimeout: config.timeoutMs,
-      // 允许短暂网络抖动恢复，但不能无限阻塞调用方退出。
-      reconnectStrategy: (retries: number) => retries >= 2 ? false : 100 * 2 ** retries,
+      host: mapped.host, port: mapped.port,
+      connectTimeout: config.connectTimeoutMs ?? config.timeoutMs,
+      // Connection recovery belongs to RedisAccess; never queue or replay a command during reconnect.
+      reconnectStrategy: false as const,
     };
     const socket = config.useSsl
-      ? {
-          ...baseSocket,
-          tls: true as const,
-          servername: mapped.servername ?? endpoint.host,
-        }
-      : {
-          ...baseSocket,
-          tls: false as const,
-        };
-    const client = clientFactory({
-      socket,
-      database: config.database,
-      username: config.username,
-      password: config.password,
-      commandOptions: { timeout: config.timeoutMs },
-    });
+      ? { ...baseSocket, tls: true as const, servername: mapped.servername ?? endpoint.host }
+      : { ...baseSocket, tls: false as const };
+    const client = clientFactory({ socket, database: config.database,
+      username: config.username, password: config.password,
+      disableOfflineQueue: true, commandOptions: { timeout: config.timeoutMs } });
     let lastError: Error | undefined;
-    // node-redis 要求 error listener 存在；保留最近错误，避免后续只剩模糊的 client closed。
-    client.on("error", (err) => {
-      lastError = err instanceof Error ? err : new Error(String(err));
-    });
-    try { await client.connect(); }
-    catch (error) { if (client.isOpen) client.destroy(); throw error; }
-    return new RedisConnection(endpoint, client as NodeRedisClient, config.timeoutMs, () => lastError);
+    client.on("error", err => { lastError = err instanceof Error ? err : new Error(String(err)); });
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(new ToolboxError("Redis handshake timed out", { kind: "timeout", code: "ETIMEDOUT" })),
+      config.connectTimeoutMs ?? config.timeoutMs);
+    const signal = AbortSignal.any([timeout.signal, ...(config.signal ? [config.signal] : []),
+      ...(config.connectSignal ? [config.connectSignal] : [])]);
+    const close = () => { if (client.isOpen) client.destroy(); };
+    try {
+      await abortable(client.connect(), signal, close);
+      signal.throwIfAborted();
+      return new RedisConnection(endpoint, client, config.timeoutMs, () => lastError, config.signal);
+    } catch (error) { close(); throw error; }
+    finally { clearTimeout(timer); }
   }
 
-  get isReady(): boolean {
-    return this.client.isReady;
-  }
+  get isReady(): boolean { return !this.signal?.aborted && this.client.isReady; }
 
   async #execute<T>(operationName: string, operation: () => Promise<T>): Promise<T> {
-    try {
-      return await this.#executeOnce(operationName, operation);
-    } catch (err) {
-      // node-redis 正在自动重连时，只读命令允许再入队一次；全程仍受同一命令 deadline 约束。
-      if (this.client.isOpen && !this.client.isReady) return this.#executeOnce(operationName, operation);
-      throw err;
-    }
-  }
-
-  async #executeOnce<T>(operationName: string, operation: () => Promise<T>): Promise<T> {
+    this.signal?.throwIfAborted();
     if (!this.client.isOpen) {
       const reason = this.lastError()?.message;
       throw new Error(`Redis connection is closed${reason ? `: ${reason}` : ""}`);
     }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        reject(new Error(`Redis ${operationName} timed out after ${this.timeoutMs}ms (${this.endpoint.host}:${this.endpoint.port})`));
-        // node-redis 的 command timeout 只覆盖待发送队列；销毁 socket 才能终止已发出但无响应的命令。
-        this.close();
-      }, this.timeoutMs);
-    });
-    try {
-      return await Promise.race([Promise.resolve().then(operation), deadline]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(new ToolboxError(
+      `Redis ${operationName} timed out after ${this.timeoutMs}ms (${this.endpoint.host}:${this.endpoint.port})`,
+      { kind: "timeout", code: "ETIMEDOUT" })), this.timeoutMs);
+    const signal = this.signal ? AbortSignal.any([this.signal, timeout.signal]) : timeout.signal;
+    try { return await abortable(Promise.resolve().then(() => { signal.throwIfAborted(); return operation(); }), signal, () => this.close()); }
+    finally { clearTimeout(timer); }
   }
 
   ping(): Promise<string> {
@@ -194,7 +201,6 @@ export class RedisConnection implements RedisManagedConnection {
     const commandNames = new Set(commands.map((command) => command[0]?.toUpperCase()).filter(Boolean));
     const operationName = commandNames.size === 1 ? `${[...commandNames][0]} pipeline` : "pipeline";
     return await this.#execute(operationName, () => {
-      // 重连后的只读重试必须重新创建 pipeline；已执行过的 multi builder 不可复用。
       const pipeline = this.client.multi();
       for (const command of commands) pipeline.addCommand(command);
       return pipeline.execAsPipeline();
@@ -208,60 +214,105 @@ export class RedisConnection implements RedisManagedConnection {
   }
 
   close(): void {
+    if (this.#abort) this.signal?.removeEventListener("abort", this.#abort);
     if (this.client.isOpen) this.client.destroy();
   }
 }
 
+/**
+ * @spec Only connection establishment can advance to another transport; protocol operations are never replayed.
+ * @why Every topology node needs the same route policy, credentials, deadline and root cancellation.
+ */
 export class RedisAccess implements RedisAccessApi {
   readonly #connections = new Map<string, Promise<RedisManagedConnection>>();
+  readonly #controller = new AbortController();
+  readonly #signal: AbortSignal;
+  readonly #transports: readonly TcpTransport[];
   #closing?: Promise<void>;
 
   constructor(
-    private readonly transport: TcpTransport,
+    transports: TcpTransport | readonly TcpTransport[],
     private readonly baseConfig: Omit<RedisConnectionConfig, "database">,
     private readonly connectionFactory: RedisConnectionFactory = RedisConnection.connect,
-  ) {}
+    private readonly lifecycle: ClientLifecycle = {},
+  ) {
+    this.#transports = Array.isArray(transports) ? transports : [transports as TcpTransport];
+    if (!this.#transports.length) throw new Error("Redis requires a TCP transport");
+    for (const value of [baseConfig.timeoutMs, baseConfig.connectTimeoutMs ?? baseConfig.timeoutMs,
+      baseConfig.acquireTimeoutMs ?? (baseConfig.connectTimeoutMs ?? baseConfig.timeoutMs) * this.#transports.length]) {
+      if (!Number.isFinite(value) || value <= 0) throw new Error("Redis timeouts must be positive milliseconds");
+    }
+    this.#signal = lifecycle.signal ? AbortSignal.any([lifecycle.signal, this.#controller.signal]) : this.#controller.signal;
+  }
 
-  async connection(
-    endpoint: RedisEndpoint,
-    database: number,
-    credentials: RedisCredentials = this.baseConfig,
-  ): Promise<RedisManagedConnection> {
-    if (this.#closing) throw new Error("Redis access is closed");
-    const key = [
-      endpoint.host,
-      endpoint.port,
-      database,
-      credentials.username ?? "",
-      credentials.password ?? "",
-    ].join("\0");
-    let pending = this.#connections.get(key);
-    if (pending) {
-      const connection = await pending;
-      if (this.#closing) throw new Error("Redis access is closed");
+  async connection(endpoint: RedisEndpoint, database: number, credentials: RedisCredentials = this.baseConfig): Promise<RedisManagedConnection> {
+    this.#signal.throwIfAborted();
+    const key = [endpoint.host, endpoint.port, database, credentials.username ?? "", credentials.password ?? ""].join("\0");
+    const existing = this.#connections.get(key);
+    if (existing) {
+      const connection = await existing;
+      this.#signal.throwIfAborted();
       if (connection.isReady) return connection;
-      if (this.#connections.get(key) === pending) {
+      if (this.#connections.get(key) === existing) {
         this.#connections.delete(key);
         connection.close();
-      } else {
-        return this.connection(endpoint, database, credentials);
       }
+      return this.connection(endpoint, database, credentials);
     }
-    pending = this.transport.connect(endpoint).then((mapped) => this.connectionFactory(endpoint, mapped, {
-        ...this.baseConfig,
-        ...credentials,
-        database,
-      }));
+    const pending = this.#open(endpoint, database, credentials);
     this.#connections.set(key, pending);
-    void pending.catch(() => {
-      // 建连失败不能污染缓存；下一次访问应获得一次全新的连接机会。
-      if (this.#connections.get(key) === pending) this.#connections.delete(key);
-    });
-    return await pending;
+    void pending.catch(() => { if (this.#connections.get(key) === pending) this.#connections.delete(key); });
+    return pending;
+  }
+
+  async #open(endpoint: RedisEndpoint, database: number, credentials: RedisCredentials): Promise<RedisManagedConnection> {
+    const timeout = new AbortController();
+    const attemptBudget = this.baseConfig.connectTimeoutMs ?? this.baseConfig.timeoutMs;
+    const budget = this.baseConfig.acquireTimeoutMs ?? attemptBudget * this.#transports.length;
+    const deadline = performance.now() + budget;
+    const timer = setTimeout(() => timeout.abort(new ToolboxError(
+      `Redis connection timed out after ${budget}ms (${endpoint.host}:${endpoint.port})`,
+      { kind: "timeout", code: "ETIMEDOUT" })), budget);
+    const signal = AbortSignal.any([this.#signal, timeout.signal]);
+    let reason: string | undefined;
+    try {
+      for (let index = 0; index < this.#transports.length; index++) {
+        signal.throwIfAborted();
+        const transport = this.#transports[index]!;
+        const attempt = new AbortController();
+        const remaining = Math.min(attemptBudget, Math.max(1, Math.ceil(deadline - performance.now())));
+        const attemptTimer = setTimeout(() => attempt.abort(new ToolboxError(
+          `Redis connection attempt timed out (${transport.name})`, { kind: "timeout", code: "ETIMEDOUT" })), remaining);
+        const attemptSignal = AbortSignal.any([signal, attempt.signal]);
+        try {
+          const mapped = await abortable(transport.connect(endpoint), attemptSignal);
+          attemptSignal.throwIfAborted();
+          const pending = this.connectionFactory(endpoint, mapped, { ...this.baseConfig, ...credentials, database,
+            connectTimeoutMs: remaining, signal: this.#signal, connectSignal: attemptSignal });
+          // A factory that finishes after cancellation must not leak a live connection.
+          const prepared = pending.then(connection => {
+            if (attemptSignal.aborted) { connection.close(); attemptSignal.throwIfAborted(); }
+            return connection;
+          });
+          const connection = await abortable(prepared, attemptSignal);
+          this.lifecycle.onRoute?.({ transport: mapped.host === endpoint.host && mapped.port === endpoint.port ? "direct" : transport.name, reason });
+          return connection;
+        } catch (failure) {
+          signal.throwIfAborted();
+          const error = attemptSignal.aborted ? attemptSignal.reason : failure;
+          const network = isConnectionNetworkError(error) || error instanceof SocketClosedUnexpectedlyError || error instanceof ConnectionTimeoutError;
+          if (!network || index === this.#transports.length - 1) throw error;
+          reason = error instanceof SocketClosedUnexpectedlyError ? "connection_lost"
+            : error instanceof ConnectionTimeoutError ? "ETIMEDOUT" : String((error as NodeJS.ErrnoException).code);
+        } finally { clearTimeout(attemptTimer); }
+      }
+      throw new Error("Redis requires a TCP transport");
+    } finally { clearTimeout(timer); }
   }
 
   close(): Promise<void> {
     return this.#closing ??= (async () => {
+      this.#controller.abort(new Error("Redis access is closed"));
       const settled = await Promise.allSettled(this.#connections.values());
       this.#connections.clear();
       const errors: unknown[] = [];
@@ -273,9 +324,8 @@ export class RedisAccess implements RedisAccessApi {
   }
 }
 
-export interface RedisDataSourceTarget extends RedisConnectionConfig {
-  endpoints: RedisEndpoint[];
-}
+/** Connection configuration includes topology; diagnostics do not need a second target model. */
+export type RedisDataSourceTarget = RedisConnectionConfig & RedisTopologyConfig;
 
 export class RedisClient implements Client {
   readonly #controller = new AbortController();
@@ -284,7 +334,7 @@ export class RedisClient implements Client {
   #disposal?: Promise<void>;
   #access?: RedisAccess;
   #target?: RedisDataSourceTarget;
-  constructor(private readonly source: ConnectionSource<RedisDataSourceTarget>, lifecycle: ClientLifecycle = {}) {
+  constructor(private readonly source: ConnectionSource<RedisDataSourceTarget>, private readonly lifecycle: ClientLifecycle = {}) {
     this.signal = lifecycle.signal ? AbortSignal.any([lifecycle.signal, this.#controller.signal]) : this.#controller.signal;
   }
   initialize(): Promise<void> {
@@ -292,9 +342,12 @@ export class RedisClient implements Client {
     return this.#initialization ??= (async () => {
       this.#target = await this.source.resolve();
       this.signal.throwIfAborted();
-      const transport = this.source.transports[0];
-      if (!transport || transport.kind !== "tcp") throw new Error("Redis requires a TCP transport");
-      this.#access = new RedisAccess(transport, this.#target);
+      if (!this.source.transports.length || this.source.transports.some(transport => transport.kind !== "tcp")) {
+        throw new Error("Redis requires TCP transports");
+      }
+      if (this.#target.clusterType === "cluster" && this.#target.database !== 0) throw new Error("Redis Cluster requires database 0");
+      this.#access = new RedisAccess(this.source.transports as readonly TcpTransport[], this.#target,
+        undefined, { ...this.lifecycle, signal: this.signal });
     })();
   }
   get access(): RedisAccess {
@@ -302,6 +355,9 @@ export class RedisClient implements Client {
     if (!this.#access) throw new Error("Redis client is not initialized");
     return this.#access;
   }
+  /** Refresh topology for this observation, while retaining reusable node connections. */
+  topology(): Promise<RedisTopology> { return discoverRedisTopology(this.access, this.target); }
+
   get target(): RedisDataSourceTarget {
     if (!this.#target) throw new Error("Redis client is not initialized");
     return this.#target;

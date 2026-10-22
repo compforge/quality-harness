@@ -22,7 +22,7 @@ test("protocol clients dispose during resolution without starting a late transpo
     const client = kind === "mysql"
       ? new MysqlClient({ resolve: async () => { await resolve(); return target; }, transports: [transport] }, { connectTimeoutMs: 100, queryTimeoutMs: 100 })
       : kind === "redis"
-        ? new RedisClient({ resolve: async () => { await resolve(); return { endpoints: [], database: 0, useSsl: false, timeoutMs: 100 }; }, transports: [transport] })
+        ? new RedisClient({ resolve: async () => { await resolve(); return { clusterType: "single", endpoints: [], database: 0, useSsl: false, timeoutMs: 100 }; }, transports: [transport] })
         : new OpenSearchClient({ resolve: async () => { await resolve(); return { node: "http://search:9200", auth: {} }; }, transports: [transport] });
     const initializing = client.initialize().catch(error => error);
     const closing = client.dispose();
@@ -52,18 +52,20 @@ test("MySQL initialization shares preparation; retained database cannot reopen a
 
 test("Redis close waits for pending connections and is terminal and idempotent", async () => {
   const opening = gate();
+  const started = gate();
   let closes = 0;
   const access = new RedisAccess(new DirectTransport(), { useSsl: false, timeoutMs: 100 }, async endpoint => {
+    started.release();
     await opening.promise;
     return { endpoint, isReady: true, close: () => { closes++; }, ping: async () => "PONG", info: async () => ({}),
       dbSize: async () => 0, command: async () => null, pipeline: async () => [], scan: async () => ({ cursor: "0", keys: [] }) };
   });
-  const pending = access.connection({ host: "redis", port: 6379 }, 0);
-  await Promise.resolve();
+  const pending = access.connection({ host: "redis", port: 6379 }, 0).catch(error => error);
+  await started.promise;
   const closing = access.close();
   expect(access.close()).toBe(closing);
   opening.release();
-  await pending;
+  expect(await pending).toBeInstanceOf(Error);
   await closing;
   expect(closes).toBe(1);
   await expect(access.connection({ host: "redis", port: 6379 }, 0)).rejects.toThrow("closed");
