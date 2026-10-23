@@ -40,6 +40,4 @@ assert not any(name.startswith("harness_toolbox") for name in sys.modules)
             str(package_root),
         ],
         check=True,
-        capture_output=True,
-        text=True,
     )
