@@ -1,6 +1,5 @@
 import { AnalysisContext, Measurements, TraceHarness, render } from "../src";
 import type { TraceContext, Finding, AgentRunIR } from "../src";
-import { renderTraceHtml } from "../src/view/interactive";
 
 // Tests that exercise the complete report explicitly prepare and compose both views.
 export function reportHtml(harness: TraceHarness, trace: TraceContext, findings: Record<string, readonly Finding[]> = {}, options: { measurements?: Measurements; agentRunIR?: AgentRunIR } = {}): string {
@@ -10,5 +9,5 @@ export function reportHtml(harness: TraceHarness, trace: TraceContext, findings:
   if (options.agentRunIR) analysis.agentRuns = options.agentRunIR;
   const views = [harness.buildView(analysis, { scope: "trace" })];
   if (analysis.agentRuns) views.push(harness.buildView(analysis, { scope: "trace", view: "agent" }));
-  return renderTraceHtml(views as import("../src").TraceView[]);
+  return render(views as import("../src").TraceView[], { format: "html" });
 }

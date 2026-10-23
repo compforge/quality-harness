@@ -56,7 +56,20 @@ def _html(view: dict) -> str:
     )
 
 
-def render(view: dict, *, format: Literal["text", "html", "json"]) -> str:
+def render(view: dict | list[dict], *, format: Literal["text", "html", "json"]) -> str:
+    # @spec Views of one trace share an HTML page; the first view is initially selected.
+    if isinstance(view, list):
+        if format != "html":
+            raise ValueError("Multiple trace views require HTML format")
+        if not view:
+            raise ValueError("HTML requires a trace view")
+        if any(item["scope"] != "trace" for item in view):
+            raise ValueError("HTML composition requires trace views")
+        if any(item["trace_id"] != view[0]["trace_id"] for item in view):
+            raise ValueError("HTML views must belong to the same trace")
+        if len({item["view"] for item in view}) != len(view):
+            raise ValueError("Duplicate trace view")
+        return render_trace_html(view)
     if format == "text":
         return _text(view)
     if format == "html":

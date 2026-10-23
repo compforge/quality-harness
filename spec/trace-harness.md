@@ -165,8 +165,12 @@ measurement or diagnosis. `NodeTree` is the structural index (`TraceContext.tree
 `render(view, {format: "html" | "text" | "json"})` returns a string. Python uses `render(view, format=...)`.
 All formats consume the same format-neutral View. JSON directly serializes it; a parsed JSON View is
 renderable without its analysis context. Internal format-specific renderers are not public entrypoints.
-Views carry only the selected subject and focus. HTML can compose separately built default/agent views
-internally without re-extracting data. Trace/node metadata and measurement ownership are preserved.
+Views carry only the selected subject and focus. For HTML, `render([defaultView, agentView], {format: "html"})`
+(Python: `render([default_view, agent_view], format="html")`) composes already-built trace views on one
+page, with adjacent perspective buttons. Input order determines button order and the initially active
+view. The list must be nonempty, contain only trace views of the same trace, and have distinct view
+names. Lists are invalid for text/JSON; those formats continue to serialize one selected View.
+Composition does not re-extract data. Trace/node metadata and measurement ownership are preserved.
 Report visibility changes presentation only. A yellow measurement button does not grant or deny access
 to measurements and does not trigger computation.
 
