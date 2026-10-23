@@ -2,7 +2,7 @@ import { acquireConnection, awaitWithSignal } from "../connection/acquire";
 import type { Client } from "../client";
 import type { ConnectionSource, ClientLifecycle } from "../datasource";
 import { isConnectionNetworkError, type TcpTransport } from "../transport";
-import { ToolboxError } from "../errors";
+import { TimeoutError } from "../errors";
 import { discoverRedisTopology, type RedisTopologyConfig, type RedisTopology } from "./topology";
 import { createClient, SocketClosedUnexpectedlyError, ConnectionTimeoutError, type RedisClientType } from "@redis/client";
 
@@ -133,7 +133,7 @@ export class RedisConnection implements RedisManagedConnection {
     let lastError: Error | undefined;
     client.on("error", err => { lastError = err instanceof Error ? err : new Error(String(err)); });
     const timeout = new AbortController();
-    const timer = setTimeout(() => timeout.abort(new ToolboxError("Redis handshake timed out", { kind: "timeout", code: "ETIMEDOUT" })),
+    const timer = setTimeout(() => timeout.abort(new TimeoutError("Redis handshake timed out")),
       config.connectTimeoutMs ?? config.timeoutMs);
     const signal = AbortSignal.any([timeout.signal, ...(config.signal ? [config.signal] : []),
       ...(config.connectSignal ? [config.connectSignal] : [])]);
@@ -155,9 +155,8 @@ export class RedisConnection implements RedisManagedConnection {
       throw new Error(`Redis connection is closed${reason ? `: ${reason}` : ""}`);
     }
     const timeout = new AbortController();
-    const timer = setTimeout(() => timeout.abort(new ToolboxError(
-      `Redis ${operationName} timed out after ${this.timeoutMs}ms (${this.endpoint.host}:${this.endpoint.port})`,
-      { kind: "timeout", code: "ETIMEDOUT" })), this.timeoutMs);
+    const timer = setTimeout(() => timeout.abort(new TimeoutError(
+      `Redis ${operationName} timed out after ${this.timeoutMs}ms (${this.endpoint.host}:${this.endpoint.port})`)), this.timeoutMs);
     const signal = this.signal ? AbortSignal.any([this.signal, timeout.signal]) : timeout.signal;
     try { return await awaitWithSignal(Promise.resolve().then(() => { signal.throwIfAborted(); return operation(); }), signal, () => this.close()); }
     finally { clearTimeout(timer); }

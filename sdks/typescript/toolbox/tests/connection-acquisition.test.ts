@@ -8,6 +8,7 @@ import { OpenSearchClient } from "../src/opensearch";
 import { RedisClient, RedisAccess, type RedisManagedConnection } from "../src/redis";
 import type { Client } from "../src/client";
 import type { TcpTransport } from "../src/transport";
+import { TimeoutError, ToolboxError } from "../src/errors";
 
 function gate() {
   let release!: () => void;
@@ -26,6 +27,24 @@ async function bounded<T>(pending: Promise<T>): Promise<T> {
 
 const endpoint = { host: "example.invalid", port: 12345 };
 const mysqlTarget = { ...endpoint, database: "db", user: "reader", password: "" };
+
+test.each(["mysql", "redis"] as const)("%s exposes a typed acquisition deadline", async protocol => {
+  const transport: TcpTransport = { kind: "tcp", name: "blocked", connect: () => new Promise(() => {}) };
+  let pending: Promise<unknown>, close: () => Promise<void>;
+  if (protocol === "mysql") {
+    const db = new MysqlDatabase([transport], { connectTimeoutMs: 20, acquireTimeoutMs: 1000, queryTimeoutMs: 100 });
+    pending = db.initialize(mysqlTarget); close = () => db.close();
+  } else {
+    const db = new RedisAccess(transport, { timeoutMs: 100, connectTimeoutMs: 20, acquireTimeoutMs: 1000, useSsl: false });
+    pending = db.connection(endpoint, 0); close = () => db.close();
+  }
+  try {
+    const error = await pending.catch(error => error);
+    expect(error).toBeInstanceOf(TimeoutError);
+    expect(error).toBeInstanceOf(ToolboxError);
+    expect(error).toMatchObject({ kind: "timeout", code: "ETIMEDOUT" });
+  } finally { await close(); }
+});
 
 for (const protocol of ["mysql", "opensearch", "redis"] as const) {
   for (const phase of ["resolve", "mapping"] as const) {

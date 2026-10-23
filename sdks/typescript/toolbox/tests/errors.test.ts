@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { kubernetesCommandError, ToolboxError } from "../src/errors";
+import { kubernetesCommandError, TimeoutError, ToolboxError } from "../src/errors";
+
+test("typed deadlines retain the ToolboxError contract and original cause", () => {
+  const cause = new Error("budget exhausted");
+  const error = new TimeoutError("Connection acquisition timed out", { cause });
+  expect(error).toBeInstanceOf(ToolboxError);
+  expect(error).toMatchObject({ name: "TimeoutError", kind: "timeout", code: "ETIMEDOUT", cause });
+});
 
 test("kubectl resource requests share the HTTP error contract", () => {
   for (const [reason, kind, code] of [

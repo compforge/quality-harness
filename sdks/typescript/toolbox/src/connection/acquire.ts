@@ -1,5 +1,5 @@
 import type { ClientLifecycle } from "../datasource";
-import { ToolboxError } from "../errors";
+import { TimeoutError, ToolboxError } from "../errors";
 
 /** Stop waiting without leaving rejected preparation promises unobserved. */
 export async function awaitWithSignal<T>(pending: Promise<T>, signal: AbortSignal, cancel?: () => void): Promise<T> {
@@ -53,7 +53,7 @@ export async function acquireConnection<R extends { readonly name: string }, C>(
   }
   options.signal?.throwIfAborted();
   const timeout = new AbortController();
-  const timedOut = (message: string) => new ToolboxError(message, { kind: "timeout", code: "ETIMEDOUT" });
+  const timedOut = (message: string) => new TimeoutError(message);
   const deadline = performance.now() + budget;
   const timer = setTimeout(() => timeout.abort(timedOut(`${options.name} timed out after ${budget}ms`)), budget);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout.signal]) : timeout.signal;

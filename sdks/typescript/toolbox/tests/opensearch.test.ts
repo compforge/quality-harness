@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { OpenSearchClient, openOpenSearch } from "../src/opensearch";
 import { DirectTransport, type TcpTransport } from "../src/transport";
+import { TimeoutError, ToolboxError } from "../src/errors";
 
 async function serve(handler: (request: IncomingMessage, response: ServerResponse) => void) {
   const server = createServer(handler);
@@ -184,8 +185,11 @@ test.each([
   ["total acquisition", 1000, 20],
   ["last route", 20, 1000],
 ] as const)("OpenSearch %s deadline retains the shared timeout kind", async (_phase, connectTimeoutMs, acquireTimeoutMs) => {
-  await expect(openOpenSearch({
+  const error = await openOpenSearch({
     resolve: async () => ({ node: "http://search.internal:9200", auth: {}, connectTimeoutMs, acquireTimeoutMs }),
     transports: [{ kind: "tcp", name: "blocked", connect: () => new Promise(() => {}) }],
-  })).rejects.toMatchObject({ kind: "timeout", code: "ETIMEDOUT" });
+  }).catch(error => error);
+  expect(error).toBeInstanceOf(TimeoutError);
+  expect(error).toBeInstanceOf(ToolboxError);
+  expect(error).toMatchObject({ kind: "timeout", code: "ETIMEDOUT" });
 });

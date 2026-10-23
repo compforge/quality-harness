@@ -173,6 +173,9 @@ the root owns cancellation and must join child work before disposing clients.
 
 Catch ToolboxError from the root entry or `@compforge/harness-toolbox/errors`; use `kind` and
 `code` for decisions. Native `cause` may contain sensitive details and is debug-only.
+Connection acquisition deadlines and Redis handshake/command deadlines raise `TimeoutError`
+from `@compforge/harness-toolbox/errors`. It extends `ToolboxError`, retaining
+`kind: "timeout"` and `code: "ETIMEDOUT"`; OpenSearch preserves it unchanged.
 
 For coordinated common/toolbox development, install and build common before installing toolbox:
 

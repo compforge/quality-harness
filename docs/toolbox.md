@@ -329,6 +329,9 @@ pipelines execute outside this flow and are never replayed by fallback.
 
 - `connectTimeoutMs` covers one route's endpoint mapping and handshake/probe together.
 - `acquireTimeoutMs` bounds the complete route sequence; omission uses the per-route budget times the route count.
+- Expired acquisition budgets raise `TimeoutError extends ToolboxError`, exported from
+  `@compforge/harness-toolbox/errors`, with `kind: "timeout"` and `code: "ETIMEDOUT"`.
+  Protocol adapters preserve this error rather than relabeling it as a connection failure.
 - OpenSearch defaults its per-route budget to `requestTimeoutMs` or 10 seconds; Redis defaults to `timeoutMs`.
   MySQL requires `connectTimeoutMs`. Query/command deadlines remain independent.
 - Cancellation while resolving configuration or mapping a route stops waiting and preserves the caller's reason.
