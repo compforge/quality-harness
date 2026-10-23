@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { ClientManager } from "../src/client-manager.js";
-import type { Client } from "../src/client.js";
+import { ClientManager } from "../src/access/client-manager.js";
+import type { Client } from "../src/access/client.js";
 
 function gate() {
   let release!: () => void;

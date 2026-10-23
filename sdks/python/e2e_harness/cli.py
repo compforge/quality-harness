@@ -15,8 +15,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from spec_case.model import load_caseset, validate
-from harness_common.run import run_dir_for
-from harness_common.verdict import RunVerdict
+from harness_common.execution.run import run_dir_for
+from harness_common.execution.verdict import RunVerdict
 from e2e_harness.core.config import E2EConfig, Experiment, Service, load_config
 from e2e_harness.engine import run_experiment
 from e2e_harness.reducer import E2EReducer

@@ -9,7 +9,7 @@ whose intent actually drifted (preserving human/LLM-filled asserts on the rest).
 
 This module is step ① — the deterministic skeleton (Compiler protocol + ``StubCompiler`` +
 orchestration + ``check``). The real fill (``DraftCompiler`` → claude, then ``LLMCompiler`` →
-``common.llm``) is a drop-in for ``Compiler``; nothing else changes.
+``harness_toolbox.llm``) is a drop-in for ``Compiler``; nothing else changes.
 """
 
 from __future__ import annotations

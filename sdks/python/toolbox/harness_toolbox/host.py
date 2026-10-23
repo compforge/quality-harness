@@ -5,8 +5,8 @@ import shlex
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from harness_common.environment import EnvironmentFacts
-from harness_common.host import Host
+from harness_common.system.environment import EnvironmentFacts
+from harness_common.system.host import Host
 
 
 def command(host: Host | None, argv: Sequence[str]) -> list[str]:

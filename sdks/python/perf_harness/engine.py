@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass, field, replace
 
 from harness_common import ClientManager, Deployer
 from harness_common import Experiment as BaseExperiment
-from harness_common.overlay import Overlay
+from harness_common.execution.overlay import Overlay
 from harness_toolbox.http import HTTPClientProvider
 from spec_case.model import Case
 

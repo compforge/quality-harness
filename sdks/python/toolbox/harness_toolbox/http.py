@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 import httpx
-from harness_common.client import _ClientBorrower, client_key
+from harness_common.access.client import _ClientBorrower, client_key
 
 
 class HTTPClient(httpx.AsyncClient):

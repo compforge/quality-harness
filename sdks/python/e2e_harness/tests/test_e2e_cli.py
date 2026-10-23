@@ -13,7 +13,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from harness_common.verdict import CaseVerdict, build_run_verdict
+from harness_common.execution.verdict import CaseVerdict, build_run_verdict
 from e2e_harness.cli import _build_config, _summary, build_parser, run_files
 from e2e_harness.core.config import E2EConfig
 from e2e_harness.runner.json_runner import JSONRunner

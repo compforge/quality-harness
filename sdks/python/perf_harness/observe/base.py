@@ -20,7 +20,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 import httpx
-from harness_common.client import ClientManager
+from harness_common.access.client import ClientManager
 from harness_toolbox.data_loader import DataLoader
 
 from perf_harness.metric import (

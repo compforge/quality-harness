@@ -7,7 +7,7 @@ from dataclasses import asdict
 import json
 
 from harness_common import Artifact, Reducer
-from harness_common.verdict import write_verdict
+from harness_common.execution.verdict import write_verdict
 
 from e2e_harness.engine import E2ERun
 from e2e_harness.caserun import CaseRun

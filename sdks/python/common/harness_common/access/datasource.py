@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 from typing import Generic, Protocol
 
-from harness_common.client import C, ClientProvider
-from harness_common.service import Service
+from harness_common.access.client import C, ClientProvider
+from harness_common.system.service import Service
 
 
 class DataSource(ClientProvider[C], Protocol[C]):

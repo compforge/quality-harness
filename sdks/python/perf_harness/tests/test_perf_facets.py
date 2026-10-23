@@ -1,4 +1,4 @@
-from harness_common.overlay import Overlay
+from harness_common.execution.overlay import Overlay
 from spec_case.model import Case
 
 from perf_harness.drive.load import LoadPlan, Warmup

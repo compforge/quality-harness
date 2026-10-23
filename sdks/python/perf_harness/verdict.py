@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from harness_common import verdict as _v
+from harness_common.execution import verdict as _v
 
 from perf_harness.model import ArmRun, Run, SloCheck
 

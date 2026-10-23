@@ -1,5 +1,5 @@
 from harness_common import ClientManager, DataSource
-from harness_common.client import _ClientBorrower
+from harness_common.access.client import _ClientBorrower
 
 
 class ExampleClient:

@@ -5,15 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Iterator
 
 import httpx
 
-from harness_common.llm import ChatResult, LLMClient, LLMConfig
-from harness_common.llm.client import _is_retryable
-
+from harness_toolbox.llm import ChatResult, LLMClient, LLMConfig
+from harness_toolbox.llm.client import _is_retryable
 
 # --------------------------------------------------------------------------- LLMConfig
 
@@ -39,9 +38,7 @@ class TestLLMConfig:
         monkeypatch.setenv("MY_BASE", "http://x")
         monkeypatch.setenv("MY_KEY", "k")
         monkeypatch.setenv("MY_MODEL", "m")
-        cfg = LLMConfig.from_env(
-            base_env="MY_BASE", key_env="MY_KEY", model_env="MY_MODEL"
-        )
+        cfg = LLMConfig.from_env(base_env="MY_BASE", key_env="MY_KEY", model_env="MY_MODEL")
         assert cfg.ready()
 
     def test_client_from_env(self, monkeypatch):
@@ -120,9 +117,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 @contextmanager
-def _serve(
-    *, fail_times: int = 0, fail_status: int = 503, content: str = "hello"
-) -> Iterator[str]:
+def _serve(*, fail_times: int = 0, fail_status: int = 503, content: str = "hello") -> Iterator[str]:
     _Handler.fail_times = fail_times
     _Handler.fail_status = fail_status
     _Handler.content = content
@@ -139,9 +134,7 @@ def _serve(
 
 
 def _client(base_url: str, **cfg) -> LLMClient:
-    return LLMClient(
-        LLMConfig(base_url=base_url, api_key="k", model="m", retry_backoff_s=0, **cfg)
-    )
+    return LLMClient(LLMConfig(base_url=base_url, api_key="k", model="m", retry_backoff_s=0, **cfg))
 
 
 class TestChat:

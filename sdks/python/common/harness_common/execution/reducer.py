@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Generic, TypeVar
 
-from harness_common.artifact import Artifact
-from harness_common.experiment import ExperimentRun
+from harness_common.execution.artifact import Artifact
+from harness_common.execution.experiment import ExperimentRun
 
 
 ExperimentRunT = TypeVar("ExperimentRunT", bound=ExperimentRun)

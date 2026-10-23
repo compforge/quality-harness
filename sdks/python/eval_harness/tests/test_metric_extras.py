@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from harness_toolbox.llm import ChatResult
 
 from eval_harness.engine import resolve_weights
-from eval_harness.llm import ChatResult
 from eval_harness.metric.base import BaseMetric
 from eval_harness.metric.llm_judge import LLMJudge
 from eval_harness.model.evalset import EvalSet

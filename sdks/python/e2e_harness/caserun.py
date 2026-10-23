@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
 from harness_common import Execution, OperationRun
-from harness_common.environment import EnvironmentSnapshot
-from harness_common.verdict import CaseVerdict, Status
+from harness_common.system.environment import EnvironmentSnapshot
+from harness_common.execution.verdict import CaseVerdict, Status
 from e2e_harness.matrix import Variant
 
 S = TypeVar("S")

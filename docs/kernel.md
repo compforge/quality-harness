@@ -240,3 +240,13 @@ Common also defines Resource declarations, ServiceResource associations and Reso
 for resources continuously managed or used by a Service. Counts and instances are runtime observations;
 identity, coverage and measurement scope are shared, while business reads and rendering remain consumer-owned.
 See [Service-held resources](resource.md).
+
+## 共享内核的代码组织
+
+Python 与 TypeScript 保留语言工程边界，在各自 common 内按职责组织代码：`system` 描述对象，
+`access` 管理访问契约与生命周期，`execution` 表达执行事实和证据解释。TypeScript 的执行模型
+集中在一个 `execution.ts`；Python 用 `execution/` 收拢已有的模型、Verdict、Reducer 和 run 布局。
+Python `report_kit` 保持独立。`identity` 与包根导出继续位于 common 根部。
+
+具体 LLM 请求属于 toolbox；common 仅依赖标准库，不为迁移提供反向导入 toolbox 的兼容层。
+Python 深层路径的迁移与版本要求见 [common 升级说明](../sdks/python/common/README.md)。

@@ -1,4 +1,4 @@
-import type { Service } from "./service.js";
+import type { Service } from "./system/service.js";
 
 /** Stable capability identity, independent of access configuration. */
 export interface Operation {

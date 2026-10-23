@@ -459,21 +459,12 @@ wheels = [
 
 [[package]]
 name = "harness-common"
-version = "0.5.8"
+version = "0.6.0"
 source = { editable = "common" }
-
-[package.optional-dependencies]
-llm = [
-    { name = "httpx" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "httpx", marker = "extra == 'llm'", specifier = ">=0.27,<1" }]
-provides-extras = ["llm"]
 
 [[package]]
 name = "harness-toolbox"
-version = "0.5.3"
+version = "0.6.0"
 source = { editable = "toolbox" }
 dependencies = [
     { name = "harness-common" },
@@ -485,6 +476,9 @@ http = [
 ]
 kube = [
     { name = "kubernetes-asyncio" },
+]
+llm = [
+    { name = "httpx" },
 ]
 mysql = [
     { name = "asyncmy" },
@@ -503,13 +497,14 @@ requires-dist = [
     { name = "asyncmy", marker = "extra == 'mysql'", specifier = ">=0.2.9,<1" },
     { name = "harness-common", editable = "common" },
     { name = "httpx", marker = "extra == 'http'", specifier = ">=0.27,<1" },
+    { name = "httpx", marker = "extra == 'llm'", specifier = ">=0.27,<1" },
     { name = "httpx", marker = "extra == 'opensearch'", specifier = ">=0.27,<1" },
     { name = "httpx", marker = "extra == 'prometheus'", specifier = ">=0.27,<1" },
     { name = "kubernetes-asyncio", marker = "extra == 'kube'", specifier = ">=36.1,<37" },
     { name = "prombed", marker = "extra == 'prometheus'", git = "https://github.com/compforge/prombed?subdirectory=python" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'mysql'", specifier = ">=2.0,<3" },
 ]
-provides-extras = ["http", "prometheus", "kube", "opensearch", "mysql"]
+provides-extras = ["llm", "http", "prometheus", "kube", "opensearch", "mysql"]
 
 [[package]]
 name = "httpcore"
@@ -1085,12 +1080,12 @@ wheels = [
 
 [[package]]
 name = "quality-harness"
-version = "0.4.2"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "atif" },
     { name = "harness-common" },
-    { name = "harness-toolbox", extra = ["http", "prometheus"] },
+    { name = "harness-toolbox", extra = ["http", "llm", "prometheus"] },
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -1124,7 +1119,7 @@ dev = [
 requires-dist = [
     { name = "atif", specifier = ">=1.7,<1.8" },
     { name = "harness-common", editable = "common" },
-    { name = "harness-toolbox", extras = ["http", "prometheus"], editable = "toolbox" },
+    { name = "harness-toolbox", extras = ["http", "llm", "prometheus"], editable = "toolbox" },
     { name = "harness-toolbox", extras = ["kube"], marker = "extra == 'kube'", editable = "toolbox" },
     { name = "httpx", specifier = ">=0.27,<1.0" },
     { name = "kubernetes-asyncio", marker = "extra == 'dev'", specifier = ">=36.1,<37" },

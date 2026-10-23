@@ -4,7 +4,7 @@ from urllib.parse import parse_qs
 
 import httpx
 import pytest
-from harness_common.client import ClientManager
+from harness_common.access.client import ClientManager
 from harness_toolbox.errors import PrometheusQueryError
 from harness_toolbox.http import HTTPClient, HTTPClientProvider
 

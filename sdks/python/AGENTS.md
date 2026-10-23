@@ -14,8 +14,8 @@ python/
 ├── perf_harness/       # 性能、容量与资源画像
 ├── trace_harness/      # 调用链分析
 ├── trajectory_harness/ # Agent 决策与行动序列评估
-├── common/            # 独立 harness-common：公共模型、环境与 Client/DataSource 生命周期、Verdict/LLM
-├── toolbox/           # 独立 harness-toolbox 包，含 harness_toolbox/ 与 pyproject.toml
+├── common/            # 独立 harness-common：system/access/execution 契约与 report_kit
+├── toolbox/           # 独立 harness-toolbox：协议客户端、LLM、Transport 与平台适配
 ├── pyproject.toml     # 包、依赖、CLI 与测试发现
 └── Makefile           # 测试、lint、格式化、构建与版本入口
 ```

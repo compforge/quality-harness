@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from harness_common.client import ClientManager
+from harness_common.access.client import ClientManager
 from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.prometheus import PrometheusClient, PrometheusDataSource
 

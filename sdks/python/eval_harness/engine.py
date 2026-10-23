@@ -13,8 +13,8 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from harness_common.overlay import Overlay
-from harness_common.run import run_dir_for
+from harness_common.execution.overlay import Overlay
+from harness_common.execution.run import run_dir_for
 
 from eval_harness.metric.base import BaseMetric
 from eval_harness.model.experiment import Experiment

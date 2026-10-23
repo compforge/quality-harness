@@ -24,8 +24,8 @@ from dataclasses import dataclass
 
 from harness_common import ExperimentRun, HttpOperation, OperationRun
 from spec_case.model import Case
-from harness_common.verdict import RunVerdict, build_run_verdict
-from harness_common.verdict import CaseVerdict
+from harness_common.execution.verdict import RunVerdict, build_run_verdict
+from harness_common.execution.verdict import CaseVerdict
 from e2e_harness.assertion import Assertion, run_asserts
 from e2e_harness.caserun import (
     Budgets,

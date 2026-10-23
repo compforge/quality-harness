@@ -1,7 +1,7 @@
 import subprocess
 
 import pytest
-from harness_common.host import Host
+from harness_common.system.host import Host
 
 from harness_toolbox.environment import KubernetesEnvironment, _native_access
 from harness_toolbox.host import command, observe_local

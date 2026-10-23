@@ -24,52 +24,52 @@ and references its `Artifact` outputs.
 
 from __future__ import annotations
 
-from harness_common.artifact import Artifact as Artifact
-from harness_common.component import Component as Component
-from harness_common.deployment import Deployer as Deployer
-from harness_common.deployment import Deployment as Deployment
-from harness_common.environment import Environment as Environment
-from harness_common.environment import HostEnvironment as HostEnvironment
-from harness_common.host import Host as Host
-from harness_common.environment import EnvironmentFacts as EnvironmentFacts
-from harness_common.environment import EnvironmentSnapshot as EnvironmentSnapshot
-from harness_common.execution import Execution as Execution
-from harness_common.experiment import Experiment as Experiment
-from harness_common.experiment import ExperimentRun as ExperimentRun
-from harness_common.forge import Forge as Forge
+from harness_common.execution.artifact import Artifact as Artifact
+from harness_common.system.component import Component as Component
+from harness_common.system.deployment import Deployer as Deployer
+from harness_common.system.deployment import Deployment as Deployment
+from harness_common.system.environment import Environment as Environment
+from harness_common.system.environment import HostEnvironment as HostEnvironment
+from harness_common.system.host import Host as Host
+from harness_common.system.environment import EnvironmentFacts as EnvironmentFacts
+from harness_common.system.environment import EnvironmentSnapshot as EnvironmentSnapshot
+from harness_common.execution.execution import Execution as Execution
+from harness_common.execution.experiment import Experiment as Experiment
+from harness_common.execution.experiment import ExperimentRun as ExperimentRun
+from harness_common.system.forge import Forge as Forge
 from harness_common.identity import Identity as Identity
-from harness_common.operation import HttpOperation as HttpOperation
-from harness_common.operation import Operation as Operation
-from harness_common.operation import OperationRun as OperationRun
-from harness_common.outcome import Outcome as Outcome
-from harness_common.product import Product as Product
-from harness_common.repository import Repository as Repository
-from harness_common.reducer import Reducer as Reducer
-from harness_common.service import Service as Service
-from harness_common.workload import KubernetesWorkload as KubernetesWorkload
-from harness_common.workload import Workload as Workload
-from harness_common.workload import WorkloadInstance as WorkloadInstance
-from harness_common.workload import (
+from harness_common.execution.operation import HttpOperation as HttpOperation
+from harness_common.execution.operation import Operation as Operation
+from harness_common.execution.operation import OperationRun as OperationRun
+from harness_common.execution.outcome import Outcome as Outcome
+from harness_common.system.product import Product as Product
+from harness_common.system.repository import Repository as Repository
+from harness_common.execution.reducer import Reducer as Reducer
+from harness_common.system.service import Service as Service
+from harness_common.system.workload import KubernetesWorkload as KubernetesWorkload
+from harness_common.system.workload import Workload as Workload
+from harness_common.system.workload import WorkloadInstance as WorkloadInstance
+from harness_common.system.workload import (
     KubernetesWorkloadInstance as KubernetesWorkloadInstance,
 )
 
-from harness_common.client import Client as Client
-from harness_common.client import ClientManager as ClientManager
-from harness_common.client import ClientProvider as ClientProvider
-from harness_common.datasource import DataSource as DataSource
-from harness_common.datasource import ServiceDataSource as ServiceDataSource
-from harness_common.client import client_key as client_key
-from harness_common.fixture import EnvironmentFixture as EnvironmentFixture
-from harness_common.context import EnvironmentContext as EnvironmentContext
-from harness_common.fixture import FixtureContext as FixtureContext
-from harness_common.fixture import EnvironmentBudgets as EnvironmentBudgets
-from harness_common.fixture import EnvironmentRun as EnvironmentRun
-from harness_common.fixture import run_environment as run_environment
+from harness_common.access.client import Client as Client
+from harness_common.access.client import ClientManager as ClientManager
+from harness_common.access.client import ClientProvider as ClientProvider
+from harness_common.access.datasource import DataSource as DataSource
+from harness_common.access.datasource import ServiceDataSource as ServiceDataSource
+from harness_common.access.client import client_key as client_key
+from harness_common.access.fixture import EnvironmentFixture as EnvironmentFixture
+from harness_common.access.context import EnvironmentContext as EnvironmentContext
+from harness_common.access.fixture import FixtureContext as FixtureContext
+from harness_common.access.fixture import EnvironmentBudgets as EnvironmentBudgets
+from harness_common.access.fixture import EnvironmentRun as EnvironmentRun
+from harness_common.access.fixture import run_environment as run_environment
 
-from harness_common.resource import Resource as Resource
-from harness_common.resource import ServiceResource as ServiceResource
-from harness_common.resource import ResourceInstanceRef as ResourceInstanceRef
-from harness_common.resource import ResourceInstance as ResourceInstance
-from harness_common.resource import ResourceMeasurement as ResourceMeasurement
-from harness_common.resource import ResourceCoverage as ResourceCoverage
-from harness_common.resource import ResourceSnapshot as ResourceSnapshot
+from harness_common.system.resource import Resource as Resource
+from harness_common.system.resource import ServiceResource as ServiceResource
+from harness_common.system.resource import ResourceInstanceRef as ResourceInstanceRef
+from harness_common.system.resource import ResourceInstance as ResourceInstance
+from harness_common.system.resource import ResourceMeasurement as ResourceMeasurement
+from harness_common.system.resource import ResourceCoverage as ResourceCoverage
+from harness_common.system.resource import ResourceSnapshot as ResourceSnapshot

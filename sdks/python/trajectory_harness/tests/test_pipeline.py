@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from harness_common.report_kit import Prose, Section
-from harness_common.verdict import CheckVerdict
+from harness_common.execution.verdict import CheckVerdict
 from trajectory_harness import (
     ExecutionResult,
     ExecutionSuccessVerifier,
