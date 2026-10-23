@@ -1088,6 +1088,7 @@ dependencies = [
     { name = "harness-toolbox", extra = ["http", "llm", "prometheus"] },
     { name = "httpx" },
     { name = "pydantic" },
+    { name = "pytest" },
     { name = "pyyaml" },
     { name = "spec-case", extra = ["model"] },
 ]
@@ -1095,7 +1096,6 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "kubernetes-asyncio" },
-    { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
 kube = [
@@ -1125,7 +1125,7 @@ requires-dist = [
     { name = "kubernetes-asyncio", marker = "extra == 'dev'", specifier = ">=36.1,<37" },
     { name = "pyarrow", marker = "extra == 'trace-corpus'", specifier = ">=14,<22" },
     { name = "pydantic", specifier = ">=2.0,<3.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pyyaml", specifier = ">=6.0,<7.0" },
     { name = "spec-case", extras = ["model"], git = "https://github.com/compforge/spec-case?subdirectory=toolchains%2Fpython" },
