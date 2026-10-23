@@ -170,7 +170,7 @@ def test_agent_derivation_survives_snapshot_without_extraction(tmp_path):
 def test_html_perspective_buttons_identify_the_initial_view():
     from html.parser import HTMLParser
 
-    from trace_harness.view.interactive import render_trace_html
+    import pytest
 
     class Buttons(HTMLParser):
         def __init__(self):
@@ -192,16 +192,29 @@ def test_html_perspective_buttons_identify_the_initial_view():
             if tag == "button":
                 self.current = None
 
-    analysis = AnalysisContext(TraceContext("buttons", {}, [], {}))
+    contract = json.loads((FIXTURES / "view-composition.json").read_text())
+    analysis = AnalysisContext(TraceContext(contract["trace_id"], {}, [], {}))
     default = build_view(analysis, {"scope": "trace"})
     agent = build_view(analysis, {"scope": "trace", "view": "agent"})
-    for views in ([default], [agent], [default, agent], [agent, default]):
+    by_name = {"default": default, "agent": agent}
+    for order in contract["orders"]:
+        views = [by_name[name] for name in order]
         buttons = Buttons()
-        buttons.feed(render_trace_html(views))
+        buttons.feed(render(views, format="html"))
         assert [b["data-perspective"] for b in buttons.items] == [v["view"] for v in views]
         assert [b["data-perspective"] for b in buttons.items if b.get("class") == "active"] == [
             views[0]["view"]
         ]
-        assert [b["label"] for b in buttons.items] == [
-            "Agent" if v["view"] == "agent" else "完整" for v in views
-        ]
+        assert [b["label"] for b in buttons.items] == [contract["labels"][v["view"]] for v in views]
+
+    for format in contract["rejected_formats"]:
+        with pytest.raises(ValueError, match="require HTML"):
+            render([default, agent], format=format)
+    for views, message in [
+        ([], "requires a trace view"),
+        ([default, default], "Duplicate"),
+        ([default, {**agent, "trace_id": "other"}], "same trace"),
+        ([{**default, "scope": "node"}], "requires trace views"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            render(views, format="html")

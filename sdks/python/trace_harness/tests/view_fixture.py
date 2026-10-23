@@ -2,8 +2,8 @@ from trace_harness import AnalysisContext, Measurements
 from trace_harness.view.build import build_view
 from trace_harness.view.engine import render as render_display
 from trace_harness.view.engine import render_md
-from trace_harness.view.interactive import render_trace_html
 from trace_harness.view.measurements import measurements_md
+from trace_harness.view.render import render
 
 
 def prepared_html(
@@ -17,7 +17,7 @@ def prepared_html(
         views.append(
             build_view(analysis, {"scope": "trace", "view": "agent"}, facets=facet_registry)
         )
-    return render_trace_html(views)
+    return render(views, format="html")
 
 
 def report_html(harness, context, findings=None, *, measurements=None):

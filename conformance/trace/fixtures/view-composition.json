@@ -1,0 +1,6 @@
+{
+  "trace_id": "composed",
+  "orders": [["default"], ["agent"], ["default", "agent"], ["agent", "default"]],
+  "labels": {"default": "完整", "agent": "Agent"},
+  "rejected_formats": ["text", "json"]
+}

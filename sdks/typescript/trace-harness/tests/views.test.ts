@@ -131,3 +131,29 @@ test('trace and node measurements have independent owners and feed detector deci
   for (const format of contract.formats) expect(render(JSON.parse(render(view, { format: 'json' })), { format })).toContain(contract.trace_id);
   expect(JSON.stringify(trace.nodes)).toBe(before);
 });
+
+
+test('public HTML rendering composes same-trace views with adjacent buttons and an explicit initial view', async () => {
+  const contract = JSON.parse(readFileSync(new URL('../../../../conformance/trace/fixtures/view-composition.json', import.meta.url), 'utf8'));
+  const analysis = new AnalysisContext(new TraceContext(contract.trace_id, new Map(), [], new Map()));
+  const views = { default: buildView(analysis, { scope: "trace" }), agent: buildView(analysis, { scope: "trace", view: "agent" }) };
+  const published = await import('../dist/index.js');
+  for (const order of contract.orders as Array<Array<keyof typeof views>>) {
+    const selected = order.map(name => views[name]);
+    const before = JSON.stringify(selected);
+    for (const renderer of [render, published.render]) {
+      const html = renderer(selected, { format: "html" });
+      const buttons = [...html.matchAll(/<button data-perspective="([^"]+)"([^>]*)>([^<]+)<\/button>/g)];
+      expect(buttons.map(button => button[1])).toEqual(order);
+      expect(buttons.filter(button => button[2]!.includes('class="active"')).map(button => button[1])).toEqual([order[0]!]);
+      expect(buttons.map(button => button[3])).toEqual(order.map(name => contract.labels[name]));
+      expect(Object.keys(JSON.parse(Buffer.from(archiveEntries(html)['index.json']!).toString()).trees)).toEqual(order);
+    }
+    expect(JSON.stringify(selected)).toBe(before);
+  }
+  for (const format of contract.rejected_formats) expect(() => render([views.default, views.agent], { format })).toThrow('require HTML');
+  expect(() => render([], { format: "html" })).toThrow('requires a trace view');
+  expect(() => render([views.default, views.default], { format: "html" })).toThrow('Duplicate');
+  expect(() => render([views.default, { ...views.agent, trace_id: "other" }], { format: "html" })).toThrow('same trace');
+  expect(() => render([{ ...views.default, scope: "node" } as any], { format: "html" })).toThrow('requires trace views');
+});

@@ -49,6 +49,7 @@ const agent = harness.buildView(analysis, { scope: "trace", view: "agent", limit
 const metrics = harness.buildView(analysis, { scope: "node", nodeId, view: "measurements" });
 const timeline = harness.buildView(analysis, { scope: "node", nodeId, view: "timeline", limit: 100 });
 console.log(render(agent, { format: "text" }));
+const combinedHtml = render([view, agent], { format: "html" }); // Same trace, adjacent view buttons.
 ```
 
 AgentRun is a derived representation retaining original Node/span references. Its framework-specific
