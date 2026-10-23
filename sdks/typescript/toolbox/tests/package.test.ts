@@ -29,6 +29,7 @@ test("published lifecycle and transport entries run in Node without protocol dri
       import { KubernetesError } from '@compforge/harness-toolbox/errors';
       import { ClientManager as Subpath } from '@compforge/harness-toolbox/client-manager';
       import { ClientManager as Common } from '@compforge/harness-common';
+      import { collectClusterCompute } from '@compforge/harness-toolbox/kubernetes/compute';
       import { DirectTransport, PodRelayTransport } from '@compforge/harness-toolbox/transport';
       const relay = new PodRelayTransport({namespace:'test', startupTimeoutMs:1000, connectTimeoutMs:1000,
         maxConnections:2, maxTargets:2, maxCandidatePods:2});
@@ -36,6 +37,12 @@ test("published lifecycle and transport entries run in Node without protocol dri
       assert.equal(ClientManager, Subpath);
       assert.equal(ClientManager, Common);
       assert.ok(new KubernetesError('safe', {kind:'permission_denied'}) instanceof ToolboxError);
+      const forbidden = { get: async () => { throw new KubernetesError('denied',{kind:'permission_denied',code:403}); },
+        list: async () => { throw new KubernetesError('denied',{kind:'permission_denied',code:403}); } };
+      const compute = await collectClusterCompute(forbidden, {environment:'test', timeoutMs:1000,maxNodes:1,maxPods:1,pageSize:1});
+      assert.equal(compute.nodes.status,'unavailable');
+      assert.equal(compute.nodes.issues[0].kind,'permission_denied');
+      assert.equal(compute.summary.capacity,undefined);
       let created = 0, closed = 0;
       const source = { clientKey: 'test', createClient: () => {
         created++; return { initialize: async () => {}, dispose: async () => { closed++; } };

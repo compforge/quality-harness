@@ -80,6 +80,16 @@ export class KubernetesClient implements Client {
       { ...query, namespace: query.namespace ?? this.kube.namespace }, this.#options(options)));
   }
 
+  /** Explicit root scope for Nodes and all-namespace lists; no default namespace is inserted.
+   * @spec This view borrows root transport, cancellation and cleanup just like namespace views.
+   */
+  clusterResources(): ResourceAccess {
+    return {
+      get: (ref, options) => this.#track(() => this.#resourceAccess().get(ref, this.#options(options))),
+      list: (query, options) => this.#track(() => this.#resourceAccess().list(query, this.#options(options))),
+    };
+  }
+
   inNamespace(namespace: string): NamespaceResources {
     if (!namespace.trim()) throw new KubernetesError("Namespace is required", { kind: "invalid_argument" });
     return {

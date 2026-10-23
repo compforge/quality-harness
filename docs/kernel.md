@@ -233,3 +233,10 @@ quality-harness 只有在被测项目持续维护验证资产时才能产出可�
 - Trajectory 领域模型：[`trajectory-harness.md`](trajectory-harness.md)
 - Perf 跨语言契约：[`../spec/perf-contract.md`](../spec/perf-contract.md)
 - Eval 领域约定：[`../sdks/python/eval_harness/AGENTS.md`](../sdks/python/eval_harness/AGENTS.md)
+
+## Service-held resources
+
+Common also defines Resource declarations, ServiceResource associations and ResourceSnapshot evidence
+for resources continuously managed or used by a Service. Counts and instances are runtime observations;
+identity, coverage and measurement scope are shared, while business reads and rendering remain consumer-owned.
+See [Service-held resources](resource.md).

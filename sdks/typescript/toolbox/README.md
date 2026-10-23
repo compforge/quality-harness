@@ -376,3 +376,11 @@ reason. The caller owns shared transports such as `PodRelayTransport` and their 
 
 Routed HTTPS preserves the original TLS server name. Bun disables HTTP keep-alive because its reused
 socket recovery can replay a failed request below the driver; Node retains connection pooling.
+
+## Kubernetes compute evidence
+
+`kubernetes/compute` exports `collectClusterCompute` and `collectWorkloadCompute`. They borrow
+ResourceAccess, use explicit deadlines/item/page budgets, and retain read coverage independently.
+Use `client.clusterResources()` for Nodes and all-namespace Pods; normal client methods retain their
+configured namespace. A forbidden cluster read records `permission_denied`; it does not block a
+separate namespace-scoped Workload read. See [compute collection](../../../docs/toolbox.md#kubernetes-compute-evidence).

@@ -1,0 +1,65 @@
+{
+  "resource": {
+    "id": "sandbox/beds",
+    "kind": "bed",
+    "name": "Beds"
+  },
+  "instances": [
+    {
+      "environment": "test",
+      "resource": "sandbox/beds",
+      "id": "b1"
+    },
+    {
+      "environment": "test",
+      "resource": "sandbox/beds",
+      "id": "b1"
+    },
+    {
+      "environment": "prod",
+      "resource": "sandbox/beds",
+      "id": "b1"
+    },
+    {
+      "environment": "test",
+      "resource": "other/beds",
+      "id": "b1"
+    }
+  ],
+  "snapshots": [
+    {
+      "environment": "test",
+      "observedAt": "2026-10-23T00:00:00Z",
+      "source": "bed-api",
+      "scope": {
+        "tenant": "t1"
+      },
+      "coverage": {
+        "status": "partial",
+        "reason": "page budget"
+      },
+      "totalCount": 17,
+      "nextCursor": "next",
+      "measurements": [
+        {
+          "name": "memory",
+          "value": 1024,
+          "unit": "bytes",
+          "scope": "observed"
+        }
+      ]
+    },
+    {
+      "environment": "test",
+      "observedAt": "2026-10-23T00:01:00Z",
+      "source": "bed-api",
+      "scope": {
+        "tenant": "t1"
+      },
+      "coverage": {
+        "status": "unavailable",
+        "reason": "permission denied"
+      }
+    }
+  ]
+}
