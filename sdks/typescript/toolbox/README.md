@@ -173,6 +173,9 @@ the root owns cancellation and must join child work before disposing clients.
 
 Catch ToolboxError from the root entry or `@compforge/harness-toolbox/errors`; use `kind` and
 `code` for decisions. Native `cause` may contain sensitive details and is debug-only.
+Connection acquisition deadlines and Redis handshake/command deadlines raise `TimeoutError`
+from `@compforge/harness-toolbox/errors`. It extends `ToolboxError`, retaining
+`kind: "timeout"` and `code: "ETIMEDOUT"`; OpenSearch preserves it unchanged.
 
 For coordinated common/toolbox development, install and build common before installing toolbox:
 
@@ -384,3 +387,10 @@ ResourceAccess, use explicit deadlines/item/page budgets, and retain read covera
 Use `client.clusterResources()` for Nodes and all-namespace Pods; normal client methods retain their
 configured namespace. A forbidden cluster read records `permission_denied`; it does not block a
 separate namespace-scoped Workload read. See [compute collection](../../../docs/toolbox.md#kubernetes-compute-evidence).
+
+### Connection acquisition deadlines
+
+MySQL, OpenSearch and Redis use the same acquisition lifecycle. `connectTimeoutMs` includes route mapping
+and handshake/probe; optional `acquireTimeoutMs` bounds all routes together (default: per-route budget × route count).
+Cancellation preserves the caller reason and prevents late mappings from starting a handshake. Query and command
+timeouts remain separate, and failed operations are never replayed on another transport.

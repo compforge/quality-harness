@@ -2,9 +2,10 @@
 
 ## 项目定位与边界
 
-`@compforge/harness-common` 承载中立的 Client、ClientProvider、DataSource、ClientManager、EnvironmentContext、
-Service、Product/Component/Repository/Forge、Environment/Host、Workload/WorkloadInstance、Resource/ResourceSnapshot 与 Service 数据源/资源关联。
-Service 的身份与运行拓扑归 common；业务能力和诊断协议归消费方，具体协议、Transport 与平台适配归 toolbox。
+`@compforge/harness-common` 按三个职责提供中立契约：描述被观察对象、获取事实、执行与解释证据。
+Service 的身份、运行拓扑和离线知识属于对象描述；ClientProvider / ClientManager 属于访问生命周期；
+ExperimentRun / Execution / OperationRun / Outcome 属于执行事实。
+业务能力和诊断协议归消费方，具体协议、Transport 与平台适配归 toolbox；共同层不能反向依赖它们。
 Python 对应实现位于 `../../python/common`，各语言独立发布，保持已有公共行为语义一致。
 
 ## 代码地图与核心模块
@@ -30,4 +31,4 @@ src/
 - 消费方扩展 Service 和 Environment，不复制其身份模型；静态声明不执行发现，也不证明目标存在。
 - 保持 Node ESM 发布产物可用；使用 `make lint`、`make test` 验证，版本独立维护。
 
-`src/execution.ts` 定义 ExperimentRun → Execution → OperationRun → Outcome 的公共事实骨架；领域只扩展自己的执行数据，不在 common 放调度器或 Judge。
+概念关系与主流程见 [通用内核](../../../docs/kernel.md)；分组不改变现有导出路径。

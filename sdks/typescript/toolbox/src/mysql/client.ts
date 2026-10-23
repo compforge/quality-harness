@@ -1,16 +1,23 @@
+import { acquireConnection, awaitWithSignal } from "../connection/acquire";
 import type { Client } from "../client";
 import { ConcurrencyPool } from "../concurrency";
 import { ToolboxError } from "../errors";
-import { createConnection, type Connection, type ConnectionOptions, type RowDataPacket } from "mysql2/promise";
+import type { Connection, ConnectionOptions, RowDataPacket } from "mysql2/promise";
 import type { Database, DatabaseTarget, DatabaseRow, DatabaseQueryLimits, DatabaseQueryResult, SqlStatement } from "./types";
-import { destroyMysqlConnection } from "./connection";
+import { connectMysql, destroyMysqlConnection } from "./connection";
 import { queryReadonlySession, validateQueryLimits } from "./readonly";
 import type { ConnectionSource, ClientLifecycle } from "../datasource";
 import { isConnectionNetworkError, type Transport, type PodPythonTransport } from "../transport";
 import { queryMysqlViaPod, queryMysqlViaPodBatch } from "./pod";
 
-export interface MysqlDatabaseOptions extends ClientLifecycle { connectTimeoutMs: number; queryTimeoutMs: number }
-type ConnectionFactory = (options: ConnectionOptions) => Promise<Connection>;
+export interface MysqlDatabaseOptions extends ClientLifecycle {
+  /** Per-route mapping and handshake budget. */
+  connectTimeoutMs: number;
+  /** Total acquisition budget; defaults to connectTimeoutMs times the route count. */
+  acquireTimeoutMs?: number;
+  queryTimeoutMs: number;
+}
+type ConnectionFactory = (options: ConnectionOptions, signal?: AbortSignal) => Promise<Connection>;
 type Session = { kind: "tcp"; connection: Connection } | { kind: "python"; transport: PodPythonTransport };
 
 function mysqlOperationError(error: unknown, phase: "connect" | "query"): unknown {
@@ -32,7 +39,7 @@ export class MysqlDatabase implements Database {
   constructor(
     private readonly transports: readonly Transport[],
     private readonly options: MysqlDatabaseOptions,
-    private readonly connect: ConnectionFactory = createConnection,
+    private readonly connect: ConnectionFactory = connectMysql,
   ) {}
 
   query(target: DatabaseTarget, sql: string, values: readonly unknown[]): Promise<DatabaseRow[]> {
@@ -113,31 +120,25 @@ export class MysqlDatabase implements Database {
     });
   }
 
-  async #open(target: DatabaseTarget): Promise<Session> {
-    let reason: string | undefined;
-    for (let i = 0; i < this.transports.length; i++) {
-      const transport = this.transports[i]!;
-      this.options.signal?.throwIfAborted();
-      if (transport.kind === "python") {
-        this.options.onRoute?.({ transport: transport.name, reason });
-        return { kind: "python", transport };
-      }
-      try {
-        const endpoint = await transport.connect(target);
-        const connection = await this.connect({
-          host: endpoint.host, port: endpoint.port, user: target.user, password: target.password, database: target.database,
-          connectTimeout: this.options.connectTimeoutMs, dateStrings: true, supportBigNumbers: true, bigNumberStrings: true,
-        });
-        this.options.onRoute?.({ transport: endpoint.host === target.host && endpoint.port === target.port ? "direct" : transport.name, reason });
-        return { kind: "tcp", connection };
-      } catch (error) {
-        const failure = mysqlOperationError(error, "connect");
-        const connectionLost = failure instanceof ToolboxError && failure.kind === "connection_lost";
-        if ((!isConnectionNetworkError(failure) && !connectionLost) || i === this.transports.length - 1) throw failure;
-        reason = String((failure as NodeJS.ErrnoException).code);
-      }
-    }
-    throw new Error("MySQL DataSource has no transport");
+  #open(target: DatabaseTarget): Promise<Session> {
+    return acquireConnection<Transport, Session>(this.transports, {
+      name: "MySQL connection", ...this.options,
+      open: async (transport, attempt) => {
+        if (transport.kind === "python") return { connection: { kind: "python", transport }, transport: transport.name };
+        try {
+          const endpoint = await transport.connect(target);
+          const connection = await this.connect({
+            host: endpoint.host, port: endpoint.port, user: target.user, password: target.password, database: target.database,
+            connectTimeout: attempt.remainingMs(), dateStrings: true, supportBigNumbers: true, bigNumberStrings: true,
+          }, attempt.signal);
+          return { connection: { kind: "tcp", connection },
+            transport: endpoint.host === target.host && endpoint.port === target.port ? "direct" : transport.name };
+        } catch (error) { throw mysqlOperationError(error, "connect"); }
+      },
+      close: session => { if (session.kind === "tcp") destroyMysqlConnection(session.connection); },
+      retryReason: error => isConnectionNetworkError(error) || error instanceof ToolboxError && error.kind === "connection_lost"
+        ? String((error as NodeJS.ErrnoException).code) : undefined,
+    });
   }
 
   async queryOne(target: DatabaseTarget, sql: string, values: readonly unknown[]): Promise<DatabaseRow | undefined> {
@@ -170,7 +171,7 @@ export class MysqlClient<Target extends DatabaseTarget = DatabaseTarget> impleme
   initialize(): Promise<void> {
     this.signal.throwIfAborted();
     return this.#initialization ??= (async () => {
-      this.#target = await this.source.resolve();
+      this.#target = await awaitWithSignal(this.source.resolve(), this.signal);
       this.signal.throwIfAborted();
       this.#database = new MysqlDatabase(this.source.transports, { ...this.options, signal: this.signal });
       await this.#database.initialize(this.#target);

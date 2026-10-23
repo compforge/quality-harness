@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { OpenSearchClient, openOpenSearch } from "../src/opensearch";
 import { DirectTransport, type TcpTransport } from "../src/transport";
+import { TimeoutError, ToolboxError } from "../src/errors";
 
 async function serve(handler: (request: IncomingMessage, response: ServerResponse) => void) {
   const server = createServer(handler);
@@ -139,7 +140,7 @@ test("OpenSearch probe timeout advances to the next route", async () => {
       resolve: async () => ({ node: `http://127.0.0.1:${stalled.endpoint.port}`, auth: {}, connectTimeoutMs: 30 }),
       transports: [new DirectTransport(), { kind: "tcp", name: "pod-relay", connect: async () => healthy.endpoint }],
     }, { onRoute: route => routes.push(route) });
-    expect(routes).toEqual([{ transport: "pod-relay", reason: "TimeoutError" }]);
+    expect(routes).toEqual([{ transport: "pod-relay", reason: "ETIMEDOUT" }]);
   } finally { await client?.close(); await stalled.close(); await healthy.close(); }
 });
 
@@ -156,4 +157,39 @@ test("OpenSearch connect deadline does not shorten a subsequent query deadline",
     });
     expect(await client.count("spans", {})).toBe(12);
   } finally { await client?.close(); await server.close(); }
+});
+
+test("OpenSearch mapping deadline advances routes and a late mapping cannot start another probe", async () => {
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  let probes = 0;
+  const server = await serve((_req, res) => { probes++; res.end(); });
+  const routes: unknown[] = [];
+  const client = new OpenSearchClient({
+    resolve: async () => ({ node: "http://search.internal:9200", auth: {}, connectTimeoutMs: 40, acquireTimeoutMs: 1000 }),
+    transports: [
+      { kind: "tcp", name: "slow", connect: async () => { await blocked; return server.endpoint; } },
+      { kind: "tcp", name: "ready", connect: async () => server.endpoint },
+    ],
+  }, { onRoute: route => routes.push(route) });
+  try {
+    await client.initialize();
+    release();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(probes).toBe(1);
+    expect(routes).toEqual([{ transport: "ready", reason: "ETIMEDOUT" }]);
+  } finally { release(); await client.dispose(); await server.close(); }
+});
+
+test.each([
+  ["total acquisition", 1000, 20],
+  ["last route", 20, 1000],
+] as const)("OpenSearch %s deadline retains the shared timeout kind", async (_phase, connectTimeoutMs, acquireTimeoutMs) => {
+  const error = await openOpenSearch({
+    resolve: async () => ({ node: "http://search.internal:9200", auth: {}, connectTimeoutMs, acquireTimeoutMs }),
+    transports: [{ kind: "tcp", name: "blocked", connect: () => new Promise(() => {}) }],
+  }).catch(error => error);
+  expect(error).toBeInstanceOf(TimeoutError);
+  expect(error).toBeInstanceOf(ToolboxError);
+  expect(error).toMatchObject({ kind: "timeout", code: "ETIMEDOUT" });
 });

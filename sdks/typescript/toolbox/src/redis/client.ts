@@ -1,7 +1,8 @@
+import { acquireConnection, awaitWithSignal } from "../connection/acquire";
 import type { Client } from "../client";
 import type { ConnectionSource, ClientLifecycle } from "../datasource";
 import { isConnectionNetworkError, type TcpTransport } from "../transport";
-import { ToolboxError } from "../errors";
+import { TimeoutError } from "../errors";
 import { discoverRedisTopology, type RedisTopologyConfig, type RedisTopology } from "./topology";
 import { createClient, SocketClosedUnexpectedlyError, ConnectionTimeoutError, type RedisClientType } from "@redis/client";
 
@@ -95,22 +96,6 @@ export interface RedisAccessApi {
   close(): Promise<void>;
 }
 
-/** Await cancellation even when an injected transport cannot cancel its own preparation. */
-async function abortable<T>(pending: Promise<T>, signal: AbortSignal, cancel?: () => void): Promise<T> {
-  if (signal.aborted) {
-    cancel?.();
-    void pending.catch(() => {});
-    signal.throwIfAborted();
-  }
-  let abort!: () => void;
-  const cancelled = new Promise<never>((_, reject) => {
-    abort = () => { cancel?.(); reject(signal.reason); };
-    signal.addEventListener("abort", abort, { once: true });
-  });
-  try { return await Promise.race([pending, cancelled]); }
-  finally { signal.removeEventListener("abort", abort); }
-}
-
 /** @spec A command is sent once; a later operation may acquire a new connection after failure. */
 export class RedisConnection implements RedisManagedConnection {
   #abort?: () => void;
@@ -148,13 +133,13 @@ export class RedisConnection implements RedisManagedConnection {
     let lastError: Error | undefined;
     client.on("error", err => { lastError = err instanceof Error ? err : new Error(String(err)); });
     const timeout = new AbortController();
-    const timer = setTimeout(() => timeout.abort(new ToolboxError("Redis handshake timed out", { kind: "timeout", code: "ETIMEDOUT" })),
+    const timer = setTimeout(() => timeout.abort(new TimeoutError("Redis handshake timed out")),
       config.connectTimeoutMs ?? config.timeoutMs);
     const signal = AbortSignal.any([timeout.signal, ...(config.signal ? [config.signal] : []),
       ...(config.connectSignal ? [config.connectSignal] : [])]);
     const close = () => { if (client.isOpen) client.destroy(); };
     try {
-      await abortable(client.connect(), signal, close);
+      await awaitWithSignal(client.connect(), signal, close);
       signal.throwIfAborted();
       return new RedisConnection(endpoint, client, config.timeoutMs, () => lastError, config.signal);
     } catch (error) { close(); throw error; }
@@ -170,11 +155,10 @@ export class RedisConnection implements RedisManagedConnection {
       throw new Error(`Redis connection is closed${reason ? `: ${reason}` : ""}`);
     }
     const timeout = new AbortController();
-    const timer = setTimeout(() => timeout.abort(new ToolboxError(
-      `Redis ${operationName} timed out after ${this.timeoutMs}ms (${this.endpoint.host}:${this.endpoint.port})`,
-      { kind: "timeout", code: "ETIMEDOUT" })), this.timeoutMs);
+    const timer = setTimeout(() => timeout.abort(new TimeoutError(
+      `Redis ${operationName} timed out after ${this.timeoutMs}ms (${this.endpoint.host}:${this.endpoint.port})`)), this.timeoutMs);
     const signal = this.signal ? AbortSignal.any([this.signal, timeout.signal]) : timeout.signal;
-    try { return await abortable(Promise.resolve().then(() => { signal.throwIfAborted(); return operation(); }), signal, () => this.close()); }
+    try { return await awaitWithSignal(Promise.resolve().then(() => { signal.throwIfAborted(); return operation(); }), signal, () => this.close()); }
     finally { clearTimeout(timer); }
   }
 
@@ -265,49 +249,24 @@ export class RedisAccess implements RedisAccessApi {
     return pending;
   }
 
-  async #open(endpoint: RedisEndpoint, database: number, credentials: RedisCredentials): Promise<RedisManagedConnection> {
-    const timeout = new AbortController();
-    const attemptBudget = this.baseConfig.connectTimeoutMs ?? this.baseConfig.timeoutMs;
-    const budget = this.baseConfig.acquireTimeoutMs ?? attemptBudget * this.#transports.length;
-    const deadline = performance.now() + budget;
-    const timer = setTimeout(() => timeout.abort(new ToolboxError(
-      `Redis connection timed out after ${budget}ms (${endpoint.host}:${endpoint.port})`,
-      { kind: "timeout", code: "ETIMEDOUT" })), budget);
-    const signal = AbortSignal.any([this.#signal, timeout.signal]);
-    let reason: string | undefined;
-    try {
-      for (let index = 0; index < this.#transports.length; index++) {
-        signal.throwIfAborted();
-        const transport = this.#transports[index]!;
-        const attempt = new AbortController();
-        const remaining = Math.min(attemptBudget, Math.max(1, Math.ceil(deadline - performance.now())));
-        const attemptTimer = setTimeout(() => attempt.abort(new ToolboxError(
-          `Redis connection attempt timed out (${transport.name})`, { kind: "timeout", code: "ETIMEDOUT" })), remaining);
-        const attemptSignal = AbortSignal.any([signal, attempt.signal]);
-        try {
-          const mapped = await abortable(transport.connect(endpoint), attemptSignal);
-          attemptSignal.throwIfAborted();
-          const pending = this.connectionFactory(endpoint, mapped, { ...this.baseConfig, ...credentials, database,
-            connectTimeoutMs: remaining, signal: this.#signal, connectSignal: attemptSignal });
-          // A factory that finishes after cancellation must not leak a live connection.
-          const prepared = pending.then(connection => {
-            if (attemptSignal.aborted) { connection.close(); attemptSignal.throwIfAborted(); }
-            return connection;
-          });
-          const connection = await abortable(prepared, attemptSignal);
-          this.lifecycle.onRoute?.({ transport: mapped.host === endpoint.host && mapped.port === endpoint.port ? "direct" : transport.name, reason });
-          return connection;
-        } catch (failure) {
-          signal.throwIfAborted();
-          const error = attemptSignal.aborted ? attemptSignal.reason : failure;
-          const network = isConnectionNetworkError(error) || error instanceof SocketClosedUnexpectedlyError || error instanceof ConnectionTimeoutError;
-          if (!network || index === this.#transports.length - 1) throw error;
-          reason = error instanceof SocketClosedUnexpectedlyError ? "connection_lost"
-            : error instanceof ConnectionTimeoutError ? "ETIMEDOUT" : String((error as NodeJS.ErrnoException).code);
-        } finally { clearTimeout(attemptTimer); }
-      }
-      throw new Error("Redis requires a TCP transport");
-    } finally { clearTimeout(timer); }
+  #open(endpoint: RedisEndpoint, database: number, credentials: RedisCredentials): Promise<RedisManagedConnection> {
+    return acquireConnection(this.#transports, {
+      name: "Redis connection", signal: this.#signal,
+      connectTimeoutMs: this.baseConfig.connectTimeoutMs ?? this.baseConfig.timeoutMs,
+      acquireTimeoutMs: this.baseConfig.acquireTimeoutMs, onRoute: this.lifecycle.onRoute,
+      open: async (transport, attempt) => {
+        const mapped = await transport.connect(endpoint);
+        const connection = await this.connectionFactory(endpoint, mapped, { ...this.baseConfig, ...credentials, database,
+          connectTimeoutMs: attempt.remainingMs(), signal: this.#signal, connectSignal: attempt.signal });
+        return { connection, transport: mapped.host === endpoint.host && mapped.port === endpoint.port ? "direct" : transport.name };
+      },
+      close: connection => connection.close(),
+      retryReason: error => {
+        if (error instanceof SocketClosedUnexpectedlyError) return "connection_lost";
+        if (error instanceof ConnectionTimeoutError) return "ETIMEDOUT";
+        return isConnectionNetworkError(error) ? String((error as NodeJS.ErrnoException).code) : undefined;
+      },
+    });
   }
 
   close(): Promise<void> {
@@ -340,7 +299,7 @@ export class RedisClient implements Client {
   initialize(): Promise<void> {
     this.signal.throwIfAborted();
     return this.#initialization ??= (async () => {
-      this.#target = await this.source.resolve();
+      this.#target = await awaitWithSignal(this.source.resolve(), this.signal);
       this.signal.throwIfAborted();
       if (!this.source.transports.length || this.source.transports.some(transport => transport.kind !== "tcp")) {
         throw new Error("Redis requires TCP transports");

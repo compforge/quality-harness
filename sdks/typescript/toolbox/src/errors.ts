@@ -19,6 +19,13 @@ export class ToolboxError extends Error {
 export class KubernetesError extends ToolboxError {}
 export class FileError extends ToolboxError {}
 
+/** A local deadline expiry, distinct from a connection failure reported by a driver. */
+export class TimeoutError extends ToolboxError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, { kind: "timeout", code: "ETIMEDOUT", cause: options?.cause });
+  }
+}
+
 export function kubernetesHttpError(status: number): KubernetesError {
   const kind: ErrorKind = ({
     401: "authentication_failed", 403: "permission_denied", 404: "resource_not_found",

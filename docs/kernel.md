@@ -15,6 +15,20 @@ e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共
 
 ## 2. 核心概念
 
+共同层按职责阅读，不要求每个使用者同时理解全部名词：
+
+| 职责 | 回答的问题 | 主要对象 |
+|---|---|---|
+| 描述被观察对象 | 观察谁、属于哪个产品与环境 | Product、Component、Service、Environment，以及 Knowledge、Workload、Resource |
+| 获取事实 | 如何借用访问能力、控制预算并回收 | ClientProvider、ClientManager、DataSource、EnvironmentContext；具体访问由 toolbox 实现 |
+| 执行与解释证据 | 发生了什么、如何复评并形成结论 | Run、Observation、Dataset、Evaluation、Artifact、Verdict |
+
+主流程是：项目声明被观察对象和验证意图，根执行借用访问能力采集事实，领域 Harness 组织或分析这些事实，
+产出可追溯的判定与报告。静态声明不证明现场状态；获取事实不内置业务判据；报告消费已准备的事实和评估结果。
+以下分组表达 owner 与依赖边界，不引入新的基类或要求拆分发布包。
+
+### 描述被观察对象
+
 | 概念 | 语义 |
 |---|---|
 | **Forge** | 托管代码 Repository 的系统，例如 GitHub、GitLab 或企业内部代码平台。 |
@@ -29,34 +43,15 @@ e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共
 | **HttpOperation** | `Operation` 的 HTTP 子类，以 method 与 path 表达协议契约；base URL 仍属于运行态 Service。 |
 | **Deployment** | 把某个 Component 发布到 Environment、从而创建或更新 Service 的一次部署记录；同一 Service 可以经历多次 Deployment。 |
 | **Deployer** | 执行 Deployment 的协议无关端口；Helm、Docker 等是具体实现。 |
-| **Experiment** | 一份具名、可复现的验证意图；公共层只拥有稳定名称，各 Harness 子类增加 Case、Arm、Workload、Metric 或 Policy 等领域配置。 |
-| **ExperimentRun** | Experiment 的一次真实执行，以 experiment name、`run_id` 和创建时间标识；领域实现可以简称为 `Run`。 |
-| **Execution** | ExperimentRun 内由领域定义的组织单元；E2E 的 CaseRun 与 perf 的 ArmRun 都是 Execution。公共层不规定调度器或 runner 的调用协议。 |
-| **OperationRun** | 对某个 Service 的 Operation 的一次真实调用；直接拥有这次调用产生的 Outcome。 |
-| **Outcome** | OperationRun 产生的原始领域证据。公共层只统一语义角色，具体字段由领域子类定义。 |
-| **Reducer** | 只读取 ExperimentRun 已记录事实并产出 Artifact 的领域归约器；不得再次调用被测 Service。 |
-| **Artifact** | ExperimentRun 产生的一份具名、可持久化产物；内容和 schema 归领域所有，公共层只记录逻辑名称与 run 目录内相对路径。 |
-| **Case** | 可重用的结构化测试意图，具有稳定 `case_id`；canonical 资产由 spec-case 持有，可被多个 Harness 消费。 |
-| **Observation** | 执行或采集后实际观察到的领域事实；必须保留来源 identity 与 provenance，不包含质量判断。 |
-| **Unit** | Harness 声明的评估单元，也是 Worksheet 一行所代表的基本粒度；其数据来源是一个或多个 Observation 及适用的 Case / Annotation。Unit 拥有自己的稳定 key，唯一确定一行；Observation 尚未产生或失败时，该行可以保留 pending / failed 状态。 |
-| **Annotation** | 运行当前评估前已经存在的人工、外部系统或模型监督信息，例如 label、reference 和复核结论；按 Unit 对齐并保留 producer 与 provenance。 |
-| **Dataset** | 一组可复用、版本化的 Unit facts，固定 Case、Observation、Annotation 及其来源关系，不包含某次 EvaluationRun 的 Finding、Evaluation 或 Measurement。相同 Dataset 可以按不同侧重点反复评估。 |
-| **EvaluationRun** | 对一个确定 Dataset version 执行一组 Detector、Evaluator、Measurer 与可选 Policy 的运行实例；它记录实际组件的 spec、模型、规则、版本和配置，并拥有 run identity、执行健康与对应 Worksheet。 |
-| **Finding** | `detect` 从 Unit 中识别出的模式或异常，带有证据、严重度和原因假设，但不直接给出质量 verdict。 |
-| **Evaluation** | Judge / Evaluator 根据契约对 Unit 作出的质量判断，包括状态、verdict、score 和 explanation；使用确定性规则还是 LLM 是实现方式，不改变其语义。 |
-| **Measurement** | 从 Unit 直接提取的 token、耗时、调用量和资源用量等中性事实，不携带质量 verdict。 |
-| **Worksheet** | 一个 EvaluationRun 的行式工作模型：以 Dataset Unit 为行，保存 seed 事实以及本次追加的 Finding、Evaluation、Measurement 和 cell state。它是生成报告和聚合指标的事实输入，不等于某一种物理文件格式。 |
-| **Report** | 一个或多个 Artifact 的面向人渲染，不重新执行 Experiment，也不重新生成源事实。 |
-| **Verdict** | 对一次 Run 的可机器消费判定。人、CI 和 agent 开发循环都通过它判断是否通过、为何失败，以及下一步应读哪些证据。 |
+| **Knowledge** | Product / Service 持有的离线业务知识，描述概念、流程和专题，不等于执行计划或运行事实。 |
+| **Resource** | Service 持续管理或使用的资源集合声明；运行时实例和数量由独立快照记录。 |
 
 Service 是逻辑运行服务，不与 Kubernetes Service 或其它平台资源一一对应。Service.workloads 声明由哪些
 Workload 承载，部署配置为这一关系提供事实；映射变化不改变逻辑 Service 身份。
 Workload 内含定位描述，执行期发现 WorkloadInstance；身份与访问边界见 [Workload](workload.md)。
-EnvironmentContext 绑定执行期环境、借用客户端入口与预算；EnvironmentFixture 编排共享环境资源，
-领域执行回调内部的 Case / ArmRun 生命周期归各 Harness；见 [Environment](environment.md)。
-ClientProvider 通过客户端标识与构造方法显式连接可访问 Environment 和 DataSource；
-DataSource 仅表达数据来源语义，ClientManager 统一接收两者。
-Transport 管理各类基础设施访问通道，ClientManager 管理执行期客户端；见 [toolbox](toolbox.md)。
+Resource 描述 Service 持续管理或使用的资源集合；ServiceResource 表达关联，ResourceSnapshot 保存实例、
+数量、度量和采集覆盖率。它不替代运行承载 Workload 或访问入口 DataSource，具体业务读取仍归消费方。
+详见 [Service 持有的资源](resource.md)。
 
 Service 与 Product 可用可选的 description 提供简短介绍，并声明离线业务知识。
 TypeScript 通过 knowledge 统一组织结构化内容；Python 与 Go 的已有说明字段保持各自 API。
@@ -79,7 +74,7 @@ Service.workloads 使用共享 Workload 声明；不同语言保持惯用 API，
 TypeScript Service 的可选 upstream 引用调用当前 Service 的标准名称，由消费方目录解析。
 省略表示关系未声明，空数组表示声明无上游；该关系不改变身份，也不表示某次请求实际经过的路径。
 
-### 静态知识
+#### 静态知识
 
 TypeScript common 的 Product 与 Service 通过可选的 `knowledge` 贡献 `Knowledge`：Concept 解释核心对象、关系与约束，
 Workflow 用具名 Step 描述业务过程，Article 用 Section 展开专题，Dictionary 保存可逐条查询的类型化词条。
@@ -90,7 +85,45 @@ common 提供结构约束与确定性 Markdown 转换函数，声明方法可委
 JSON 只保留内容字段，消费方加载后须为各层知识对象补齐方法，再作为可调用的知识声明暴露。
 发行、内容加载、查询、搜索与索引由消费方负责，词典定义来源版本独立于其分发版本。
 
-### Experiment 执行骨架
+### 获取事实
+
+| 概念 | 语义 |
+|---|---|
+| **ClientProvider** | 稳定客户端标识和构造契约；可以由 Environment 或 DataSource 实现。 |
+| **DataSource** | 数据来源语义，消费方负责声明来源并解释读取内容。 |
+| **ClientManager** | 根执行的客户端生命周期 owner，合并初始化并统一回收；子调用只借用。 |
+| **EnvironmentContext** | 执行期环境、借用客户端入口与预算，不拥有领域 Case / ArmRun 生命周期。 |
+| **EnvironmentFixture** | 编排共享环境资源；领域执行回调内部的准备与清理归各 Harness。 |
+
+common 只拥有访问与生命周期契约；Transport、协议握手及平台 I/O 归 toolbox。连接获取统一覆盖路由映射、
+握手、取消、回退和未交付连接的清理；业务操作在连接获取之后执行，不因换路由重放。
+详见 [Environment](environment.md) 与 [toolbox](toolbox.md)。
+
+### 执行与解释证据
+
+| 概念 | 语义 |
+|---|---|
+| **Experiment** | 一份具名、可复现的验证意图；公共层只拥有稳定名称，各 Harness 子类增加 Case、Arm、Workload、Metric 或 Policy 等领域配置。 |
+| **ExperimentRun** | Experiment 的一次真实执行，以 experiment name、`run_id` 和创建时间标识；领域实现可以简称为 `Run`。 |
+| **Execution** | ExperimentRun 内由领域定义的组织单元；E2E 的 CaseRun 与 perf 的 ArmRun 都是 Execution。公共层不规定调度器或 runner 的调用协议。 |
+| **OperationRun** | 对某个 Service 的 Operation 的一次真实调用；直接拥有这次调用产生的 Outcome。 |
+| **Outcome** | OperationRun 产生的原始领域证据。公共层只统一语义角色，具体字段由领域子类定义。 |
+| **Reducer** | 只读取 ExperimentRun 已记录事实并产出 Artifact 的领域归约器；不得再次调用被测 Service。 |
+| **Artifact** | ExperimentRun 产生的一份具名、可持久化产物；内容和 schema 归领域所有，公共层只记录逻辑名称与 run 目录内相对路径。 |
+| **Case** | 可重用的结构化测试意图，具有稳定 `case_id`；canonical 资产由 spec-case 持有，可被多个 Harness 消费。 |
+| **Observation** | 执行或采集后实际观察到的领域事实；必须保留来源 identity 与 provenance，不包含质量判断。 |
+| **Unit** | Harness 声明的评估单元，也是 Worksheet 一行所代表的基本粒度；其数据来源是一个或多个 Observation 及适用的 Case / Annotation。Unit 拥有自己的稳定 key，唯一确定一行；Observation 尚未产生或失败时，该行可以保留 pending / failed 状态。 |
+| **Annotation** | 运行当前评估前已经存在的人工、外部系统或模型监督信息，例如 label、reference 和复核结论；按 Unit 对齐并保留 producer 与 provenance。 |
+| **Dataset** | 一组可复用、版本化的 Unit facts，固定 Case、Observation、Annotation 及其来源关系，不包含某次 EvaluationRun 的 Finding、Evaluation 或 Measurement。相同 Dataset 可以按不同侧重点反复评估。 |
+| **EvaluationRun** | 对一个确定 Dataset version 执行一组 Detector、Evaluator、Measurer 与可选 Policy 的运行实例；它记录实际组件的 spec、模型、规则、版本和配置，并拥有 run identity、执行健康与对应 Worksheet。 |
+| **Finding** | `detect` 从 Unit 中识别出的模式或异常，带有证据、严重度和原因假设，但不直接给出质量 verdict。 |
+| **Evaluation** | Judge / Evaluator 根据契约对 Unit 作出的质量判断，包括状态、verdict、score 和 explanation；使用确定性规则还是 LLM 是实现方式，不改变其语义。 |
+| **Measurement** | 从 Unit 直接提取的 token、耗时、调用量和资源用量等中性事实，不携带质量 verdict。 |
+| **Worksheet** | 一个 EvaluationRun 的行式工作模型：以 Dataset Unit 为行，保存 seed 事实以及本次追加的 Finding、Evaluation、Measurement 和 cell state。它是生成报告和聚合指标的事实输入，不等于某一种物理文件格式。 |
+| **Report** | 一个或多个 Artifact 的面向人渲染，不重新执行 Experiment，也不重新生成源事实。 |
+| **Verdict** | 对一次 Run 的可机器消费判定。人、CI 和 agent 开发循环都通过它判断是否通过、为何失败，以及下一步应读哪些证据。 |
+
+#### Experiment 执行骨架
 
 ```text
 ExperimentRun
