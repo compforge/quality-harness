@@ -13,6 +13,7 @@ toolbox/
 ├── src/datasource.ts    # common 导出与 toolbox 连接信息解析契约
 ├── src/concurrency.ts   # 可取消的共享容量
 ├── src/errors.ts        # 稳定错误 kind/code；原始 cause 只供调试
+├── src/connection/     # 共享连接获取预算、取消、路由回退与晚到连接回收
 ├── src/transport/       # TCP、端口转发与 Pod Python 路径
 ├── src/kubernetes/compute* # 集群/实例 CPU、内存与独立采集覆盖
 ├── src/kubernetes/      # 资源 get/list、根 HTTP 连接池、exec/forward 与日志采集
@@ -32,7 +33,8 @@ toolbox/
   初始化失败完成清理后允许重试，dispose 幂等且等待进行中的工作退出。
 - 中立生命周期实现归同语言的 `../common`；本包依赖 common，不复制实现或反向注入平台概念。
 - 日志并发、字节预算和外部访问期限由调用方显式提供。不同数据源可共享根容量，不能按子调用重建池。
-- 只在连接建立失败时选择另一 Transport，不重放可能已执行的协议操作。
+- MySQL / OpenSearch / Redis 通过 connection/acquire 统一连接获取，协议适配器负责握手、失败分类与部分连接清理。
+  单路由预算覆盖映射和握手，根取消保留原始原因；只在连接建立失败时选择另一 Transport，不重放协议操作。
 - Python/Go/TypeScript 对齐已有公共行为语义，各自可以有不同能力覆盖；不为目录对称补实现。
 - 发布内容只有构建后的 ESM、类型声明和 README；测试运行于 Bun，独立包 smoke 必须在 Node 下验证。
 - Kubernetes 资源使用 get/list 和结构化错误；namespace 视图借用根 HTTP transport，不解析命令 argv。

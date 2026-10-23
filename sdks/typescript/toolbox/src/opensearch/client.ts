@@ -1,3 +1,4 @@
+import { acquireConnection, awaitWithSignal } from "../connection/acquire";
 import type { Client as ManagedClient } from "../client";
 import type { ConnectionSource, ClientLifecycle } from "../datasource";
 import { Client, Connection, errors } from "@opensearch-project/opensearch";
@@ -14,8 +15,10 @@ export interface OpenSearchOptions {
   node: string;
   auth: OpenSearchAuth;
   requestTimeoutMs?: number;
-  /** Deadline for the initialization probe; query deadlines remain independent. */
+  /** Per-route mapping and probe budget; query deadlines remain independent. */
   connectTimeoutMs?: number;
+  /** Total acquisition budget; defaults to the per-route budget times the route count. */
+  acquireTimeoutMs?: number;
   /** Original TLS identity when a transport maps the socket to localhost. */
   servername?: string;
 }
@@ -107,6 +110,14 @@ export class OpenSearchEngine implements OpenSearchReadApi {
   }
 }
 
+function openSearchRetryReason(error: unknown): string | undefined {
+  if (isConnectionNetworkError(error)) return String((error as NodeJS.ErrnoException).code);
+  // The driver drops errno when wrapping DNS/socket failures in ConnectionError.
+  if (error instanceof errors.TimeoutError) return "ETIMEDOUT";
+  if (error instanceof errors.ConnectionError) return error.name;
+  return undefined;
+}
+
 /**
  * @spec Only connection preparation may advance to another Transport; reads are never replayed.
  * @why The official client connects lazily and wraps socket errors, so creating it does not prove reachability.
@@ -126,41 +137,40 @@ export class OpenSearchClient implements ManagedClient, OpenSearchReadApi {
   initialize(): Promise<void> {
     this.signal.throwIfAborted();
     return this.#initialization ??= (async () => {
-      const target = await this.source.resolve();
+      const target = await awaitWithSignal(this.source.resolve(), this.signal);
       this.signal.throwIfAborted();
       const original = new URL(target.node);
-      let reason: string | undefined;
-      for (const [index, transport] of this.source.transports.entries()) {
+      try {
+        this.#engine = await acquireConnection(this.source.transports, {
+          name: "OpenSearch connection", signal: this.signal,
+          connectTimeoutMs: target.connectTimeoutMs ?? target.requestTimeoutMs ?? 10_000,
+          acquireTimeoutMs: target.acquireTimeoutMs, onRoute: this.lifecycle.onRoute,
+          open: async (transport, attempt) => {
+            if (transport.kind !== "tcp") throw new Error("OpenSearch requires a TCP transport");
+            const endpoint = await transport.connect({ host: original.hostname,
+              port: Number(original.port || (original.protocol === "https:" ? 443 : 80)),
+              servername: target.servername ?? original.hostname });
+            attempt.signal.throwIfAborted();
+            const url = new URL(original);
+            url.hostname = endpoint.host;
+            url.port = String(endpoint.port);
+            const engine = new OpenSearchEngine({ ...target, node: url.toString(), servername: endpoint.servername ?? target.servername ?? original.hostname });
+            try {
+              await engine.ping(attempt.signal, attempt.remainingMs());
+              return { connection: engine, transport: transport.name };
+            } catch (error) { await engine.close(); throw error; }
+          },
+          close: engine => engine.close(),
+          retryReason: openSearchRetryReason,
+        });
+      } catch (error) {
         this.signal.throwIfAborted();
-        if (transport.kind !== "tcp") throw new Error("OpenSearch requires a TCP transport");
-        let engine: OpenSearchEngine | undefined;
-        try {
-          const endpoint = await transport.connect({ host: original.hostname,
-            port: Number(original.port || (original.protocol === "https:" ? 443 : 80)),
-            servername: target.servername ?? original.hostname });
-          this.signal.throwIfAborted();
-          const url = new URL(original);
-          url.hostname = endpoint.host;
-          url.port = String(endpoint.port);
-          engine = new OpenSearchEngine({ ...target, node: url.toString(), servername: endpoint.servername ?? target.servername ?? original.hostname });
-          await engine.ping(this.signal, target.connectTimeoutMs ?? target.requestTimeoutMs ?? 10_000);
-          this.signal.throwIfAborted();
-          this.lifecycle.onRoute?.({ transport: transport.name, reason });
-          this.#engine = engine;
-          return;
-        } catch (error) {
-          await engine?.close();
-          this.signal.throwIfAborted();
-          const network = isConnectionNetworkError(error);
-          // The driver drops errno when wrapping DNS/socket failures in ConnectionError.
-          if (!network && !(error instanceof errors.ConnectionError) && !(error instanceof errors.TimeoutError)) throw error;
-          reason = network ? String((error as NodeJS.ErrnoException).code) : (error as Error).name;
-          if (index === this.source.transports.length - 1) {
-            throw new ToolboxError(`OpenSearch connect failed (${reason})`, { kind: "connection_failed", code: reason, cause: error });
-          }
-        }
+        // @spec Shared acquisition deadlines retain their timeout classification.
+        if (error instanceof ToolboxError && error.kind === "timeout") throw error;
+        const reason = openSearchRetryReason(error);
+        if (reason === undefined) throw error;
+        throw new ToolboxError(`OpenSearch connect failed (${reason})`, { kind: "connection_failed", code: reason, cause: error });
       }
-      throw new Error("OpenSearch DataSource has no transport");
     })();
   }
   #ready(): OpenSearchEngine {

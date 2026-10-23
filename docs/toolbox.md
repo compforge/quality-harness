@@ -319,3 +319,25 @@ resource discovery is inferred. Common's Resource model remains platform-neutral
 Accounting references: [Kubernetes Pod resources](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/),
 [sidecar lifecycle and resource accounting](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/),
 and [Metrics API semantics](https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/).
+
+## Connection acquisition
+
+MySQL, OpenSearch and Redis share `connection/acquire` for ordered route attempts. The protocol adapter owns
+handshake mechanics and classifies retryable connection failures; acquisition owns deadlines, cancellation,
+route reporting and disposal of connections that arrive after their attempt ended. Queries, commands and
+pipelines execute outside this flow and are never replayed by fallback.
+
+- `connectTimeoutMs` covers one route's endpoint mapping and handshake/probe together.
+- `acquireTimeoutMs` bounds the complete route sequence; omission uses the per-route budget times the route count.
+- OpenSearch defaults its per-route budget to `requestTimeoutMs` or 10 seconds; Redis defaults to `timeoutMs`.
+  MySQL requires `connectTimeoutMs`. Query/command deadlines remain independent.
+- Cancellation while resolving configuration or mapping a route stops waiting and preserves the caller's reason.
+  A mapping that finishes later cannot start a handshake. Shared transports remain root-owned; stopping one
+  acquisition does not dispose a transport borrowed by other clients.
+- Native MySQL and Redis handshakes retain handles for cancellation; OpenSearch cancels its probe and closes
+  its engine. Injected factories that ignore cancellation have late successful connections closed before publication.
+- `onRoute` records only the selected route and the preceding safe failure category. Shared budget expiry uses
+  `ETIMEDOUT`; authentication and protocol errors stop immediately. Credentials and protocol payloads are excluded.
+
+Configuration resolution has root cancellation but no connection timeout: the acquisition budget starts after
+resolution supplies the target. Non-cooperative injected work may finish later; its result is never exposed as ready.
