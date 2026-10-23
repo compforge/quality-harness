@@ -47,7 +47,7 @@ test("service associations share the source client without owning its lifetime",
 
 test("published ESM imports and executes on Node", () => {
   const output = execFileSync(process.env.NODE ?? "node", ["--input-type=module", "-e",
-    'import { ClientManager, clientKey } from "./dist/index.js"; const c = new ClientManager(); await c.dispose(); console.log(clientKey("db", {}));',
+    'import { ClientManager, clientKey, sameResourceInstance } from "./dist/index.js"; if (!sameResourceInstance({environment:"test",resource:"beds",id:"1"},{environment:"test",resource:"beds",id:"1"})) throw new Error("resource identity"); const c = new ClientManager(); await c.dispose(); console.log(clientKey("db", {}));',
   ], { cwd: import.meta.dir + "/..", encoding: "utf8" });
   expect(output.trim()).toMatch(/^db:[a-f0-9]{64}$/);
 });

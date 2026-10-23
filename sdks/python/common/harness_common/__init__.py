@@ -65,3 +65,11 @@ from harness_common.fixture import FixtureContext as FixtureContext
 from harness_common.fixture import EnvironmentBudgets as EnvironmentBudgets
 from harness_common.fixture import EnvironmentRun as EnvironmentRun
 from harness_common.fixture import run_environment as run_environment
+
+from harness_common.resource import Resource as Resource
+from harness_common.resource import ServiceResource as ServiceResource
+from harness_common.resource import ResourceInstanceRef as ResourceInstanceRef
+from harness_common.resource import ResourceInstance as ResourceInstance
+from harness_common.resource import ResourceMeasurement as ResourceMeasurement
+from harness_common.resource import ResourceCoverage as ResourceCoverage
+from harness_common.resource import ResourceSnapshot as ResourceSnapshot

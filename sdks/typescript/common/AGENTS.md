@@ -3,7 +3,7 @@
 ## 项目定位与边界
 
 `@compforge/harness-common` 承载中立的 Client、ClientProvider、DataSource、ClientManager、EnvironmentContext、
-Service、Product/Component/Repository/Forge、Environment/Host、Workload/WorkloadInstance 与 Service 数据源关联。
+Service、Product/Component/Repository/Forge、Environment/Host、Workload/WorkloadInstance、Resource/ResourceSnapshot 与 Service 数据源/资源关联。
 Service 的身份与运行拓扑归 common；业务能力和诊断协议归消费方，具体协议、Transport 与平台适配归 toolbox。
 Python 对应实现位于 `../../python/common`，各语言独立发布，保持已有公共行为语义一致。
 
@@ -17,6 +17,7 @@ src/
 ├── file.ts            # 文件来源识别与有界原始字节读取契约
 ├── context.ts         # 执行期环境、借用入口与预算，不依赖 Fixture
 ├── client-manager.ts  # 根执行内共享客户端与回收
+├── resource.ts        # Service 持续管理/使用的资源声明、关联与只读快照
 ├── workload.ts        # 负载声明与运行实例，不执行平台 I/O
 ├── service.ts         # Component 在 Environment 中的具名运行体现及 Workload 归属
 ├── knowledge.ts       # 离线知识、层级与身份约束、确定性 Markdown 投影

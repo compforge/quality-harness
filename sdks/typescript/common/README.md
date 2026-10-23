@@ -176,3 +176,10 @@ headings or code blocks in child output.
 Move `KnowledgeMarkdownOptions.renderEntry` or `dictionaryToMarkdown` renderer callbacks
 into each Entry's `markdown()` method. These callback arguments are removed in 0.5; a
 custom Entry now renders consistently when shown alone or through its Dictionary and Knowledge.
+
+## Resource inventory
+
+`Resource` declares a collection held by a running Service; `ServiceResource` records manages/uses
+relationships without duplicating identity. `ResourceSnapshot` retains typed instances, unit-bearing
+measurements, independently known totals and complete/partial/unavailable coverage. Discovery and
+rendering remain consumer-owned. See [the shared contract](../../../docs/resource.md).

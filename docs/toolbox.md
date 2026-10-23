@@ -270,3 +270,52 @@ Pod 文件组只发起一次 exec，要求 sh、head -c、base64、tr，以索�
 
 Common 0.5.4 与 Toolbox 0.4.2 用 paths 和逐文件结果替代旧的单 path/单字节返回接口，单文件也声明为
 一个元素的组；先发布 Common，再发布依赖它的 Toolbox，最后由消费方升级。
+
+## Kubernetes compute evidence
+
+TypeScript `kubernetes/compute` exposes two read-only collectors over the existing ResourceAccess.
+They do not construct clients or close borrowed transports. `KubernetesClient.clusterResources()`
+provides an explicit root view, while existing get/list and namespace views keep their default scope.
+
+```ts
+import { collectClusterCompute, collectWorkloadCompute } from "@compforge/harness-toolbox/kubernetes/compute";
+
+const options = { environment: "test-cluster", timeoutMs: 30_000,
+  maxNodes: 1_000, maxPods: 10_000, pageSize: 500, signal };
+const cluster = await collectClusterCompute(client.clusterResources(), options);
+// instances are WorkloadInstances already discovered by the caller.
+const workload = await collectWorkloadCompute(client, instances, options);
+```
+
+Cluster reads Nodes, all-namespace Pods and NodeMetrics independently. Workload reads exactly the
+supplied Pod incarnations, retaining Workload provenance and deduplicating environment/namespace/name/UID
+across aliases or container defaults. It accounts for whole Pods, including sidecars; it does not
+claim the supplied instances exhaust a Service. Callers must retain their discovery coverage.
+
+- CPU is cores and memory is bytes. Capacity and allocatable come from Nodes; requests and configured
+  limits come from Pod specs. Requests use application sums, ordered native sidecar/init peaks,
+  Pod-level overrides and overhead. Finished Pods remain in the inventory but not active totals.
+  Pending unscheduled requests remain separate from scheduled requests. Configured limits are not
+  an actual cap for containers with omitted limits; their counts are retained separately.
+- The accounting basis is the declared spec. It does not read live cgroup limits or infer in-place
+  resize allocation from status. Allocatable minus spec requests is not guaranteed scheduler headroom:
+  placement, quotas, taints and actual resize state still matter.
+- Metrics API CPU is an average over its supplied window; memory is working set. Keep timestamp/window
+  per sample. Missing, forbidden or malformed metrics never become a successful zero usage value.
+  Pod metrics are checked against current Pod identity, creation time and container coverage.
+- Lists page under one deadline and explicit item budgets. Truncation and later-page errors preserve
+  earlier evidence as partial. Each totals block covers only acquired evidence; coverage is mandatory
+  when presenting it as a cluster or Service total. This is not an atomic multi-resource snapshot.
+- RBAC denial is an expected `permission_denied` acquisition result, not a cluster health finding.
+  A forbidden cluster view never falls back to namespace data under a cluster label. Independent
+  namespace collection can still succeed. Metrics absence and resource-read failure are separate.
+- Reads are sequential under the root transport's connection limits and response-byte bounds.
+  Caller cancellation propagates its original reason; an expired budget records timeout coverage.
+  Results carry safe source/category/code diagnostics, never raw transport errors or credentials.
+
+The current scope is CPU and memory on Kubernetes. No GPU, disk, scheduler simulation or business
+resource discovery is inferred. Common's Resource model remains platform-neutral.
+
+Accounting references: [Kubernetes Pod resources](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/),
+[sidecar lifecycle and resource accounting](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/),
+and [Metrics API semantics](https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/).

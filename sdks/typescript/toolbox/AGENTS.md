@@ -14,6 +14,7 @@ toolbox/
 ├── src/concurrency.ts   # 可取消的共享容量
 ├── src/errors.ts        # 稳定错误 kind/code；原始 cause 只供调试
 ├── src/transport/       # TCP、端口转发与 Pod Python 路径
+├── src/kubernetes/compute* # 集群/实例 CPU、内存与独立采集覆盖
 ├── src/kubernetes/      # 资源 get/list、根 HTTP 连接池、exec/forward 与日志采集
 ├── src/file/            # 本机及 Pod 文件来源、有界读取与取消
 ├── src/mysql/          # MySQL 原生与 Pod 协议执行

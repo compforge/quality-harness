@@ -48,6 +48,7 @@ quality-harness/
 - [Environment、可选 Host 与环境证据](docs/environment.md)
 - [项目级 Quality Harness 设计](docs/quality-harness.md)
 - [共享平台工具箱](docs/toolbox.md)
+- [Service 持有的资源与盘点快照](docs/resource.md)
 - [跨语言约定](spec/conventions.md)
 - [统一 Verdict 契约](spec/verdict-schema.yaml)
 - [暂缓能力与启动条件](docs/backlog.md)
