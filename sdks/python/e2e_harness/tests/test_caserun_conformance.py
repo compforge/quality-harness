@@ -13,7 +13,7 @@ from e2e_harness.caserun import (
     run_lifecycle,
 )
 from e2e_harness.matrix import Variant
-from harness_common.verdict import CaseVerdict, build_run_verdict
+from harness_common.execution.verdict import CaseVerdict, build_run_verdict
 
 
 FIXTURE = Path(__file__).parents[4] / "conformance" / "e2e" / "caserun.yaml"

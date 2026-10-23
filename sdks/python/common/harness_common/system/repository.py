@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from harness_common.forge import Forge
+from harness_common.system.forge import Forge
 from harness_common.identity import Identity
 
 

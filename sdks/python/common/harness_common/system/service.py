@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from harness_common.component import Component
-from harness_common.environment import Environment
-from harness_common.workload import Workload
+from harness_common.system.component import Component
+from harness_common.system.environment import Environment
+from harness_common.system.workload import Workload
 
 
 @dataclass(frozen=True, slots=True)

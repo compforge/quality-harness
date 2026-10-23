@@ -9,9 +9,9 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Generic, Protocol, TypeVar
 
-from harness_common.client import ClientManager
-from harness_common.context import EnvironmentContext
-from harness_common.environment import Environment, EnvironmentSnapshot
+from harness_common.access.client import ClientManager
+from harness_common.access.context import EnvironmentContext
+from harness_common.system.environment import Environment, EnvironmentSnapshot
 
 S = TypeVar("S")
 S_contra = TypeVar("S_contra", contravariant=True)

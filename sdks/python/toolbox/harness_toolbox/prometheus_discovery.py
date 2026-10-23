@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from urllib.parse import urlsplit
 
 from harness_common import KubernetesWorkload
-from harness_common.client import _ClientBorrower
+from harness_common.access.client import _ClientBorrower
 from prombed import ScrapeTarget
 
 from harness_toolbox.environment import KubernetesEnvironment

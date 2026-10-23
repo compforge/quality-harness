@@ -11,23 +11,16 @@ Python 对应实现位于 `../../python/common`，各语言独立发布，保持
 
 ```text
 src/
-├── client.ts          # 初始化与幂等回收契约
-├── client-provider.ts  # Environment/DataSource 共同的客户端标识与构造契约
-├── datasource.ts      # 数据来源语义与 Service 关联
-├── file.ts            # 文件来源识别与有界原始字节读取契约
-├── context.ts         # 执行期环境、借用入口与预算，不依赖 Fixture
-├── client-manager.ts  # 根执行内共享客户端与回收
-├── resource.ts        # Service 持续管理/使用的资源声明、关联与只读快照
-├── workload.ts        # 负载声明与运行实例，不执行平台 I/O
-├── service.ts         # Component 在 Environment 中的具名运行体现及 Workload 归属
-├── knowledge.ts       # 离线知识、层级与身份约束、确定性 Markdown 投影
-├── product.ts         # 与仓库布局无关的业务身份，关联由消费方持有
-├── component.ts       # Repository 内的可构建组件
-├── repository.ts      # Forge 内的代码仓身份
-├── forge.ts           # 代码托管系统身份
-├── environment.ts     # 命名环境与 HostEnvironment，不隐式提供客户端
-├── host.ts            # 环境的可选 local / SSH 访问主机声明
-└── index.ts           # 公共入口
+├── system/       # 产品/代码身份、运行对象、资源与离线知识
+│   ├── product.ts / component.ts / repository.ts / forge.ts
+│   ├── service.ts / environment.ts / host.ts
+│   └── workload.ts / resource.ts / knowledge.ts
+├── access/       # 获取事实所需的访问契约和客户端生命周期
+│   ├── client.ts / client-provider.ts / client-manager.ts
+│   └── datasource.ts / file.ts / context.ts
+├── execution.ts  # 执行事实骨架，领域拥有调度与判据
+├── identity.ts   # 由具体模型定义范围的身份契约
+└── index.ts      # 唯一包级公共入口，目录调整不改变导出
 ```
 
 ## 关键约定

@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from harness_common import verdict as _v
-from harness_common.verdict import CaseVerdict
+from harness_common.execution import verdict as _v
+from harness_common.execution.verdict import CaseVerdict
 
 from eval_harness.report.pivot import row_overall
 from eval_harness.worksheet.worksheet import CellState, Row, Worksheet

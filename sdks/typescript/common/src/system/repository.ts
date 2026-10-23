@@ -1,5 +1,5 @@
 import type { Forge } from "./forge.js";
-import type { Identity } from "./identity.js";
+import type { Identity } from "../identity.js";
 
 /**
  * A repository identified by its Forge and path within that Forge.

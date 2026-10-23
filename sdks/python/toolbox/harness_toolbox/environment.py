@@ -9,8 +9,8 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, ClassVar
 
 from harness_common import ClientProvider, Environment, HostEnvironment, client_key
-from harness_common.client import _ClientBorrower
-from harness_common.host import parse_host
+from harness_common.access.client import _ClientBorrower
+from harness_common.system.host import parse_host
 
 from harness_toolbox._kube_options import Options
 

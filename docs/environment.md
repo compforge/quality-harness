@@ -60,7 +60,7 @@ ClientManager 仅释放访问该服务的 HTTP 客户端等资源，不因连接
 
 ## 环境与 Case 的两层生命周期
 
-Python `harness_common.fixture` 提供 `EnvironmentFixture` 和 `run_environment`。
+Python `harness_common.access.fixture` 提供 `EnvironmentFixture` 和 `run_environment`。
 项目先分配自己的 state，再实现异步 `prepare(ctx, state)` 与 `cleanup(ctx, state)`；
 state 保存资源句柄、已采集事实和借用的 Client。准备过程中取得的句柄立即放入 state，
 让部分准备失败时的清理仍能找到资源。ctx 提供所选 Environment、客户端借用视图与阶段剩余时间。

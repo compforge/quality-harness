@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from collections.abc import Iterator
 
-from harness_common.artifact import Artifact
-from harness_common.execution import Execution
-from harness_common.operation import OperationRun
-from harness_common.outcome import Outcome
+from harness_common.execution.artifact import Artifact
+from harness_common.execution.execution import Execution
+from harness_common.execution.operation import OperationRun
+from harness_common.execution.outcome import Outcome
 
 
 @dataclass(kw_only=True)

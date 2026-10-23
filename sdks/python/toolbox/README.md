@@ -10,6 +10,10 @@ Install only the protocols you use:
 pip install 'harness-toolbox[kube,opensearch,mysql,prometheus]'
 ```
 
+For OpenAI-compatible model calls, install `harness-toolbox[llm]` and import
+`LLMClient`, `LLMConfig` and `ChatResult` from `harness_toolbox.llm`. From 0.6 these
+replace `harness_common.llm`; the client behavior is unchanged.
+
 `harness-common` owns `Client`, `ClientProvider`, `DataSource` and `ClientManager`;
 toolbox re-exports these names. `Client` owns initialization and disposal. A `ClientProvider` identifies its configuration;
 `ClientManager` shares it across concurrent or nested work and cleans up at root exit.

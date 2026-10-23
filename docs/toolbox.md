@@ -93,8 +93,8 @@ ClientManager 属于根执行，按实际访问配置、凭据与容量复用客
 Workload 名不能代替连接身份。EnvironmentContext 绑定本次环境、借用入口与预算，不自行创建或销毁连接。
 Python 的 Environment、EnvironmentContext、Service、Client、ClientProvider、DataSource、
 ClientManager、ServiceDataSource 与配置 key 归独立的 harness-common；具体协议客户端、Transport、
-地址解析、具体 KubernetesEnvironment 及其配置解析归 harness-toolbox。依赖方向为 toolbox → common → 标准库；common 的
-LLM HTTP 客户端通过独立 extra 引入 httpx。原 toolbox 生命周期符号保留转导出。
+地址解析、具体 KubernetesEnvironment 及其配置解析归 harness-toolbox。依赖方向为 toolbox → common → 标准库；LLM HTTP 客户端位于
+`harness_toolbox.llm`，通过 `harness-toolbox[llm]` 引入 httpx。原 toolbox 生命周期符号保留转导出。
 
 共享层按语言独立组织：Python 位于 `sdks/python/common`，TypeScript 位于
 `sdks/typescript/common`，分别发布 `harness-common` 与 `@compforge/harness-common`。

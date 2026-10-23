@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Generic, Literal, TypeVar
 
-from harness_common.service import Service
+from harness_common.system.service import Service
 
 Details = TypeVar("Details")
 

@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from harness_common import DataSource
-from harness_common.client import _ClientBorrower, client_key
+from harness_common.access.client import _ClientBorrower, client_key
 
 from harness_toolbox.data_loader import DataLoader
 from harness_toolbox.errors import ErrorKind, PrometheusQueryError

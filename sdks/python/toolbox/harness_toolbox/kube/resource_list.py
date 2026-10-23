@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from harness_common import DataSource, client_key
-from harness_common.client import _ClientBorrower
+from harness_common.access.client import _ClientBorrower
 
 from harness_toolbox.data_loader import DataLoader
 from harness_toolbox.environment import KubernetesEnvironment

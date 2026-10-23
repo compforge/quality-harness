@@ -61,9 +61,9 @@ async def test_environment_and_data_providers_share_root_lifecycle_without_fixtu
 
 def test_context_budget_uses_monotonic_clock_and_clamps_expiration():
     ctx = EnvironmentContext(Environment("test"), ClientManager(), 100)
-    with patch("harness_common.context.time.monotonic", return_value=98):
+    with patch("harness_common.access.context.time.monotonic", return_value=98):
         assert ctx.remaining_s == 2
-    with patch("harness_common.context.time.monotonic", return_value=101):
+    with patch("harness_common.access.context.time.monotonic", return_value=101):
         assert ctx.remaining_s == 0
 
 

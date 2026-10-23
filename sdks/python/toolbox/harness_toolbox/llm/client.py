@@ -84,17 +84,13 @@ class LLMClient:
     retried (they won't fix themselves). On exhaustion the last error raises.
     """
 
-    def __init__(
-        self, config: LLMConfig, *, semaphore: asyncio.Semaphore | None = None
-    ):
+    def __init__(self, config: LLMConfig, *, semaphore: asyncio.Semaphore | None = None):
         self.config = config
         # 可选全局并发闸：多个 judge × 多 sample 并发判分时，限制对单个端点的在途请求数。
         self._semaphore = semaphore
 
     @classmethod
-    def from_env(
-        cls, *, semaphore: asyncio.Semaphore | None = None, **env_kwargs
-    ) -> LLMClient:
+    def from_env(cls, *, semaphore: asyncio.Semaphore | None = None, **env_kwargs) -> LLMClient:
         return cls(LLMConfig.from_env(**env_kwargs), semaphore=semaphore)
 
     def ready(self) -> bool:
@@ -123,9 +119,7 @@ class LLMClient:
                     raise
         raise RuntimeError("unreachable")  # pragma: no cover
 
-    async def _post(
-        self, client: httpx.AsyncClient, messages: list[dict]
-    ) -> ChatResult:
+    async def _post(self, client: httpx.AsyncClient, messages: list[dict]) -> ChatResult:
         """A single attempt. The optional semaphore caps concurrent in-flight
         calls (released during backoff so retries don't hog slots)."""
         if self._semaphore is not None:
@@ -133,9 +127,7 @@ class LLMClient:
                 return await self._post_once(client, messages)
         return await self._post_once(client, messages)
 
-    async def _post_once(
-        self, client: httpx.AsyncClient, messages: list[dict]
-    ) -> ChatResult:
+    async def _post_once(self, client: httpx.AsyncClient, messages: list[dict]) -> ChatResult:
         resp = await client.post(
             f"{self.config.base_url}/chat/completions",
             headers={

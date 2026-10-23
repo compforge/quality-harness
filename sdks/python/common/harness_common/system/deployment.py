@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from harness_common.service import Service
+from harness_common.system.service import Service
 
 
 @dataclass(frozen=True, slots=True)

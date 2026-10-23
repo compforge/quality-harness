@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from harness_common.overlay import Overlay
+from harness_common.execution.overlay import Overlay
 
 
 def test_missing_key_uses_default():

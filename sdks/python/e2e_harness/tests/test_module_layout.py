@@ -113,7 +113,7 @@ def test_retired_legacy_api_mode_is_gone():
 
 
 def test_dataset_eval_lives_in_eval_harness():
-    """Dataset-driven eval lives in the sibling ``eval_harness``; the LLM client in ``common.llm``."""
+    """Dataset-driven eval lives in the sibling ``eval_harness``; the LLM client in ``harness_toolbox.llm``."""
     for legacy in [
         "e2e_harness.eval",
         "e2e_harness.llm",

@@ -28,6 +28,7 @@ import shutil
 from pathlib import Path
 
 import yaml
+from harness_common.execution.run import run_dir_for
 from harness_common.report_kit import (
     KV,
     Chart,
@@ -39,7 +40,6 @@ from harness_common.report_kit import (
     Table,
     render_html,
 )
-from harness_common.run import run_dir_for
 
 from perf_harness.comparison import axis_label, comparison_groups
 from perf_harness.metric import (

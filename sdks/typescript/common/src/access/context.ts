@@ -1,5 +1,5 @@
 import type { ClientManager } from "./client-manager.js";
-import type { Environment } from "./environment.js";
+import type { Environment } from "../system/environment.js";
 
 /**
  * Execution-scoped environment access, independent of fixture orchestration.

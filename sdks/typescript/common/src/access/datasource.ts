@@ -1,6 +1,6 @@
 import type { Client } from "./client.js";
 import type { ClientProvider } from "./client-provider.js";
-import type { Service } from "./service.js";
+import type { Service } from "../system/service.js";
 
 /** A source of data; accessible environments implement ClientProvider directly. */
 export interface DataSource<C extends Client> extends ClientProvider<C> {

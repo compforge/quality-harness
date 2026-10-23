@@ -9,6 +9,7 @@
 
 ```text
 harness_toolbox/
+├── llm/            # OpenAI-compatible 请求、凭据、超时和重试；通过 llm extra 安装
 ├── http.py         # 可借用 HTTP 池与 ClientProvider
 ├── sse.py          # 有界 SSE 观察；共享 line_buffer/sse_parser，不含业务判定
 ├── client.py       # common 生命周期类型的兼容导出

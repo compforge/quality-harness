@@ -10,7 +10,7 @@ from harness_common import (
     KubernetesWorkload,
     KubernetesWorkloadInstance,
 )
-from harness_common.client import _ClientBorrower
+from harness_common.access.client import _ClientBorrower
 
 from harness_toolbox.environment import KubernetesEnvironment, _native_access
 from harness_toolbox.errors import ErrorKind, KubernetesError

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from aiohttp import web
 from harness_common import Host
-from harness_common.client import ClientManager
+from harness_common.access.client import ClientManager
 from kubernetes_asyncio.client import ApiException
 
 from harness_toolbox.environment import KubernetesEnvironment

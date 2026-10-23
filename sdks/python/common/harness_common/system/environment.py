@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import ClassVar
 
-from harness_common.host import Host
+from harness_common.system.host import Host
 
 
 @dataclass(frozen=True, slots=True)

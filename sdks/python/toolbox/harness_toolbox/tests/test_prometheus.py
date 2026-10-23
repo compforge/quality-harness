@@ -4,7 +4,7 @@ from itertools import count
 
 import httpx
 import pytest
-from harness_common.client import ClientManager
+from harness_common.access.client import ClientManager
 from prombed import PrombedError
 
 from harness_toolbox.data_loader import DataLoader

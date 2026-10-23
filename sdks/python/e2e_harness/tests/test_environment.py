@@ -4,7 +4,7 @@ import json
 import pytest
 import yaml
 
-from harness_common.environment import (
+from harness_common.system.environment import (
     EnvironmentFacts,
     EnvironmentSnapshot,
 )
@@ -22,7 +22,7 @@ FIXTURE = yaml.safe_load(
 def test_environment_evidence_persists_on_failure(tmp_path):
     from e2e_harness.engine import E2ERun
     from e2e_harness.reducer import E2EReducer
-    from harness_common.verdict import RunVerdict
+    from harness_common.execution.verdict import RunVerdict
 
     state = EnvironmentState(
         EnvironmentSnapshot("k8s", "kubernetes", host_name="devbox"), None

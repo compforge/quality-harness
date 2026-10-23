@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from harness_common.repository import Repository
+from harness_common.system.repository import Repository
 
 
 @dataclass(frozen=True, slots=True)

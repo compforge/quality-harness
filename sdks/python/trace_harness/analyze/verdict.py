@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from harness_common import verdict as _v
+from harness_common.execution import verdict as _v
 
 from trace_harness.corpus.operators import fleet_outliers
 from trace_harness.corpus.tables import CorpusTables

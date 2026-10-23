@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol, Sequence, runtime_checkable
 
-from harness_common.verdict import (
+from harness_common.execution.verdict import (
     PRECEDENCE,
     CheckVerdict,
     RunVerdict,

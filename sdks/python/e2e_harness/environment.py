@@ -6,7 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Generic, TypeVar
 
-from harness_common.environment import EnvironmentSnapshot
+from harness_common.system.environment import EnvironmentSnapshot
 from e2e_harness.caserun import CasePlan, CaseRef, CaseRun, PhaseContext, run_lifecycle
 from e2e_harness.matrix import Variant
 

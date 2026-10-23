@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
-from harness_common.run import run_dir_for
+from harness_common.execution.run import run_dir_for
 from trajectory_harness.build import TrajectoryDatasetBuilder
 from trajectory_harness.report import TrajectoryReportBuilder
 from trajectory_harness.runio import (

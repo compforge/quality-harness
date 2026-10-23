@@ -23,7 +23,7 @@ from harness_common import (
     Repository,
     Workload,
 )
-from harness_common.overlay import Overlay
+from harness_common.execution.overlay import Overlay
 from harness_toolbox.environment import KubernetesEnvironment, parse_environment
 from spec_case.facets import FacetSchema
 from spec_case.model import Case, CaseSet, load_caseset, validate

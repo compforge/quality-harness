@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from harness_common.outcome import Outcome
-from harness_common.service import Service
+from harness_common.execution.outcome import Outcome
+from harness_common.system.service import Service
 
 
 @dataclass(frozen=True, slots=True)
