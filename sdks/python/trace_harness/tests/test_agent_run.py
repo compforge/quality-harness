@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from agent_ledger.common import SessionRef
 
 from trace_harness import (
     AgentRun,
@@ -42,6 +43,7 @@ class _FixtureAgentRunExtractor:
             runs=(
                 AgentRun(
                     id="run-main",
+                    session=SessionRef(source="fixture", id="session-run-main"),
                     name="main-agent",
                     start_ms=agent.start_ms,
                     duration_ms=agent.duration_ms,
@@ -97,6 +99,9 @@ class _FixtureAgentRunExtractor:
                                     agent_runs=(
                                         AgentRun(
                                             id="run-worker",
+                                            session=SessionRef(
+                                                source="fixture", id="session-run-worker"
+                                            ),
                                             name="research-worker",
                                             start_ms=1700000003650,
                                             duration_ms=1100,
@@ -471,20 +476,60 @@ def test_extractor_output_rejects_nested_operations_outside_parent_time_window()
         harness.extract_agent_runs(context)
 
 
-def test_shared_agent_view_export_and_analysis_sidecar(tmp_path):
-    from agent_ledger.view import (
-        Document,
-        Run,
-        Turn,
-    )
-    from agent_ledger.view import (
-        ModelCall as SharedModel,
-    )
-    from agent_ledger.view import (
-        ToolCall as SharedTool,
-    )
+def test_shared_session_views_export_and_analysis_sidecar(tmp_path):
+    from agent_ledger.observation import ModelCall as SharedModel
+    from agent_ledger.observation import Operation as SharedOperation
+    from agent_ledger.observation import SessionView
+    from agent_ledger.observation import ToolCall as SharedTool
+    from agent_ledger.observation import Turn as SharedTurn
 
-    from trace_harness.agent_view import agent_view
+    from trace_harness import session_views
+    from trace_harness.analyze.context import AnalysisContext
+    from trace_harness.model.analysis import dump_analysis, load_analysis
+    from trace_harness.model.measurement import Measurements
+
+    harness = _harness(_FixtureAgentRunExtractor())
+    context = harness.assemble(load_jaeger_file(RAW))
+    ir = harness.extract_agent_runs(context)
+    views = session_views(ir, context)
+    assert len(views) == 2
+    assert views[0].schema_version == "agent-ledger/session-view@1"
+    assert views[0].items[0].status == "failed"
+    assert not hasattr(views[0], "status")
+
+    def walk(items):
+        for node in items:
+            yield node
+            if isinstance(node, (SharedTurn, SharedOperation)):
+                yield from walk(node.items)
+
+    calls = [n for view in views for n in walk(view.items) if isinstance(n, SharedModel)]
+    assert len(calls) == 3
+    assert calls[0].evidence[0].source == "trace-node"
+    tool = next(n for n in walk(views[0].items) if isinstance(n, SharedTool))
+    assert tool.sessions == [views[1].session]
+    assert len([n for n in walk(views[0].items) if isinstance(n, SharedModel)]) == 2
+    context_snapshot = json.dumps(agent_run_snapshot(ir), sort_keys=True)
+    analysis = AnalysisContext(context, Measurements(), {}, agent_runs=ir)
+    dump_analysis(analysis, tmp_path / "analysis.json")
+    directory = tmp_path / "analysis.session-views"
+    index = json.loads((directory / "index.json").read_text())
+    assert index["unassigned_runs"] == []
+    loaded = tuple(
+        SessionView.model_validate_json((directory / row["file"]).read_text())
+        for row in index["sessions"]
+    )
+    assert loaded == views
+    assert agent_run_snapshot(
+        load_analysis(tmp_path / "analysis.json").agent_runs
+    ) == agent_run_snapshot(ir)
+    assert json.dumps(agent_run_snapshot(ir), sort_keys=True) == context_snapshot
+
+
+def test_shared_session_view_requires_source_attribution(tmp_path):
+    from dataclasses import replace
+
+    from trace_harness import session_views
     from trace_harness.analyze.context import AnalysisContext
     from trace_harness.model.analysis import dump_analysis
     from trace_harness.model.measurement import Measurements
@@ -492,25 +537,13 @@ def test_shared_agent_view_export_and_analysis_sidecar(tmp_path):
     harness = _harness(_FixtureAgentRunExtractor())
     context = harness.assemble(load_jaeger_file(RAW))
     ir = harness.extract_agent_runs(context)
-    document = agent_view(ir, context)
-    assert document.schema_version == "agent-ledger/view@1"
-    assert document.runs[0].status == "failed"
-
-    def walk(node):
-        yield node
-        if isinstance(node, (Run, Turn)) or node.kind == "operation":
-            for child in node.items:
-                yield from walk(child)
-        if isinstance(node, SharedTool):
-            for child in node.runs:
-                yield from walk(child)
-
-    calls = [n for n in walk(document.runs[0]) if isinstance(n, SharedModel)]
-    assert len(calls) == 3
-    assert calls[0].evidence[0].source == "trace-node"
-    context_snapshot = json.dumps(agent_run_snapshot(ir), sort_keys=True)
-    analysis = AnalysisContext(context, Measurements(), {}, agent_runs=ir)
-    dump_analysis(analysis, tmp_path / "analysis.json")
-    loaded = Document.model_validate_json((tmp_path / "analysis.agent-view.json").read_text())
-    assert loaded == document
-    assert json.dumps(agent_run_snapshot(ir), sort_keys=True) == context_snapshot
+    # An unassigned parent never inherits the identity of its explicitly attributed child.
+    unassigned = replace(ir, runs=(replace(ir.runs[0], session=None),))
+    views = session_views(unassigned, context)
+    assert [view.session.id for view in views] == ["session-run-worker"]
+    dump_analysis(
+        AnalysisContext(context, Measurements(), {}, agent_runs=unassigned),
+        tmp_path / "analysis.json",
+    )
+    index = json.loads((tmp_path / "analysis.session-views" / "index.json").read_text())
+    assert index["unassigned_runs"] == ["run-main"]

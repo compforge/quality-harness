@@ -31,6 +31,7 @@ class FixtureAgentRunExtractor {
     const synth = byName.get("chat synth")!;
     return createAgentRunIR(context.trace_id, [{
       id: "run-main",
+      session: {source:"fixture",id:"session-run-main"},
       name: "main-agent",
       start_ms: agent.start_ms,
       duration_ms: agent.duration_ms,
@@ -91,6 +92,7 @@ class FixtureAgentRunExtractor {
           source_node_ids: [tool.node_id],
           agent_runs: [{
             id: "run-worker",
+                  session: {source:"fixture",id:"session-run-worker"},
             name: "research-worker",
             start_ms: 1700000003650,
             duration_ms: 1100,
@@ -444,17 +446,21 @@ describe("AgentRun IR", () => {
 });
 
 
-test("shared execution export renders with the Agent Ledger renderer", async () => {
-  const {agentView, renderAgentView} = await import("../src/agent-view");
+test("shared session export separates child Sessions and uses the published renderer", async () => {
+  const {sessionViews} = await import("../src/session-view");
+  const {renderHTML} = await import("@compforge/agent-observation");
   const instance = new TraceHarness({specs: genAiSpecs()});
   const context = instance.assemble(normalizeJaegerSpans(fixtureDocuments()));
   const ir = new FixtureAgentRunExtractor().extract(context);
   const before = JSON.stringify(ir);
-  const document = agentView(ir, context);
-  expect(document.schema_version).toBe("agent-ledger/view@1");
-  expect(document.runs[0]!.status).toBe("failed");
-  const html = renderAgentView(ir, context, "Shared execution");
-  expect(html).toContain("Shared execution");
-  expect(html).toContain("worker-model");
+  const views = sessionViews(ir, context);
+  expect(views).toHaveLength(2);
+  expect(views[0]!.schema_version).toBe("agent-ledger/session-view@1");
+  expect(views[0]!.items[0]!.status).toBe("failed");
+  expect(renderHTML(views[0]!, "Session execution")).toContain("Session execution");
+  expect(renderHTML(views[0]!)).not.toContain("worker-model");
+  expect(renderHTML(views[1]!)).toContain("worker-model");
   expect(JSON.stringify(ir)).toBe(before);
+  delete ir.runs[0]!.session;
+  expect(sessionViews(ir, context).map(view=>view.session.id)).toEqual(["session-run-worker"]);
 });

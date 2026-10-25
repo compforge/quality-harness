@@ -1,3 +1,4 @@
+import type { SessionRef } from "@compforge/agent-common";
 import type { TraceContext } from "./context";
 
 export const AGENT_RUN_SCHEMA = "trace-harness/agent-run@1";
@@ -48,6 +49,8 @@ export interface AgentTurn {
 export type AgentRunItem = AgentTurn | Operation;
 
 export interface AgentRun {
+  /** Source-owned attribution; a Run ID does not establish a Session. */
+  session?: SessionRef;
   id: string;
   name: string;
   start_ms: number;
@@ -152,6 +155,7 @@ export function validateAgentRunIR(ir: AgentRunIR, context: TraceContext): Agent
   const checkRun = (run: AgentRun) => {
     if (runIds.has(run.id)) throw new Error(`duplicate AgentRun id: ${run.id}`);
     runIds.add(run.id);
+    if (run.session && (!run.session.source || !run.session.id)) throw new Error(`AgentRun ${run.id}: invalid session identity`);
     timing(`AgentRun ${run.id}`, run.start_ms, run.duration_ms);
     sourceRefs(`AgentRun ${run.id}`, run.source_node_ids);
     let previousRunItemStart = Number.NEGATIVE_INFINITY;
@@ -217,6 +221,7 @@ export function agentRunSnapshot(ir: AgentRunIR): Record<string, unknown> {
 
 function runSnapshot(run: AgentRun): Record<string, unknown> {
   return {
+    ...(run.session ? {session: {...run.session}} : {}),
     id: run.id,
     name: run.name,
     start_ms: run.start_ms,

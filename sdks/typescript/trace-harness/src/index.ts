@@ -60,4 +60,4 @@ export { type LoadConfig, type EvidenceRef, EvidenceMissing, EvidenceTooLarge } 
 export { EvidenceDependency, FactDependency, type Dependency, type FactProducer } from "./loading/facts";
 export { JaegerFileSource } from "./ingest/sources/jaeger-file";
 
-export { agentView, renderAgentView } from "./agent-view";
+export { sessionViews } from "./session-view";

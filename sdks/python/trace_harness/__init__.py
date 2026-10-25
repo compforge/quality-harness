@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-from trace_harness.agent_view import agent_view as agent_view
 from trace_harness.analyze.context import AnalysisContext as AnalysisContext
 from trace_harness.analyze.measure import Measurer as Measurer
 from trace_harness.analyze.measure import measure as measure
@@ -58,6 +57,7 @@ from trace_harness.model.span import NormSpan as NormSpan
 from trace_harness.model.spec import KindSpec as KindSpec
 from trace_harness.model.spec import SpecSet as SpecSet
 from trace_harness.model.spec import merge as merge
+from trace_harness.session_view import session_views as session_views
 from trace_harness.transform import FactTransform as FactTransform
 from trace_harness.transform import TransformContext as TransformContext
 from trace_harness.view.build import build_view as build_view

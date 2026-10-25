@@ -131,14 +131,33 @@ class TrajectoryReportBuilder:
         target.write_text(
             render_html(self.build(current, history=history)), encoding="utf-8"
         )
-        from trajectory_harness.agent_view import agent_view
+        from hashlib import sha256
+        from trajectory_harness.session_view import session_views
 
         selected = set(current.run.trajectory_ids)
-        document = agent_view(
-            [t for t in current.dataset.trajectories if t.trajectory_id in selected]
-        )
-        (target.parent / "agent-view.json").write_text(
-            document.model_dump_json(indent=2), encoding="utf-8"
+        trajectories = [
+            t for t in current.dataset.trajectories if t.trajectory_id in selected
+        ]
+        directory = target.parent / "session-views"
+        directory.mkdir(parents=True, exist_ok=True)
+        index = {
+            "sessions": [],
+            "unassigned_trajectories": [
+                t.trajectory_id for t in trajectories if not t.session_id
+            ],
+        }
+        for view in session_views(trajectories):
+            filename = (
+                sha256(view.session.model_dump_json().encode()).hexdigest() + ".json"
+            )
+            (directory / filename).write_text(
+                view.model_dump_json(indent=2), encoding="utf-8"
+            )
+            index["sessions"].append(
+                {"session": view.session.model_dump(), "file": filename}
+            )
+        (directory / "index.json").write_text(
+            json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         return target
 

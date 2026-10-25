@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from agent_ledger.common import CallError, CallRequest, CallResponse, Model, Usage
-from agent_ledger.view import (
-    Document,
+from agent_ledger.common import (
+    CallError,
+    CallRequest,
+    CallResponse,
+    Model,
+    Usage,
+    SessionRef,
+)
+from agent_ledger.observation import (
+    SessionView,
     Input,
     ModelCall,
     Operation,
-    Run,
     SourceRef,
     ToolCall,
 )
@@ -28,16 +34,20 @@ from trajectory_harness.model import (
 @spec(
     "Project recorded requests and executed tools; never reconstruct missing calls or turns"
 )
-@link("repo://docs/agent-view.md")
-def agent_view(trajectories: Sequence[Trajectory]) -> Document:
-    """One observed ATIF trajectory becomes one Run; source Step IDs remain evidence."""
-    runs = []
-    issues = []
+@link("repo://docs/session-view.md")
+def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]:
+    """Group only explicitly declared ATIF Sessions; retain source Step evidence."""
+    grouped = {}
     for trajectory in trajectories:
+        if not trajectory.session_id:
+            continue
+        ref = SessionRef(source="atif", id=trajectory.session_id)
+        key = (ref.source, ref.id)
+        view = grouped.setdefault(key, SessionView(session=ref, items=[]))
+        issues = view.issues
         identity = trajectory.trajectory_id or trajectory.session_id
         run_id = f"atif:{identity}"
         items = []
-        user_inputs = 0
         for step in trajectory.steps:
             native = step.model_dump(mode="json", exclude_none=True)
             base = dict(
@@ -71,11 +81,9 @@ def agent_view(trajectories: Sequence[Trajectory]) -> Document:
                 items.append(
                     Input(
                         **base,
-                        mode="initial" if user_inputs == 0 else "followup",
                         content=native.get("message"),
                     )
                 )
-                user_inputs += 1
                 continue
             if step.source != "agent":
                 items.append(
@@ -131,14 +139,34 @@ def agent_view(trajectories: Sequence[Trajectory]) -> Document:
                         f"{base['id']}: ATIF aggregates {step.llm_call_count} model calls"
                     )
             results = list(step.observation.results) if step.observation else []
-            for index, call in enumerate(step.tool_calls or []):
+            calls = list(step.tool_calls or [])
+            matched: dict[int, list[int]] = {}
+            used: set[int] = set()
+            for result_index, result in enumerate(results):
+                candidates = [
+                    i
+                    for i, call in enumerate(calls)
+                    if call.tool_call_id and call.tool_call_id == result.source_call_id
+                ]
+                if len(candidates) == 1:
+                    matched.setdefault(candidates[0], []).append(result_index)
+                    used.add(result_index)
+            # A single call/result in one source step is unambiguous unless explicit IDs conflict.
+            singleton = (
+                len(calls) == len(results) == 1
+                and not used
+                and (not calls[0].tool_call_id or not results[0].source_call_id)
+            )
+            if singleton:
+                matched[0] = [0]
+                used.add(0)
+            for index, call in enumerate(calls):
                 observed = [
-                    r.model_dump(mode="json", exclude_none=True)
-                    for r in results
-                    if r.source_call_id == call.tool_call_id
+                    results[i].model_dump(mode="json", exclude_none=True)
+                    for i in matched.get(index, [])
                 ]
                 facts = dict(
-                    id=f"{base['id']}:tool:{index}:{call.tool_call_id}",
+                    id=f"{base['id']}:tool:{index}",
                     name=call.function_name,
                     evidence=base["evidence"],
                     attributes={
@@ -155,12 +183,18 @@ def agent_view(trajectories: Sequence[Trajectory]) -> Document:
                             data=call.model_dump(mode="json", exclude_none=True),
                         )
                     )
-                    issues.append(f"{facts['id']}: tool execution not observed")
+                    issues.append(
+                        f"{facts['id']}: tool result association unavailable"
+                        if results
+                        else f"{facts['id']}: tool execution not observed"
+                    )
                     continue
+                if singleton:
+                    facts["attributes"]["association"] = "single-call-step"
                 items.append(
                     ToolCall(
                         **facts,
-                        tool_call_id=call.tool_call_id,
+                        tool_call_id=call.tool_call_id or None,
                         model_call_id=model_call_id,
                         request=CallRequest(
                             tool_name=call.function_name, input=call.arguments
@@ -168,40 +202,32 @@ def agent_view(trajectories: Sequence[Trajectory]) -> Document:
                         response=CallResponse(output=observed),
                     )
                 )
+            # Unmatched results are evidence of an outcome, even when request ownership is unknown.
+            for index, result in enumerate(results):
+                if index in used:
+                    continue
+                items.append(
+                    ToolCall(
+                        id=f"{base['id']}:result:{index}",
+                        evidence=base["evidence"],
+                        tool_call_id=result.source_call_id or None,
+                        model_call_id=model_call_id,
+                        response=CallResponse(
+                            output=[result.model_dump(mode="json", exclude_none=True)]
+                        ),
+                    )
+                )
+                issues.append(
+                    f"{base['id']}:result:{index}: tool request association unavailable"
+                )
         execution = trajectory_execution(trajectory)
-        run_status = (
-            {
-                "success": "completed",
-                "error": "failed",
-                "failure": "failed",
-                "canceled": "cancelled",
-                "timeout": "failed",
-            }.get(execution.outcome, execution.outcome)
-            if execution
-            else "unknown"
-        )
-        if run_status not in {
-            "unknown",
-            "running",
-            "completed",
-            "failed",
-            "cancelled",
-            "outcome_unknown",
-        }:
-            run_status = "unknown"
-        runs.append(
-            Run(
-                id=run_id,
-                session_id=trajectory.session_id,
-                name=trajectory.agent.name,
-                status=run_status,
-                items=items,
-                attributes={
-                    "atif_agent": trajectory.agent.model_dump(
-                        mode="json", exclude_none=True
-                    ),
-                    "atif_extra": trajectory.extra or {},
-                },
-            )
-        )
-    return Document(runs=runs, issues=issues)
+        view.items.extend(items)
+        view.attributes.setdefault("atif_trajectories", {})[identity] = {
+            "agent": trajectory.agent.model_dump(mode="json", exclude_none=True),
+            "extra": trajectory.extra or {},
+            "execution": execution.to_dict() if execution else None,
+        }
+    return tuple(
+        SessionView.model_validate(view.model_dump(mode="json")).model_copy(deep=True)
+        for view in grouped.values()
+    )
