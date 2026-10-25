@@ -128,3 +128,5 @@ from trajectory_harness.verdict import (
 from trajectory_harness.verdict import (
     write_trajectory_verdict as write_trajectory_verdict,
 )
+
+from trajectory_harness.agent_view import agent_view as agent_view

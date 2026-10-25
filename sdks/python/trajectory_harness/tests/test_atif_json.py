@@ -140,3 +140,43 @@ def test_quality_harness_extension_roundtrip() -> None:
     assert trajectory_recording_id(restored) == "recording"
     assert step_operation(restored.steps[0]) == "review"
     assert step_failure(restored.steps[0]).error_type == "timeout"
+
+
+def test_shared_view_preserves_atif_evidence_without_inventing_requests():
+    from agent_ledger.view import Input, ModelCall, ToolCall as SharedTool, Operation
+    from trajectory_harness.agent_view import agent_view
+
+    trajectory = _trajectory()
+    before = trajectory.model_dump_json()
+    document = agent_view([trajectory])
+    items = document.runs[0].items
+    assert isinstance(items[0], Input)
+    models = [n for n in items if isinstance(n, ModelCall)]
+    tools = [n for n in items if isinstance(n, SharedTool)]
+    assert len(models) == 2 and len(tools) == 2
+    assert models[0].request is None
+    assert models[0].response.usage.input_tokens == 100
+    assert tools[0].model_call_id == models[0].id
+    assert tools[0].response.output[0]["content"] == "Project documentation"
+    assert document.issues and "exact model request unavailable" in document.issues[0]
+    assert trajectory.model_dump_json() == before
+    unobserved = trajectory.model_copy(deep=True)
+    unobserved.steps[1].observation = None
+    projected = agent_view([unobserved])
+    assert any(
+        isinstance(n, Operation) and n.operation == "tool_proposal"
+        for n in projected.runs[0].items
+    )
+    assert len([n for n in projected.runs[0].items if isinstance(n, SharedTool)]) == 1
+
+
+def test_shared_view_does_not_expand_aggregate_model_calls():
+    from agent_ledger.view import Operation, ModelCall
+    from trajectory_harness.agent_view import agent_view
+
+    trajectory = _trajectory()
+    trajectory.steps[1].llm_call_count = 3
+    document = agent_view([trajectory])
+    assert isinstance(document.runs[0].items[1], Operation)
+    assert len([n for n in document.runs[0].items if isinstance(n, ModelCall)]) == 1
+    assert any("aggregates 3" in issue for issue in document.issues)

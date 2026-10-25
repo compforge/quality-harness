@@ -131,6 +131,15 @@ class TrajectoryReportBuilder:
         target.write_text(
             render_html(self.build(current, history=history)), encoding="utf-8"
         )
+        from trajectory_harness.agent_view import agent_view
+
+        selected = set(current.run.trajectory_ids)
+        document = agent_view(
+            [t for t in current.dataset.trajectories if t.trajectory_id in selected]
+        )
+        (target.parent / "agent-view.json").write_text(
+            document.model_dump_json(indent=2), encoding="utf-8"
+        )
         return target
 
     def rerender(

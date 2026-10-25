@@ -90,6 +90,13 @@ def dump_analysis(analysis: AnalysisContext, path: str | Path) -> Path:
         json.dumps(payload, ensure_ascii=False, allow_nan=False),
         encoding="utf-8",
     )
+    if analysis.agent_runs is not None:
+        from trace_harness.agent_view import agent_view
+
+        document = agent_view(analysis.agent_runs, analysis.trace)
+        path.with_suffix(".agent-view.json").write_text(
+            document.model_dump_json(indent=2), encoding="utf-8"
+        )
     if analysis.trace.spans:
         coverage = {
             sid: {"fields": span.loaded_fields, "failed": span.field_errors}

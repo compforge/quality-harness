@@ -442,3 +442,19 @@ describe("AgentRun IR", () => {
     expect(() => instance.extractAgentRuns(context)).toThrow("outside Operation outer time window");
   });
 });
+
+
+test("shared execution export renders with the Agent Ledger renderer", async () => {
+  const {agentView, renderAgentView} = await import("../src/agent-view");
+  const instance = new TraceHarness({specs: genAiSpecs()});
+  const context = instance.assemble(normalizeJaegerSpans(fixtureDocuments()));
+  const ir = new FixtureAgentRunExtractor().extract(context);
+  const before = JSON.stringify(ir);
+  const document = agentView(ir, context);
+  expect(document.schema_version).toBe("agent-ledger/view@1");
+  expect(document.runs[0]!.status).toBe("failed");
+  const html = renderAgentView(ir, context, "Shared execution");
+  expect(html).toContain("Shared execution");
+  expect(html).toContain("worker-model");
+  expect(JSON.stringify(ir)).toBe(before);
+});

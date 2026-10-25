@@ -52,3 +52,11 @@ bun run build
 
 - `../../../spec/trace-loading.md` — 共享加载语义与 conformance
 - `docs/loading.md` — Source、依赖声明和资源限制
+
+## Shared Agent View
+
+`agent_view` / `agentView` exports prepared evidence as `agent-ledger/view@1`, using the
+Agent Ledger View package directly. Source adapters own trace/ATIF mapping; the shared package
+owns execution-view types and standalone HTML rendering. Trace Node/analysis and ATIF evaluation
+contracts remain domain facts. Do not reconstruct a model request from a transcript, expand an
+aggregated call count into invented calls, or treat an unobserved tool proposal as execution.

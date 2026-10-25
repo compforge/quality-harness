@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+from trace_harness.agent_view import agent_view as agent_view
 from trace_harness.analyze.context import AnalysisContext as AnalysisContext
 from trace_harness.analyze.measure import Measurer as Measurer
 from trace_harness.analyze.measure import measure as measure

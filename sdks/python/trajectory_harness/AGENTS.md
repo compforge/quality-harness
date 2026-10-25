@@ -94,3 +94,11 @@ trajectory_harness/
 - 设计与外部实现取舍：[`../../../docs/trajectory-harness.md`](../../../docs/trajectory-harness.md)
 - ATIF v1.7：<https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md>
 - OTel GenAI 语义约定：<https://opentelemetry.io/docs/specs/semconv/gen-ai/>
+
+## Shared Agent View
+
+`agent_view` / `agentView` exports prepared evidence as `agent-ledger/view@1`, using the
+Agent Ledger View package directly. Source adapters own trace/ATIF mapping; the shared package
+owns execution-view types and standalone HTML rendering. Trace Node/analysis and ATIF evaluation
+contracts remain domain facts. Do not reconstruct a model request from a transcript, expand an
+aggregated call count into invented calls, or treat an unobserved tool proposal as execution.

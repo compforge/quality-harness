@@ -128,3 +128,11 @@ Python 与 TypeScript 的分析结果共同遵守仓库根目录 `conformance/tr
 - `runtime.py` / `dataset.py`：共享资源作用域、固定成员与 tree lease；`batch.py`：流式执行与落盘统计。
 - `loading/`：证据加载、依赖准备、SQLite 缓存；biz 通过逻辑依赖贡献，不操作 HTTP 或缓存。
 - 设计入口：[kernel](docs/kernel.md)、[load](docs/load.md)、[single](docs/single.md)、[batch](docs/batch.md)。
+
+## Shared Agent View
+
+`agent_view` / `agentView` exports prepared evidence as `agent-ledger/view@1`, using the
+Agent Ledger View package directly. Source adapters own trace/ATIF mapping; the shared package
+owns execution-view types and standalone HTML rendering. Trace Node/analysis and ATIF evaluation
+contracts remain domain facts. Do not reconstruct a model request from a transcript, expand an
+aggregated call count into invented calls, or treat an unobserved tool proposal as execution.

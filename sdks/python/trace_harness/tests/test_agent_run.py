@@ -469,3 +469,48 @@ def test_extractor_output_rejects_nested_operations_outside_parent_time_window()
 
     with pytest.raises(ValueError, match="outside Operation outer time window"):
         harness.extract_agent_runs(context)
+
+
+def test_shared_agent_view_export_and_analysis_sidecar(tmp_path):
+    from agent_ledger.view import (
+        Document,
+        Run,
+        Turn,
+    )
+    from agent_ledger.view import (
+        ModelCall as SharedModel,
+    )
+    from agent_ledger.view import (
+        ToolCall as SharedTool,
+    )
+
+    from trace_harness.agent_view import agent_view
+    from trace_harness.analyze.context import AnalysisContext
+    from trace_harness.model.analysis import dump_analysis
+    from trace_harness.model.measurement import Measurements
+
+    harness = _harness(_FixtureAgentRunExtractor())
+    context = harness.assemble(load_jaeger_file(RAW))
+    ir = harness.extract_agent_runs(context)
+    document = agent_view(ir, context)
+    assert document.schema_version == "agent-ledger/view@1"
+    assert document.runs[0].status == "failed"
+
+    def walk(node):
+        yield node
+        if isinstance(node, (Run, Turn)) or node.kind == "operation":
+            for child in node.items:
+                yield from walk(child)
+        if isinstance(node, SharedTool):
+            for child in node.runs:
+                yield from walk(child)
+
+    calls = [n for n in walk(document.runs[0]) if isinstance(n, SharedModel)]
+    assert len(calls) == 3
+    assert calls[0].evidence[0].source == "trace-node"
+    context_snapshot = json.dumps(agent_run_snapshot(ir), sort_keys=True)
+    analysis = AnalysisContext(context, Measurements(), {}, agent_runs=ir)
+    dump_analysis(analysis, tmp_path / "analysis.json")
+    loaded = Document.model_validate_json((tmp_path / "analysis.agent-view.json").read_text())
+    assert loaded == document
+    assert json.dumps(agent_run_snapshot(ir), sort_keys=True) == context_snapshot
