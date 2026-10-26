@@ -183,3 +183,10 @@ custom Entry now renders consistently when shown alone or through its Dictionary
 relationships without duplicating identity. `ResourceSnapshot` retains typed instances, unit-bearing
 measurements, independently known totals and complete/partial/unavailable coverage. Discovery and
 rendering remain consumer-owned. See [the shared contract](../../../docs/resource.md).
+
+## PullRequest
+
+`PullRequest` identifies a PR/MR by its target `Repository` and repository-local number.
+State, branches, source repository, revisions and provider timestamps are optional facts.
+See [the shared contract](../../../docs/pull-request.md) for identity and unknown-state semantics.
+Forge access and polling remain consumer/toolkit responsibilities.

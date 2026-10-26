@@ -6,6 +6,7 @@ export * from "./access/datasource.js";
 export * from "./system/workload.js";
 export * from "./system/forge.js";
 export * from "./system/repository.js";
+export * from "./system/pull-request.js";
 export * from "./system/component.js";
 export * from "./system/host.js";
 export * from "./system/environment.js";

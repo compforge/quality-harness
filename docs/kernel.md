@@ -32,6 +32,7 @@ e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共
 | 概念 | 语义 |
 |---|---|
 | **Forge** | 托管代码 Repository 的系统，例如 GitHub、GitLab 或企业内部代码平台。 |
+| **PullRequest** | Repository 内的代码合入提案，身份为目标 Repository 与仓内编号；状态和 revision 是可选平台事实。契约见 [PullRequest](pull-request.md)。 |
 | **Repository** | Forge 下的一份代码仓，以 Forge 与仓内路径共同确定；可以包含一个或多个 Component。可选字符串 `forked_from`（TypeScript：`forkedFrom`）记录同一 Forge 实例内直接父仓的 path，不参与身份；它不表示本地 checkout 或 fork 网络根仓。省略/空值表示未声明，查询失败由查询方单独表达；跨 Forge 的导入、镜像来源由后续独立标记表达。 |
 | **Product** | 面向业务的产品身份；可以由多个 Component 组成，公共 Component 也可以服务多个 Product，归属关系由 registry 维护。 |
 | **Component** | 代码 Repository 内一个可独立构建或发布的稳定组件；一个 Repository 可以包含一个或多个 Component，不会运行为 Workload 的 Component 不产生 Service。 |

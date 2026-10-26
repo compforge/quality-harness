@@ -44,6 +44,8 @@ from harness_common.execution.operation import OperationRun as OperationRun
 from harness_common.execution.outcome import Outcome as Outcome
 from harness_common.system.product import Product as Product
 from harness_common.system.repository import Repository as Repository
+from harness_common.system.pull_request import PullRequest as PullRequest
+from harness_common.system.pull_request import PullRequestState as PullRequestState
 from harness_common.execution.reducer import Reducer as Reducer
 from harness_common.system.service import Service as Service
 from harness_common.system.workload import KubernetesWorkload as KubernetesWorkload

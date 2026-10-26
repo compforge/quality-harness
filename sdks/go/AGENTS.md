@@ -8,7 +8,7 @@ Python 侧形状的 Go 等价实现，**预先按 e2e/eval/perf 三分**，并�
 
 ```
 sdks/go/
-├── common/             # 中立身份：Forge / Repository / Product / Component / Environment / Host
+├── common/             # 中立身份：Forge / Repository / PullRequest / Product / Component / Environment / Host
 ├── e2e/                # 确定性契约测试（= sdks/python/e2e_harness）
 │   ├── caserun/        # prepare/execute/judge/cleanup + phase budgets/evidence + Recorder
 │   ├── testrun/        # go test 的 Run 聚合、TestMain 集成与统一 Verdict 出口
