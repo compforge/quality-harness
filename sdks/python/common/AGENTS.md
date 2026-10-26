@@ -5,7 +5,7 @@
 
 ```text
 harness_common/
-├── system/       # Repository/Component/Product、Service/Environment、资源、部署契约
+├── system/       # Repository/PullRequest/Component/Product、Service/Environment、资源、部署契约
 ├── access/       # Client/DataSource、EnvironmentContext 与环境 Fixture 生命周期
 ├── execution/    # Experiment/Execution/Operation、Outcome/Artifact、Reducer/Verdict 与 run 布局
 ├── report_kit/   # 中立报告结构和 HTML 渲染，独立于执行生命周期

@@ -1,0 +1,109 @@
+[
+  {
+    "pull_request": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/project"
+      },
+      "number": 7,
+      "title": "Improve parser",
+      "url": "https://github.com/example/project/pull/7",
+      "state": "open",
+      "source_repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "contributor/project",
+        "forked_from": "example/project"
+      },
+      "source_branch": "parser",
+      "target_branch": "main",
+      "head_sha": "abc",
+      "base_sha": "def",
+      "updated_at": "2026-10-26T00:00:00Z"
+    },
+    "id": "github/example/project#7"
+  },
+  {
+    "pull_request": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/project",
+        "forked_from": "upstream/project"
+      },
+      "number": 7,
+      "state": "merged",
+      "head_sha": "ghi",
+      "merged_at": "2026-10-26T01:00:00Z"
+    },
+    "id": "github/example/project#7"
+  },
+  {
+    "pull_request": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/project"
+      },
+      "number": 7,
+      "state": "closed"
+    },
+    "id": "github/example/project#7"
+  },
+  {
+    "pull_request": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/project"
+      },
+      "number": 7
+    },
+    "id": "github/example/project#7"
+  },
+  {
+    "pull_request": {
+      "repository": {
+        "forge": {
+          "name": "gitlab"
+        },
+        "path": "example/project"
+      },
+      "number": 7,
+      "state": "open"
+    },
+    "id": "gitlab/example/project#7"
+  },
+  {
+    "pull_request": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/other"
+      },
+      "number": 7,
+      "state": "open"
+    },
+    "id": "github/example/other#7"
+  },
+  {
+    "pull_request": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/project"
+      },
+      "number": 8,
+      "state": "open"
+    },
+    "id": "github/example/project#8"
+  }
+]

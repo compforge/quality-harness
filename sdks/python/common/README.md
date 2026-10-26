@@ -32,3 +32,10 @@ and the `eval_harness.llm` compatibility package are removed; import directly fr
 Upgrade `harness-common` and `harness-toolbox` together to 0.6; `quality-harness>=0.5.0`
 selects this compatible pair and the LLM extra. Publish common before toolbox, then
 quality-harness, so every dependency is available when a downstream package is installed.
+
+## PullRequest
+
+`PullRequest` identifies a PR/MR by its target `Repository` and repository-local number.
+State, branches, source repository, revisions and provider timestamps are optional facts.
+See [the shared contract](../../../docs/pull-request.md) for identity and unknown-state semantics.
+Forge access and polling remain consumer/toolkit responsibilities.
