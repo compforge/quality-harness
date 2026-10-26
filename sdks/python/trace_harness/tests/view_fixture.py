@@ -13,7 +13,7 @@ def prepared_html(
         context, measurements or Measurements(), findings or {}, session_views=session_views
     )
     views = [build_view(analysis, {"scope": "trace"}, facets=facet_registry)]
-    if session_views:
+    if session_views is not None:
         views.append(
             build_view(analysis, {"scope": "trace", "view": "agent"}, facets=facet_registry)
         )

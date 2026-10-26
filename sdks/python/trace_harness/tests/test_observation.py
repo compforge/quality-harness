@@ -27,7 +27,7 @@ from trace_harness import (
 from trace_harness.ingest.sources.jaeger_file import load_jaeger_file
 from trace_harness.kinds import genai
 from trace_harness.observation import validate_session_views, walk_nodes
-from trace_harness.tests.view_fixture import report_html
+from trace_harness.tests.view_fixture import prepared_html, report_html
 from trace_harness.view.observation import session_roots
 
 ROOT = Path(__file__).parents[4]
@@ -223,6 +223,8 @@ def test_unavailable_and_prepared_empty_observations_stay_distinct(tmp_path):
     assert restored.session_views == ()
     assert build_view(restored, {"scope": "trace", "view": "agent"})["status"] == "available"
     assert 'data-perspective="agent"' not in report_html(harness(), ctx)
+    assert 'data-perspective="agent"' in prepared_html(ctx, session_views=())
+    assert 'data-perspective="agent"' in prepared_html(ctx, session_views=[])
     assert 'data-perspective="agent"' in report_html(harness(FixtureExtractor()), ctx)
 
 
