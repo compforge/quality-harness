@@ -12,6 +12,8 @@ PullRequest 是 Repository 内的一次代码合入提案，统一表示 GitHub 
 
 `state` 只有 `open`、`merged`、`closed`，其中 closed 表示未合并而关闭。未获取的 state 在 Python 为 None、TypeScript 为 undefined、Go 为零值；不能当作 closed。`updated_at` / `merged_at` 是平台 ISO 8601 时间，缺失不证明没有更新或合并；合并终态读取 state。采集时间与观测完整性留在调用方的观测记录中。
 
+TypeScript 的 `RepositoryKey` / `PullRequestKey` 是仅需身份字段的结构化引用；`RepositorySnapshot` / `PullRequestSnapshot` 从同一对象模型派生出可序列化的事实形状，去掉 `id()`，包括 PR 内嵌的目标和来源 Repository。它们不是另一套对象身份，`repositoryId` / `pullRequestId` 对引用、快照和进程内对象给出同一结果。读取客户端可直接返回快照，消费方无需构造占位方法或自行维护字段投影。Python 数据类与 Go struct 已自然分离序列化字段和方法，共享身份及 JSON 事实语义不变。
+
 ## 消费边界
 
 common 不持有 token、HTTP 客户端、查询游标或轮询策略，也不解释业务授权、通知或合并决策。它不提供平台响应解析器；访问实现先校验远端响应，再构造公共对象。合并可行性和评审线程属于按需读取的观察事实，不能把共享身份对象当成持续有效的合并许可。

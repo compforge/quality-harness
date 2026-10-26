@@ -16,10 +16,16 @@ export interface Repository extends Identity {
   readonly forkedFrom?: string | null;
 }
 
+/** Identity fields usable without constructing an in-process Repository. */
+export type RepositoryKey = Pick<Repository, "forge" | "path">;
+
+/** Repository facts carried by JSON, storage and remote observations; identity methods are not data. */
+export type RepositorySnapshot = Omit<Repository, "id">;
+
 /**
  * Derive the Repository.id() value from identity fields.
  * @spec Repository identity is forge.name/path; fork provenance is excluded.
  */
-export function repositoryId(repository: Pick<Repository, "forge" | "path">): string {
+export function repositoryId(repository: RepositoryKey): string {
   return `${repository.forge.name}/${repository.path}`;
 }
