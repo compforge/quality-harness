@@ -60,6 +60,6 @@ export async function diagnoseAnalysis(analysis: AnalysisContext, detectorRegist
   }
   analysis.runtime?.check();
   const result = new AnalysisContext(context, analysis.measurements, findings, analysis.runtime);
-  result.agentRuns = analysis.agentRuns;
+  result.sessionViews = analysis.sessionViews;
   return result;
 }

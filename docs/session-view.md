@@ -1,8 +1,8 @@
 # Session observations
 
 Trace Harness and Trajectory Harness export Agent Ledger's `observation.SessionView` for following
-and analyzing one Agent Session. SessionView is currently the observation package's main capability.
-The wire schema is `agent-ledger/session-view@1`; each JSON file contains exactly one Session.
+and analyzing one Agent Session. SessionView follows a Session; JobView follows business work across Sessions.
+The wire schema is `agent-ledger/session@1`; each JSON file contains exactly one Session.
 Trace Node/analysis and ATIF remain the domain evidence and evaluation contracts.
 
 ## Dependencies and ownership
@@ -17,28 +17,60 @@ A Session can span several runs and inputs. A business Unit or a Run alone does 
 Agent Session. Cross-Session business sequencing, such as a Unit passing between review agents,
 belongs to a future Timeline; the export index is only a file catalog.
 
+## Agent loop and collaboration boundaries
+
+SessionView observes both task-oriented loops (work toward a result and finish) and continuous loops
+(receive followup/steer inputs over time). A process exit, task completion or run boundary does not
+by itself establish a new Session identity.
+
+When a task-oriented agent invokes another agent through a ToolCall, the call can reference the
+callee's Session. Consumers with both snapshots can follow that explicit invocation relationship.
+Each Session keeps its own nodes; a child Session's execution is not copied into its caller's model.
+
+A business Unit passing through two continuously running agents is a different observation question.
+For example, R1 and R2 may each process many Units in one Session; one Unit's work spans only a portion
+of each Session. Tracking that Unit across Sessions requires business correlation and selection of
+relevant execution segments. This is deferred to a future Timeline, not encoded as Session nesting.
+
 ## Trace
 
-Python `trace_harness.session_views(ir, context)` and TypeScript `sessionViews(ir, context)` return
-one SessionView per explicitly attributed Session. The extractor may set `AgentRun.session` to the
-shared `SessionRef(source, id)`. Runs with the same reference are grouped as `trace.run` Operations
-inside that Session; Run outcome remains on that Operation and never closes the Session.
+Domain extractors directly produce `observation.SessionView` values. Python contributes
+`session_view_extractor: NodeTreeExtractor[tuple[SessionView, ...]]`; TypeScript contributes
+`sessionViewExtractor: NodeTreeExtractor<SessionView[]>`. Use `harness.extract_session_views(context)`
+or `harness.extractSessionViews(context)`, or explicitly prepare `analysis.session_views` /
+`analysis.sessionViews`. Trace does not define another AgentRun/Turn/call model or conversion layer.
+Import agent types directly from `agent_ledger.observation` or `@compforge/agent-observation` and
+shared call/identity types from `common`.
 
-Nested agents with another Session reference are exported separately. Tool observations carry
-references to related Sessions rather than embedding their execution bodies. A child does not
-inherit a Session identity from its parent. Unattributed Runs stay available in the source Trace IR;
-Python's export index lists them as `unassigned_runs`, without fabricating identities.
+The extractor owns Session attribution, framework turn boundaries and invocation association.
+It groups all observed nodes for the same `(source, id)` into one SessionView. A run can be an
+Operation inside that Session if the source supplies that boundary. Run outcome stays on the
+Operation, never on the Session root. Missing Session identity leaves evidence in Trace Nodes;
+do not manufacture a Session from a trace or business Unit ID.
 
-Source node references, calls and timing evidence are retained. Unknown statuses remain unknown,
-zero ingestion timestamps remain unavailable, and a request is never reconstructed from transcript
-messages. Trace IR's ambiguous `model` value remains `attributes.trace_model` rather than being
-claimed as the actual response model.
+Trace validates the shared model, rejects duplicate Session references in one extraction, and checks
+local evidence references. `SourceRef(source="trace-node", id=node_id, uri="trace:<trace_id>")`
+links an item to a Trace Node and its spans. An omitted URI means the current trace. References to
+other trace URIs remain evidence but are not bound to local nodes with coincident IDs. Shared
+Observation validation owns item IDs, call links and timing; asynchronous children need not fit a
+parent time window. No second Trace-specific Agent schema is maintained.
 
-`dump_analysis` writes `<stem>.session-views/index.json` beside the saved analysis, plus individual
-SessionView JSON files. The index maps Session references to stable hashed filenames, so native IDs
-cannot escape the output directory. Repeated exports overwrite the same Session files. Only files
-listed in the current index are selected; older files are not part of the current export. The saved
-analysis preserves typed Session attribution for offline reload.
+ToolCall `sessions` references remain independent Session identities. The Trace viewer can expand
+supplied Session snapshots at the call site without changing stored models. Repeated call sites get
+distinct display IDs; cycles and unavailable targets remain explicit references. It never fetches a
+missing Session or assumes that a reference denotes only a particular slice of a continuous Session.
+Operation groups work through `nodes`. Its inherited `session` identifies execution ownership;
+references to called Sessions remain on ToolCall `sessions`.
+
+Source requests, response models, timing and unknown values are supplied directly using Observation's
+contract. Do not reconstruct unobserved prompts or claim a requested model as a response model.
+Explicit null content remains explicit. The renderer keeps evidence drill-down and error visibility.
+
+`analysis@4` snapshots store `session_views` directly. `dump_analysis` also writes
+`<stem>.session-views/index.json` and one SessionView JSON file per Session, using stable hashed
+filenames. The current index selects exports; stale files are not current exports. Offline loading
+validates saved observations and re-rendering does not re-extract or acquire evidence. Unprepared
+observations are absent; a prepared empty collection remains empty after saving and reloading.
 
 ## Trajectory
 
@@ -74,10 +106,10 @@ npx --package @compforge/agent-observation session-view session-views/<file-from
 Or use the renderer directly with the TypeScript Trace export:
 
 ```ts
-import { sessionViews } from "@compforge/trace-harness";
+// harness is a TraceHarness configured with a sessionViewExtractor.
 import { renderHTML } from "@compforge/agent-observation";
 
-for (const view of sessionViews(ir, context)) {
+for (const view of (harness.extractSessionViews(context) ?? [])) {
   const html = renderHTML(view, `Session ${view.session.id}`);
 }
 ```

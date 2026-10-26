@@ -29,9 +29,8 @@ trace_harness/
 │   ├── spec.py       #   KindSpec(matches/claims/build + metrics/rules/obs_hole + project) + SpecSet + merge
 │   ├── context.py    #   TraceContext：单 trace 建模单元(内存事实源)，dispatch 挂这；tree() 惰性建树
 │   ├── node_tree.py   #   按需关系索引(分析与渲染共用)
-│   ├── agent.py      #   AgentRun IR + 递归校验/序列化；Operation/AgentRun 均可递归嵌套
 │   ├── measurement.py # MeasurementSpec / Measurement / Measurements：独立量化结果及共享证据
-│   ├── analysis.py   # analysis@3 snapshot/dump/load；离线渲染不重算
+│   ├── analysis.py   # analysis@4 snapshot/dump/load；离线渲染不重算
 │   └── ir.py         #   TraceSnapshot + nodes.json dump/load：模型的可序列化形态(渲染面契约·域无关)
 ├── kinds/            # 唯一领域代码(通用 genai；域专属 AS kinds 留消费方，spec.merge 叠加)
 │   ├── base.py       #   generic 残余 spec + duration 基线度量
@@ -51,7 +50,7 @@ trace_harness/
 │   ├── registry.py   #   FacetRegistry：priority 择一(DefaultFacet 兜底)，TraceHarness 作用域内组合 biz facet
 │   ├── engine.py     #   render(view,findings)→DisplayNode + 序列化 to_md_lines/render_md/render_callstack：dispatch facet·执行 ChildOp·finding 按 node_id 绑(折叠上浮)；signal-aware collapse(信号免疫·≥error 浮出) + 同构 Group 合并 ×N
 │   ├── display.py    #   DisplayNode：脱 ctx/kind 的显示树(md/html/treecli 共用)
-│   ├── agent_run.py  #   AgentRun IR → 通用交互层级 payload，保留 Node/span 溯源
+│   ├── observation.py #   SessionView → 交互展示，保留 Node/span 溯源及工具调用点的 Session 引用
 │   ├── facets/       #   harness 通用 facet：Service / Agent / ToolCall / ModelCall(默认 Hide http 子)；biz facet 随域包显式贡献
 │   ├── callstack.py  #   findings_block + render_callstack(legacy 无 facet 原样树)；md/show/html 已切 engine·facet
 │   ├── explore.py    #   render_explore：treecli 渲染核(缩略图 + expand + 同构兄弟折叠)
@@ -75,7 +74,7 @@ source ─ingest───→ NormSpan 集
        ─measure─→ Measurements（独立结果，可无 Findings）
        ─diagnose→ findings（可选；按 node_id 挂 node）
        ─render──→ facet 分派 → DisplayNode → text / html / treecli
-       ─extract─→ NodeTreeExtractor<AgentRunIR> → AgentRun renderer
+       ─extract─→ NodeTreeExtractor<SessionView[]> → Observation renderer
 跨 trace：select 固定 Dataset，batch 逐条执行并落盘，corpus 保留显式表算子。
 ```
 
@@ -104,8 +103,9 @@ corpus parquet 走可选 extra `quality-harness[trace-corpus]`（pyarrow），�
   biz 的折叠手柄、可展开虚拟节点，且**折叠对信号免疫**（≥error 自动浮出，绝不藏问题）。
 - **biz 可定展示意图、不可另造 renderer**：域包通过 `TraceContributions.facets` 声明 node 的
   brief/layout；树遍历、DisplayNode 组装、Finding 绑定和 text/HTML 序列化由统一 engine 完成。
-- **AgentRun 是第二层 IR**：域包通过 `agent_run_extractor` 从完整 Node Tree 提取
-  run/turn/model/tool/operation 及调用点内的嵌套 run；trace_harness 负责 IR 校验和递归渲染，不内置任何 Agent Framework 的分轮或关联猜测。
+- **Agent 语义直接使用 Observation**：域包通过 `session_view_extractor` 提取 `SessionView` 集合，
+  模型归 Agent Ledger Observation。Trace 只校验本地证据引用并负责展示；不保留第二套 Agent IR。
+  工具调用以 `ToolCall.sessions` 引用其他 Session，提供对应快照时可在调用点展开。
 
 ## 开发与测试
 
@@ -131,11 +131,8 @@ Python 与 TypeScript 的分析结果共同遵守仓库根目录 `conformance/tr
 
 ## Session observation
 
-`session_views` / `sessionViews` exports prepared evidence through Agent Ledger's
-`observation.SessionView` (`agent-ledger/session-view@1`). Each view contains one explicitly
-attributed Session. Source adapters own identity and mapping; the shared observation package owns
-the read model and rendering. Trace extractors supply optional typed `AgentRun.session` references;
-missing attribution is recorded in export indexes, never inferred from a Run or business Unit ID.
-Other Sessions remain separate exports. Retain unmatched tool outcomes, unknown values and evidence
-issues; do not rebuild missing prompts or expand aggregate counts into fabricated invocations.
-See `docs/session-view.md` from the repository root for grouping, artifact and association contracts.
+Agent models come directly from Agent Ledger's `observation` package. Domain extractors supply
+SessionView collections; AnalysisContext stores them and renderers consume them without another
+Agent model or conversion stage. Task-oriented and continuous loops both fit one SessionView.
+ToolCall references can connect Sessions; business Unit tracking across continuous agents is deferred.
+See repository `docs/session-view.md` for evidence ownership, call-site expansion and persistence.

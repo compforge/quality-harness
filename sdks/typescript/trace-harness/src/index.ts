@@ -20,20 +20,6 @@ export {
   type AnalysisSnapshot,
 } from "./model/analysis";
 export { TraceContext } from "./model/context";
-export {
-  AGENT_RUN_SCHEMA,
-  agentRunSnapshot,
-  createAgentRunIR,
-  validateAgentRunIR,
-  type AgentRun,
-  type AgentRunIR,
-  type AgentRunItem,
-  type AgentTurn,
-  type ModelCall,
-  type Operation,
-  type ToolCall,
-  type TurnItem,
-} from "./model/agent";
 export { Node, type Emphasis, type Field, type Finding, type NodeInit, type Severity } from "./model/node";
 export { SpecSet, mergeSpecs, type KindSpec } from "./model/spec";
 export { NormSpan, spanErrorText, type ErrorEvent, type SpanAttributes, type SpanEvent } from "./model/span";
@@ -59,5 +45,3 @@ export { type Source, type SpanQuery } from "./ingest/sources/base";
 export { type LoadConfig, type EvidenceRef, EvidenceMissing, EvidenceTooLarge } from "./loading/model";
 export { EvidenceDependency, FactDependency, type Dependency, type FactProducer } from "./loading/facts";
 export { JaegerFileSource } from "./ingest/sources/jaeger-file";
-
-export { sessionViews } from "./session-view";

@@ -7,7 +7,7 @@ export function renderText(view: View): string {
   const lines = [`trace=${view.trace_id} ${view.scope} view=${view.view}`];
   if (view.scope === "trace") {
     lines.push(`status=${view.status}; ${page(view.rows)}`);
-    for (const row of view.rows.items) lines.push(`${"  ".repeat(row.depth)}${row.kind} ${quote(row.name)} service=${quote(row.service ?? "")} start_ms=${row.start_ms} duration=${formatMs(row.duration_ms)} id=${quote(row.node_id)} parent=${quote(row.parent_id ?? "")} nodes=${quote(row.source_node_ids)} spans=${quote(row.span_ids)}${Array.isArray(row.findings) && row.findings.length ? ` findings=${quote(row.findings)}` : ""}`);
+    for (const row of view.rows.items) lines.push(`${"  ".repeat(row.depth)}${row.kind} ${quote(row.name)} service=${quote(row.service ?? "")} start_ms=${row.start_ms} duration=${row.timing_known === false ? "unknown" : formatMs(row.duration_ms)} id=${quote(row.node_id)} parent=${quote(row.parent_id ?? "")} nodes=${quote(row.source_node_ids)} spans=${quote(row.span_ids)}${Array.isArray(row.findings) && row.findings.length ? ` findings=${quote(row.findings)}` : ""}`);
     lines.push(...view.measurements.map(quote));
   } else {
     const node = view.node;

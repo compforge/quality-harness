@@ -6,7 +6,7 @@ import type { Finding } from "../model/node";
 
 export class AnalysisContext {
   /** Prepared derivations belong to this analysis, never to a renderer. */
-  agentRuns?: import("../model/agent").AgentRunIR;
+  sessionViews?: import("@compforge/agent-observation").SessionView[];
 
   constructor(
     readonly trace: TraceContext,

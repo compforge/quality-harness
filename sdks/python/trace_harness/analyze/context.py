@@ -6,8 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from agent_ledger.observation import SessionView
+
 from trace_harness.detectors import Detector, DetectorResult, dependency_result
-from trace_harness.model.agent import AgentRunIR
 from trace_harness.model.context import TraceContext
 from trace_harness.model.measurement import Measurements
 from trace_harness.model.node import Finding, Node
@@ -22,7 +23,7 @@ class AnalysisContext:
     measurements: Measurements = field(default_factory=Measurements)
     findings: Mapping[str, tuple[Finding, ...]] = field(default_factory=dict)
 
-    agent_runs: AgentRunIR | None = field(default=None, kw_only=True)
+    session_views: tuple[SessionView, ...] | None = field(default=None, kw_only=True)
 
     runtime: TraceAnalysis | None = field(default=None, repr=False, compare=False)
 

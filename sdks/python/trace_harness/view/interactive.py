@@ -50,9 +50,9 @@ nav.switch button.active{background:#2563eb;color:#fff}
 .row.err.sel{background:#fee2e2;border-left-color:#dc2626}
 .tw{display:inline-block;width:14px;color:#9ca3af;cursor:pointer;text-align:center;flex:none}
 .kind{font-size:10px;border-radius:3px;padding:0 5px;flex:none;color:#fff;background:#9ca3af}
-.kind.agent{background:#7c3aed}.kind.framework{background:#2563eb}.kind.model-call{background:#059669}
-.kind.tool-call{background:#d97706}.kind.action,.kind.operation{background:#0891b2}.kind.node{background:#2563eb}
-.kind.agent-run{background:#7c3aed}.kind.agent-turn{background:#4f46e5}
+.kind.agent{background:#7c3aed}.kind.framework{background:#2563eb}.kind.model_call,.kind.model-call{background:#059669}
+.kind.tool_call,.kind.tool-call{background:#d97706}.kind.action,.kind.operation{background:#0891b2}.kind.node{background:#2563eb}
+.kind.session{background:#7c3aed}.kind.turn{background:#4f46e5}
 .kind.service{background:#6b7280}
 .dur{color:#6b7280;flex:none}
 .brief{color:#0d9488;font-size:11px;overflow:hidden;text-overflow:ellipsis}
@@ -100,15 +100,15 @@ dl.attrs dd{margin:2px 0 0;background:#fff;border:1px solid #e5e7eb;border-radiu
 _JS = """
 const TREES=__TREES__,SPANS=__SPANS__;
 const SEV={error:'✗',warn:'▲',info:'·'};
-const KCOLOR={agent:'#7c3aed','agent-run':'#7c3aed','agent-turn':'#4f46e5',framework:'#2563eb',
-  node:'#2563eb','model-call':'#059669','tool-call':'#d97706',action:'#0891b2',operation:'#0891b2',service:'#6b7280'};
+const KCOLOR={agent:'#7c3aed',session:'#7c3aed',turn:'#4f46e5',framework:'#2563eb',
+  node:'#2563eb',model_call:'#059669','model-call':'#059669',tool_call:'#d97706','tool-call':'#d97706',action:'#0891b2',operation:'#0891b2',service:'#6b7280'};
 const treeEl=document.getElementById('tree'),paneEl=document.getElementById('pane');
 let perspective=Object.keys(TREES)[0],layout='tree',tree=TREES[perspective],selectedId=location.hash.slice(1);
 let byId={},parentOf={},boxOf={},twOf={},flameBuilt=false,stackMaxDuration=1;
 const searchValues=__VALUES__;
 function nodeSearchValue(id){return searchValues[id]??'';}
 
-// Search only business-selected Node.value; virtual groups and AgentRun items have no value.
+// Search only business-selected Node.value; virtual groups and Session observation items have no value.
 const searchInput=document.getElementById('node-search');
 const searchStatus=document.getElementById('search-status');
 const searchPrev=document.getElementById('search-prev'),searchNext=document.getElementById('search-next');
@@ -201,7 +201,7 @@ function renderRowInto(box,n,depth,parent){
     nm.style.lineHeight='18px';nm.style.whiteSpace='normal';nm.style.overflowWrap='anywhere';nm.style.overflow='hidden';}
   row.appendChild(nm);
   appendMeasurementMarker(row,n);
-  const d=document.createElement('span');d.className='dur';d.textContent=fmtMs(n.duration_ms);row.appendChild(d);
+  const d=document.createElement('span');d.className='dur';d.textContent=(n.timing_known===false?'unknown':fmtMs(n.duration_ms));row.appendChild(d);
   if(n.brief){const be=document.createElement('span');be.className='brief';be.textContent='('+n.brief+')';row.appendChild(be);}
   if(n.has_error){const e=document.createElement('span');e.className='errdot';e.textContent='[ERROR]';row.appendChild(e);}
   box.appendChild(row);
@@ -267,7 +267,7 @@ function select(id){
   const n=byId[id];if(!n)return;
   selectedId=id;location.hash=id;
   let h='<h2>'+esc(n.name)+'</h2>'
-    +'<div class="meta">'+esc(n.kind)+' · '+fmtMs(n.duration_ms)
+    +'<div class="meta">'+esc(n.kind)+' · '+(n.timing_known===false?'unknown':fmtMs(n.duration_ms))
     +(n.service?' · '+esc(n.service):'')
     +(n.has_error?' · <b style="color:#dc2626">ERROR'+(n.error?'：'+esc(n.error):'')+'</b>':'')
     +'</div>'+findingsBlock(n)+measurementBlock(n)+factsTable(n)+detailsBlock(n)
@@ -339,13 +339,13 @@ function buildFlame(){
   if(!tree.roots.length){box.innerHTML='<div class="empty">当前侧重点没有可展示节点</div>';
     flameBuilt=true;return;}
   let t0=Infinity,t1=-Infinity,maxD=0;
-  (function scan(ns){ns.forEach(n=>{t0=Math.min(t0,n.start_ms);
-    t1=Math.max(t1,n.start_ms+n.duration_ms);maxD=Math.max(maxD,n.depth);scan(n.children);});})(tree.roots);
-  const span=Math.max(t1-t0,1e-6),rowH=20;
+  (function scan(ns){ns.forEach(n=>{if(n.timing_known!==false){t0=Math.min(t0,n.start_ms);
+    t1=Math.max(t1,n.start_ms+n.duration_ms);}maxD=Math.max(maxD,n.depth);scan(n.children);});})(tree.roots);
+  if(!Number.isFinite(t0)||!Number.isFinite(t1)){box.innerHTML='<div class="empty">没有已记录的完整时间区间</div>';flameBuilt=true;return;}const span=Math.max(t1-t0,1e-6),rowH=20;
   box.style.height=((maxD+1)*rowH+4)+'px';
   for(let i=0;i<=10;i++){const s=document.createElement('span');
     s.style.left=(i*10)+'%';s.textContent=fmtMs(span*i/10);axis.appendChild(s);}
-  (function place(ns){ns.forEach(n=>{
+  (function place(ns){ns.forEach(n=>{if(n.timing_known===false){place(n.children);return;}
     const c=document.createElement('div');
     c.dataset.id=n.node_id;c.className='fcell'+(n.has_error?' err':'');
     c.style.left=((n.start_ms-t0)/span*100)+'%';
@@ -354,7 +354,7 @@ function buildFlame(){
     c.style.background=KCOLOR[n.kind]||'#9ca3af';
     box.appendChild(c);
     c.textContent=compactName(n,Math.max(1,Math.floor(c.clientWidth/7)));
-    c.title=compactName(n,Number.MAX_SAFE_INTEGER)+' · '+n.kind+' · '+fmtMs(n.duration_ms)
+    c.title=compactName(n,Number.MAX_SAFE_INTEGER)+' · '+n.kind+' · '+(n.timing_known===false?'unknown':fmtMs(n.duration_ms))
       +(n.service?' · '+n.service:'')+(n.has_error?' · ERROR':'');
     c.addEventListener('click',()=>{showLayout('tree');select(n.node_id);});
     place(n.children);});})(tree.roots);flameBuilt=true;paintSearch();}

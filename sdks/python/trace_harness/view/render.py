@@ -16,11 +16,13 @@ def _text(view: dict) -> str:
             f"offset={rows['offset']}; next_offset={rows['next_offset']}"
         )
         for row in rows["items"]:
+            duration = row["duration_ms"] if row.get("timing_known") is not False else "unknown"
             lines.append(
                 "  "
                 * row["depth"]
                 + f"{row['kind']} {json.dumps(row['name'], ensure_ascii=False)} "
-                f"duration_ms={row['duration_ms']} id={json.dumps(row['node_id'])} "
+                f"duration_ms={duration} "
+                f"id={json.dumps(row['node_id'])} "
                 f"parent={json.dumps(row.get('parent_id'))} "
                 f"nodes={json.dumps(row['source_node_ids'])} spans={json.dumps(row['span_ids'])} "
                 f"findings={json.dumps(row.get('findings', []), ensure_ascii=False)}"

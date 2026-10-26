@@ -43,11 +43,11 @@ def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]
             continue
         ref = SessionRef(source="atif", id=trajectory.session_id)
         key = (ref.source, ref.id)
-        view = grouped.setdefault(key, SessionView(session=ref, items=[]))
+        view = grouped.setdefault(key, SessionView(session=ref, nodes=[]))
         issues = view.issues
         identity = trajectory.trajectory_id or trajectory.session_id
         run_id = f"atif:{identity}"
-        items = []
+        nodes = []
         for step in trajectory.steps:
             native = step.model_dump(mode="json", exclude_none=True)
             base = dict(
@@ -78,7 +78,7 @@ def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]
             }:
                 base["status"] = status
             if step.source == "user":
-                items.append(
+                nodes.append(
                     Input(
                         **base,
                         content=native.get("message"),
@@ -86,7 +86,7 @@ def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]
                 )
                 continue
             if step.source != "agent":
-                items.append(
+                nodes.append(
                     Operation(
                         **base, operation="system_context", data=native.get("message")
                     )
@@ -128,10 +128,10 @@ def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]
                 )
                 if request is None:
                     issues.append(f"{base['id']}: exact model request unavailable")
-                items.append(ModelCall(**base, request=request, response=response))
+                nodes.append(ModelCall(**base, request=request, response=response))
                 model_call_id = base["id"]
             else:
-                items.append(
+                nodes.append(
                     Operation(**base, operation=step_operation(step), data=native)
                 )
                 if step.llm_call_count and step.llm_call_count > 1:
@@ -176,7 +176,7 @@ def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]
                     },
                 )
                 if not observed:
-                    items.append(
+                    nodes.append(
                         Operation(
                             **facts,
                             operation="tool_proposal",
@@ -191,7 +191,7 @@ def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]
                     continue
                 if singleton:
                     facts["attributes"]["association"] = "single-call-step"
-                items.append(
+                nodes.append(
                     ToolCall(
                         **facts,
                         tool_call_id=call.tool_call_id or None,
@@ -206,7 +206,7 @@ def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]
             for index, result in enumerate(results):
                 if index in used:
                     continue
-                items.append(
+                nodes.append(
                     ToolCall(
                         id=f"{base['id']}:result:{index}",
                         evidence=base["evidence"],
@@ -221,7 +221,7 @@ def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]
                     f"{base['id']}:result:{index}: tool request association unavailable"
                 )
         execution = trajectory_execution(trajectory)
-        view.items.extend(items)
+        view.nodes.extend(nodes)
         view.attributes.setdefault("atif_trajectories", {})[identity] = {
             "agent": trajectory.agent.model_dump(mode="json", exclude_none=True),
             "extra": trajectory.extra or {},

@@ -11,8 +11,8 @@ members = [
 
 [[package]]
 name = "agent-ledger"
-version = "0.1.0"
-source = { git = "https://github.com/compforge/agent-ledger?subdirectory=python&rev=899ad81184eab47dde0c4135fd6209da1745274b#899ad81184eab47dde0c4135fd6209da1745274b" }
+version = "0.2.0"
+source = { git = "https://github.com/compforge/agent-ledger?subdirectory=python&rev=34cb6d2b20019145763238c746cbe76505295e77#34cb6d2b20019145763238c746cbe76505295e77" }
 dependencies = [
     { name = "pydantic" },
     { name = "rfc8785" },
@@ -1089,7 +1089,7 @@ wheels = [
 
 [[package]]
 name = "quality-harness"
-version = "0.5.2"
+version = "0.5.3"
 source = { editable = "." }
 dependencies = [
     { name = "agent-ledger" },
@@ -1127,7 +1127,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-ledger", git = "https://github.com/compforge/agent-ledger?subdirectory=python&rev=899ad81184eab47dde0c4135fd6209da1745274b" },
+    { name = "agent-ledger", git = "https://github.com/compforge/agent-ledger?subdirectory=python&rev=34cb6d2b20019145763238c746cbe76505295e77" },
     { name = "atif", specifier = ">=1.7,<1.8" },
     { name = "harness-common", editable = "common" },
     { name = "harness-toolbox", extras = ["http", "llm", "prometheus"], editable = "toolbox" },

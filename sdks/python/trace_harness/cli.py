@@ -35,7 +35,7 @@ from trace_harness.view.state import ViewState, handle, resolve_selector
 async def _cmd_single(args: argparse.Namespace) -> int:
     path = Path(args.path)
     with path.open(encoding="utf-8") as source:
-        is_analysis = '"trace-harness/analysis@3"' in source.read(256)
+        is_analysis = '"trace-harness/analysis@4"' in source.read(256)
     saved = load_analysis(path) if is_analysis else None
     if saved:
         ctx = saved.trace

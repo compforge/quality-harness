@@ -37,7 +37,7 @@ Measurement 不挂在 Node 上，通过 `context.measure(node, name)` 请求。
 | FactTransform 的 fact 依赖与纯转换 | 准备依赖后物化输出，检查重复生产者与循环 |
 | Measurer 的依赖、计算范围与算法 | 按真实范围执行一次并保存 Measurement |
 | Detector 的 id、requires 和判读逻辑 | 校验依赖并执行，后序逐 Node / 每 Dataset 调用，隔离结果与生命周期 |
-| 投影、facet 与 AgentRun 提取 | 准备展示数据，生成显示树及序列化 |
+| 投影、facet 与 SessionView 提取 | 准备展示数据，生成显示树及序列化 |
 
 业务使用 `await context.fact(node, name)` 和 `await context.measure(node, name)`。
 Source、缓存路径、HTTP、预加载时机和并发由框架管理。

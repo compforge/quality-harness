@@ -33,7 +33,7 @@ inspection, search and a flame graph. Browser memory remains a practical size li
 | Subject | View | Selected content |
 | --- | --- | --- |
 | trace | default | Node tree organized by contributed facets |
-| trace | agent | Prepared AgentRun, turns, model/tool calls and operations |
+| trace | agent | Prepared SessionView, turns, model/tool calls and operations |
 | node | default | Basic node facts, details, Findings and span evidence |
 | node | measurements | Node Measurements and prepared operation aggregates |
 | node | timeline | Prepared calls through the node's end, with source references |
@@ -44,7 +44,7 @@ View's direct serialization; `render(JSON.parse(json), {format: "html"})` needs 
 
 ```ts
 // Prepare only the needed derived data. This is explicit analysis work, before building views.
-harness.prepare(analysis, { agentRuns: true, callBreakdowns: [nodeId] });
+harness.prepare(analysis, { sessionViews: true, callBreakdowns: [nodeId] });
 const agent = harness.buildView(analysis, { scope: "trace", view: "agent", limit: 100 });
 const metrics = harness.buildView(analysis, { scope: "node", nodeId, view: "measurements" });
 const timeline = harness.buildView(analysis, { scope: "node", nodeId, view: "timeline", limit: 100 });
@@ -52,8 +52,8 @@ console.log(render(agent, { format: "text" }));
 const combinedHtml = render([view, agent], { format: "html" }); // Same trace, adjacent view buttons.
 ```
 
-AgentRun is a derived representation retaining original Node/span references. Its framework-specific
-extraction belongs to a contributed `agentRunExtractor`. Missing extraction is unavailable, never
+SessionView is a derived representation retaining original Node/span references. Its framework-specific
+extraction belongs to a contributed `sessionViewExtractor`. Missing extraction is unavailable, never
 inferred from node names. The same selected Agent rows feed HTML, text and JSON.
 
 ## Measurements and ownership
@@ -73,14 +73,14 @@ A contributed `measurementFilter` selects which nodes show the yellow **耗时�
 report. Prepare call breakdowns for those nodes to enable the dialog's aggregate and timeline tabs.
 Explicit node views read all saved measurements independently of this display filter.
 
-`analysisSnapshot` / `loadAnalysis` use `trace-harness/analysis@3`, preserving measurements and optional
-AgentRun derivations. Offline rendering never reruns extensions. Acquire full source evidence before
+`analysisSnapshot` / `loadAnalysis` use `trace-harness/analysis@4`, preserving measurements and optional
+SessionView derivations. Offline rendering never reruns extensions. Acquire full source evidence before
 rendering if span inspection is needed; a saved analysis without raw spans says they are unavailable.
 
 ## Domain contributions and managed loading
 
 Pass `TraceContributions` explicitly: specs, transforms, measurers, detectors, facets and an optional
-AgentRun extractor. Registries belong to the harness instance; importing a domain has no side effects.
+SessionView extractor. Registries belong to the harness instance; importing a domain has no side effects.
 `TraceContext.tree()` exposes the structural `NodeTree`; it is independent of presentation Views.
 
 For managed Source selection, caching, loading budgets and lease lifecycle, see [loading](docs/loading.md).

@@ -29,7 +29,7 @@ One configured harness executes these stages in order:
 raw spans -> normalize -> assemble (build -> transform requested facts -> project brief)
                               -> measure -> diagnose -> render
                               -> transform requested facts -> render
-                              -> NodeTreeExtractor -> AgentRun IR -> render
+                              -> NodeTreeExtractor -> SessionView observations -> render
 ```
 
 1. `normalize` maps backend-specific documents to `NormSpan` without assigning semantic kinds.
@@ -49,8 +49,8 @@ raw spans -> normalize -> assemble (build -> transform requested facts -> projec
 6. A consumer MAY request additional facts such as curl text or messages through `transform`.
    These are ordinary named facts and MUST be materialized into `node.facts` before rendering.
    Transform computation MUST NOT execute remote requests or interpret raw protocols.
-7. `agent_run_extractor` MAY read the complete trace, apply framework-specific correlation and
-   emit AgentRun IR. The harness validates and renders the result.
+7. `session_view_extractor` MAY read the complete trace, apply framework-specific correlation and
+   emit SessionView observations. The harness validates and renders the result.
 8. A probe MAY write evidence only when explicitly enabled at the call site. Import, construction,
    assembly, measurement, ordinary diagnosis, inspection and rendering MUST NOT write evidence.
 
@@ -64,8 +64,8 @@ synthetic context connector, but it MUST retain the represented node IDs and MUS
 
 ## 3. Analysis IR
 
-The canonical JSON projection is `trace-harness/analysis@3`, defined by
-[`analysis.schema.json`](../schema/trace/v3/analysis.schema.json).
+The canonical JSON projection is `trace-harness/analysis@4`, defined by
+[`analysis.schema.json`](../schema/trace/v4/analysis.schema.json).
 
 - `NormSpan` is one normalized physical span and retains raw data for provenance.
 - `Node` is the node-grain Unit Observation: one logical operation backed by one or more physical spans.
@@ -85,7 +85,7 @@ The canonical JSON projection is `trace-harness/analysis@3`, defined by
   produce an empty value. Snapshots preserve it; older snapshots without it load as `""`.
   Interactive Node Tree search MUST match only this value (case-insensitive literal substring).
   It highlights matches, expands their ancestor paths, and provides previous/next navigation.
-  Empty queries clear highlights; virtual groups and the separate AgentRun view are not searchable.
+  Empty queries clear highlights; virtual groups and the separate Session view are not searchable.
 
 Implementations MUST order nodes by `(start_ms, node_id)` and findings by
 `(scope, ref, source, severity, note)` when producing the canonical JSON projection. Runtime
@@ -144,7 +144,7 @@ Failed and not-applicable results have no numeric values; measured zero remains 
 - Nested and parallel durations and kind coverage overlap. Neither sum nor coverage is a causal
   or exclusive wall-clock contribution. The window is observed time, not a claim of complete capture.
 
-Analysis schema `trace-harness/analysis@3` persists Measurements and optionally prepared AgentRun IR.
+Analysis schema `trace-harness/analysis@4` persists Measurements and optionally prepared SessionViews.
 Reload never invokes measurers, extractors or detectors. Derivations remain available offline.
 
 ### Views and rendering
@@ -155,7 +155,7 @@ measurement or diagnosis. `NodeTree` is the structural index (`TraceContext.tree
 `buildView(analysis, request)` (Python: `build_view`) accepts:
 
 - Trace: `{scope: "trace", view: "default" | "agent"}`; default organizes the node tree using facets;
-  agent uses prepared AgentRun IR. Missing IR is `not_available`, never a guessed semantic tree.
+  agent uses prepared SessionViews. Missing IR is `not_available`, never a guessed semantic tree.
 - Node: `{scope: "node", nodeId, view: "default" | "measurements" | "timeline"}`. Default shows basic
   facts, details and span evidence. Measurements selects the node's measurements and operation groups;
   timeline selects prepared clipped calls. Unknown nodes are errors. Node queries ignore report filters.
@@ -175,46 +175,30 @@ Report visibility changes presentation only. A yellow measurement button does no
 to measurements and does not trigger computation.
 
 
-## 4. AgentRun IR
+## 4. Agent Session observations
 
-The canonical concern-specific projection is `trace-harness/agent-run@1`, defined by
-[`agent-run.schema.json`](../schema/trace/v1/agent-run.schema.json).
+Agent semantics use Agent Ledger's `observation.SessionView` (`agent-ledger/session-view@1`)
+directly. Trace MUST NOT maintain a parallel Run/Turn/call model. Domain extensions contribute
+`NodeTreeExtractor<SessionView[]>` through `session_view_extractor` / `sessionViewExtractor`.
+Python returns a tuple; TypeScript returns an array. Each Session reference MUST appear once in
+one extraction; the extractor groups its source-owned facts and establishes Session/turn identity.
 
-```text
-AgentRun.items
-  ├─ Operation ─operations─→ Operation*
-  │             └agent_runs─→ AgentRun*
-  └─ AgentTurn.items
-       ├─ ModelCall
-       ├─ ToolCall ─agent_runs─→ AgentRun*
-       └─ Operation ─operations─→ Operation*
-                    └agent_runs─→ AgentRun*
-```
+SessionView covers task-oriented and continuous loops. A ToolCall MAY reference other Sessions;
+renderers with those snapshots can expand them at the call site, preserving independent identities.
+Unavailable or cyclic references MUST remain visible without fetching or unbounded recursion.
+Operation groups items only; this contract does not add Session references to it. Following one
+business Unit through several continuous Sessions is outside this model and reserved for a future
+Timeline. A Session reference does not specify the execution slice belonging to a particular Unit.
 
-- `AgentRun` is one agent execution extracted from a broader node tree.
-- `AgentRun.items` preserves the order of turns and run-level operations before, between, or after
-  the agent loop.
-- `AgentTurn.items` preserves the order of model calls, tool calls, and turn-level operations.
-- `ModelCall` and `ToolCall` carry their structured input and output.
-- `Operation` represents known non-call work such as initialization, context compaction, wrap-up,
-  or finalization, and unknown framework extensions without forcing them into model or tool
-  semantics. It MAY belong directly to an `AgentRun`, to an `AgentTurn`, or recursively to another
-  `Operation` through ordered `operations`.
-- A `ToolCall` or `Operation` MAY contain ordered `agent_runs`. The call site and nested execution
-  remain distinct: the parent keeps invocation input/output while each nested `AgentRun` keeps its
-  own turns and operations. An opaque invocation uses an empty `agent_runs` collection.
-- `source_node_ids` preserve provenance and enable drill-down to the source node and spans.
+Trace uses shared Observation validation. In addition, local `trace-node` SourceRef IDs MUST exist
+in the source tree. A missing URI means local; `trace:<trace_id>` explicitly identifies ownership.
+Evidence for other trace URIs MUST NOT bind to current nodes by ID coincidence. Parent-child grouping
+MUST NOT introduce a temporal containment constraint absent from Observation.
 
-`NodeTreeExtractor<T>` is the deterministic transformation boundary from the complete in-memory
-node tree to one concern-specific IR. A domain package MAY contribute a
-`NodeTreeExtractor<AgentRunIR>`. Extractors own run and turn boundaries, model/tool correlation,
-operation naming, and any reconstruction from framework events. The harness owns IR validation,
-serialization, and rendering.
-
-AgentRun IDs, turn IDs, and operation/call IDs MUST be unique across one AgentRun IR. Runs,
-run items, turn items, nested `operations`, and nested `agent_runs` MUST be ordered by `start_ms`;
-durations MUST be non-negative; each parent time window MUST contain its child items and nested
-runs; every `source_node_ids` entry MUST reference a node in the source tree.
+Analysis snapshots persist shared SessionView values directly; renderers consume those prepared
+values. Missing attribution stays in Trace Nodes; it MUST NOT cause fabricated Session identities.
+Unprepared observations and a prepared empty collection MUST remain distinguishable on reload.
+See [Session observations](../docs/session-view.md) for producer and artifact contracts.
 
 ## 5. Scoped composition
 
@@ -232,19 +216,19 @@ these explicit extension slots:
 | `detectors` | diagnose | declaration order within each post-order node |
 | `facets` | render | highest priority wins; declaration order breaks ties; an undefined perspective level falls through |
 | `measurement_filter` | report rows only | first contributed predicate wins; absent means show all |
-| `agent_run_extractor` | AgentRun IR extraction | first contributed extractor wins |
+| `session_view_extractor` | SessionView observations extraction | first contributed extractor wins |
 
 Built-in contributions are copied into each harness before consumer contributions. A contribution
 MUST NOT be installed by relying on module import side effects. Implementations MUST NOT expose an
 ambient mutable registry as a contribution mechanism.
 
-A facet or AgentRun extractor MUST NOT replace the renderer. A facet MUST NOT recurse through the
+A facet or SessionView extractor MUST NOT replace the renderer. A facet MUST NOT recurse through the
 analysis tree itself. This keeps
 cross-domain presentation policy in the harness while still allowing each domain to state which
 nodes are primary, context, detail, summarized, grouped, or hidden. Findings remain renderer
 inputs, so generic and domain detectors can affect emphasis without implementing presentation
 code. The generic node-tree `agent` perspective remains a structure-preserving DisplayNode view;
-it is not AgentRun IR and MUST NOT substitute for framework turn semantics.
+it is not SessionView observations and MUST NOT substitute for framework turn semantics.
 
 A Measurement filter receives `(node, measurement, trace)` and selects already computed report
 rows. It MUST be pure and MUST NOT change analysis results, detector inputs, facts or topology.
@@ -260,7 +244,7 @@ A host MAY receive `TraceContributions` from a Plugin and combine them with gene
 The host remains responsible for data access and side effects.
 
 - A deterministic offline host such as `doctor trace` SHOULD use specs, transforms, measurers, detectors,
-  facets, and any contributed AgentRun extractor, then emit IR or a report from the same scoped
+  facets, and any contributed SessionView extractor, then emit IR or a report from the same scoped
   harness.
 - An interactive investigation host MAY additionally request facts such as `curl` or
   `messages`.
@@ -278,7 +262,7 @@ SHOULD:
 4. verify that transforms, measurers, detectors, and facets contributed to one harness do not
    affect another harness in the same process.
 
-Implementations that expose AgentRun IR SHOULD also run the shared AgentRun conformance case and
+Implementations that expose SessionView observations SHOULD also run the shared SessionView conformance case and
 compare its canonical JSON exactly.
 
 Built-in millisecond measurements round non-negative values to three decimal places, ties upward.
@@ -372,10 +356,6 @@ Result access MUST be independent of whether output is in memory or persisted in
 
 ## Session observation export
 
-An AgentRun may carry an optional `session` reference with nonempty `source` and `id` fields,
-provided by its source extractor. This attribution is retained by AgentRun snapshots and reloads.
-It does not change the Trace Node tree or imply that a run, trace or business task is an Agent
-Session. Python and TypeScript `session_views` / `sessionViews` export one Agent Ledger
-`observation.SessionView` per explicit reference. Nested Runs with different references are
-separate Sessions; calls may reference them without embedding foreign Session bodies. Missing
-attribution remains visible in the saved export catalog. See `docs/session-view.md`.
+`analysis@4.session_views` contains shared SessionView documents directly. Python `dump_analysis`
+also writes a catalog and one file per Session. Source adapters establish identity; no intermediate
+Agent IR or conversion API is involved. See [Session observations](../docs/session-view.md).
