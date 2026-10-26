@@ -19,3 +19,12 @@ TypeScript 的 `RepositoryKey` / `PullRequestKey` 是仅需身份字段的结构
 common 不持有 token、HTTP 客户端、查询游标或轮询策略，也不解释业务授权、通知或合并决策。它不提供平台响应解析器；访问实现先校验远端响应，再构造公共对象。合并可行性和评审线程属于按需读取的观察事实，不能把共享身份对象当成持续有效的合并许可。
 
 三个语言实现共同消费 `conformance/common/pull-requests.json`，验证目标仓归属、fork 与 revision 不改变身份、merged/closed/未知状态的区别，以及事实序列化往返。
+
+## 合并事实的独立维度
+
+`state` 是 open / closed / merged 生命周期，只有平台已确认合并才是 merged。
+`conflictState`（Python/Go wire 为 `conflict_state`）只描述代码冲突：none / conflicted / unknown。
+`mergeReadiness`（wire 为 `merge_readiness`）描述平台当时报告的合并条件：ready、conflict、
+discussions_unresolved、ci_blocked、needs_approval、draft、behind、blocked 或 unknown。
+无冲突不能推出 ready，ready 不能推出 merged，也不代表调用者有合并权限。遗漏字段仍是未知。
+这些事实不参与身份；平台读取、分页、游标和状态映射由 repocli 负责，common 不实现网络或扫描算法。

@@ -3,6 +3,14 @@ import { repositoryId, type Repository, type RepositoryKey, type RepositorySnaps
 
 export type PullRequestState = "open" | "merged" | "closed";
 
+/** Code conflict facts do not establish permission/readiness to merge, or a completed merge. */
+export type PullRequestConflictState = "none" | "conflicted" | "unknown";
+/** Provider-reported merge conditions at observation time, not authorization for a merge operation. */
+export type PullRequestMergeReadiness =
+  | "ready" | "conflict" | "discussions_unresolved" | "ci_blocked"
+  | "needs_approval" | "draft" | "behind" | "blocked" | "unknown";
+
+
 /**
  * A code-review proposal owned by its target Repository (GitHub PR or GitLab MR).
  * @spec Identity is target Repository + repository-local number; source, revisions and state are metadata.
@@ -16,6 +24,9 @@ export interface PullRequest extends Identity {
   readonly title?: string;
   readonly url?: string;
   readonly state?: PullRequestState;
+  /** Independent transient facts; neither implies state=merged. */
+  readonly conflictState?: PullRequestConflictState;
+  readonly mergeReadiness?: PullRequestMergeReadiness;
   readonly sourceRepository?: Repository;
   readonly sourceBranch?: string;
   readonly targetBranch?: string;

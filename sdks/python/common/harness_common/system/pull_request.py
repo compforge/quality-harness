@@ -9,6 +9,18 @@ from harness_common.identity import Identity
 from harness_common.system.repository import Repository
 
 PullRequestState = Literal["open", "merged", "closed"]
+PullRequestConflictState = Literal["none", "conflicted", "unknown"]
+PullRequestMergeReadiness = Literal[
+    "ready",
+    "conflict",
+    "discussions_unresolved",
+    "ci_blocked",
+    "needs_approval",
+    "draft",
+    "behind",
+    "blocked",
+    "unknown",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +38,13 @@ class PullRequest(Identity):
     title: str | None = field(default=None, kw_only=True, compare=False)
     url: str | None = field(default=None, kw_only=True, compare=False)
     state: PullRequestState | None = field(default=None, kw_only=True, compare=False)
+    # Transient conditions never establish a completed merge or authorize one.
+    conflict_state: PullRequestConflictState | None = field(
+        default=None, kw_only=True, compare=False
+    )
+    merge_readiness: PullRequestMergeReadiness | None = field(
+        default=None, kw_only=True, compare=False
+    )
     source_repository: Repository | None = field(
         default=None, kw_only=True, compare=False
     )
