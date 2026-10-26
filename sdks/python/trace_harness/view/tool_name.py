@@ -1,4 +1,4 @@
-"""Tool-call names shared by Node Tree and AgentRun renderers."""
+"""Tool-call names shared by Node Tree and SessionView renderers."""
 
 from __future__ import annotations
 

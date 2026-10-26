@@ -6,7 +6,7 @@
       "name": "@compforge/trace-harness",
       "dependencies": {
         "@compforge/agent-common": "0.1.1",
-        "@compforge/agent-observation": "0.1.0",
+        "@compforge/agent-observation": "0.2.0",
         "@compforge/harness-toolbox": "0.1.0",
         "fflate": "0.8.3",
       },
@@ -21,7 +21,7 @@
   "packages": {
     "@compforge/agent-common": ["@compforge/agent-common@0.1.1", "", {}, "sha512-MS1fE3KJ49YaQbZbZVkBi6uGUxIbBA8sVbZP11IaCVHKEalKUdCm8UcxiFRz0CBdrhLmp3dkU33i2M2PWPkMZA=="],
 
-    "@compforge/agent-observation": ["@compforge/agent-observation@0.1.0", "", { "dependencies": { "@compforge/agent-common": "0.1.1" }, "bin": { "session-view": "dist/src/cli.js" } }, "sha512-rfvTdNiDKvaWh6qDNpmaznk7EwuauY7kx73sZRnvr4sZnlvssP4xDiaojOQUsBsXSSfDgUnbZMjOww0P41ANkg=="],
+    "@compforge/agent-observation": ["@compforge/agent-observation@0.2.0", "", { "dependencies": { "@compforge/agent-common": "0.1.1" }, "bin": { "agent-observation": "dist/src/cli.js" } }, "sha512-qJU+w6VAbx/EGiuDqNC+FR/NrgtA5BhgPjNiFj2vc3wh+lPl/0t1fa8nAUZBMWlrw/6UIRUFKTsUfntZGBPXcA=="],
 
     "@compforge/harness-toolbox": ["@compforge/harness-toolbox@0.1.0", "", { "dependencies": { "@kubernetes/client-node": "1.4.0", "@opensearch-project/opensearch": "3.6.0", "@redis/client": "6.1.0", "mysql2": "3.23.1", "node-fetch": "2.7.0" } }, "sha512-7W8F7TultgQRAtldbQiZDBDV5KvnOp1IWJBtDCCDfMepgxoGLK6FA6Pe3Ym1cDN7x/dcyQukO39aaK+f6O6VfA=="],
 

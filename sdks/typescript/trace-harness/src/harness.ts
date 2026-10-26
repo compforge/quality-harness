@@ -9,7 +9,8 @@ import { AnalysisContext } from "./analyze/context";
 import { measure, builtinMeasurers, type Measurer } from "./analyze/measure";
 import type { Measurements } from "./model/measurement";
 import { assemble } from "./ingest/assemble";
-import { validateAgentRunIR, type AgentRunIR } from "./model/agent";
+import type { SessionView } from "@compforge/agent-observation";
+import { validateSessionViews } from "./observation";
 import type { TraceContext } from "./model/context";
 import type { Finding, Node } from "./model/node";
 import type { NormSpan } from "./model/span";
@@ -34,7 +35,7 @@ export interface TraceContributions {
   measurers?: Iterable<Measurer>;
   detectors?: Iterable<Detector>;
   facets?: Iterable<Facet>;
-  agentRunExtractor?: NodeTreeExtractor<AgentRunIR>;
+  sessionViewExtractor?: NodeTreeExtractor<SessionView[]>;
   measurementFilter?: MeasurementFilter;
 }
 
@@ -51,7 +52,7 @@ export function mergeTraceContributions(...items: TraceContributions[]): TraceCo
     detectors: items.flatMap((item) => [...(item.detectors ?? [])]),
     facets: items.flatMap((item) => [...(item.facets ?? [])]),
     measurementFilter: items.find((item) => item.measurementFilter)?.measurementFilter,
-    agentRunExtractor: items.find((item) => item.agentRunExtractor)?.agentRunExtractor,
+    sessionViewExtractor: items.find((item) => item.sessionViewExtractor)?.sessionViewExtractor,
   };
 }
 
@@ -105,9 +106,9 @@ export class TraceHarness {
     context.transforms?.materialize(context.nodes.flatMap((node) => names.map((name) => [node, name] as const)));
   }
 
-  extractAgentRuns(context: TraceContext): AgentRunIR | undefined {
-    const extractor = this.contributions.agentRunExtractor;
-    return extractor ? validateAgentRunIR(extractor.extract(context), context) : undefined;
+  extractSessionViews(context: TraceContext): SessionView[] | undefined {
+    const extractor = this.contributions.sessionViewExtractor;
+    return extractor ? validateSessionViews(extractor.extract(context), context) : undefined;
   }
 
   /** Report projection only: detectors and saved analysis retain all measurements. */
@@ -116,8 +117,8 @@ export class TraceHarness {
   }
 
   /** Prepare derived data explicitly, independently of any display selection or format. */
-  prepare(analysis: AnalysisContext, options: { agentRuns?: boolean; callBreakdowns?: readonly string[] }): AnalysisContext {
-    if (options.agentRuns && !analysis.agentRuns) analysis.agentRuns = this.extractAgentRuns(analysis.trace);
+  prepare(analysis: AnalysisContext, options: { sessionViews?: boolean; callBreakdowns?: readonly string[] }): AnalysisContext {
+    if (options.sessionViews && !analysis.sessionViews) analysis.sessionViews = this.extractSessionViews(analysis.trace);
     for (const nodeId of options.callBreakdowns ?? []) prepareCallBreakdown(analysis.trace, analysis.measurements, nodeId);
     return analysis;
   }

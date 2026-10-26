@@ -34,7 +34,7 @@ async with harness.open(source, work_dir="trace-work") as session:
 Node 的父子关系代表逻辑结构；Facet 的折叠、聚合、隐藏只改变 DisplayNode。Finding 仍可溯源
 原 Node/span，重要信号不能因为折叠而消失。Measurement 的展示过滤不改变分析值。
 
-AS 通过 AgentRun extractor 提供 agent/turn/model/tool 的业务投影，校验与渲染由 harness 执行。
+AS 通过 SessionView extractor 提供 agent/turn/model/tool 的业务投影，校验与渲染由 harness 执行。
 分析快照支持离线渲染；保存部分证据时应保留覆盖状态，不能将缺失原文显示为完整空结果。
 
 ## CLI
@@ -62,7 +62,7 @@ Node 与 Dataset 共用 [Detector 定义与依赖](kernel.md#detector-定义与�
 ## 派生数据与节点视图
 
 ```python
-analysis = harness.prepare(analysis, agent_runs=True, call_breakdowns=[node_id])
+analysis = harness.prepare(analysis, session_views=True, call_breakdowns=[node_id])
 view = harness.build_view(analysis, {"scope": "node", "nodeId": node_id, "view": "timeline"})
 text = render(view, format="text")
 json_text = render(view, format="json")

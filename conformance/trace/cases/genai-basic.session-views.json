@@ -1,0 +1,450 @@
+[
+  {
+    "schema_version": "agent-ledger/session@1",
+    "session": {
+      "source": "fixture",
+      "id": "session-run-main"
+    },
+    "attributes": {},
+    "lanes": [],
+    "issues": [],
+    "nodes": [
+      {
+        "id": "abc123fixturetrace0000000000000001:run:run-main",
+        "name": "main-agent",
+        "started_at": "2023-11-14T22:13:20.000Z",
+        "finished_at": "2023-11-14T22:13:28.000Z",
+        "status": "failed",
+        "evidence": [
+          {
+            "source": "trace-node",
+            "id": "1111111111111111",
+            "uri": "trace:abc123fixturetrace0000000000000001"
+          }
+        ],
+        "attributes": {
+          "trace_id": "abc123fixturetrace0000000000000001",
+          "trace_timing": {
+            "start_ms": 1700000000000.0,
+            "duration_ms": 8000.0
+          },
+          "run_id": "run-main"
+        },
+        "kind": "operation",
+        "operation": "trace.run",
+        "nodes": [
+          {
+            "id": "abc123fixturetrace0000000000000001:operation:initialize-1",
+            "name": "run.initialize",
+            "started_at": "2023-11-14T22:13:20.000Z",
+            "finished_at": "2023-11-14T22:13:20.100Z",
+            "status": "completed",
+            "evidence": [
+              {
+                "source": "trace-node",
+                "id": "1111111111111111",
+                "uri": "trace:abc123fixturetrace0000000000000001"
+              }
+            ],
+            "attributes": {
+              "trace_id": "abc123fixturetrace0000000000000001",
+              "trace_timing": {
+                "start_ms": 1700000000000.0,
+                "duration_ms": 100
+              }
+            },
+            "kind": "operation",
+            "operation": "run.initialize",
+            "data": {
+              "input": null,
+              "output": null
+            },
+            "nodes": [
+              {
+                "id": "abc123fixturetrace0000000000000001:operation:load-context-1",
+                "name": "context.load",
+                "started_at": "2023-11-14T22:13:20.010Z",
+                "finished_at": "2023-11-14T22:13:20.060Z",
+                "status": "completed",
+                "evidence": [
+                  {
+                    "source": "trace-node",
+                    "id": "1111111111111111",
+                    "uri": "trace:abc123fixturetrace0000000000000001"
+                  }
+                ],
+                "attributes": {
+                  "trace_id": "abc123fixturetrace0000000000000001",
+                  "trace_timing": {
+                    "start_ms": 1700000000010.0,
+                    "duration_ms": 50
+                  }
+                },
+                "kind": "operation",
+                "operation": "context.load",
+                "data": {
+                  "input": null,
+                  "output": null
+                },
+                "nodes": []
+              }
+            ]
+          },
+          {
+            "id": "abc123fixturetrace0000000000000001:turn:turn-plan",
+            "name": "Plan and search",
+            "started_at": "2023-11-14T22:13:20.100Z",
+            "finished_at": "2023-11-14T22:13:24.850Z",
+            "status": "unknown",
+            "evidence": [],
+            "attributes": {
+              "trace_id": "abc123fixturetrace0000000000000001",
+              "trace_timing": {
+                "start_ms": 1700000000100.0,
+                "duration_ms": 4750
+              }
+            },
+            "kind": "turn",
+            "nodes": [
+              {
+                "id": "abc123fixturetrace0000000000000001:model_call:model-plan",
+                "name": "planner",
+                "started_at": "2023-11-14T22:13:20.100Z",
+                "finished_at": "2023-11-14T22:13:23.500Z",
+                "status": "completed",
+                "evidence": [
+                  {
+                    "source": "trace-node",
+                    "id": "2222222222222222",
+                    "uri": "trace:abc123fixturetrace0000000000000001"
+                  }
+                ],
+                "attributes": {
+                  "input_tokens": 1820,
+                  "output_tokens": 640,
+                  "trace_id": "abc123fixturetrace0000000000000001",
+                  "trace_timing": {
+                    "start_ms": 1700000000100.0,
+                    "duration_ms": 3400.0
+                  },
+                  "trace_model": "model-alpha-seed-2"
+                },
+                "kind": "model_call",
+                "request": {
+                  "input": [
+                    {
+                      "role": "user",
+                      "content": "Find a source"
+                    }
+                  ]
+                },
+                "response": {
+                  "output": {
+                    "tool_calls": [
+                      {
+                        "name": "web_search"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "abc123fixturetrace0000000000000001:tool_call:tool-search",
+                "name": "web_search",
+                "started_at": "2023-11-14T22:13:23.600Z",
+                "finished_at": "2023-11-14T22:13:24.800Z",
+                "status": "completed",
+                "evidence": [
+                  {
+                    "source": "trace-node",
+                    "id": "4444444444444444",
+                    "uri": "trace:abc123fixturetrace0000000000000001"
+                  }
+                ],
+                "attributes": {
+                  "trace_id": "abc123fixturetrace0000000000000001",
+                  "trace_timing": {
+                    "start_ms": 1700000003600.0,
+                    "duration_ms": 1200.0
+                  },
+                  "trace_child_runs": [
+                    {
+                      "id": "run-worker",
+                      "session": {
+                        "source": "fixture",
+                        "id": "session-run-worker"
+                      }
+                    }
+                  ]
+                },
+                "kind": "tool_call",
+                "tool_call_id": "call-search-1",
+                "request": {
+                  "input": {
+                    "query": "example"
+                  },
+                  "tool_name": "web_search"
+                },
+                "response": {
+                  "output": {
+                    "matches": 1
+                  }
+                },
+                "sessions": [
+                  {
+                    "source": "fixture",
+                    "id": "session-run-worker"
+                  }
+                ]
+              },
+              {
+                "id": "abc123fixturetrace0000000000000001:operation:compact-1",
+                "name": "context.compact",
+                "started_at": "2023-11-14T22:13:24.800Z",
+                "finished_at": "2023-11-14T22:13:24.850Z",
+                "status": "completed",
+                "evidence": [
+                  {
+                    "source": "trace-node",
+                    "id": "1111111111111111",
+                    "uri": "trace:abc123fixturetrace0000000000000001"
+                  }
+                ],
+                "attributes": {
+                  "trace_id": "abc123fixturetrace0000000000000001",
+                  "trace_timing": {
+                    "start_ms": 1700000004800,
+                    "duration_ms": 50
+                  }
+                },
+                "kind": "operation",
+                "operation": "context.compact",
+                "data": {
+                  "input": {
+                    "messages": 12
+                  },
+                  "output": {
+                    "messages": 4
+                  }
+                },
+                "nodes": []
+              }
+            ]
+          },
+          {
+            "id": "abc123fixturetrace0000000000000001:operation:checkpoint-1",
+            "name": "framework.checkpoint",
+            "started_at": "2023-11-14T22:13:24.850Z",
+            "finished_at": "2023-11-14T22:13:24.875Z",
+            "status": "completed",
+            "evidence": [
+              {
+                "source": "trace-node",
+                "id": "1111111111111111",
+                "uri": "trace:abc123fixturetrace0000000000000001"
+              }
+            ],
+            "attributes": {
+              "trace_id": "abc123fixturetrace0000000000000001",
+              "trace_timing": {
+                "start_ms": 1700000004850,
+                "duration_ms": 25
+              }
+            },
+            "kind": "operation",
+            "operation": "framework.checkpoint",
+            "data": {
+              "input": null,
+              "output": null
+            },
+            "nodes": []
+          },
+          {
+            "id": "abc123fixturetrace0000000000000001:turn:turn-answer",
+            "name": "Answer",
+            "started_at": "2023-11-14T22:13:24.875Z",
+            "finished_at": "2023-11-14T22:13:27.400Z",
+            "status": "unknown",
+            "evidence": [],
+            "attributes": {
+              "trace_id": "abc123fixturetrace0000000000000001",
+              "trace_timing": {
+                "start_ms": 1700000004875,
+                "duration_ms": 2525
+              }
+            },
+            "kind": "turn",
+            "nodes": [
+              {
+                "id": "abc123fixturetrace0000000000000001:operation:wrap-up-1",
+                "name": "turn.wrap_up",
+                "started_at": "2023-11-14T22:13:24.875Z",
+                "finished_at": "2023-11-14T22:13:24.900Z",
+                "status": "completed",
+                "evidence": [
+                  {
+                    "source": "trace-node",
+                    "id": "1111111111111111",
+                    "uri": "trace:abc123fixturetrace0000000000000001"
+                  }
+                ],
+                "attributes": {
+                  "trace_id": "abc123fixturetrace0000000000000001",
+                  "trace_timing": {
+                    "start_ms": 1700000004875,
+                    "duration_ms": 25
+                  }
+                },
+                "kind": "operation",
+                "operation": "turn.wrap_up",
+                "data": {
+                  "input": null,
+                  "output": null
+                },
+                "nodes": []
+              },
+              {
+                "id": "abc123fixturetrace0000000000000001:model_call:model-answer",
+                "name": "synthesizer",
+                "started_at": "2023-11-14T22:13:24.900Z",
+                "finished_at": "2023-11-14T22:13:27.400Z",
+                "status": "failed",
+                "evidence": [
+                  {
+                    "source": "trace-node",
+                    "id": "5555555555555555",
+                    "uri": "trace:abc123fixturetrace0000000000000001"
+                  }
+                ],
+                "attributes": {
+                  "trace_id": "abc123fixturetrace0000000000000001",
+                  "trace_timing": {
+                    "start_ms": 1700000004900.0,
+                    "duration_ms": 2500.0
+                  },
+                  "trace_model": "model-alpha-seed-2"
+                },
+                "kind": "model_call",
+                "request": {
+                  "input": [
+                    {
+                      "role": "user",
+                      "content": "Answer with the source"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "abc123fixturetrace0000000000000001:operation:finalize-1",
+            "name": "run.finalize",
+            "started_at": "2023-11-14T22:13:27.400Z",
+            "finished_at": "2023-11-14T22:13:28.000Z",
+            "status": "completed",
+            "evidence": [
+              {
+                "source": "trace-node",
+                "id": "1111111111111111",
+                "uri": "trace:abc123fixturetrace0000000000000001"
+              }
+            ],
+            "attributes": {
+              "trace_id": "abc123fixturetrace0000000000000001",
+              "trace_timing": {
+                "start_ms": 1700000007400,
+                "duration_ms": 600
+              }
+            },
+            "kind": "operation",
+            "operation": "run.finalize",
+            "data": {
+              "input": null,
+              "output": null
+            },
+            "nodes": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "schema_version": "agent-ledger/session@1",
+    "session": {
+      "source": "fixture",
+      "id": "session-run-worker"
+    },
+    "attributes": {},
+    "lanes": [],
+    "issues": [],
+    "nodes": [
+      {
+        "id": "abc123fixturetrace0000000000000001:run:run-worker",
+        "name": "research-worker",
+        "started_at": "2023-11-14T22:13:23.650Z",
+        "finished_at": "2023-11-14T22:13:24.750Z",
+        "status": "unknown",
+        "evidence": [
+          {
+            "source": "trace-node",
+            "id": "4444444444444444",
+            "uri": "trace:abc123fixturetrace0000000000000001"
+          }
+        ],
+        "attributes": {
+          "trace_id": "abc123fixturetrace0000000000000001",
+          "trace_timing": {
+            "start_ms": 1700000003650,
+            "duration_ms": 1100
+          },
+          "run_id": "run-worker"
+        },
+        "kind": "operation",
+        "operation": "trace.run",
+        "nodes": [
+          {
+            "id": "abc123fixturetrace0000000000000001:turn:turn-worker",
+            "name": "Research",
+            "started_at": "2023-11-14T22:13:23.650Z",
+            "finished_at": "2023-11-14T22:13:24.750Z",
+            "status": "unknown",
+            "evidence": [],
+            "attributes": {
+              "trace_id": "abc123fixturetrace0000000000000001",
+              "trace_timing": {
+                "start_ms": 1700000003650,
+                "duration_ms": 1100
+              }
+            },
+            "kind": "turn",
+            "nodes": [
+              {
+                "id": "abc123fixturetrace0000000000000001:model_call:model-worker",
+                "name": "worker-model",
+                "started_at": "2023-11-14T22:13:23.650Z",
+                "finished_at": "2023-11-14T22:13:24.750Z",
+                "status": "completed",
+                "evidence": [
+                  {
+                    "source": "trace-node",
+                    "id": "4444444444444444",
+                    "uri": "trace:abc123fixturetrace0000000000000001"
+                  }
+                ],
+                "attributes": {
+                  "trace_id": "abc123fixturetrace0000000000000001",
+                  "trace_timing": {
+                    "start_ms": 1700000003650,
+                    "duration_ms": 1100
+                  },
+                  "trace_model": "model-alpha-seed-2"
+                },
+                "kind": "model_call"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

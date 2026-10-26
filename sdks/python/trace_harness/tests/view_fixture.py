@@ -7,13 +7,13 @@ from trace_harness.view.render import render
 
 
 def prepared_html(
-    context, findings=None, *, measurements=None, facet_registry=None, agent_run_ir=None
+    context, findings=None, *, measurements=None, facet_registry=None, session_views=None
 ):
     analysis = AnalysisContext(
-        context, measurements or Measurements(), findings or {}, agent_runs=agent_run_ir
+        context, measurements or Measurements(), findings or {}, session_views=session_views
     )
     views = [build_view(analysis, {"scope": "trace"}, facets=facet_registry)]
-    if agent_run_ir:
+    if session_views:
         views.append(
             build_view(analysis, {"scope": "trace", "view": "agent"}, facets=facet_registry)
         )
@@ -26,7 +26,7 @@ def report_html(harness, context, findings=None, *, measurements=None):
         findings,
         measurements=harness.visible_measurements(context, measurements) if measurements else None,
         facet_registry=harness.facets,
-        agent_run_ir=harness.extract_agent_runs(context),
+        session_views=harness.extract_session_views(context),
     )
 
 

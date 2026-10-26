@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://compforge.dev/schema/trace/v3/analysis.schema.json",
+  "$id": "https://compforge.dev/schema/trace/v4/analysis.schema.json",
   "title": "Trace Harness analysis IR",
   "type": "object",
   "required": [
@@ -13,7 +13,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "trace-harness/analysis@3"
+      "const": "trace-harness/analysis@4"
     },
     "trace_id": {
       "type": "string"
@@ -73,8 +73,11 @@
       },
       "additionalProperties": false
     },
-    "agent_runs": {
-      "$ref": "../v1/agent-run.schema.json"
+    "session_views": {
+      "type": "array",
+      "items": {
+        "$ref": "https://raw.githubusercontent.com/compforge/agent-ledger/34cb6d2b20019145763238c746cbe76505295e77/spec/schemas/session.schema.json"
+      }
     }
   },
   "additionalProperties": false,

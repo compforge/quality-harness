@@ -6,13 +6,15 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+from agent_ledger.observation import SessionView
+
 from trace_harness.analyze.context import AnalysisContext
-from trace_harness.model.agent import agent_run_snapshot, load_agent_run, validate_agent_run_ir
 from trace_harness.model.context import TraceContext
 from trace_harness.model.measurement import CallSource, Measurement, Measurements, MeasurementSpec
 from trace_harness.model.node import Field, Finding, Node
+from trace_harness.observation import validate_session_views
 
-SCHEMA = "trace-harness/analysis@3"
+SCHEMA = "trace-harness/analysis@4"
 
 
 def analysis_snapshot(
@@ -34,7 +36,16 @@ def analysis_snapshot(
     )
     return {
         "schema": SCHEMA,
-        **({"agent_runs": agent_run_snapshot(analysis.agent_runs)} if analysis.agent_runs else {}),
+        **(
+            {
+                "session_views": [
+                    view.model_dump(mode="json")
+                    for view in validate_session_views(analysis.session_views, context)
+                ]
+            }
+            if analysis.session_views is not None
+            else {}
+        ),
         "trace_id": context.trace_id,
         "span_count": context.span_count,
         "measurements": json.loads(json.dumps(asdict(analysis.measurements))),
@@ -90,20 +101,13 @@ def dump_analysis(analysis: AnalysisContext, path: str | Path) -> Path:
         json.dumps(payload, ensure_ascii=False, allow_nan=False),
         encoding="utf-8",
     )
-    if analysis.agent_runs is not None:
+    if analysis.session_views is not None:
         from hashlib import sha256
-
-        from trace_harness.session_view import observed_runs, session_views
 
         directory = path.with_suffix(".session-views")
         directory.mkdir(parents=True, exist_ok=True)
-        index = {
-            "sessions": [],
-            "unassigned_runs": [
-                run.id for run in observed_runs(analysis.agent_runs) if run.session is None
-            ],
-        }
-        for view in session_views(analysis.agent_runs, analysis.trace):
+        index = {"sessions": []}
+        for view in validate_session_views(analysis.session_views, analysis.trace):
             filename = sha256(view.session.model_dump_json().encode()).hexdigest() + ".json"
             (directory / filename).write_text(view.model_dump_json(indent=2), encoding="utf-8")
             index["sessions"].append({"session": view.session.model_dump(), "file": filename})
@@ -156,7 +160,9 @@ def load_analysis(path: str | Path) -> AnalysisContext:
         measurements,
         {key: tuple(value) for key, value in findings.items()},
         detector_runs=tuple(data.get("detector_runs", ())),
-        agent_runs=validate_agent_run_ir(load_agent_run(data["agent_runs"]), trace)
-        if "agent_runs" in data
+        session_views=validate_session_views(
+            (SessionView.model_validate(view) for view in data["session_views"]), trace
+        )
+        if "session_views" in data
         else None,
     )

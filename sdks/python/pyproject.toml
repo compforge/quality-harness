@@ -1,6 +1,6 @@
 [project]
 name = "quality-harness"
-version = "0.5.2"
+version = "0.5.3"
 description = "Quality testing and evidence analysis SDKs for software and agents"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
@@ -8,7 +8,7 @@ dependencies = [
     "harness-common>=0.6.0,<0.7",
     "harness-toolbox[http,llm,prometheus]>=0.6.0,<0.7",
     "atif>=1.7,<1.8",
-    "agent-ledger @ git+https://github.com/compforge/agent-ledger@899ad81184eab47dde0c4135fd6209da1745274b#subdirectory=python",
+    "agent-ledger @ git+https://github.com/compforge/agent-ledger@34cb6d2b20019145763238c746cbe76505295e77#subdirectory=python",
     "httpx>=0.27,<1.0",
     "pyyaml>=6.0,<7.0",
     "pytest>=8.0",

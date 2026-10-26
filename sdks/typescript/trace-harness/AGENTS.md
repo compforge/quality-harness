@@ -26,8 +26,8 @@ src/
 1. `Node` 是分析本体，transform 与渲染复用 TraceContext 的只读父子关系索引。
 2. 只有 `KindSpec.matches/claims` 改变结构；FactTransform、measure、diagnose 和 render 不得 re-parent。
 3. 通用包不写具体业务域知识；业务通过 scoped `TraceContributions` 贡献
-   spec、FactTransform、Measurer、Detector、Facet 和 `agentRunExtractor`，不依赖模块导入副作用。
-   Extractor 从完整 Node Tree 产出 AgentRun IR（Operation/AgentRun 均可递归嵌套）；不接管递归和输出序列化。
+   spec、FactTransform、Measurer、Detector、Facet 和 `sessionViewExtractor`，不依赖模块导入副作用。
+   Extractor 从完整 Node Tree 直接产出 Observation SessionView 集合；不接管递归和输出序列化。
 4. Python 与 TypeScript 的公开 IR 字段保持同名，便于 fixture 与产物交叉验证。
 5. Kernel 对齐：assemble 后的 Node 是 Observation，`trace_id + node_id` 是 node-grain Unit key；nodes / corpus 是可复评 Dataset，本次选择的 detector / gate 直接定义评估侧重点并由 EvaluationRun 记录，detect 输出 Finding。不同 Unit grain 使用不同 Worksheet；详见 `../../../docs/kernel.md#dataset-与反复评估`。
 
@@ -55,11 +55,8 @@ bun run build
 
 ## Session observation
 
-`session_views` / `sessionViews` exports prepared evidence through Agent Ledger's
-`observation.SessionView` (`agent-ledger/session-view@1`). Each view contains one explicitly
-attributed Session. Source adapters own identity and mapping; the shared observation package owns
-the read model and rendering. Trace extractors supply optional typed `AgentRun.session` references;
-missing attribution is recorded in export indexes, never inferred from a Run or business Unit ID.
-Other Sessions remain separate exports. Retain unmatched tool outcomes, unknown values and evidence
-issues; do not rebuild missing prompts or expand aggregate counts into fabricated invocations.
-See `docs/session-view.md` from the repository root for grouping, artifact and association contracts.
+Agent models come directly from Agent Ledger's `observation` package. Domain extractors supply
+SessionView collections; AnalysisContext stores them and renderers consume them without another
+Agent model or conversion stage. Task-oriented and continuous describe how Agents serve Jobs. Each Agent Session has its own SessionView.
+ToolCall references can connect Sessions; business Unit tracking across continuous agents is deferred.
+See repository `docs/session-view.md` for evidence ownership, call-site expansion and persistence.

@@ -1,8 +1,9 @@
+import type { Operation } from "@compforge/agent-observation";
 import { deriveCallBreakdown } from "../src/analyze/call-breakdown";
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
-import { createAgentRunIR, AnalysisContext, buildView, render,
+import { AnalysisContext, buildView, render,
   Measurements, Node, TraceContext, TraceHarness, genAiSpecs, normalizeJaegerSpans, analysisSnapshot, loadAnalysis } from "../src";
 import { MEASUREMENT_DIALOG_SCRIPT } from "../src/view/measurement-dialog";
 import { measurementWindow, aggregateMeasurementCalls } from "../src/analyze/call-breakdown";
@@ -73,21 +74,19 @@ test('Agent view uses saved derivation, keeps nesting and source IDs across form
   const { trace } = prepared();
   const analysis = new AnalysisContext(trace);
   expect(buildView(analysis, { scope: "trace", view: "agent" }).status).toBe('not_available');
-  analysis.agentRuns = createAgentRunIR(trace.trace_id, [{ id: 'run', name: 'Agent', start_ms: 0, duration_ms: 50,
-    source_node_ids: ['anchor'], items: [{ kind: 'operation', id: 'prepare', name: 'prepare', start_ms: 0, duration_ms: 40,
-      operations: [{ kind: 'operation', id: 'nested', name: 'nested\nname', start_ms: 5, duration_ms: 10,
-        source_node_ids: ['flight'], input: { message: 'original I/O' } }] }] }]);
+  analysis.sessionViews = [{schema_version:"agent-ledger/session@1", session:{source:"fixture",id:"session"},nodes:[
+    {kind:"operation",id:"prepare",operation:"prepare",nodes:[{kind:"operation",id:"nested",operation:"nested\nname",started_at:"1970-01-01T00:00:00.005Z",finished_at:"1970-01-01T00:00:00.015Z",evidence:[{source:"trace-node",id:"flight"}],data:{message:"original I/O"}} as Operation]} as Operation
+  ]}];
   const first = buildView(analysis, { scope: "trace", view: "agent", limit: 2 });
   expect(first.rows.total).toBe(3);
-  expect(first.rows.items.map(row => [row.node_id, row.depth])).toEqual([['agent-run:run', 0], ['agent-item:operation:prepare', 1]]);
+  expect(first.rows.items.map(row => [row.node_id, row.depth])).toEqual([['session:["fixture","session"]', 0], ['observation:["fixture","session","prepare"]', 1]]);
   const rest = buildView(analysis, { scope: "trace", view: "agent", offset: 2 });
-  expect(rest.rows.items[0]).toMatchObject({ depth: 2, parent_id: 'agent-item:operation:prepare', source_node_ids: ['flight'], span_ids: ['s-flight'], start_ms: 5 });
+  expect(rest.rows.items[0]).toMatchObject({ depth: 2, parent_id: 'observation:["fixture","session","prepare"]', source_node_ids: ['flight'], span_ids: ['s-flight'], start_ms: 5 });
   expect(render(rest, { format: "text" })).toContain('nested\\nname');
   const json = JSON.parse(render(rest, { format: "json" }));
   expect(json).toEqual(JSON.parse(JSON.stringify(rest)));
   expect(render(json, { format: "html" })).toContain('data-perspective="agent"');
-  analysis.agentRuns = { ...analysis.agentRuns, trace_id: 'other' };
-  expect(() => buildView(analysis, { scope: "trace", view: "agent" })).toThrow('does not match');
+
 });
 
 test('saved analysis supports hidden-node views; bundled renderer never calculates measurements', async () => {

@@ -29,17 +29,6 @@ from trace_harness.loading.facts import EvidenceDependency as EvidenceDependency
 from trace_harness.loading.facts import FactDependency as FactDependency
 from trace_harness.loading.facts import FactProducer as FactProducer
 from trace_harness.loading.model import LoadConfig as LoadConfig
-from trace_harness.model.agent import AGENT_RUN_SCHEMA as AGENT_RUN_SCHEMA
-from trace_harness.model.agent import AgentRun as AgentRun
-from trace_harness.model.agent import AgentRunIR as AgentRunIR
-from trace_harness.model.agent import AgentRunItem as AgentRunItem
-from trace_harness.model.agent import AgentTurn as AgentTurn
-from trace_harness.model.agent import ModelCall as ModelCall
-from trace_harness.model.agent import Operation as Operation
-from trace_harness.model.agent import ToolCall as ToolCall
-from trace_harness.model.agent import TurnItem as TurnItem
-from trace_harness.model.agent import agent_run_snapshot as agent_run_snapshot
-from trace_harness.model.agent import validate_agent_run_ir as validate_agent_run_ir
 from trace_harness.model.analysis import analysis_snapshot as analysis_snapshot
 from trace_harness.model.analysis import dump_analysis as dump_analysis
 from trace_harness.model.analysis import load_analysis as load_analysis
@@ -57,7 +46,6 @@ from trace_harness.model.span import NormSpan as NormSpan
 from trace_harness.model.spec import KindSpec as KindSpec
 from trace_harness.model.spec import SpecSet as SpecSet
 from trace_harness.model.spec import merge as merge
-from trace_harness.session_view import session_views as session_views
 from trace_harness.transform import FactTransform as FactTransform
 from trace_harness.transform import TransformContext as TransformContext
 from trace_harness.view.build import build_view as build_view

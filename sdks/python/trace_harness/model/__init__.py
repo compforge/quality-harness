@@ -7,17 +7,6 @@
 
 from __future__ import annotations
 
-from trace_harness.model.agent import AGENT_RUN_SCHEMA as AGENT_RUN_SCHEMA
-from trace_harness.model.agent import AgentRun as AgentRun
-from trace_harness.model.agent import AgentRunIR as AgentRunIR
-from trace_harness.model.agent import AgentRunItem as AgentRunItem
-from trace_harness.model.agent import AgentTurn as AgentTurn
-from trace_harness.model.agent import ModelCall as ModelCall
-from trace_harness.model.agent import Operation as Operation
-from trace_harness.model.agent import ToolCall as ToolCall
-from trace_harness.model.agent import TurnItem as TurnItem
-from trace_harness.model.agent import agent_run_snapshot as agent_run_snapshot
-from trace_harness.model.agent import validate_agent_run_ir as validate_agent_run_ir
 from trace_harness.model.context import TraceContext as TraceContext
 from trace_harness.model.ir import TraceSnapshot as TraceSnapshot
 from trace_harness.model.ir import dump_nodes as dump_nodes

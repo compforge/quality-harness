@@ -48,7 +48,7 @@ trace 解释执行过程，eval 评估产出质量，perf 验证负载下的性�
 | TraceContext | 单条 trace 的模型、证据与按需关系索引 |
 | AnalysisContext | 引用原 trace，持有本轮 Measurement 与 Finding |
 | TraceHarness | 分析配置的作用域 owner，显式组合业务贡献并执行分析和投影 |
-| AgentRun IR | 从 trace 提取的 agent 语义表示，保留 Node / span 溯源 |
+| Observation SessionView | 从 trace 提取的 agent 语义表示，保留 Node / span 溯源 |
 
 按照 [Kernel](kernel.md#dataset-与反复评估)，Node 可以作为 Observation，
 `trace_id + node_id` 定义 node-grain Unit。固定的事实和来源构成可复评 Dataset；
@@ -58,7 +58,7 @@ trace 解释执行过程，eval 评估产出质量，perf 验证负载下的性�
 ### 作用域与业务扩展
 
 每个 `TraceHarness` 独立持有 specs、transforms、measurers、detectors、facets 和
-agent_run_extractor。业务包通过 `TraceContributions` 提供确定性扩展，Host 在构造时
+session_view_extractor。业务包通过 `TraceContributions` 提供确定性扩展，Host 在构造时
 显式合并，避免 import 顺序或重复安装的包副本改变行为。
 
 业务原始字段在 KindSpec 建模边界转成命名 facts；transform、分析与展示消费这些 facts

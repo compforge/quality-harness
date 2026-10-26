@@ -154,7 +154,7 @@ def test_shared_view_preserves_atif_evidence_without_inventing_requests():
     trajectory = _trajectory()
     before = trajectory.model_dump_json()
     document = session_views([trajectory])[0]
-    items = document.items
+    items = document.nodes
     assert isinstance(items[0], Input)
     models = [n for n in items if isinstance(n, ModelCall)]
     tools = [n for n in items if isinstance(n, SharedTool)]
@@ -170,9 +170,9 @@ def test_shared_view_preserves_atif_evidence_without_inventing_requests():
     projected = session_views([unobserved])[0]
     assert any(
         isinstance(n, Operation) and n.operation == "tool_proposal"
-        for n in projected.items
+        for n in projected.nodes
     )
-    assert len([n for n in projected.items if isinstance(n, SharedTool)]) == 1
+    assert len([n for n in projected.nodes if isinstance(n, SharedTool)]) == 1
 
 
 def test_shared_view_does_not_expand_aggregate_model_calls():
@@ -182,8 +182,8 @@ def test_shared_view_does_not_expand_aggregate_model_calls():
     trajectory = _trajectory()
     trajectory.steps[1].llm_call_count = 3
     document = session_views([trajectory])[0]
-    assert isinstance(document.items[1], Operation)
-    assert len([n for n in document.items if isinstance(n, ModelCall)]) == 1
+    assert isinstance(document.nodes[1], Operation)
+    assert len([n for n in document.nodes if isinstance(n, ModelCall)]) == 1
     assert any("aggregates 3" in issue for issue in document.issues)
 
 
@@ -196,7 +196,7 @@ def test_session_views_keep_missing_and_conflicting_tool_ids():
     step.tool_calls[0].tool_call_id = ""
     step.observation.results[0].source_call_id = None
     view = session_views([trajectory])[0]
-    tool = next(node for node in view.items if isinstance(node, ObservedTool))
+    tool = next(node for node in view.nodes if isinstance(node, ObservedTool))
     assert tool.tool_call_id is None
     assert tool.request.tool_name == "read_file"
     assert tool.response.output[0]["content"] == "Project documentation"
@@ -207,14 +207,14 @@ def test_session_views_keep_missing_and_conflicting_tool_ids():
     view = session_views([trajectory])[0]
     orphan = next(
         node
-        for node in view.items
+        for node in view.nodes
         if isinstance(node, ObservedTool) and node.tool_call_id == "different-result-id"
     )
     assert orphan.request is None
     assert orphan.response.output[0]["content"] == "Project documentation"
     assert any(
         isinstance(node, Operation) and node.operation == "tool_proposal"
-        for node in view.items
+        for node in view.nodes
     )
 
 
@@ -236,7 +236,7 @@ def test_session_views_do_not_zip_ambiguous_results_or_mix_sessions():
     assert [view.session.id for view in views] == ["session-1", "another-session"]
     orphan = [
         node
-        for node in views[0].items
+        for node in views[0].nodes
         if isinstance(node, ObservedTool) and node.request is None
     ]
     assert len(orphan) == 2

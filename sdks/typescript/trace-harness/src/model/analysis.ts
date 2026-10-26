@@ -1,3 +1,4 @@
+import { validateSessionViews } from "../observation";
 import type { Findings } from "../analyze/diagnose";
 import { TraceContext } from "./context";
 import { AnalysisContext } from "../analyze/context";
@@ -5,7 +6,7 @@ import { Measurements } from "./measurement";
 import { Node } from "./node";
 import type { Emphasis, Severity } from "./node";
 
-export const ANALYSIS_SCHEMA = "trace-harness/analysis@3";
+export const ANALYSIS_SCHEMA = "trace-harness/analysis@4";
 
 export interface AnalysisNode {
   node_id: string;
@@ -43,7 +44,7 @@ export interface AnalysisSnapshot {
   nodes: AnalysisNode[];
   findings: AnalysisFinding[];
   measurements: Measurements;
-  agent_runs?: import("./agent").AgentRunIR;
+  session_views?: import("@compforge/agent-observation").SessionView[];
 }
 
 export function analysisSnapshot(
@@ -83,7 +84,7 @@ export function analysisSnapshot(
     trace_id: context.trace_id,
     span_count: context.span_count,
     measurements: analysis.measurements,
-    ...(analysis.agentRuns ? { agent_runs: analysis.agentRuns } : {}),
+    ...(analysis.sessionViews ? { session_views: validateSessionViews(analysis.sessionViews, context) } : {}),
     nodes,
     findings: flattened.map((finding): AnalysisFinding => ({
       ref: finding.ref ?? null,
@@ -111,6 +112,6 @@ export function loadAnalysis(data: AnalysisSnapshot): AnalysisContext {
     (findings[finding.ref ?? ""] ??= []).push(value);
   }
   const analysis = new AnalysisContext(trace, new Measurements(data.measurements.specs, data.measurements.sources, data.measurements.nodes, data.measurements.trace), findings);
-  analysis.agentRuns = data.agent_runs;
+  analysis.sessionViews = data.session_views === undefined ? undefined : validateSessionViews(data.session_views, trace);
   return analysis;
 }

@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from trace_harness.dataset import Dataset
     from trace_harness.runtime import TraceSession
 
+from agent_ledger.observation import SessionView
+
 from trace_harness.analyze.call_breakdown import prepare_call_breakdown
 from trace_harness.analyze.context import AnalysisContext
 from trace_harness.analyze.diagnose import diagnose as diagnose_context
@@ -31,13 +33,13 @@ from trace_harness.analyze.measure import BUILTIN_MEASURERS, Measurer, measure
 from trace_harness.detectors import Detect, Detector
 from trace_harness.ingest.assemble import assemble as assemble_spans
 from trace_harness.ingest.sources.jaeger_file import load_jaeger_file
-from trace_harness.model.agent import AgentRunIR, validate_agent_run_ir
 from trace_harness.model.context import TraceContext
 from trace_harness.model.measurement import Measurements
 from trace_harness.model.node import Finding, Node
 from trace_harness.model.node_tree import NodeTreeExtractor
 from trace_harness.model.span import NormSpan
 from trace_harness.model.spec import KindSpec, SpecSet
+from trace_harness.observation import validate_session_views
 from trace_harness.transform import BUILTIN_TRANSFORMS, FactTransform
 from trace_harness.view.build import ViewRequest, build_view
 from trace_harness.view.facet import Facet
@@ -65,7 +67,7 @@ class TraceContributions:
         default_factory=tuple
     )
     facets: tuple[Facet, ...] = field(default_factory=tuple)
-    agent_run_extractor: NodeTreeExtractor[AgentRunIR] | None = None
+    session_view_extractor: NodeTreeExtractor[tuple[SessionView, ...]] | None = None
     measurement_filter: MeasurementFilter | None = None
 
 
@@ -91,8 +93,12 @@ def merge_trace_contributions(*items: TraceContributions) -> TraceContributions:
             (item.measurement_filter for item in items if item.measurement_filter is not None),
             None,
         ),
-        agent_run_extractor=next(
-            (item.agent_run_extractor for item in items if item.agent_run_extractor is not None),
+        session_view_extractor=next(
+            (
+                item.session_view_extractor
+                for item in items
+                if item.session_view_extractor is not None
+            ),
             None,
         ),
     )
@@ -172,11 +178,11 @@ class TraceHarness:
         if context.transforms is not None:
             context.transforms.materialize((node, name) for node in context.nodes for name in names)
 
-    def extract_agent_runs(self, context: TraceContext) -> AgentRunIR | None:
-        extractor = self.contributions.agent_run_extractor
+    def extract_session_views(self, context: TraceContext) -> tuple[SessionView, ...] | None:
+        extractor = self.contributions.session_view_extractor
         if extractor is None:
             return None
-        return validate_agent_run_ir(extractor.extract(context), context)
+        return validate_session_views(extractor.extract(context), context)
 
     def visible_measurements(
         self, context: TraceContext, measurements: Measurements
@@ -188,14 +194,14 @@ class TraceHarness:
         self,
         analysis: AnalysisContext,
         *,
-        agent_runs: bool = False,
+        session_views: bool = False,
         call_breakdowns: Iterable[str] = (),
     ) -> AnalysisContext:
         """Explicit derivation phase; independent of View selection and output format."""
         for node_id in call_breakdowns:
             prepare_call_breakdown(analysis.trace, analysis.measurements, node_id)
-        if agent_runs and analysis.agent_runs is None:
-            analysis = replace(analysis, agent_runs=self.extract_agent_runs(analysis.trace))
+        if session_views and analysis.session_views is None:
+            analysis = replace(analysis, session_views=self.extract_session_views(analysis.trace))
         return analysis
 
     def build_view(self, analysis: AnalysisContext, request: ViewRequest) -> dict:

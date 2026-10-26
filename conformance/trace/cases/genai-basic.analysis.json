@@ -1,5 +1,5 @@
 {
-  "schema": "trace-harness/analysis@3",
+  "schema": "trace-harness/analysis@4",
   "trace_id": "abc123fixturetrace0000000000000001",
   "span_count": 6,
   "measurements": {

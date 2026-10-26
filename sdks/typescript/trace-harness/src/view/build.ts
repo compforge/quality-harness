@@ -3,7 +3,7 @@ import type { AnalysisContext } from "../analyze/context";
 import { Measurements } from "../model/measurement";
 import type { MeasurementFilter } from "./measurements";
 import { filterMeasurements, measurementRows } from "./measurements";
-import { agentRunRoots } from "./agent-run";
+import { sessionRoots } from "./observation";
 import { displayPayload, spanPayload } from "./payload";
 import { renderDisplay } from "./engine";
 import { FacetRegistry } from "./registry";
@@ -39,15 +39,14 @@ export function buildView(analysis: AnalysisContext, request: ViewRequest, optio
   if (request.scope === "trace") {
     const kind = request.view ?? "default";
     if (!["default", "agent"].includes(kind)) throw new Error(`Invalid trace view: ${kind}`);
-    if (kind === "agent" && analysis.agentRuns && analysis.agentRuns.trace_id !== trace.trace_id) throw new Error("AgentRun trace_id does not match trace");
     const visible = filterMeasurements(trace, measurements, options.measurementFilter);
     const roots = kind === "agent"
-      ? analysis.agentRuns ? agentRunRoots(trace, analysis.agentRuns, findings) : []
+      ? analysis.sessionViews ? sessionRoots(trace, analysis.sessionViews, findings) : []
       : renderDisplay(trace.tree(), findings, facets).map((node, i) => displayPayload(trace, node, byId, visible, String(i)));
     const rows = page(flatten(roots), request);
     const ids = new Set(rows.items.flatMap(row => row.source_node_ids));
     return { scope: "trace", view: kind, trace_id: trace.trace_id,
-      status: kind === "agent" && !analysis.agentRuns ? "not_available" : "available", rows,
+      status: kind === "agent" && !analysis.sessionViews ? "not_available" : "available", rows,
       spans: spans(rows.items.flatMap(row => row.span_ids)),
       values: Object.fromEntries(trace.nodes.filter(node => ids.has(node.node_id) && node.value).map(node => [node.node_id, node.value])),
       timings: Object.fromEntries([...ids].filter(id => visible.nodes[id]?.length).flatMap(id => { const timing = savedCallBreakdown(measurements, id); return timing ? [[id, timing]] : []; })),

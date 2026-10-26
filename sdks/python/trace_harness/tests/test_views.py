@@ -129,7 +129,8 @@ def test_node_views_use_prepared_measurement_and_shared_window(tmp_path):
 
 
 def test_agent_derivation_survives_snapshot_without_extraction(tmp_path):
-    from trace_harness import AgentRun, AgentRunIR, Operation
+    from agent_ledger.common import SessionRef
+    from agent_ledger.observation import Operation, SessionView, SourceRef
 
     node = Node(
         node_id="source",
@@ -145,22 +146,22 @@ def test_agent_derivation_survives_snapshot_without_extraction(tmp_path):
         error_text="saved error without raw spans",
     )
     trace = TraceContext("agent", {}, [node], {})
-    ir = AgentRunIR(
-        "agent",
-        (
-            AgentRun(
-                "run",
-                "agent",
-                0,
-                10,
-                (Operation("op", "tool preparation", 1, 2, source_node_ids=("source",)),),
-            ),
+    views = (
+        SessionView(
+            session=SessionRef(source="fixture", id="session"),
+            nodes=[
+                Operation(
+                    id="op",
+                    operation="tool preparation",
+                    evidence=[SourceRef(source="trace-node", id="source")],
+                )
+            ],
         ),
     )
-    analysis = AnalysisContext(trace, agent_runs=ir)
+    analysis = AnalysisContext(trace, session_views=views)
     loaded = load_analysis(dump_analysis(analysis, tmp_path / "agent.json"))
     view = build_view(loaded, {"scope": "trace", "view": "agent", "offset": 1})
-    assert view["rows"]["items"][0]["parent_id"] == "agent-run:run"
+    assert view["rows"]["items"][0]["parent_id"] == 'session:["fixture","session"]'
     assert view["rows"]["items"][0]["depth"] == 1
     assert view["rows"]["items"][0]["error"] == "saved error without raw spans"
     assert "tool preparation" in render(view, format="text")

@@ -5,11 +5,11 @@ from typing import Literal, TypedDict
 from trace_harness.analyze.call_breakdown import saved_call_breakdown
 from trace_harness.analyze.context import AnalysisContext
 from trace_harness.model.measurement import Measurements
-from trace_harness.view.agent_run import agent_run_roots
 from trace_harness.view.display import DisplayNode
 from trace_harness.view.engine import render as render_display
 from trace_harness.view.facets import builtin_facets
 from trace_harness.view.measurements import MeasurementFilter, filter_measurements, measurement_rows
+from trace_harness.view.observation import session_roots
 from trace_harness.view.payload import _disp_payload, _span_payload
 from trace_harness.view.registry import FacetRegistry
 
@@ -70,10 +70,11 @@ def build_view(
             raise ValueError(f"Invalid trace view: {kind}")
         visible = filter_measurements(trace, measurements, measurement_filter)
         if kind == "agent":
-            ir = analysis.agent_runs
-            if ir and ir.trace_id != trace.trace_id:
-                raise ValueError("AgentRun trace_id does not match trace")
-            roots = agent_run_roots(trace, ir, findings) if ir else []
+            roots = (
+                session_roots(trace, analysis.session_views, findings)
+                if analysis.session_views is not None
+                else []
+            )
         else:
             roots = [
                 _disp_payload(trace, node, by_id, visible, str(i))
@@ -90,7 +91,7 @@ def build_view(
             "view": kind,
             "trace_id": trace.trace_id,
             "status": "not_available"
-            if kind == "agent" and analysis.agent_runs is None
+            if kind == "agent" and analysis.session_views is None
             else "available",
             "rows": rows,
             "spans": spans(sid for row in rows["items"] for sid in row["span_ids"]),
