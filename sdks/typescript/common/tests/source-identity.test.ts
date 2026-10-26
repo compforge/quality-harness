@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { repositoryId, type Identity, type Repository, conceptToMarkdown, knowledgeToMarkdown, stepToMarkdown, workflowToMarkdown, componentEcosystem, type Component } from "../src/index.js";
+import { repositoryId, type Identity, type Repository, type RepositorySnapshot, conceptToMarkdown, knowledgeToMarkdown, stepToMarkdown, workflowToMarkdown, componentEcosystem, type Component } from "../src/index.js";
 
 test("Component metadata follows the shared optional metadata contract", () => {
   const fixture = JSON.parse(readFileSync(
     new URL("../../../../conformance/common/source-identities.json", import.meta.url), "utf8",
-  )) as { components: (Omit<Component, "repository"> & { repository: Omit<Repository, "id"> })[] };
+  )) as { components: (Omit<Component, "repository"> & { repository: RepositorySnapshot })[] };
   const components: Component[] = fixture.components.map(component => ({
     ...component, repository: { ...component.repository, id() { return repositoryId(this); } },
   }));

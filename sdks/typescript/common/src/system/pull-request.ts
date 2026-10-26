@@ -1,5 +1,5 @@
 import type { Identity } from "../identity.js";
-import { repositoryId, type Repository } from "./repository.js";
+import { repositoryId, type Repository, type RepositoryKey, type RepositorySnapshot } from "./repository.js";
 
 export type PullRequestState = "open" | "merged" | "closed";
 
@@ -26,7 +26,23 @@ export interface PullRequest extends Identity {
   readonly mergedAt?: string;
 }
 
+/** The target Repository and its local PR number / MR iid; no methods or observation facts are required. */
+export interface PullRequestKey {
+  readonly repository: RepositoryKey;
+  readonly number: PullRequest["number"];
+}
+
+/**
+ * @spec A PR snapshot retains the common field names and optional facts, without PR or nested Repository identity methods.
+ * @why JSON and remote observations must not require each consumer to invent a parallel PR shape or reconstruct methods.
+ * @see {@link component://docs/pull-request.md}
+ */
+export type PullRequestSnapshot = Omit<PullRequest, "id" | "repository" | "sourceRepository"> & {
+  readonly repository: RepositorySnapshot;
+  readonly sourceRepository?: RepositorySnapshot;
+};
+
 /** Derive identity from fields; never trust a consumer's display URL or repository id method. */
-export function pullRequestId(pr: Pick<PullRequest, "repository" | "number">): string {
+export function pullRequestId<T extends PullRequestKey>(pr: T): string {
   return `${repositoryId(pr.repository)}#${pr.number}`;
 }

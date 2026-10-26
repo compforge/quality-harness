@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { pullRequestId, repositoryId, type PullRequest, type PullRequestState, type Repository, type Identity } from "../src/index.js";
+import { pullRequestId, repositoryId, type PullRequest, type PullRequestState, type PullRequestKey, type PullRequestSnapshot, type RepositorySnapshot, type Repository, type Identity } from "../src/index.js";
 
 interface WireRepository { forge: { name: string }; path: string; forked_from?: string }
 interface WirePullRequest {
@@ -38,4 +38,20 @@ test("optional PR facts roundtrip without inventing state, source or merge time"
   });
   expect(prs[3].state).toBeUndefined(); expect(prs[3].sourceRepository).toBeUndefined();
   expect(prs[2].mergedAt).toBeUndefined(); expect(prs[1].state).toBe("merged");
+});
+
+test("method-free references and snapshots retain identity through JSON and structured cloning", () => {
+  const target: RepositorySnapshot = { forge: { name: "github" }, path: "org/repo", forkedFrom: "upstream/repo" };
+  const source: RepositorySnapshot = { forge: target.forge, path: "contributor/repo" };
+  const reference: PullRequestKey = { repository: target, number: 7 };
+  const snapshot: PullRequestSnapshot = { ...reference, sourceRepository: source, state: "merged", headSha: "head" };
+  expect(pullRequestId(reference)).toBe("github/org/repo#7");
+  expect(pullRequestId(structuredClone(snapshot))).toBe(pullRequestId(reference));
+  expect(JSON.parse(JSON.stringify(snapshot))).toEqual(structuredClone(snapshot));
+  expect(repositoryId(snapshot.sourceRepository!)).toBe("github/contributor/repo");
+  const unknown: PullRequestSnapshot = reference;
+  expect(unknown.state).toBeUndefined(); expect(unknown.mergedAt).toBeUndefined();
+  type Methods = Extract<keyof PullRequestSnapshot | keyof RepositorySnapshot, "id">;
+  const dataOnly: Methods extends never ? true : false = true;
+  expect(dataOnly).toBe(true);
 });
