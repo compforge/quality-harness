@@ -6,6 +6,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from agent_ledger.common import SessionRef
+
 from trace_harness.model.context import TraceContext
 
 AGENT_RUN_SCHEMA = "trace-harness/agent-run@1"
@@ -84,6 +86,8 @@ class AgentRun:
     start_ms: float
     duration_ms: float
     items: tuple[AgentRunItem, ...]
+    # Source-owned attribution; a Run ID does not establish a Session.
+    session: SessionRef | None = None
     status: str = ""
     attributes: dict[str, Any] = field(default_factory=dict)
     source_node_ids: tuple[str, ...] = ()
@@ -194,6 +198,8 @@ def validate_agent_run_ir(ir: AgentRunIR, context: TraceContext) -> AgentRunIR:
         if run.id in run_ids:
             raise ValueError(f"duplicate AgentRun id: {run.id}")
         run_ids.add(run.id)
+        if run.session is not None:
+            SessionRef.model_validate(run.session)
         check_timing(f"AgentRun {run.id}", run.start_ms, run.duration_ms)
         check_source_refs(f"AgentRun {run.id}", run.source_node_ids)
         previous_run_item_start: float | None = None
@@ -273,6 +279,7 @@ def _item_snapshot(item: TurnItem) -> dict[str, Any]:
 
 def _run_snapshot(run: AgentRun) -> dict[str, Any]:
     return {
+        **({"session": run.session.model_dump()} if run.session else {}),
         "id": run.id,
         "name": run.name,
         "start_ms": run.start_ms,
@@ -330,6 +337,8 @@ def load_agent_run(data: dict) -> AgentRunIR:
 
     def run(value):
         fields = {k: v for k, v in value.items() if k != "kind"}
+        if fields.get("session") is not None:
+            fields["session"] = SessionRef.model_validate(fields["session"])
         fields["source_node_ids"] = tuple(fields.get("source_node_ids", ()))
         fields["items"] = tuple(item(x) for x in fields["items"])
         return AgentRun(**fields)

@@ -209,6 +209,15 @@ def test_harness_persists_current_run_and_rerenders_without_source(tmp_path):
     assert result.dataset_path == result.run_dir / "dataset.json"
     assert result.run_path == result.run_dir / "run.json"
     assert result.report_path == result.run_dir / "report.html"
+    from agent_ledger.observation import SessionView
+
+    directory = result.run_dir / "session-views"
+    index = json.loads((directory / "index.json").read_text())
+    assert len(index["sessions"]) == 1
+    view_path = directory / index["sessions"][0]["file"]
+    shared_view = SessionView.model_validate_json(view_path.read_text())
+    assert shared_view.session.id
+    original_view = view_path.read_text()
     assert result.verdict_path == result.run_dir / "verdict.json"
     assert result.artifact.build.summary.selected_recordings == 3
     assert result.artifact.build.summary.fetched_recordings == 2
@@ -247,6 +256,7 @@ def test_harness_persists_current_run_and_rerenders_without_source(tmp_path):
     assert load_dataset_artifact(result.run_dir) == result.artifact.build
     result.report_path.write_text("stale", encoding="utf-8")
     html = _CCRReport().rerender(result.run_dir).read_text(encoding="utf-8")
+    assert view_path.read_text() == original_view
     assert "CCR weekly report" in html
     assert "Dataset build health" in html
     assert "unsupported recording" in html

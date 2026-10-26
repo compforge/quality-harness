@@ -368,3 +368,14 @@ cross-grain references MUST be rejected. Node execution MUST preserve post-order
 use dependency order within each node. Full single-trace analysis and explicit detector selection MUST
 use the same invocation semantics. Failure status MUST survive analysis snapshots and Dataset reports.
 Result access MUST be independent of whether output is in memory or persisted in files.
+
+
+## Session observation export
+
+An AgentRun may carry an optional `session` reference with nonempty `source` and `id` fields,
+provided by its source extractor. This attribution is retained by AgentRun snapshots and reloads.
+It does not change the Trace Node tree or imply that a run, trace or business task is an Agent
+Session. Python and TypeScript `session_views` / `sessionViews` export one Agent Ledger
+`observation.SessionView` per explicit reference. Nested Runs with different references are
+separate Sessions; calls may reference them without embedding foreign Session bodies. Missing
+attribution remains visible in the saved export catalog. See `docs/session-view.md`.

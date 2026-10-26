@@ -140,3 +140,106 @@ def test_quality_harness_extension_roundtrip() -> None:
     assert trajectory_recording_id(restored) == "recording"
     assert step_operation(restored.steps[0]) == "review"
     assert step_failure(restored.steps[0]).error_type == "timeout"
+
+
+def test_shared_view_preserves_atif_evidence_without_inventing_requests():
+    from agent_ledger.observation import (
+        Input,
+        ModelCall,
+        ToolCall as SharedTool,
+        Operation,
+    )
+    from trajectory_harness.session_view import session_views
+
+    trajectory = _trajectory()
+    before = trajectory.model_dump_json()
+    document = session_views([trajectory])[0]
+    items = document.items
+    assert isinstance(items[0], Input)
+    models = [n for n in items if isinstance(n, ModelCall)]
+    tools = [n for n in items if isinstance(n, SharedTool)]
+    assert len(models) == 2 and len(tools) == 2
+    assert models[0].request is None
+    assert models[0].response.usage.input_tokens == 100
+    assert tools[0].model_call_id == models[0].id
+    assert tools[0].response.output[0]["content"] == "Project documentation"
+    assert document.issues and "exact model request unavailable" in document.issues[0]
+    assert trajectory.model_dump_json() == before
+    unobserved = trajectory.model_copy(deep=True)
+    unobserved.steps[1].observation = None
+    projected = session_views([unobserved])[0]
+    assert any(
+        isinstance(n, Operation) and n.operation == "tool_proposal"
+        for n in projected.items
+    )
+    assert len([n for n in projected.items if isinstance(n, SharedTool)]) == 1
+
+
+def test_shared_view_does_not_expand_aggregate_model_calls():
+    from agent_ledger.observation import Operation, ModelCall
+    from trajectory_harness.session_view import session_views
+
+    trajectory = _trajectory()
+    trajectory.steps[1].llm_call_count = 3
+    document = session_views([trajectory])[0]
+    assert isinstance(document.items[1], Operation)
+    assert len([n for n in document.items if isinstance(n, ModelCall)]) == 1
+    assert any("aggregates 3" in issue for issue in document.issues)
+
+
+def test_session_views_keep_missing_and_conflicting_tool_ids():
+    from agent_ledger.observation import ToolCall as ObservedTool, Operation
+    from trajectory_harness import session_views
+
+    trajectory = _trajectory()
+    step = trajectory.steps[1]
+    step.tool_calls[0].tool_call_id = ""
+    step.observation.results[0].source_call_id = None
+    view = session_views([trajectory])[0]
+    tool = next(node for node in view.items if isinstance(node, ObservedTool))
+    assert tool.tool_call_id is None
+    assert tool.request.tool_name == "read_file"
+    assert tool.response.output[0]["content"] == "Project documentation"
+    assert tool.attributes["association"] == "single-call-step"
+
+    step.tool_calls[0].tool_call_id = "request-id"
+    step.observation.results[0].source_call_id = "different-result-id"
+    view = session_views([trajectory])[0]
+    orphan = next(
+        node
+        for node in view.items
+        if isinstance(node, ObservedTool) and node.tool_call_id == "different-result-id"
+    )
+    assert orphan.request is None
+    assert orphan.response.output[0]["content"] == "Project documentation"
+    assert any(
+        isinstance(node, Operation) and node.operation == "tool_proposal"
+        for node in view.items
+    )
+
+
+def test_session_views_do_not_zip_ambiguous_results_or_mix_sessions():
+    from agent_ledger.observation import ToolCall as ObservedTool
+    from trajectory_harness import session_views
+
+    trajectory = _trajectory()
+    step = trajectory.steps[1]
+    step.tool_calls.append(step.tool_calls[0].model_copy(update={"tool_call_id": ""}))
+    step.tool_calls[0].tool_call_id = ""
+    step.observation.results = [
+        ObservationResult(content="one"),
+        ObservationResult(content="two"),
+    ]
+    second = trajectory.model_copy(deep=True)
+    second.session_id = "another-session"
+    views = session_views([trajectory, second])
+    assert [view.session.id for view in views] == ["session-1", "another-session"]
+    orphan = [
+        node
+        for node in views[0].items
+        if isinstance(node, ObservedTool) and node.request is None
+    ]
+    assert len(orphan) == 2
+    assert [node.response.output[0]["content"] for node in orphan] == ["one", "two"]
+    missing = trajectory.model_copy(update={"session_id": None})
+    assert session_views([missing]) == ()

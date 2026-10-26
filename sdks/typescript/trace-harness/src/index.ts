@@ -59,3 +59,5 @@ export { type Source, type SpanQuery } from "./ingest/sources/base";
 export { type LoadConfig, type EvidenceRef, EvidenceMissing, EvidenceTooLarge } from "./loading/model";
 export { EvidenceDependency, FactDependency, type Dependency, type FactProducer } from "./loading/facts";
 export { JaegerFileSource } from "./ingest/sources/jaeger-file";
+
+export { sessionViews } from "./session-view";

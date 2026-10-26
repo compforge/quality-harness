@@ -94,3 +94,14 @@ trajectory_harness/
 - 设计与外部实现取舍：[`../../../docs/trajectory-harness.md`](../../../docs/trajectory-harness.md)
 - ATIF v1.7：<https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md>
 - OTel GenAI 语义约定：<https://opentelemetry.io/docs/specs/semconv/gen-ai/>
+
+## Session observation
+
+`session_views` / `sessionViews` exports prepared evidence through Agent Ledger's
+`observation.SessionView` (`agent-ledger/session-view@1`). Each view contains one explicitly
+attributed Session. Source adapters own identity and mapping; the shared observation package owns
+the read model and rendering. Trace extractors supply optional typed `AgentRun.session` references;
+missing attribution is recorded in export indexes, never inferred from a Run or business Unit ID.
+Other Sessions remain separate exports. Retain unmatched tool outcomes, unknown values and evidence
+issues; do not rebuild missing prompts or expand aggregate counts into fabricated invocations.
+See `docs/session-view.md` from the repository root for grouping, artifact and association contracts.

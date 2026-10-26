@@ -90,6 +90,26 @@ def dump_analysis(analysis: AnalysisContext, path: str | Path) -> Path:
         json.dumps(payload, ensure_ascii=False, allow_nan=False),
         encoding="utf-8",
     )
+    if analysis.agent_runs is not None:
+        from hashlib import sha256
+
+        from trace_harness.session_view import observed_runs, session_views
+
+        directory = path.with_suffix(".session-views")
+        directory.mkdir(parents=True, exist_ok=True)
+        index = {
+            "sessions": [],
+            "unassigned_runs": [
+                run.id for run in observed_runs(analysis.agent_runs) if run.session is None
+            ],
+        }
+        for view in session_views(analysis.agent_runs, analysis.trace):
+            filename = sha256(view.session.model_dump_json().encode()).hexdigest() + ".json"
+            (directory / filename).write_text(view.model_dump_json(indent=2), encoding="utf-8")
+            index["sessions"].append({"session": view.session.model_dump(), "file": filename})
+        (directory / "index.json").write_text(
+            json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     if analysis.trace.spans:
         coverage = {
             sid: {"fields": span.loaded_fields, "failed": span.field_errors}

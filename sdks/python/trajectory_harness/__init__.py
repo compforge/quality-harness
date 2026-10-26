@@ -128,3 +128,5 @@ from trajectory_harness.verdict import (
 from trajectory_harness.verdict import (
     write_trajectory_verdict as write_trajectory_verdict,
 )
+
+from trajectory_harness.session_view import session_views as session_views
