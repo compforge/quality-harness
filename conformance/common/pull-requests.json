@@ -22,7 +22,9 @@
       "target_branch": "main",
       "head_sha": "abc",
       "base_sha": "def",
-      "updated_at": "2026-10-26T00:00:00Z"
+      "updated_at": "2026-10-26T00:00:00Z",
+      "conflict_state": "none",
+      "merge_readiness": "needs_approval"
     },
     "id": "github/example/project#7"
   },
@@ -38,7 +40,9 @@
       "number": 7,
       "state": "merged",
       "head_sha": "ghi",
-      "merged_at": "2026-10-26T01:00:00Z"
+      "merged_at": "2026-10-26T01:00:00Z",
+      "conflict_state": "unknown",
+      "merge_readiness": "unknown"
     },
     "id": "github/example/project#7"
   },

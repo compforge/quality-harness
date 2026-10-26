@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { pullRequestId, repositoryId, type PullRequest, type PullRequestState, type PullRequestKey, type PullRequestSnapshot, type RepositorySnapshot, type Repository, type Identity } from "../src/index.js";
+import { pullRequestId, repositoryId, type PullRequest, type PullRequestState, type PullRequestConflictState, type PullRequestMergeReadiness, type PullRequestKey, type PullRequestSnapshot, type RepositorySnapshot, type Repository, type Identity } from "../src/index.js";
 
 interface WireRepository { forge: { name: string }; path: string; forked_from?: string }
 interface WirePullRequest {
   repository: WireRepository; number: number; title?: string; url?: string; state?: PullRequestState;
+  conflict_state?: PullRequestConflictState; merge_readiness?: PullRequestMergeReadiness;
   source_repository?: WireRepository; source_branch?: string; target_branch?: string;
   head_sha?: string; base_sha?: string; updated_at?: string; merged_at?: string;
 }
@@ -13,6 +14,7 @@ const repository = (wire: WireRepository): Repository => ({ forge: wire.forge, p
 const rows = JSON.parse(readFileSync(new URL("../../../../conformance/common/pull-requests.json", import.meta.url), "utf8")) as { pull_request: WirePullRequest; id: string }[];
 const prs: PullRequest[] = rows.map(({ pull_request: p }) => ({
   repository: repository(p.repository), number: p.number, title: p.title, url: p.url, state: p.state,
+  conflictState: p.conflict_state, mergeReadiness: p.merge_readiness,
   sourceRepository: p.source_repository ? repository(p.source_repository) : undefined,
   sourceBranch: p.source_branch, targetBranch: p.target_branch, headSha: p.head_sha, baseSha: p.base_sha,
   updatedAt: p.updated_at, mergedAt: p.merged_at, id() { return pullRequestId(this); },
@@ -31,6 +33,7 @@ test("optional PR facts roundtrip without inventing state, source or merge time"
   const wireRepository = (r: Repository): WireRepository => ({ forge: r.forge, path: r.path, forked_from: r.forkedFrom ?? undefined });
   prs.forEach(pr => {
     const wire: WirePullRequest = { repository: wireRepository(pr.repository), number: pr.number, title: pr.title, url: pr.url,
+      conflict_state: pr.conflictState, merge_readiness: pr.mergeReadiness,
       state: pr.state, source_repository: pr.sourceRepository ? wireRepository(pr.sourceRepository) : undefined,
       source_branch: pr.sourceBranch, target_branch: pr.targetBranch, head_sha: pr.headSha, base_sha: pr.baseSha,
       updated_at: pr.updatedAt, merged_at: pr.mergedAt };
@@ -54,4 +57,13 @@ test("method-free references and snapshots retain identity through JSON and stru
   type Methods = Extract<keyof PullRequestSnapshot | keyof RepositorySnapshot, "id">;
   const dataOnly: Methods extends never ? true : false = true;
   expect(dataOnly).toBe(true);
+});
+
+test("no conflicts, merge conditions and completed merge remain independent facts", () => {
+  expect(prs[0].conflictState).toBe("none");
+  expect(prs[0].mergeReadiness).toBe("needs_approval");
+  expect(prs[0].state).toBe("open");
+  expect(prs[1].state).toBe("merged");
+  expect(prs[1].mergeReadiness).toBe("unknown");
+  expect(prs[3].conflictState).toBeUndefined();
 });
