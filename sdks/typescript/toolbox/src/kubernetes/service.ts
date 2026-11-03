@@ -117,11 +117,14 @@ export function findPodsForService(
 export async function listServiceNetwork(
   executor: Executor,
   namespace: string,
+  signal?: AbortSignal,
 ): Promise<{ services: KubernetesService[]; pods: KubernetesPod[] }> {
+  signal?.throwIfAborted();
   const [serviceResult, podResult] = await Promise.all([
-    executor.run(["get", "services", "-o", "json"], { timeoutMs: 20_000 }),
-    executor.run(["get", "pods", "-o", "json"], { timeoutMs: 20_000 }),
+    executor.run(["get", "services", "-o", "json"], { timeoutMs: 20_000, signal }),
+    executor.run(["get", "pods", "-o", "json"], { timeoutMs: 20_000, signal }),
   ]);
+  signal?.throwIfAborted();
   if (!serviceResult.ok) {
     throw new Error(`读取 Service 失败：${serviceResult.stderr.trim() || `exit=${serviceResult.exitCode}`}`);
   }

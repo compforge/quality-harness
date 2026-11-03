@@ -69,3 +69,41 @@ for (const runtime of ["node", "bun"]) for (const route of ["direct", "proxy", "
   expect(result.status, result.stderr).toBe(0);
   expect(result.stdout.trim()).toBe("disposed");
 }, 6000);
+
+
+for (const ready of [false, true]) test(`port-forward cancellation stops the actual child (ready=${ready})`, () => {
+  const root = mkdtempSync(join(tmpdir(), "toolbox-forward-cancel-"));
+  try {
+    writeFileSync(join(root, "kubectl"), `#!/usr/bin/env node
+process.on('SIGTERM', () => {});
+${ready ? "console.log('Forwarding from 127.0.0.1:12345 -> 9200');" : ""}
+setInterval(() => {}, 10000);
+`, { mode: 0o700 });
+    const entry = new URL("../dist/kubernetes/port-forward.js", import.meta.url).href;
+    const result = spawnSync("node", ["--input-type=module", "-e", `
+      import assert from 'node:assert/strict';
+      import { startPortForward } from ${JSON.stringify(entry)};
+      const controller = new AbortController();
+      const reason = new Error('caller interrupted');
+      const logs = [];
+      const opts = { service: 'fixture', remotePort: 9200, timeoutMs: 10000,
+        signal: controller.signal, onDiagnostic: line => logs.push(line) };
+      if (${ready}) {
+        const forward = await startPortForward(opts);
+        assert.equal(forward.ok, true);
+        controller.abort(reason);
+        forward.value.stop();
+      } else {
+        const timer = setTimeout(() => controller.abort(reason), 500);
+        await assert.rejects(startPortForward(opts), error => error === reason);
+        clearTimeout(timer);
+      }
+      assert.match(logs.join('\\n'), /port-forward cancelled/);
+      await assert.rejects(startPortForward(opts), error => error === reason);
+      console.log('cancelled');
+    `], { encoding: "utf8", timeout: 3000, env: { ...process.env, PATH: `${root}:${process.env.PATH}` } });
+    expect(result.stdout, result.stderr).toContain("cancelled");
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 5000);

@@ -315,3 +315,26 @@ test("PortForwardScope 逆序回收多个 Service/Pod forward", async () => {
   ]);
   expect(scope.active).toHaveLength(0);
 });
+
+
+test("ServicePortForwarder propagates cancellation to discovery without starting a forward", async () => {
+  const controller = new AbortController();
+  const reason = new Error("caller interrupted");
+  let requests = 0;
+  let started = false;
+  const executor: Executor = {
+    run: async (_args, options) => {
+      expect(options?.signal).toBe(controller.signal);
+      requests++;
+      return new Promise((_resolve, reject) => options!.signal!.addEventListener("abort", () => reject(options!.signal!.reason), { once: true }));
+    },
+    exec: async () => { throw new Error("unexpected exec"); },
+  };
+  const pending = ServicePortForwarder.create(executor, { namespace: "test", signal: controller.signal }, async () => {
+    started = true; return { ok: false };
+  });
+  controller.abort(reason);
+  await expect(pending).rejects.toBe(reason);
+  expect(requests).toBe(2);
+  expect(started).toBe(false);
+});

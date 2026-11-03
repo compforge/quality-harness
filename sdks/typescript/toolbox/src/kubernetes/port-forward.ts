@@ -26,6 +26,7 @@ export interface PortForwardResult {
 export type StartPortForward = typeof startPortForward;
 
 /**
+ * @spec Caller cancellation stops both startup and an active forward, preserving the original abort reason.
  * 起 `kubectl port-forward svc/<service> 0:<remotePort>` 并等待就绪。
  * 本地端口让 kubectl 自选（0:），从 stdout 的 "Forwarding from 127.0.0.1:<port>" 解析，
  * 避免固定端口在运维机上撞占用。调用方负责在采集结束后 stop()。
@@ -36,9 +37,11 @@ export async function startPortForward(
     target?: PortForwardTarget;
     remotePort: number;
     timeoutMs?: number;
+    signal?: AbortSignal;
     onDiagnostic?: (line: string) => void;
   },
 ): Promise<PortForwardResult> {
+  opts.signal?.throwIfAborted();
   const target = opts.target ?? (opts.service ? { kind: "service", name: opts.service } : undefined);
   if (!target) return { ok: false, reason: "port-forward 缺少 Service/Pod 目标" };
   const argv = buildKubectlArgs(opts, [
@@ -80,12 +83,29 @@ export async function startPortForward(
       }
     }
   })().catch(() => {});
+  let stopped = false;
+  let cancelWait!: () => void;
+  const cancelled = new Promise<"cancelled">(resolve => { cancelWait = () => resolve("cancelled"); });
+  const abort = () => {
+    log(`port-forward cancelled elapsed_ms=${Date.now() - started}`);
+    stop();
+    cancelWait();
+  };
   const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    opts.signal?.removeEventListener("abort", abort);
     proc.kill("SIGKILL");
     void stderrReader.cancel().catch(() => {});
     void reader.cancel().catch(() => {});
   };
   const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+  opts.signal?.addEventListener("abort", abort, { once: true });
+  if (opts.signal?.aborted) abort();
+  void proc.exited.then(
+    () => opts.signal?.removeEventListener("abort", abort),
+    () => opts.signal?.removeEventListener("abort", abort),
+  );
   const decoder = new TextDecoder();
   const deadline = Date.now() + timeoutMs;
   let out = "";
@@ -96,12 +116,15 @@ export async function startPortForward(
     let timer: ReturnType<typeof setTimeout> | undefined;
     const chunk = await Promise.race([
       reader.read(),
+      cancelled,
       new Promise<"timeout">(resolve => { timer = setTimeout(() => resolve("timeout"), remain); }),
       proc.exited.then(() => "exited" as const).catch((error: unknown) => ({ error })),
     ]).finally(() => {
       // Promise.race does not cancel its losers; a ready forward must not keep Node alive until the deadline.
       clearTimeout(timer);
     });
+    opts.signal?.throwIfAborted();
+    if (chunk === "cancelled") throw opts.signal?.reason;
     if (chunk === "timeout") break;
     if (typeof chunk === "object" && "error" in chunk) {
       stop();
@@ -141,7 +164,7 @@ export class PortForwardScope {
   }
 
   async start(
-    opts: KubectlOptions & { target: PortForwardTarget; remotePort: number; timeoutMs?: number; onDiagnostic?: (line: string) => void },
+    opts: KubectlOptions & { target: PortForwardTarget; remotePort: number; timeoutMs?: number; signal?: AbortSignal; onDiagnostic?: (line: string) => void },
   ): Promise<PortForwardResult> {
     const result = await this.starter(opts);
     if (result.value) {
