@@ -36,6 +36,7 @@ export async function startPortForward(
     target?: PortForwardTarget;
     remotePort: number;
     timeoutMs?: number;
+    onDiagnostic?: (line: string) => void;
   },
 ): Promise<PortForwardResult> {
   const target = opts.target ?? (opts.service ? { kind: "service", name: opts.service } : undefined);
@@ -55,7 +56,35 @@ export async function startPortForward(
   }
 
   const timeoutMs = opts.timeoutMs ?? 15_000;
-  const stderrPromise = new Response(proc.stderr as ReadableStream).text();
+  const log = opts.onDiagnostic ?? (() => {});
+  const started = Date.now();
+  log(`port-forward start target=${target.kind}/${target.name} namespace=${opts.namespace ?? "default"} remote_port=${opts.remotePort} timeout_ms=${timeoutMs}`);
+  // @why A failed forward must return even if a child keeps stderr open after termination.
+  let stderr = "";
+  let loggedBytes = 0;
+  const stderrReader = proc.stderr.getReader();
+  const stderrDone = (async () => {
+    const decoder = new TextDecoder();
+    for (;;) {
+      const chunk = await stderrReader.read();
+      if (chunk.done) break;
+      const text = decoder.decode(chunk.value, { stream: true })
+        .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/g, "$1[redacted]@")
+        .replace(/([?&](?:token|password|secret|key)=)[^&\s]+/gi, "$1[redacted]")
+        .replace(/((?:authorization|password|token)[:=]\s*)[^\r\n]+/gi, "$1[redacted]");
+      stderr = (stderr + text).slice(-8192);
+      if (loggedBytes < 8192) {
+        const diagnostic = text.slice(0, 8192 - loggedBytes);
+        loggedBytes += diagnostic.length;
+        log(`port-forward stderr: ${diagnostic.trim()}`);
+      }
+    }
+  })().catch(() => {});
+  const stop = () => {
+    proc.kill("SIGKILL");
+    void stderrReader.cancel().catch(() => {});
+    void reader.cancel().catch(() => {});
+  };
   const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
   const deadline = Date.now() + timeoutMs;
@@ -75,7 +104,7 @@ export async function startPortForward(
     });
     if (chunk === "timeout") break;
     if (typeof chunk === "object" && "error" in chunk) {
-      proc.kill();
+      stop();
       return { ok: false, reason: chunk.error instanceof Error ? chunk.error.message : String(chunk.error) };
     }
     // 进程退出（RBAC 拒绝 / svc 不存在等）或流关闭：跳出后统一取 stderr 作原因
@@ -83,16 +112,20 @@ export async function startPortForward(
     out += decoder.decode(chunk.value);
     const m = out.match(/Forwarding from 127\.0\.0\.1:(\d+)/);
     if (m) {
+      log(`port-forward listening local=127.0.0.1:${m[1]} elapsed_ms=${Date.now() - started}`);
       return {
         ok: true,
-        value: { target, localPort: Number(m[1]), command: argv, stop: () => proc.kill() },
+        value: { target, localPort: Number(m[1]), command: argv, stop },
       };
     }
   }
 
-  proc.kill();
-  const stderr = await stderrPromise.catch(() => "");
+  // Give already delivered stderr a chance to drain; never wait for EOF to report failure.
+  await Promise.resolve();
+  stop();
+  void stderrDone;
   const reason = stderr.trim().split("\n")[0] || `port-forward 未就绪（${timeoutMs}ms 超时）`;
+  log(`port-forward failed elapsed_ms=${Date.now() - started} reason=${reason}`);
   return { ok: false, reason };
 }
 
@@ -108,7 +141,7 @@ export class PortForwardScope {
   }
 
   async start(
-    opts: KubectlOptions & { target: PortForwardTarget; remotePort: number; timeoutMs?: number },
+    opts: KubectlOptions & { target: PortForwardTarget; remotePort: number; timeoutMs?: number; onDiagnostic?: (line: string) => void },
   ): Promise<PortForwardResult> {
     const result = await this.starter(opts);
     if (result.value) {
