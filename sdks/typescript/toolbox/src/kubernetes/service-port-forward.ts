@@ -27,7 +27,7 @@ export class ServicePortForwarder {
   readonly #scope: PortForwardScope;
 
   private constructor(
-    private readonly opts: KubectlOptions & { namespace: string; onDiagnostic?: (line: string) => void },
+    private readonly opts: KubectlOptions & { namespace: string; signal?: AbortSignal; onDiagnostic?: (line: string) => void },
     private readonly services: readonly KubernetesService[],
     private readonly pods: readonly KubernetesPod[],
     starter?: StartPortForward,
@@ -37,10 +37,10 @@ export class ServicePortForwarder {
 
   static async create(
     executor: Executor,
-    opts: KubectlOptions & { namespace: string; onDiagnostic?: (line: string) => void },
+    opts: KubectlOptions & { namespace: string; signal?: AbortSignal; onDiagnostic?: (line: string) => void },
     starter?: StartPortForward,
   ): Promise<ServicePortForwarder> {
-    const network = await listServiceNetwork(executor, opts.namespace);
+    const network = await listServiceNetwork(executor, opts.namespace, opts.signal);
     return new ServicePortForwarder(opts, network.services, network.pods, starter);
   }
 
@@ -49,6 +49,7 @@ export class ServicePortForwarder {
   }
 
   forward(endpoint: KubernetesEndpoint): Promise<ForwardedEndpoint> {
+    this.opts.signal?.throwIfAborted();
     const key = `${endpoint.host}:${endpoint.port}`;
     let pending = this.#cache.get(key);
     if (!pending) {
