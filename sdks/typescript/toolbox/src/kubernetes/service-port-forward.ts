@@ -27,7 +27,7 @@ export class ServicePortForwarder {
   readonly #scope: PortForwardScope;
 
   private constructor(
-    private readonly opts: KubectlOptions & { namespace: string },
+    private readonly opts: KubectlOptions & { namespace: string; onDiagnostic?: (line: string) => void },
     private readonly services: readonly KubernetesService[],
     private readonly pods: readonly KubernetesPod[],
     starter?: StartPortForward,
@@ -37,7 +37,7 @@ export class ServicePortForwarder {
 
   static async create(
     executor: Executor,
-    opts: KubectlOptions & { namespace: string },
+    opts: KubectlOptions & { namespace: string; onDiagnostic?: (line: string) => void },
     starter?: StartPortForward,
   ): Promise<ServicePortForwarder> {
     const network = await listServiceNetwork(executor, opts.namespace);

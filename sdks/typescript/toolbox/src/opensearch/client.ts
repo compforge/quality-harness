@@ -3,7 +3,7 @@ import type { Client as ManagedClient } from "../client";
 import type { ConnectionSource, ClientLifecycle } from "../datasource";
 import { Client, Connection, errors } from "@opensearch-project/opensearch";
 import { isConnectionNetworkError } from "../transport";
-import { ToolboxError } from "../errors";
+import { ToolboxError, TimeoutError } from "../errors";
 import type { SearchEngine, SearchQuery, SearchResult } from "./types";
 
 export interface OpenSearchAuth {
@@ -13,6 +13,8 @@ export interface OpenSearchAuth {
 
 export interface OpenSearchOptions {
   node: string;
+  /** Bounded operational facts; never protocol bodies or credentials. */
+  onDiagnostic?: (line: string) => void;
   auth: OpenSearchAuth;
   requestTimeoutMs?: number;
   /** Per-route mapping and probe budget; query deadlines remain independent. */
@@ -35,6 +37,27 @@ export interface OpenSearchClientApi {
     }): Promise<{ body: unknown }>;
   };
   close(): Promise<void>;
+}
+
+/** Safe error-chain facts for logs; driver messages/meta can contain credentials and response bodies. */
+export function describeOpenSearchError(error: unknown): string {
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  while (error && typeof error === "object" && !seen.has(error) && parts.length < 4) {
+    seen.add(error);
+    const value = error as { name?: unknown; code?: unknown; kind?: unknown; statusCode?: unknown; meta?: { statusCode?: unknown }; cause?: unknown };
+    const safe = (value: unknown) => typeof value === "number" ? String(value)
+      : typeof value === "string" && /^[a-zA-Z0-9_.-]{1,80}$/.test(value) ? value : undefined;
+    parts.push([`error=${safe(value.name) ?? "Error"}`, safe(value.code) && `code=${safe(value.code)}`,
+      safe(value.kind) && `kind=${safe(value.kind)}`,
+      safe(value.statusCode ?? value.meta?.statusCode) && `status=${safe(value.statusCode ?? value.meta?.statusCode)}`].filter(Boolean).join(" "));
+    error = value.cause;
+  }
+  return parts.join(" cause=") || "error=UnknownError";
+}
+
+export interface OpenSearchLifecycle extends ClientLifecycle {
+  onDiagnostic?: (line: string) => void;
 }
 
 /** OpenSearch-specific read APIs stay outside the engine-neutral SearchEngine contract. */
@@ -72,7 +95,7 @@ function createClient(options: OpenSearchOptions): OpenSearchClientApi {
 export class OpenSearchEngine implements OpenSearchReadApi {
   private readonly client: OpenSearchClientApi;
 
-  constructor(options: OpenSearchOptions, client?: OpenSearchClientApi) {
+  constructor(private readonly options: OpenSearchOptions, client?: OpenSearchClientApi) {
     this.client = client ?? createClient(options);
   }
 
@@ -96,18 +119,38 @@ export class OpenSearchEngine implements OpenSearchReadApi {
     return response.body;
   }
 
-  async ping(signal?: AbortSignal, timeoutMs?: number): Promise<unknown> {
+  /** @spec Probe deadlines abort the underlying request even when the driver stalls. */
+  async ping(signal?: AbortSignal, timeoutMs = this.options.requestTimeoutMs ?? 60_000): Promise<unknown> {
     signal?.throwIfAborted();
-    const request = this.client.ping({}, timeoutMs === undefined ? undefined : { requestTimeout: timeoutMs });
-    const abort = () => { request.abort?.(); };
-    signal?.addEventListener("abort", abort, { once: true });
-    try { return await request; }
-    finally { signal?.removeEventListener("abort", abort); }
+    const started = Date.now();
+    const url = new URL(this.options.node);
+    const target = `${url.protocol}//${url.host}`;
+    const log = this.options.onDiagnostic ?? (() => {});
+    log(`OpenSearch probe start target=${target} timeout_ms=${timeoutMs}`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new TimeoutError(`OpenSearch probe timed out after ${timeoutMs}ms`)), timeoutMs);
+    const active = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+    try {
+      const request = this.client.ping({}, { requestTimeout: timeoutMs });
+      const result = await awaitWithSignal(request, active, () => request.abort?.());
+      log(`OpenSearch probe ok target=${target} elapsed_ms=${Date.now() - started}`);
+      return result;
+    } catch (error) {
+      log(`OpenSearch probe failed target=${target} elapsed_ms=${Date.now() - started} ${describeOpenSearchError(error)}`);
+      throw error;
+    } finally { clearTimeout(timer); }
   }
 
-  close(): Promise<void> {
-    return this.client.close();
+  async close(): Promise<void> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new TimeoutError("OpenSearch close timed out after 2000ms")), 2_000);
+    try { await awaitWithSignal(this.client.close(), controller.signal); }
+    catch (error) {
+      this.options.onDiagnostic?.(`OpenSearch close failed ${describeOpenSearchError(error)}`);
+      throw error;
+    } finally { clearTimeout(timer); }
   }
+
 }
 
 function openSearchRetryReason(error: unknown): string | undefined {
@@ -131,7 +174,7 @@ export class OpenSearchClient implements ManagedClient, OpenSearchReadApi {
   #engine?: OpenSearchEngine;
   readonly #operations = new Set<Promise<unknown>>();
 
-  constructor(private readonly source: ConnectionSource<OpenSearchOptions>, private readonly lifecycle: ClientLifecycle = {}) {
+  constructor(private readonly source: ConnectionSource<OpenSearchOptions>, private readonly lifecycle: OpenSearchLifecycle = {}) {
     this.signal = lifecycle.signal ? AbortSignal.any([lifecycle.signal, this.#controller.signal]) : this.#controller.signal;
   }
   initialize(): Promise<void> {
@@ -147,6 +190,7 @@ export class OpenSearchClient implements ManagedClient, OpenSearchReadApi {
           acquireTimeoutMs: target.acquireTimeoutMs, onRoute: this.lifecycle.onRoute,
           open: async (transport, attempt) => {
             if (transport.kind !== "tcp") throw new Error("OpenSearch requires a TCP transport");
+            this.lifecycle.onDiagnostic?.(`OpenSearch route start transport=${transport.name} target=${original.protocol}//${original.host} timeout_ms=${attempt.remainingMs()}`);
             const endpoint = await transport.connect({ host: original.hostname,
               port: Number(original.port || (original.protocol === "https:" ? 443 : 80)),
               servername: target.servername ?? original.hostname });
@@ -154,7 +198,7 @@ export class OpenSearchClient implements ManagedClient, OpenSearchReadApi {
             const url = new URL(original);
             url.hostname = endpoint.host;
             url.port = String(endpoint.port);
-            const engine = new OpenSearchEngine({ ...target, node: url.toString(), servername: endpoint.servername ?? target.servername ?? original.hostname });
+            const engine = new OpenSearchEngine({ ...target, onDiagnostic: this.lifecycle.onDiagnostic, node: url.toString(), servername: endpoint.servername ?? target.servername ?? original.hostname });
             try {
               await engine.ping(attempt.signal, attempt.remainingMs());
               return { connection: engine, transport: transport.name };
@@ -164,6 +208,7 @@ export class OpenSearchClient implements ManagedClient, OpenSearchReadApi {
           retryReason: openSearchRetryReason,
         });
       } catch (error) {
+        this.lifecycle.onDiagnostic?.(`OpenSearch connect failed ${describeOpenSearchError(error)}`);
         this.signal.throwIfAborted();
         // @spec Shared acquisition deadlines retain their timeout classification.
         if (error instanceof ToolboxError && error.kind === "timeout") throw error;
@@ -200,7 +245,7 @@ export class OpenSearchClient implements ManagedClient, OpenSearchReadApi {
   }
 }
 
-export async function openOpenSearch(source: ConnectionSource<OpenSearchOptions>, lifecycle: ClientLifecycle = {}): Promise<OpenSearchClient> {
+export async function openOpenSearch(source: ConnectionSource<OpenSearchOptions>, lifecycle: OpenSearchLifecycle = {}): Promise<OpenSearchClient> {
   const client = new OpenSearchClient(source, lifecycle);
   try { await client.initialize(); }
   catch (error) { await client.dispose(); throw error; }

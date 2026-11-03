@@ -5,7 +5,7 @@ export interface RuntimeProcess {
   stdout: ReadableStream<Uint8Array>;
   stderr: ReadableStream<Uint8Array>;
   exited: Promise<number>;
-  kill(): void;
+  kill(signal?: NodeJS.Signals): void;
 }
 
 export interface SpawnProcessOptions {
@@ -38,7 +38,7 @@ export function spawnProcess(argv: string[], opts?: SpawnProcessOptions): Runtim
     stdout: Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
     stderr: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,
     exited,
-    kill: () => child.kill(),
+    kill: signal => { child.kill(signal); },
   };
 }
 

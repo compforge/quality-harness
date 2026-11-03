@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { OpenSearchClient, openOpenSearch } from "../src/opensearch";
+import { describeOpenSearchError, OpenSearchEngine, OpenSearchClient, openOpenSearch } from "../src/opensearch";
 import { DirectTransport, type TcpTransport } from "../src/transport";
 import { TimeoutError, ToolboxError } from "../src/errors";
 
@@ -193,3 +193,54 @@ test.each([
   expect(error).toBeInstanceOf(ToolboxError);
   expect(error).toMatchObject({ kind: "timeout", code: "ETIMEDOUT" });
 });
+
+// @case id=opensearch_stalled_probe,desc=`Driver never settles`,expect=`Abort request and retain safe timeout diagnostics`
+test("OpenSearch probe enforces its deadline and logs without leaking driver metadata", async () => {
+  const logs: string[] = [];
+  let aborted = 0;
+  const request = Object.assign(new Promise<unknown>(() => {}), { abort: () => { aborted++; } });
+  const engine = new OpenSearchEngine({ node: "http://reader:secret@search:9200/?token=hidden", auth: {},
+    onDiagnostic: line => logs.push(line) }, {
+    ping: () => request, close: async () => {},
+    count: async () => ({ body: { count: 0 } }), search: async () => ({ body: {} }),
+  });
+  await expect(engine.ping(undefined, 20)).rejects.toMatchObject({ kind: "timeout" });
+  expect(aborted).toBe(1);
+  expect(logs.join("\n")).toContain("target=http://search:9200");
+  expect(logs.join("\n")).toContain("code=ETIMEDOUT");
+  expect(logs.join("\n")).not.toMatch(/secret|hidden|reader/);
+  await engine.close();
+});
+
+test("OpenSearch error diagnostics preserve safe cause codes and status without payloads", () => {
+  const error = Object.assign(new Error("password=private"), { meta: { statusCode: 403, body: "private" },
+    cause: Object.assign(new Error("private"), { code: "ECONNRESET" }) });
+  const description = describeOpenSearchError(error);
+  expect(description).toContain("status=403");
+  expect(description).toContain("code=ECONNRESET");
+  expect(description).not.toContain("private");
+});
+
+test("OpenSearch real socket timeout retains probe diagnostics and releases the connection", async () => {
+  const server = await serve(() => {});
+  const logs: string[] = [];
+  try {
+    await expect(openOpenSearch({
+      resolve: async () => ({ node: `http://127.0.0.1:${server.endpoint.port}`, auth: {}, connectTimeoutMs: 50 }),
+      transports: [new DirectTransport()],
+    }, { onDiagnostic: line => logs.push(line) })).rejects.toMatchObject({ kind: "timeout" });
+    expect(logs.join("\n")).toContain("OpenSearch route start transport=direct");
+    expect(logs.join("\n")).toContain("OpenSearch connect failed");
+  } finally { await server.close(); }
+});
+
+
+test("OpenSearch cleanup cannot wait forever after a failed probe", async () => {
+  const logs: string[] = [];
+  const engine = new OpenSearchEngine({ node: "http://search:9200", auth: {}, onDiagnostic: line => logs.push(line) }, {
+    ping: async () => {}, close: () => new Promise<void>(() => {}),
+    count: async () => ({ body: { count: 0 } }), search: async () => ({ body: {} }),
+  });
+  await expect(engine.close()).rejects.toMatchObject({ kind: "timeout" });
+  expect(logs.join("\n")).toContain("OpenSearch close failed");
+}, 3000);
