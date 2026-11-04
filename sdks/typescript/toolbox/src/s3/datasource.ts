@@ -1,5 +1,5 @@
 import { clientKey, type DataSource, type ClientManager } from "../datasource";
-import { DirectTransport, type TcpTransport } from "../transport";
+import { DirectTransport, Transport, type TcpTransport } from "../transport";
 import { S3Client } from "./client";
 import type { S3Limits, S3Target } from "./types";
 
@@ -19,7 +19,6 @@ export class S3DataSource implements DataSource<S3Client> {
       route: route ? { key: route.key, transport: route.transport.name } : "direct" });
   }
   createClient(_clients: Pick<ClientManager, "get">, signal: AbortSignal): S3Client {
-    return new S3Client({ resolve: async () => this.#target,
-      transports: [this.#transport] }, this.#limits, { signal });
+    return new S3Client(this.#target, this.#transport instanceof Transport ? this.#transport : new Transport([this.#transport]), this.#limits, { signal });
   }
 }

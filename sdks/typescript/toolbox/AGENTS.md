@@ -10,7 +10,7 @@
 ```text
 toolbox/
 ├── src/client*.ts       # harness-common 生命周期契约的兼容导出
-├── src/datasource.ts    # common 导出与 toolbox 连接信息解析契约
+├── src/datasource.ts    # common 导出与协议 Client 生命周期选项
 ├── src/concurrency.ts   # 可取消的共享容量
 ├── src/errors.ts        # 稳定错误 kind/code；原始 cause 只供调试
 ├── src/connection/     # 共享连接获取预算、取消、路由回退与晚到连接回收
@@ -29,11 +29,12 @@ toolbox/
 
 ## 关键约定
 
-- 根调用方拥有 ClientManager 和销毁权；子调用方只接收 ClientManager 的 get 视图。按稳定 ClientProvider key 合并初始化，
+- 根调用方拥有 ClientManager 和销毁权；子调用方接收 get/create 视图，工厂仅接收 get 依赖视图。按稳定 ClientProvider key 合并初始化，
   初始化失败完成清理后允许重试，dispose 幂等且等待进行中的工作退出。
+- create 的 Client 可提前释放；借用的 Transport 直到根销毁才关闭。同一个 Transport 可跨协议复用。
 - 中立生命周期实现归同语言的 `../common`；本包依赖 common，不复制实现或反向注入平台概念。
 - 日志并发、字节预算和外部访问期限由调用方显式提供。不同数据源可共享根容量，不能按子调用重建池。
-- MySQL / OpenSearch / Redis 通过 connection/acquire 统一连接获取，协议适配器负责握手、失败分类与部分连接清理。
+- Transport 通过内部 connection/acquire 统一连接获取，协议适配器负责握手、失败分类与部分连接清理。
   单路由预算覆盖映射和握手，根取消保留原始原因；只在连接建立失败时选择另一 Transport，不重放协议操作。
 - Python/Go/TypeScript 对齐已有公共行为语义，各自可以有不同能力覆盖；不为目录对称补实现。
 - 发布内容只有构建后的 ESM、类型声明和 README；测试运行于 Bun，独立包 smoke 必须在 Node 下验证。

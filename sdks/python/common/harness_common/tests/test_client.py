@@ -39,6 +39,24 @@ class Source:
         return self.factory(clients)
 
 
+async def test_created_clients_close_before_their_shared_transport():
+    transport_events, client_events = [], []
+    transport = Source("transport", lambda _: Probe(transport_events))
+    source = Source(
+        "protocol",
+        lambda provider: Probe(client_events, dependency=transport, provider=provider),
+    )
+    async with ClientManager() as manager:
+        first = await manager.create(source)
+        await first.dispose()
+        second = await manager.create(source)
+        assert second is not first
+        assert transport_events == ["start", "ready"]
+        assert client_events == ["start", "ready", "close", "start", "ready"]
+    assert transport_events == ["start", "ready", "close"]
+    assert client_events[-1] == "close"
+
+
 async def test_concurrent_consumers_and_cancelled_waiter_share_initialization():
     events, gate = [], asyncio.Event()
     source = Source("db", lambda _: Probe(events, gate=gate))

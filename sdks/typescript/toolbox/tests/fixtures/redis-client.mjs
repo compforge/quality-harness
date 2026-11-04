@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
+import { pathToFileURL } from 'node:url';
 const { RedisClient } = await import(process.env.REDIS_PACKAGE_ENTRY);
+const { Transport: ManagedTransport } = await import(new URL('../transport/index.js', pathToFileURL(process.env.REDIS_PACKAGE_ENTRY)).href);
 const mode = process.argv[2];
 const sockets = new Set();
 let writes = 0;
@@ -68,10 +70,10 @@ const target = { clusterType: mode === 'sentinel' ? 'sentinel' : mode === 'clust
   endpoints: [{ host: 'seed.internal', port: 6379 }], database: 0, useSsl: false,
   username: 'data-user', password: 'data-password', timeoutMs: 1000,
   ...(mode === 'sentinel' ? { sentinelMasterName: 'primary', sentinelUsername: 'sentinel-user', sentinelPassword: 'sentinel-password' } : {}) };
-const client = new RedisClient({ resolve: async () => target, transports: [
+const client = new RedisClient(async () => target, new ManagedTransport([
   { kind: 'tcp', name: 'native', connect: async () => ({ host: '127.0.0.1', port: refused.address().port }) },
   { kind: 'tcp', name: 'pod-relay', connect: async () => ({ host: '127.0.0.1', port: server.address().port }) },
-] }, { onRoute: route => routes.push(route) });
+]), { onRoute: route => routes.push(route) });
 try {
   await client.initialize();
   if (mode === 'sentinel' || mode === 'cluster') {

@@ -1,3 +1,4 @@
+import { Transport as ManagedTransport } from "../src/transport";
 import { expect, test } from "bun:test";
 import { MysqlClient } from "../src/mysql";
 import { RedisClient, RedisAccess } from "../src/redis";
@@ -20,10 +21,10 @@ test("protocol clients dispose during resolution without starting a late transpo
     const transport = { kind: "tcp" as const, name: "fake", connect: async () => { connections++; return { host: "localhost", port: 1 }; } };
     const resolve = async () => { await resolving.promise; };
     const client = kind === "mysql"
-      ? new MysqlClient({ resolve: async () => { await resolve(); return target; }, transports: [transport] }, { connectTimeoutMs: 100, queryTimeoutMs: 100 })
+      ? new MysqlClient(async () => { await resolve(); return target; }, new ManagedTransport([transport]), { connectTimeoutMs: 100, queryTimeoutMs: 100 })
       : kind === "redis"
-        ? new RedisClient({ resolve: async () => { await resolve(); return { clusterType: "single", endpoints: [], database: 0, useSsl: false, timeoutMs: 100 }; }, transports: [transport] })
-        : new OpenSearchClient({ resolve: async () => { await resolve(); return { node: "http://search:9200", auth: {} }; }, transports: [transport] });
+        ? new RedisClient(async () => { await resolve(); return { clusterType: "single", endpoints: [], database: 0, useSsl: false, timeoutMs: 100 }; }, new ManagedTransport([transport]))
+        : new OpenSearchClient(async () => { await resolve(); return { node: "http://search:9200", auth: {} }; }, new ManagedTransport([transport]));
     const initializing = client.initialize().catch(error => error);
     const closing = client.dispose();
     expect(client.dispose()).toBe(closing);
@@ -38,9 +39,9 @@ test("protocol clients dispose during resolution without starting a late transpo
 test("MySQL initialization shares preparation; retained database cannot reopen after dispose", async () => {
   let resolves = 0;
   let queries = 0;
-  const client = new MysqlClient({ resolve: async () => { resolves++; return target; }, transports: [
+  const client = new MysqlClient(async () => { resolves++; return target; }, new ManagedTransport([
     new PodPythonTransport(async () => { queries++; return '{"rows":[]}'; }),
-  ] }, { connectTimeoutMs: 100, queryTimeoutMs: 100 });
+  ]), { connectTimeoutMs: 100, queryTimeoutMs: 100 });
   await Promise.all([client.initialize(), client.initialize()]);
   const database = client.database;
   await database.query(target, "SELECT 1", []);

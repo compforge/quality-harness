@@ -8,6 +8,33 @@ function gate() {
   return { promise, release };
 }
 
+test("caller-owned clients close early while their lazy shared transport survives until root disposal", async () => {
+  const manager = new ClientManager();
+  const events: string[] = [];
+  const transport = { clientKey: "transport", createClient: () => ({
+    initialize: async () => { events.push("transport ready"); },
+    dispose: async () => { events.push("transport closed"); },
+  }) };
+  let sequence = 0;
+  const factory = { createClient: (dependencies: Pick<ClientManager, "get">) => {
+    const id = ++sequence;
+    let disposal: Promise<void> | undefined;
+    return {
+      initialize: async () => { await dependencies.get(transport); events.push(`client ${id} ready`); },
+      dispose: () => disposal ??= Promise.resolve().then(() => { events.push(`client ${id} closed`); }),
+    };
+  } };
+  expect(events).toEqual([]);
+  const first = await manager.create(factory);
+  await first.dispose();
+  const second = await manager.create(factory);
+  expect(second).not.toBe(first);
+  expect(events).toEqual(["transport ready", "client 1 ready", "client 1 closed", "client 2 ready"]);
+  await manager.dispose();
+  expect(events.slice(-2)).toEqual(["client 2 closed", "transport closed"]);
+  expect(() => manager.create(factory)).toThrow("disposed");
+});
+
 test("same identity joins initialization; queries remain independent; dependencies close last", async () => {
   const clients = new ClientManager();
   const order: string[] = [];

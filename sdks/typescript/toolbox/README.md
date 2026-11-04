@@ -69,7 +69,7 @@ select `single`, `cluster` or `sentinel`; `endpoints` contains that mode's seed 
 configuration additionally provides `sentinelMasterName` and optional Sentinel credentials,
 separate from data-node credentials. Cluster connections require database zero.
 
-Supply ordered TCP transports through `ConnectionSource`. Only mapping or handshake network
+Supply one `Transport`, with ordered TCP paths where needed. Only mapping or handshake network
 failures advance to the next transport; authentication and TLS verification failures stop immediately.
 `connectTimeoutMs` bounds each route (mapping and handshake); it defaults to the command
 `timeoutMs`. `acquireTimeoutMs` bounds all candidates together and defaults to the per-route budget
@@ -194,8 +194,17 @@ The Makefile builds common before typechecking or building toolbox.
 A `ClientProvider` identifies a reusable client and constructs it; `DataSource` adds data-access semantics.
 Accessible environments implement ClientProvider directly without becoming data sources. The `Client` owns initialization
 and idempotent disposal; a `ClientManager` joins concurrent initialization for the same key and
-closes owned clients when the caller finishes. A `ConnectionSource` resolves connection settings
-and available `Transport` paths. Clients execute protocol operations through those paths.
+closes owned clients when the caller finishes. Protocol clients take configuration (or an async resolver)
+and one `Transport`; the transport selects and prepares access paths. `clients.create(factory)` creates
+a fresh client that its caller may close early; transports acquired with `get` stay alive until root disposal.
+
+For shared port-forwarding, register a `ServicePortForwardTransport` once per cluster/namespace, then pass the
+borrowed transport to each protocol client. Closing an OpenSearch client leaves the forward available to the next
+OpenSearch, MySQL, Redis or S3 client; root disposal closes the clients before stopping the forward processes.
+Borrower cancellation only stops that borrower's wait. Exited forwards are recreated on the next acquisition.
+Transport mapping changes the dial address, while protocol clients retain the original Host, TLS and signing identity.
+In 0.5, replace `new Client({ resolve, transports }, options)` with
+`new Client(resolve, transport, options)` (S3 retains its explicit limits argument).
 
 ```ts
 import { ClientManager, clientKey, type DataSource } from "@compforge/harness-toolbox";
@@ -205,10 +214,8 @@ import { DirectTransport } from "@compforge/harness-toolbox/transport";
 const target = { host: "localhost", port: 3306, database: "app", user: "reader", password: "..." };
 const source: DataSource<MysqlClient> = {
   clientKey: clientKey("mysql", target),
-  createClient: (_clients, signal) => new MysqlClient({
-    resolve: async () => target,
-    transports: [new DirectTransport()],
-  }, { signal, connectTimeoutMs: 5_000, queryTimeoutMs: 10_000 }),
+  createClient: (_clients, signal) => new MysqlClient(target, new DirectTransport(),
+    { signal, connectTimeoutMs: 5_000, queryTimeoutMs: 10_000 }),
 };
 const clients = new ClientManager();
 try {
@@ -351,7 +358,7 @@ try {
       maxConnections: 16, maxTargets: 8, maxCandidatePods: 8, signal,
     }),
   });
-  // The same instance belongs in each protocol client's ConnectionSource.transports.
+  // Pass this same transport instance to each protocol client; clients never dispose it.
   const address = await relay.connect({host: 'database.internal', port: 3306});
   // Connect the native protocol client to address; do not dispose relay in a Service.
 } finally {

@@ -1,7 +1,10 @@
 import type { Client } from "../client";
 import { KubectlExecutor, type Executor, type ExecTarget, type KubectlOptions } from "../kubernetes/executor";
 import { startPortForward, type PortForward, type StartPortForward } from "../kubernetes/port-forward";
-import type { Endpoint, TcpTransport } from "./index";
+import { Transport } from "./lifecycle";
+import type { Endpoint, TcpTransport, TransportPath } from "./index";
+import { raceSignal } from "race-signal";
+import type { ConnectionAttempt } from "../connection/acquire";
 import { POD_RELAY_SCRIPT } from "./pod-relay-script";
 
 export interface PodRelayOptions extends KubectlOptions {
@@ -25,16 +28,16 @@ interface RawPod {
 /** Execution-scoped TCP transport borrowed by all Service clients; only its root owner disposes it.
  * Python is private. Requires list pods, pods/exec and pods/portforward, never pods/create.
  */
-export class PodRelayTransport implements TcpTransport, Client {
+export class PodRelayTransport extends Transport implements TcpTransport, Client {
   readonly kind = "tcp";
   readonly name = "pod-relay";
-  readonly #controller = new AbortController();
   readonly #signal: AbortSignal;
   readonly #executor: Executor;
   readonly #startForward: StartPortForward;
   readonly #targets = new Map<string, Promise<Endpoint>>();
   readonly #pending = new Map<number, Pending>();
   readonly #forwards: PortForward[] = [];
+  readonly #exits: Promise<number>[] = [];
   #startup?: Promise<RelayPod>;
   #execution?: Promise<unknown>;
   #input?: ReadableStreamDefaultController<Uint8Array>;
@@ -44,15 +47,17 @@ export class PodRelayTransport implements TcpTransport, Client {
   #sequence = 0;
 
   constructor(private readonly options: PodRelayOptions, dependencies?: { executor?: Executor; startForward?: StartPortForward }) {
+    super([], options.signal);
     for (const key of ["startupTimeoutMs", "connectTimeoutMs", "maxConnections", "maxTargets", "maxCandidatePods"] as const) {
       if (!Number.isSafeInteger(options[key]) || options[key] <= 0) throw new Error(`${key} must be a positive integer`);
     }
     this.#executor = dependencies?.executor ?? new KubectlExecutor(options);
     this.#startForward = dependencies?.startForward ?? startPortForward;
-    this.#signal = options.signal ? AbortSignal.any([options.signal, this.#controller.signal]) : this.#controller.signal;
+    this.#signal = this.resourceSignal;
     this.#signal.addEventListener("abort", this.#onAbort, { once: true });
   }
-  async initialize(): Promise<void> { this.#check(); }
+  protected override paths(): readonly TransportPath[] { return [this]; }
+  override async initialize(): Promise<void> { this.signal.throwIfAborted(); this.#check(); }
   #check(): void { this.#signal.throwIfAborted(); if (this.#failure) throw this.#failure; }
   #onAbort = () => { this.#fail(new Error("Pod relay aborted")); };
   #fail(error: Error): void {
@@ -137,7 +142,8 @@ export class PodRelayTransport implements TcpTransport, Client {
     if (!this.#input) throw new Error("Pod relay control channel unavailable");
     this.#input.enqueue(new TextEncoder().encode(`${JSON.stringify(value)}\n`));
   }
-  connect(endpoint: Endpoint): Promise<Endpoint> {
+  connect(endpoint: Endpoint, attempt?: ConnectionAttempt): Promise<Endpoint> {
+    this.signal.throwIfAborted();
     this.#check();
     if (!endpoint.host || !Number.isInteger(endpoint.port) || endpoint.port < 1 || endpoint.port > 65535) {
       return Promise.reject(new Error("Invalid relay endpoint"));
@@ -150,7 +156,7 @@ export class PodRelayTransport implements TcpTransport, Client {
       pending = this.#connect(endpoint, this.#startup);
       this.#targets.set(key, pending);
     }
-    return pending.then(local => ({ ...local, servername: endpoint.servername ?? endpoint.host }));
+    return raceSignal(pending, attempt ? AbortSignal.any([this.signal, attempt.signal]) : this.signal);
   }
   async #connect(endpoint: Endpoint, startup: Promise<RelayPod>): Promise<Endpoint> {
     const pod = await startup;
@@ -169,20 +175,22 @@ export class PodRelayTransport implements TcpTransport, Client {
     });
     this.#check();
     const forwarded = await this.#startForward({ ...this.options, target: { kind: "pod", name: pod.target.pod },
-      remotePort, timeoutMs: this.options.startupTimeoutMs });
+      remotePort, timeoutMs: this.options.startupTimeoutMs, signal: this.#signal });
     if (!forwarded.ok || !forwarded.value) throw new Error("Pod relay port-forward unavailable");
+    if (forwarded.value.exited) this.#exits.push(forwarded.value.exited);
     try { this.#check(); } catch (error) { forwarded.value.stop(); throw error; }
     this.#forwards.push(forwarded.value);
     return { host: "127.0.0.1", port: forwarded.value.localPort };
   }
-  dispose(): Promise<void> {
+  protected override close(): Promise<void> {
     return this.#disposal ??= (async () => {
-      this.#controller.abort(new Error("Pod relay disposed"));
       this.#fail(new Error("Pod relay disposed"));
       await Promise.allSettled(this.#targets.values());
-      await this.#execution;
+      const completed = await Promise.allSettled([this.#execution, ...this.#exits]);
       this.#signal.removeEventListener("abort", this.#onAbort);
       this.#targets.clear();
+      const errors = completed.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+      if (errors.length) throw new AggregateError(errors, "Pod relay cleanup failed");
     })();
   }
 }

@@ -1,4 +1,4 @@
-import { acquireConnection, awaitWithSignal } from "../connection/acquire";
+import { raceSignal } from "race-signal";
 import type { Client } from "../client";
 import { ConcurrencyPool } from "../concurrency";
 import { ToolboxError } from "../errors";
@@ -6,8 +6,8 @@ import type { Connection, ConnectionOptions, RowDataPacket } from "mysql2/promis
 import type { Database, DatabaseTarget, DatabaseRow, DatabaseQueryLimits, DatabaseQueryResult, SqlStatement } from "./types";
 import { connectMysql, destroyMysqlConnection } from "./connection";
 import { queryReadonlySession, validateQueryLimits } from "./readonly";
-import type { ConnectionSource, ClientLifecycle } from "../datasource";
-import { isConnectionNetworkError, type Transport, type PodPythonTransport } from "../transport";
+import type { ClientLifecycle } from "../datasource";
+import { isConnectionNetworkError, Transport, type PodPythonTransport, type TransportPath } from "../transport";
 import { queryMysqlViaPod, queryMysqlViaPodBatch } from "./pod";
 
 export interface MysqlDatabaseOptions extends ClientLifecycle {
@@ -36,11 +36,12 @@ export class MysqlDatabase implements Database {
   // A client owns one native session per target; serialize queries on both transports.
   readonly #queries = new ConcurrencyPool(1);
   readonly #connections = new Map<string, Promise<Session>>();
+  readonly #transport: Transport;
   constructor(
-    private readonly transports: readonly Transport[],
+    transport: Transport | readonly TransportPath[],
     private readonly options: MysqlDatabaseOptions,
     private readonly connect: ConnectionFactory = connectMysql,
-  ) {}
+  ) { this.#transport = transport instanceof Transport ? transport : new Transport(transport); }
 
   query(target: DatabaseTarget, sql: string, values: readonly unknown[]): Promise<DatabaseRow[]> {
     return this.#queries.run(() => this.#query(target, sql, values), this.options.signal);
@@ -121,12 +122,12 @@ export class MysqlDatabase implements Database {
   }
 
   #open(target: DatabaseTarget): Promise<Session> {
-    return acquireConnection<Transport, Session>(this.transports, {
+    return this.#transport.acquire<Session>({
       name: "MySQL connection", ...this.options,
       open: async (transport, attempt) => {
         if (transport.kind === "python") return { connection: { kind: "python", transport }, transport: transport.name };
         try {
-          const endpoint = await transport.connect(target);
+          const endpoint = await transport.connect(target, attempt);
           const connection = await this.connect({
             host: endpoint.host, port: endpoint.port, user: target.user, password: target.password, database: target.database,
             connectTimeout: attempt.remainingMs(), dateStrings: true, supportBigNumbers: true, bigNumberStrings: true,
@@ -164,16 +165,16 @@ export class MysqlClient<Target extends DatabaseTarget = DatabaseTarget> impleme
   #database?: MysqlDatabase;
   #target?: Target;
 
-  constructor(private readonly source: ConnectionSource<Target>, private readonly options: MysqlDatabaseOptions) {
+  constructor(private readonly configuration: Target | (() => Promise<Target>), private readonly transport: Transport, private readonly options: MysqlDatabaseOptions) {
     this.signal = options.signal ? AbortSignal.any([options.signal, this.#controller.signal]) : this.#controller.signal;
   }
 
   initialize(): Promise<void> {
     this.signal.throwIfAborted();
     return this.#initialization ??= (async () => {
-      this.#target = await awaitWithSignal(this.source.resolve(), this.signal);
+      this.#target = await raceSignal((typeof this.configuration === "function" ? this.configuration() : Promise.resolve(this.configuration)), this.signal);
       this.signal.throwIfAborted();
-      this.#database = new MysqlDatabase(this.source.transports, { ...this.options, signal: this.signal });
+      this.#database = new MysqlDatabase(this.transport, { ...this.options, signal: this.signal });
       await this.#database.initialize(this.#target);
     })();
   }
@@ -196,8 +197,8 @@ export class MysqlClient<Target extends DatabaseTarget = DatabaseTarget> impleme
   }
 }
 
-export async function openMysql<Target extends DatabaseTarget>(source: ConnectionSource<Target>, options: MysqlDatabaseOptions): Promise<MysqlClient<Target>> {
-  const client = new MysqlClient(source, options);
+export async function openMysql<Target extends DatabaseTarget>(configuration: Target | (() => Promise<Target>), transport: Transport, options: MysqlDatabaseOptions): Promise<MysqlClient<Target>> {
+  const client = new MysqlClient(configuration, transport, options);
   try { await client.initialize(); }
   catch (error) { await client.dispose(); throw error; }
   options.onDispose?.(() => client.dispose());

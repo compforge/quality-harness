@@ -1,3 +1,4 @@
+import { Transport as ManagedTransport } from "../src/transport";
 import { expect, test } from "bun:test";
 import { setImmediate } from "node:timers/promises";
 import { spawnSync } from "node:child_process";
@@ -63,18 +64,18 @@ for (const protocol of ["mysql", "opensearch", "redis"] as const) {
       const lifecycle = { signal: controller.signal, onRoute: () => { published++; } };
       let client: Client, run: () => Promise<unknown>;
       if (protocol === "mysql") {
-        client = new MysqlClient({ transports, resolve: async () => { await pause("resolve"); return mysqlTarget; } },
+        client = new MysqlClient(async () => { await pause("resolve"); return mysqlTarget; }, new ManagedTransport(transports),
           { ...lifecycle, connectTimeoutMs: 30_000, queryTimeoutMs: 30_000 });
         run = () => client.initialize();
       } else if (protocol === "opensearch") {
-        client = new OpenSearchClient({ transports, resolve: async () => {
+        client = new OpenSearchClient(async () => {
           await pause("resolve"); return { node: "http://example.invalid:9200", auth: {}, connectTimeoutMs: 30_000 };
-        } }, lifecycle);
+        }, new ManagedTransport(transports), lifecycle);
         run = () => client.initialize();
       } else {
-        const redis = new RedisClient({ transports, resolve: async () => {
+        const redis = new RedisClient(async () => {
           await pause("resolve"); return { clusterType: "single" as const, endpoints: [endpoint], database: 0, useSsl: false, timeoutMs: 30_000 };
-        } }, lifecycle);
+        }, new ManagedTransport(transports), lifecycle);
         client = redis;
         run = async () => { await redis.initialize(); return redis.access.connection(endpoint, 0); };
       }
