@@ -13,6 +13,8 @@ from typing import Protocol, TypeVar, cast
 
 
 class Client(Protocol):
+    """Lifecycle shared by protocol clients and resource-owning transports."""
+
     async def initialize(self) -> None: ...
     async def dispose(self) -> None: ...
 
@@ -55,31 +57,43 @@ class ClientManager:
     """
 
     def __init__(self) -> None:
-        self._pending: dict[str, asyncio.Task[Client]] = {}
+        self._pending: dict[object, asyncio.Task[Client]] = {}
         self._ready: list[Client] = []
         self._disposal: asyncio.Task[None] | None = None
         self._cleanup_errors: list[BaseException] = []
-        self._unclean: set[str] = set()
+        self._unclean: set[object] = set()
 
     async def get(self, provider: ClientProvider[C]) -> C:
+        return await self._acquire(provider.client_key, provider)
+
+    async def create(self, provider: ClientProvider[C]) -> C:
+        """Create an independently disposable client borrowing root-owned dependencies.
+
+        The instance is never cached by identity. Root disposal is an idempotent
+        safety net; closing this client does not close transports borrowed via get.
+        """
+        return await self._acquire(object(), provider)
+
+    async def _acquire(self, key: object, provider: ClientProvider[C]) -> C:
         if self._disposal is not None:
             raise RuntimeError("client manager is disposed")
-        key = provider.client_key
         task = self._pending.get(key)
         if task is None:
             # Store before the task can run; factories can themselves request dependencies.
-            task = asyncio.create_task(self._initialize(provider))
+            task = asyncio.create_task(self._initialize(key, provider))
             self._pending[key] = task
             task.add_done_callback(lambda done: self._settled(key, done))
         # A cancelled consumer must not cancel initialization needed by other consumers.
         return cast(C, await asyncio.shield(task))
 
-    def _settled(self, key: str, task: asyncio.Task[Client]) -> None:
+    def _settled(self, key: object, task: asyncio.Task[Client]) -> None:
         failed = task.cancelled() or task.exception() is not None
         if failed and key not in self._unclean and self._pending.get(key) is task:
             del self._pending[key]
 
-    async def _initialize(self, provider: ClientProvider[Client]) -> Client:
+    async def _initialize(
+        self, key: object, provider: ClientProvider[Client]
+    ) -> Client:
         client = provider.create_client(self)
         try:
             await client.initialize()
@@ -90,7 +104,7 @@ class ClientManager:
                 await client.dispose()
             except BaseException as cleanup:
                 self._cleanup_errors.append(cleanup)
-                self._unclean.add(provider.client_key)
+                self._unclean.add(key)
                 raise BaseExceptionGroup(
                     "client initialization and cleanup failed", [error, cleanup]
                 ) from None

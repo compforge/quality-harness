@@ -179,7 +179,7 @@ test("published OpenSearch entry falls back and does not replay reads on a reuse
       import assert from 'node:assert/strict';
       import { createServer } from 'node:http';
       import { openOpenSearch } from '@compforge/harness-toolbox/opensearch';
-      import { DirectTransport } from '@compforge/harness-toolbox/transport';
+      import { DirectTransport, Transport } from '@compforge/harness-toolbox/transport';
       let queries = 0, connects = 0;
       const routes = [];
       const server = createServer((req,res) => {
@@ -189,12 +189,10 @@ test("published OpenSearch entry falls back and does not replay reads on a reuse
       await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
       let client;
       try {
-        client = await openOpenSearch({
-          resolve: async () => ({ node: 'http://missing.invalid:9200', auth: {}, requestTimeoutMs: 500 }),
-          transports: [new DirectTransport(), {kind:'tcp',name:'pod-relay',connect:async () => {
+        client = await openOpenSearch({ node: 'http://missing.invalid:9200', auth: {}, requestTimeoutMs: 500 },
+          new Transport([new DirectTransport(), {kind:'tcp',name:'pod-relay',connect:async () => {
             connects++; return {host:'127.0.0.1',port:server.address().port};
-          }}],
-        }, {onRoute: route => routes.push(route)});
+          }}]), {onRoute: route => routes.push(route)});
         await assert.rejects(client.search('spans',{}));
         assert.equal(queries,1); assert.equal(connects,1);
         assert.deepEqual(routes,[{transport:'pod-relay',reason:'ConnectionError'}]);

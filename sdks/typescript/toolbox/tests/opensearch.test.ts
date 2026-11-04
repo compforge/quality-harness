@@ -1,3 +1,4 @@
+import { Transport as ManagedTransport } from "../src/transport";
 import { expect, test, spyOn } from "bun:test";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn } from "node:child_process";
@@ -28,10 +29,7 @@ test("OpenSearch probes real driver connections, falls back, and reuses the sele
   const routes: unknown[] = [];
   let connects = 0;
   const fallback: TcpTransport = { kind: "tcp", name: "pod-relay", connect: async () => { connects++; return server.endpoint; } };
-  const client = new OpenSearchClient({
-    resolve: async () => ({ node: "http://unreachable.invalid:9200", auth: { username: "reader", password: "secret" }, requestTimeoutMs: 500 }),
-    transports: [new DirectTransport(), fallback],
-  }, { onRoute: route => routes.push(route) });
+  const client = new OpenSearchClient(async () => ({ node: "http://unreachable.invalid:9200", auth: { username: "reader", password: "secret" }, requestTimeoutMs: 500 }), new ManagedTransport([new DirectTransport(), fallback]), { onRoute: route => routes.push(route) });
   try {
     await Promise.all([client.initialize(), client.initialize()]);
     expect(await client.count("spans", { match_all: {} })).toBe(12);
@@ -46,10 +44,7 @@ test.each([401, 403, 500])("OpenSearch HTTP %s during preparation does not chang
   const server = await serve((_req, res) => { res.writeHead(status); res.end(); });
   let fallback = 0;
   try {
-    await expect(openOpenSearch({
-      resolve: async () => ({ node: `http://127.0.0.1:${server.endpoint.port}`, auth: {} }),
-      transports: [new DirectTransport(), { kind: "tcp", name: "unexpected", connect: async endpoint => { fallback++; return endpoint; } }],
-    })).rejects.toMatchObject({ statusCode: status });
+    await expect(openOpenSearch(async () => ({ node: `http://127.0.0.1:${server.endpoint.port}`, auth: {} }), new ManagedTransport([new DirectTransport(), { kind: "tcp", name: "unexpected", connect: async endpoint => { fallback++; return endpoint; } }]))).rejects.toMatchObject({ statusCode: status });
     expect(fallback).toBe(0);
   } finally { await server.close(); }
 });
@@ -61,10 +56,7 @@ test.each(["count", "search", "request"] as const)("OpenSearch %s disconnect is 
     if (req.method === "HEAD") res.end();
     else { reads++; req.socket.destroy(); }
   });
-  const client = await openOpenSearch({
-    resolve: async () => ({ node: `http://127.0.0.1:${server.endpoint.port}`, auth: {}, requestTimeoutMs: 500 }),
-    transports: [new DirectTransport(), { kind: "tcp", name: "unexpected", connect: async endpoint => { fallback++; return endpoint; } }],
-  });
+  const client = await openOpenSearch(async () => ({ node: `http://127.0.0.1:${server.endpoint.port}`, auth: {}, requestTimeoutMs: 500 }), new ManagedTransport([new DirectTransport(), { kind: "tcp", name: "unexpected", connect: async endpoint => { fallback++; return endpoint; } }]));
   try {
     const pending = operation === "request" ? client.request("/_cat/indices") : client[operation]("spans", {});
     await expect(pending).rejects.toThrow();
@@ -79,7 +71,7 @@ test("OpenSearch exhausted routes retain a safe connection phase and the driver 
     attempts++;
     throw Object.assign(new Error("private endpoint"), { code: "ENOTFOUND" });
   } };
-  const error = await openOpenSearch({ resolve: async () => ({ node: "http://search:9200", auth: {} }), transports: [route, route] }).catch(error => error);
+  const error = await openOpenSearch(async () => ({ node: "http://search:9200", auth: {} }), new ManagedTransport([route, route])).catch(error => error);
   expect(attempts).toBe(2);
   expect(error).toMatchObject({ kind: "connection_failed", code: "ENOTFOUND", cause: { code: "ENOTFOUND" } });
   expect(error.message).toBe("OpenSearch connect failed (ENOTFOUND)");
@@ -90,10 +82,7 @@ test("OpenSearch disposal aborts an in-flight probe without starting another rou
   const ready = new Promise<void>(resolve => { started = resolve; });
   const server = await serve(() => started());
   let fallback = 0;
-  const client = new OpenSearchClient({
-    resolve: async () => ({ node: `http://127.0.0.1:${server.endpoint.port}`, auth: {}, requestTimeoutMs: 30_000 }),
-    transports: [new DirectTransport(), { kind: "tcp", name: "unexpected", connect: async endpoint => { fallback++; return endpoint; } }],
-  });
+  const client = new OpenSearchClient(async () => ({ node: `http://127.0.0.1:${server.endpoint.port}`, auth: {}, requestTimeoutMs: 30_000 }), new ManagedTransport([new DirectTransport(), { kind: "tcp", name: "unexpected", connect: async endpoint => { fallback++; return endpoint; } }]));
   const pending = client.initialize().catch(error => error);
   try {
     await ready;
@@ -123,10 +112,7 @@ test("OpenSearch routed HTTPS preserves TLS identity against a Node server", asy
     server.once("error", reject);
     server.once("exit", () => reject(new Error("TLS fixture exited")));
   });
-  const client = new OpenSearchClient({
-    resolve: async () => ({ node: "https://search.internal:9200", auth: {}, requestTimeoutMs: 1000 }),
-    transports: [{ kind: "tcp", name: "pod-relay", connect: async () => ({ host: "127.0.0.1", port }) }],
-  });
+  const client = new OpenSearchClient(async () => ({ node: "https://search.internal:9200", auth: {}, requestTimeoutMs: 1000 }), new ManagedTransport([{ kind: "tcp", name: "pod-relay", connect: async () => ({ host: "127.0.0.1", port }) }]));
   try { await client.initialize(); expect(output).toContain("sni=search.internal"); }
   finally { await client.dispose(); server.kill(); await new Promise<void>(resolve => server.once("exit", () => resolve())); }
 });
@@ -137,10 +123,7 @@ test("OpenSearch probe timeout advances to the next route", async () => {
   const routes: unknown[] = [];
   let client: OpenSearchClient | undefined;
   try {
-    client = await openOpenSearch({
-      resolve: async () => ({ node: `http://127.0.0.1:${stalled.endpoint.port}`, auth: {}, connectTimeoutMs: 30 }),
-      transports: [new DirectTransport(), { kind: "tcp", name: "pod-relay", connect: async () => healthy.endpoint }],
-    }, { onRoute: route => routes.push(route) });
+    client = await openOpenSearch(async () => ({ node: `http://127.0.0.1:${stalled.endpoint.port}`, auth: {}, connectTimeoutMs: 30 }), new ManagedTransport([new DirectTransport(), { kind: "tcp", name: "pod-relay", connect: async () => healthy.endpoint }]), { onRoute: route => routes.push(route) });
     expect(routes).toEqual([{ transport: "pod-relay", reason: "ETIMEDOUT" }]);
   } finally { await client?.close(); await stalled.close(); await healthy.close(); }
 });
@@ -152,10 +135,7 @@ test("OpenSearch connect deadline does not shorten a subsequent query deadline",
   });
   let client: OpenSearchClient | undefined;
   try {
-    client = await openOpenSearch({
-      resolve: async () => ({ node: `http://127.0.0.1:${server.endpoint.port}`, auth: {}, connectTimeoutMs: 30, requestTimeoutMs: 500 }),
-      transports: [new DirectTransport()],
-    });
+    client = await openOpenSearch(async () => ({ node: `http://127.0.0.1:${server.endpoint.port}`, auth: {}, connectTimeoutMs: 30, requestTimeoutMs: 500 }), new ManagedTransport([new DirectTransport()]));
     expect(await client.count("spans", {})).toBe(12);
   } finally { await client?.close(); await server.close(); }
 });
@@ -166,13 +146,10 @@ test("OpenSearch mapping deadline advances routes and a late mapping cannot star
   let probes = 0;
   const server = await serve((_req, res) => { probes++; res.end(); });
   const routes: unknown[] = [];
-  const client = new OpenSearchClient({
-    resolve: async () => ({ node: "http://search.internal:9200", auth: {}, connectTimeoutMs: 40, acquireTimeoutMs: 1000 }),
-    transports: [
+  const client = new OpenSearchClient(async () => ({ node: "http://search.internal:9200", auth: {}, connectTimeoutMs: 40, acquireTimeoutMs: 1000 }), new ManagedTransport([
       { kind: "tcp", name: "slow", connect: async () => { await blocked; return server.endpoint; } },
       { kind: "tcp", name: "ready", connect: async () => server.endpoint },
-    ],
-  }, { onRoute: route => routes.push(route) });
+    ]), { onRoute: route => routes.push(route) });
   try {
     await client.initialize();
     release();
@@ -186,10 +163,7 @@ test.each([
   ["total acquisition", 1000, 20],
   ["last route", 20, 1000],
 ] as const)("OpenSearch %s deadline retains the shared timeout kind", async (_phase, connectTimeoutMs, acquireTimeoutMs) => {
-  const error = await openOpenSearch({
-    resolve: async () => ({ node: "http://search.internal:9200", auth: {}, connectTimeoutMs, acquireTimeoutMs }),
-    transports: [{ kind: "tcp", name: "blocked", connect: () => new Promise(() => {}) }],
-  }).catch(error => error);
+  const error = await openOpenSearch(async () => ({ node: "http://search.internal:9200", auth: {}, connectTimeoutMs, acquireTimeoutMs }), new ManagedTransport([{ kind: "tcp", name: "blocked", connect: () => new Promise(() => {}) }])).catch(error => error);
   expect(error).toBeInstanceOf(TimeoutError);
   expect(error).toBeInstanceOf(ToolboxError);
   expect(error).toMatchObject({ kind: "timeout", code: "ETIMEDOUT" });
@@ -226,10 +200,7 @@ test("OpenSearch real socket timeout retains probe diagnostics and releases the 
   const server = await serve(() => {});
   const logs: string[] = [];
   try {
-    await expect(openOpenSearch({
-      resolve: async () => ({ node: `http://127.0.0.1:${server.endpoint.port}`, auth: {}, connectTimeoutMs: 50 }),
-      transports: [new DirectTransport()],
-    }, { onDiagnostic: line => logs.push(line) })).rejects.toMatchObject({ kind: "timeout" });
+    await expect(openOpenSearch(async () => ({ node: `http://127.0.0.1:${server.endpoint.port}`, auth: {}, connectTimeoutMs: 50 }), new ManagedTransport([new DirectTransport()]), { onDiagnostic: line => logs.push(line) })).rejects.toMatchObject({ kind: "timeout" });
     expect(logs.join("\n")).toContain("OpenSearch route start transport=direct");
     expect(logs.join("\n")).toContain("OpenSearch connect failed");
   } finally { await server.close(); }
@@ -254,30 +225,25 @@ test("OpenSearch cleanup timeout preserves the primary probe error without fallb
   const logs: string[] = [];
   let fallback = 0;
   try {
-    const error = await openOpenSearch({
-      resolve: async () => ({ node: "https://search:9200", auth: {} }),
-      transports: [new DirectTransport(), { kind: "tcp", name: "unexpected", connect: async endpoint => { fallback++; return endpoint; } }],
-    }, { onDiagnostic: line => logs.push(line) }).catch(error => error);
-    expect(error).toBe(primary);
+    const error = await openOpenSearch(async () => ({ node: "https://search:9200", auth: {} }), new ManagedTransport([new DirectTransport(), { kind: "tcp", name: "unexpected", connect: async endpoint => { fallback++; return endpoint; } }]), { onDiagnostic: line => logs.push(line) }).catch(error => error);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error.cause.cause).toBe(primary);
     expect(fallback).toBe(0);
     expect(logs.join("\n")).toContain("OpenSearch close failed error=TimeoutError");
-    expect(logs.join("\n")).toContain("OpenSearch connect failed error=TypeError argument=options.servername code=ERR_INVALID_ARG_VALUE");
+    expect(logs.join("\n")).toContain("cause=error=TypeError argument=options.servername code=ERR_INVALID_ARG_VALUE");
     expect(logs.join("\n")).not.toContain("secret");
   } finally { probe.mockRestore(); close.mockRestore(); }
 }, 4000);
 
-test("OpenSearch cleanup rejection does not prevent network-error fallback", async () => {
+test("OpenSearch cleanup rejection prevents fallback and remains visible to the owner", async () => {
   const primary = Object.assign(new Error("private"), { code: "ECONNREFUSED" });
   const probe = spyOn(OpenSearchEngine.prototype, "ping").mockRejectedValueOnce(primary).mockResolvedValue(undefined);
   const close = spyOn(OpenSearchEngine.prototype, "close").mockRejectedValueOnce(new Error("cleanup failed")).mockResolvedValue(undefined);
   const routes: unknown[] = [];
   let client: OpenSearchClient | undefined;
   try {
-    client = await openOpenSearch({
-      resolve: async () => ({ node: "http://search:9200", auth: {} }),
-      transports: [new DirectTransport(), { kind: "tcp", name: "fallback", connect: async endpoint => endpoint }],
-    }, { onRoute: route => routes.push(route) });
-    expect(routes).toEqual([{ transport: "fallback", reason: "ECONNREFUSED" }]);
+    await expect(openOpenSearch(async () => ({ node: "http://search:9200", auth: {} }), new ManagedTransport([new DirectTransport(), { kind: "tcp", name: "fallback", connect: async endpoint => endpoint }]), { onRoute: route => routes.push(route) })).rejects.toBeInstanceOf(AggregateError);
+    expect(routes).toEqual([]);
   } finally { await client?.close(); probe.mockRestore(); close.mockRestore(); }
 });
 

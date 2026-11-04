@@ -1,7 +1,7 @@
 import type { Executor, KubectlOptions } from "./executor";
 import type { KubernetesEndpoint } from "./endpoint";
 import { findPod, type KubernetesPod } from "./pod";
-import { PortForwardScope, type StartPortForward } from "./port-forward";
+import { PortForwardScope, type StartPortForward, type PortForward } from "./port-forward";
 import {
   findPodsForService,
   findService,
@@ -25,6 +25,8 @@ export interface ForwardedServiceTarget extends ForwardedEndpoint {
 export class ServicePortForwarder {
   readonly #cache = new Map<string, Promise<ForwardedEndpoint>>();
   readonly #scope: PortForwardScope;
+  readonly #handles = new Map<string, PortForward>();
+  #closed = false;
 
   private constructor(
     private readonly opts: KubectlOptions & { namespace: string; signal?: AbortSignal; onDiagnostic?: (line: string) => void },
@@ -49,14 +51,23 @@ export class ServicePortForwarder {
   }
 
   forward(endpoint: KubernetesEndpoint): Promise<ForwardedEndpoint> {
+    if (this.#closed) throw new Error("Port-forward transport is closed");
     this.opts.signal?.throwIfAborted();
     const key = `${endpoint.host}:${endpoint.port}`;
     let pending = this.#cache.get(key);
     if (!pending) {
       pending = this.#forward(endpoint);
       this.#cache.set(key, pending);
+      void pending.catch(() => { if (this.#cache.get(key) === pending) this.#cache.delete(key); });
     }
-    return pending;
+    return pending.then(mapped => {
+      const handle = this.#handles.get(key);
+      if (handle?.isAlive && !handle.isAlive()) {
+        if (this.#cache.get(key) === pending) this.#cache.delete(key);
+        return this.forward(endpoint);
+      }
+      return mapped;
+    });
   }
 
   /** 按 Service selector 把一个逻辑 endpoint 展开为每个 Running Pod 的独立 endpoint。 */
@@ -100,11 +111,27 @@ export class ServicePortForwarder {
         `为 ${target.kind}/${target.name} 建立 port-forward 失败：${result.reason ?? "unknown error"}`,
       );
     }
+    if (this.#closed || this.opts.signal?.aborted) {
+      result.value.stop();
+      this.opts.signal?.throwIfAborted();
+      throw new Error("Port-forward transport is closed");
+    }
+    this.#handles.set(`${endpoint.host}:${endpoint.port}`, result.value);
     return { host: "127.0.0.1", port: result.value.localPort, servername: endpoint.host };
   }
 
   stop(): void {
+    this.#closed = true;
     this.#scope.stop();
     this.#cache.clear();
+    this.#handles.clear();
+  }
+
+  async dispose(): Promise<void> {
+    this.#closed = true;
+    await Promise.allSettled(this.#cache.values());
+    await this.#scope.dispose();
+    this.#cache.clear();
+    this.#handles.clear();
   }
 }

@@ -1,3 +1,4 @@
+import { Transport as ManagedTransport } from "../../dist/transport/index.js";
 import assert from "node:assert/strict";
 import net from "node:net";
 import mysql from "mysql2";
@@ -24,7 +25,7 @@ const server = net.createServer({ allowHalfOpen: true }, socket => {
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 server.unref();
 const target = { host: "127.0.0.1", port: server.address().port, user: "fixture", password: "", database: "" };
-const client = new MysqlClient({ resolve: async () => target, transports: [new DirectTransport()] },
+const client = new MysqlClient(async () => target, new ManagedTransport([new DirectTransport()]),
   { connectTimeoutMs: 1000, queryTimeoutMs: 1000 });
 await client.initialize();
 if (process.argv[2] === "query-error") {

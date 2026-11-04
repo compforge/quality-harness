@@ -15,10 +15,17 @@ Python 位于 `sdks/python/toolbox`，独立分发为 `harness-toolbox`。
   可选 `description` 用于说明来源用途与数据范围，供能力发现和报告展示；不得包含凭据，也不参与客户端复用身份。
 - **ClientManager**：在一次根执行中按 ClientProvider key 复用初始化中的异步任务和成功的 Client。
   初始化失败完成清理后允许重试；结束时取消并等待进行中的初始化，再按依赖顺序逆序销毁。
-- **ConnectionSource**：解析协议连接信息，并声明适用的 Transport；环境配置语义由调用方提供。
-- **Transport**：提供直连、端口转发、Host-native worker 或 Pod Python 等访问路径，并拥有相应通道的创建、失效和关闭。
+  `get(provider)` 借用共享实例；`create(factory)` 每次创建可由 caller 提前销毁的实例，根结束时仍兜底回收。
+- **Transport**：选择和准备直连、端口转发、Pod relay 等有限的访问路径，拥有通道的创建、失效和关闭。
+  TypeScript Transport 实现 common 的生命周期契约，可以与协议 Client 使用同一个 Manager，无需 TransportManager。
 
-调用方创建根 ClientManager，将只含 get 的借用视图传给嵌套或并发工作，并在根执行结束时统一 dispose。
+TypeScript 协议 Client 接收已解析配置（或异步配置函数）和一个 Transport，不再使用 ConnectionSource。
+配置语义归 provider，协议与握手归 Client，路径选择与准备归 Transport；`connection/acquire` 是内部算法。
+同一个 Transport 可供 OpenSearch、MySQL、Redis、S3 Client 复用。Client 只销毁自己的会话、池与在途请求，
+Transport 按需创建，直到根 Manager 结束才销毁。根取消先停止借用方等待，资源关闭仍按 Client → Transport 排序。
+
+调用方创建根 ClientManager，将 get/create 的受限视图传给嵌套或并发工作，并在根执行结束时统一 dispose。
+工厂依赖视图只提供 get；共享 Client 的借用者不能提前关闭它，需要独立寿命时使用 create。
 ClientProvider key 必须覆盖影响复用的协议、目标、配置与凭据；用 client_key / clientKey 生成摘要，
 避免凭据出现在可观察 key 中。
 共享容量和策略在一个根执行中保持一致，不能用同一个 key 请求相互冲突的策略。
@@ -34,8 +41,10 @@ Client 是执行期稳定的协议操作入口；Transport 内部的 worker、�
 通道中断使本次请求失败并淘汰该通道，下一个独立请求才可以重连；已发送的业务操作不自动重放。
 最终 dispose / scope exit 后不允许重开，借用者不关闭共享通道。
 
-Kubernetes port-forward 缓存同时保留资源 UID 和子进程存活状态。Service UID 不变而
-后端 Pod 重启时，已退出的隧道也必须重建；每次新建连接仍检查目标身份。
+TypeScript ServicePortForwardTransport 共享同一 namespace 的发现结果与转发；一个 borrower 取消不影响其它 borrower。
+缓存检查子进程存活状态，已退出的隧道在下一次获取时重建；不重放已经失败的协议操作。
+当前发现快照限于一次 Transport 生命周期，不承诺跟踪同名 Service 的 UID 替换。
+dispose 等待晚到的转发并停止它，等待子进程退出；清理失败向根传播，不能用等待超时冒充释放成功。
 
 MySQL、Redis、OpenSearch、S3 和 Kubernetes 客户端实现这些原语。连接、排队、取消、资源释放属于工具箱；
 授权、业务 SQL、Redis key、索引规则、采集时机和结果解释仍属于消费方。MySQL 只在初始化阶段切换地址，建连网络错误可以切换
@@ -102,7 +111,8 @@ TypeScript common 承载 Client、ClientProvider、DataSource、ClientManager、
 与配置 key；Service 关联保留消费方的 Service 类型，不引入 Doctor 或平台专用定义。
 两种语言不要求功能覆盖完全相同；TypeScript toolbox 同样只转导出中立生命周期符号。
 
-`ConnectionSource.addresses` 可声明 `AddressPolicy(environment, namespace, fallback_hosts)`。
+Python 的 `ConnectionSource.addresses` 可声明 `AddressPolicy(environment, namespace, fallback_hosts)`；这是现有 Python 地址策略，
+不要求与 TypeScript 的配置入参和 Transport API 同形。
 IP 直接使用；Kubernetes 短名和指定 namespace 的两段 Service 名，以及 `name.namespace.svc[.<cluster-domain>]`
 通过对应环境的 API 获取 ClusterIP（headless 使用 ready endpoints），不回退本机短名 DNS。
 跨 namespace 使用带 `.svc` 的明确名称；其余域名按 DNS 返回顺序尝试 IP，候选去重。
@@ -322,7 +332,7 @@ and [Metrics API semantics](https://kubernetes.io/docs/tasks/debug/debug-cluster
 
 ## Connection acquisition
 
-MySQL, OpenSearch and Redis share `connection/acquire` for ordered route attempts. The protocol adapter owns
+TypeScript Transport uses the internal `connection/acquire` algorithm for ordered route attempts. The protocol adapter owns
 handshake mechanics and classifies retryable connection failures; acquisition owns deadlines, cancellation,
 route reporting and disposal of connections that arrive after their attempt ended. Queries, commands and
 pipelines execute outside this flow and are never replayed by fallback.
@@ -344,3 +354,9 @@ pipelines execute outside this flow and are never replayed by fallback.
 
 Configuration resolution has root cancellation but no connection timeout: the acquisition budget starts after
 resolution supplies the target. Non-cooperative injected work may finish later; its result is never exposed as ready.
+
+Protocol identity stays separate from the mapped dial address: forwarding never changes HTTP Host, S3 signing identity
+or the original TLS DNS name. OpenSearch omits SNI for IP literals, keeps the successful probe's engine, and only
+tries HTTP/HTTPS when the target has no explicit scheme. Authentication, TLS verification and cleanup failures are terminal.
+The OpenSearch 3.6 adapter balances request accounting when request construction throws synchronously, so SDK close
+does not poll forever. A Node child-process regression verifies natural exit after this failure without process.exit().

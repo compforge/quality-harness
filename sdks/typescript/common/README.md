@@ -27,6 +27,11 @@ view during initialize, so concurrent consumers share them and dispose before th
 Dependency graphs must be acyclic. A failed initialization permits retry only after successful cleanup;
 failed cleanup poisons that key and is reported again when the root manager is disposed.
 
+Use `clients.create({ createClient })` for a fresh caller-owned client. The caller may dispose it as soon as its work
+finishes; dependencies acquired through `get` remain available to other clients until root disposal. The root also
+disposes created clients as an idempotent safety net. Use `get` when callers should share the client itself; borrowers
+must not dispose those shared instances. Neither API constructs anything before it is called.
+
 `FileDataSource` declares a nonempty group of distinct `paths` that can be acquired together.
 `FileClient.read` obtains the whole group once and returns one `FileReadResult` per declared path,
 in order: `{ path, status: "ok", bytes }` or `{ path, status: "error", error }`. Empty files succeed;

@@ -3,6 +3,12 @@
 Standard-library contracts shared by the quality SDKs. Import public models and lifecycle
 contracts from `harness_common`; concrete protocol clients live in `harness_toolbox`.
 
+`await clients.get(provider)` borrows a shared client by configuration identity.
+`await clients.create(provider)` creates a fresh client that the caller may dispose early. Dependencies acquired
+through the provider's get-only view remain shared until root disposal, after their consumers have closed.
+Root disposal is still an idempotent safety net for created clients. This supports short-lived protocol clients
+borrowing longer-lived transports without introducing protocol or platform concepts into common.
+
 ## Upgrade to 0.6
 
 Package-root exports such as `from harness_common import Service, ClientManager, Execution`

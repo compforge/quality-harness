@@ -8,9 +8,9 @@ import type { ClientProvider } from "./client-provider.js";
 export class ClientManager {
   readonly #controller = new AbortController();
   readonly signal: AbortSignal;
-  readonly #clients = new Map<string, Promise<Client>>();
+  readonly #clients = new Map<string | symbol, Promise<Client>>();
   readonly #ready: Client[] = [];
-  readonly #unclean = new Set<string>();
+  readonly #unclean = new Set<string | symbol>();
   readonly #cleanupErrors: unknown[] = [];
   #disposal?: Promise<void>;
 
@@ -19,8 +19,20 @@ export class ClientManager {
   }
 
   get<C extends Client>(provider: ClientProvider<C>): Promise<C> {
+    return this.#acquire(provider.clientKey, provider);
+  }
+
+  /**
+   * @spec Create a caller-owned client that can be disposed before this root scope ends.
+   * @rule Dependencies acquired with get remain shared until root disposal; create never caches by identity.
+   * @why Short-lived protocol clients borrow longer-lived transports. Root disposal remains an idempotent safety net.
+   */
+  create<C extends Client>(factory: Pick<ClientProvider<C>, "createClient">): Promise<C> {
+    return this.#acquire(Symbol("owned client"), factory);
+  }
+
+  #acquire<C extends Client>(key: string | symbol, provider: Pick<ClientProvider<C>, "createClient">): Promise<C> {
     this.signal.throwIfAborted();
-    const key = provider.clientKey;
     const existing = this.#clients.get(key);
     if (existing) return existing as Promise<C>;
     // Publish before construction so concurrent callers never dispatch a second provider.

@@ -1,7 +1,7 @@
-import { acquireConnection, awaitWithSignal } from "../connection/acquire";
+import { awaitWithSignal } from "../connection/acquire";
 import type { Client } from "../client";
-import type { ConnectionSource, ClientLifecycle } from "../datasource";
-import { isConnectionNetworkError, type TcpTransport } from "../transport";
+import type { ClientLifecycle } from "../datasource";
+import { Transport, isConnectionNetworkError, type TcpTransport } from "../transport";
 import { TimeoutError } from "../errors";
 import { discoverRedisTopology, type RedisTopologyConfig, type RedisTopology } from "./topology";
 import { createClient, SocketClosedUnexpectedlyError, ConnectionTimeoutError, type RedisClientType } from "@redis/client";
@@ -211,19 +211,18 @@ export class RedisAccess implements RedisAccessApi {
   readonly #connections = new Map<string, Promise<RedisManagedConnection>>();
   readonly #controller = new AbortController();
   readonly #signal: AbortSignal;
-  readonly #transports: readonly TcpTransport[];
+  readonly #transport: Transport;
   #closing?: Promise<void>;
 
   constructor(
-    transports: TcpTransport | readonly TcpTransport[],
+    transports: Transport | TcpTransport | readonly TcpTransport[],
     private readonly baseConfig: Omit<RedisConnectionConfig, "database">,
     private readonly connectionFactory: RedisConnectionFactory = RedisConnection.connect,
     private readonly lifecycle: ClientLifecycle = {},
   ) {
-    this.#transports = Array.isArray(transports) ? transports : [transports as TcpTransport];
-    if (!this.#transports.length) throw new Error("Redis requires a TCP transport");
+    this.#transport = transports instanceof Transport ? transports : new Transport(Array.isArray(transports) ? transports : [transports as TcpTransport]);
     for (const value of [baseConfig.timeoutMs, baseConfig.connectTimeoutMs ?? baseConfig.timeoutMs,
-      baseConfig.acquireTimeoutMs ?? (baseConfig.connectTimeoutMs ?? baseConfig.timeoutMs) * this.#transports.length]) {
+      baseConfig.acquireTimeoutMs ?? (baseConfig.connectTimeoutMs ?? baseConfig.timeoutMs)]) {
       if (!Number.isFinite(value) || value <= 0) throw new Error("Redis timeouts must be positive milliseconds");
     }
     this.#signal = lifecycle.signal ? AbortSignal.any([lifecycle.signal, this.#controller.signal]) : this.#controller.signal;
@@ -250,12 +249,13 @@ export class RedisAccess implements RedisAccessApi {
   }
 
   #open(endpoint: RedisEndpoint, database: number, credentials: RedisCredentials): Promise<RedisManagedConnection> {
-    return acquireConnection(this.#transports, {
+    return this.#transport.acquire({
       name: "Redis connection", signal: this.#signal,
       connectTimeoutMs: this.baseConfig.connectTimeoutMs ?? this.baseConfig.timeoutMs,
       acquireTimeoutMs: this.baseConfig.acquireTimeoutMs, onRoute: this.lifecycle.onRoute,
       open: async (transport, attempt) => {
-        const mapped = await transport.connect(endpoint);
+        if (transport.kind !== "tcp") throw new Error("Redis requires a TCP transport");
+        const mapped = await transport.connect(endpoint, attempt);
         const connection = await this.connectionFactory(endpoint, mapped, { ...this.baseConfig, ...credentials, database,
           connectTimeoutMs: attempt.remainingMs(), signal: this.#signal, connectSignal: attempt.signal });
         return { connection, transport: mapped.host === endpoint.host && mapped.port === endpoint.port ? "direct" : transport.name };
@@ -293,19 +293,16 @@ export class RedisClient implements Client {
   #disposal?: Promise<void>;
   #access?: RedisAccess;
   #target?: RedisDataSourceTarget;
-  constructor(private readonly source: ConnectionSource<RedisDataSourceTarget>, private readonly lifecycle: ClientLifecycle = {}) {
+  constructor(private readonly configuration: RedisDataSourceTarget | (() => Promise<RedisDataSourceTarget>), private readonly transport: Transport, private readonly lifecycle: ClientLifecycle = {}) {
     this.signal = lifecycle.signal ? AbortSignal.any([lifecycle.signal, this.#controller.signal]) : this.#controller.signal;
   }
   initialize(): Promise<void> {
     this.signal.throwIfAborted();
     return this.#initialization ??= (async () => {
-      this.#target = await awaitWithSignal(this.source.resolve(), this.signal);
+      this.#target = await awaitWithSignal((typeof this.configuration === "function" ? this.configuration() : Promise.resolve(this.configuration)), this.signal);
       this.signal.throwIfAborted();
-      if (!this.source.transports.length || this.source.transports.some(transport => transport.kind !== "tcp")) {
-        throw new Error("Redis requires TCP transports");
-      }
       if (this.#target.clusterType === "cluster" && this.#target.database !== 0) throw new Error("Redis Cluster requires database 0");
-      this.#access = new RedisAccess(this.source.transports as readonly TcpTransport[], this.#target,
+      this.#access = new RedisAccess(this.transport, this.#target,
         undefined, { ...this.lifecycle, signal: this.signal });
     })();
   }
@@ -330,8 +327,8 @@ export class RedisClient implements Client {
   }
 }
 
-export async function openRedis(source: ConnectionSource<RedisDataSourceTarget>, lifecycle: ClientLifecycle = {}): Promise<RedisClient> {
-  const client = new RedisClient(source, lifecycle);
+export async function openRedis(configuration: RedisDataSourceTarget | (() => Promise<RedisDataSourceTarget>), transport: Transport, lifecycle: ClientLifecycle = {}): Promise<RedisClient> {
+  const client = new RedisClient(configuration, transport, lifecycle);
   try { await client.initialize(); }
   catch (error) { await client.dispose(); throw error; }
   lifecycle.onDispose?.(() => client.dispose());

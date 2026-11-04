@@ -1,3 +1,4 @@
+import { Transport as ManagedTransport } from "../src/transport";
 import { expect, test } from "bun:test";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createTlsServer } from "node:https";
@@ -53,8 +54,7 @@ test("S3 preserves logical Host through TCP routing and signs encoded object key
     token = req.headers["x-amz-security-token"] as string;
     res.writeHead(200, { "content-length": "42", etag: '"etag"', "x-amz-meta-purpose": "fixture" }); res.end();
   });
-  const client = new S3Client({ resolve: async () => target("http://s3.internal:9000"),
-    transports: [new PortForwardTransport(async () => ({ host: "127.0.0.1", port: fixture.port }))] }, limits);
+  const client = new S3Client(async () => target("http://s3.internal:9000"), new ManagedTransport([new PortForwardTransport(async () => ({ host: "127.0.0.1", port: fixture.port }))]), limits);
   try {
     await client.initialize();
     const value = await client.headObject("bucket", "a b/中文+?#%.txt");
@@ -137,7 +137,7 @@ test("S3 dispose aborts active body reads and queued work and is idempotent", as
   let started!: () => void;
   const received = new Promise<void>(resolve => { started = resolve; });
   const fixture = await server((_req, res) => { res.writeHead(200); res.write("x"); started(); });
-  const client = new S3Client({ resolve: async () => target(fixture.endpoint), transports: [new DirectTransport()] }, { ...limits, concurrency: 1 });
+  const client = new S3Client(async () => target(fixture.endpoint), new ManagedTransport([new DirectTransport()]), { ...limits, concurrency: 1 });
   try {
     await client.initialize();
     const first = client.readObject("bucket", "key", { maxBytes: 100 }).catch(error => error);
@@ -156,8 +156,8 @@ test("S3 TLS tunnel retains certificate validation and original server identity"
   const address = instance.address();
   if (!address || typeof address === "string") throw new Error("missing TLS port");
   const route = new PortForwardTransport(async () => ({ host: "127.0.0.1", port: address.port }));
-  const trusted = new S3Client({ resolve: async () => ({ ...target("https://localhost:9000"), ca: pem("ca") }), transports: [route] }, limits);
-  const untrusted = new S3Client({ resolve: async () => target("https://localhost:9000"), transports: [route] }, limits);
+  const trusted = new S3Client(async () => ({ ...target("https://localhost:9000"), ca: pem("ca") }), new ManagedTransport([route]), limits);
+  const untrusted = new S3Client(async () => target("https://localhost:9000"), new ManagedTransport([route]), limits);
   try {
     await trusted.initialize(); await untrusted.initialize();
     await trusted.headBucket("bucket");
@@ -170,10 +170,7 @@ test("S3 TLS tunnel retains certificate validation and original server identity"
 
 test("S3 failed initialization can be retried by ClientManager", async () => {
   let attempts = 0;
-  const source = { clientKey: "s3-init-retry", createClient: (_clients: Pick<ClientManager, "get">, signal: AbortSignal) => new S3Client({
-    resolve: async () => { if (++attempts === 1) throw new Error("resolve failed"); return target("http://localhost:1"); },
-    transports: [new DirectTransport()],
-  }, limits, { signal }) };
+  const source = { clientKey: "s3-init-retry", createClient: (_clients: Pick<ClientManager, "get">, signal: AbortSignal) => new S3Client(async () => { if (++attempts === 1) throw new Error("resolve failed"); return target("http://localhost:1"); }, new ManagedTransport([new DirectTransport()]), limits, { signal }) };
   const manager = new ClientManager();
   try {
     await expect(manager.get(source)).rejects.toThrow("resolve failed");
@@ -211,8 +208,7 @@ test("S3 chunked reads truncate without Content-Length and preserve short comple
 test("S3 initialization canceled during resolution cannot acquire a route", async () => {
   let resolve!: (value: S3Target) => void, routes = 0;
   const pending = new Promise<S3Target>(done => { resolve = done; });
-  const client = new S3Client({ resolve: () => pending,
-    transports: [new PortForwardTransport(async value => { routes++; return value; })] }, limits);
+  const client = new S3Client(() => pending, new ManagedTransport([new PortForwardTransport(async value => { routes++; return value; })]), limits);
   const initialization = client.initialize().catch(error => error);
   const disposal = client.dispose();
   resolve(target("http://localhost:1"));
@@ -222,8 +218,7 @@ test("S3 initialization canceled during resolution cannot acquire a route", asyn
 });
 
 test("S3 mapped virtual-host addressing is rejected rather than silently changing TLS identity", async () => {
-  const client = new S3Client({ resolve: async () => ({ ...target("https://s3.internal"), forcePathStyle: false }),
-    transports: [new PortForwardTransport(async () => ({ host: "127.0.0.1", port: 12345 }))] }, limits);
+  const client = new S3Client(async () => ({ ...target("https://s3.internal"), forcePathStyle: false }), new ManagedTransport([new PortForwardTransport(async () => ({ host: "127.0.0.1", port: 12345 }))]), limits);
   try { await expect(client.initialize()).rejects.toThrow("path-style"); }
   finally { await client.dispose(); }
 });

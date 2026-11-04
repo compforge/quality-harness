@@ -10,6 +10,9 @@ export interface PortForward {
   /** 完整 argv，进 evidence manifest 供审计复现 */
   command: string[];
   stop(): void;
+  /** Resolves after the process and its stdio have closed. */
+  exited?: Promise<number>;
+  isAlive?(): boolean;
 }
 
 export interface PortForwardTarget {
@@ -102,9 +105,10 @@ export async function startPortForward(
   const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
   opts.signal?.addEventListener("abort", abort, { once: true });
   if (opts.signal?.aborted) abort();
+  let alive = true;
   void proc.exited.then(
-    () => opts.signal?.removeEventListener("abort", abort),
-    () => opts.signal?.removeEventListener("abort", abort),
+    () => { alive = false; opts.signal?.removeEventListener("abort", abort); },
+    () => { alive = false; opts.signal?.removeEventListener("abort", abort); },
   );
   const decoder = new TextDecoder();
   const deadline = Date.now() + timeoutMs;
@@ -138,7 +142,7 @@ export async function startPortForward(
       log(`port-forward listening local=127.0.0.1:${m[1]} elapsed_ms=${Date.now() - started}`);
       return {
         ok: true,
-        value: { target, localPort: Number(m[1]), command: argv, stop },
+        value: { target, localPort: Number(m[1]), command: argv, stop, exited: proc.exited, isAlive: () => alive && !stopped },
       };
     }
   }
@@ -177,5 +181,13 @@ export class PortForwardScope {
   stop(): void {
     process.off("exit", this.#stopOnExit);
     for (const forward of this.#forwards.splice(0).reverse()) forward.stop();
+  }
+
+  async dispose(): Promise<void> {
+    const forwards = [...this.#forwards];
+    this.stop();
+    const settled = await Promise.allSettled(forwards.map(forward => forward.exited));
+    const errors = settled.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+    if (errors.length) throw new AggregateError(errors, "Port-forward cleanup failed");
   }
 }

@@ -5,6 +5,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+test("OpenSearch synchronous TLS failure releases SDK accounting and lets Node exit", () => {
+  const result = spawnSync("node", [fileURLToPath(new URL("./fixtures/opensearch-sync-failure.mjs", import.meta.url))],
+    { encoding: "utf8", timeout: 3000 });
+  expect(result.error).toBeUndefined();
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain("disposed");
+});
+
 for (const mode of ["close", "query-error", "readonly-error"]) {
   test(`MySQL ${mode} lets Node exit when the peer keeps its TCP sending side open`, () => {
     const result = spawnSync("node", [fileURLToPath(new URL("./fixtures/mysql-cleanup.mjs", import.meta.url)), mode],

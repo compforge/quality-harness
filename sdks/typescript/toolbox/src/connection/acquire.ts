@@ -23,7 +23,7 @@ export interface ConnectionAttempt {
   remainingMs(): number;
 }
 
-interface Acquisition<R, C> {
+export interface Acquisition<R, C> {
   name: string;
   connectTimeoutMs: number;
   acquireTimeoutMs?: number;
@@ -33,6 +33,8 @@ interface Acquisition<R, C> {
   /** Undefined means terminal; authentication and protocol errors must not change route. */
   retryReason(error: unknown): string | undefined;
   onRoute?: ClientLifecycle["onRoute"];
+  /** Owner tracks late completion through its rollback, not only the initial open promise. */
+  onPending?: (pending: Promise<unknown>) => void;
 }
 
 /**
@@ -92,10 +94,12 @@ export async function acquireConnection<R extends { readonly name: string }, C>(
           }
           return value;
         });
+        options.onPending?.(prepared);
         result = await awaitWithSignal(prepared, attemptSignal);
       } catch (failure) {
         // Cancellation can win after open resolved but before its result was delivered.
-        await discard();
+        try { await discard(); }
+        catch (cleanup) { throw new AggregateError([failure, cleanup], "Connection acquisition and cleanup failed", { cause: failure }); }
         signal.throwIfAborted();
         const error = attemptSignal.aborted ? attemptSignal.reason : failure;
         reason = options.retryReason(error);
@@ -107,7 +111,11 @@ export async function acquireConnection<R extends { readonly name: string }, C>(
         options.onRoute?.({ transport: result.transport, reason });
         attemptSignal.throwIfAborted();
         return result.connection;
-      } catch (error) { await discard(); throw error; }
+      } catch (error) {
+        try { await discard(); }
+        catch (cleanup) { throw new AggregateError([error, cleanup], "Connection publication and cleanup failed", { cause: error }); }
+        throw error;
+      }
     }
     throw new Error("Connection routes exhausted");
   } finally { clearTimeout(timer); }

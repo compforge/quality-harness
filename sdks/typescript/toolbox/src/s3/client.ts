@@ -5,7 +5,8 @@ import {
 import { Readable } from "node:stream";
 import type { Client } from "../client";
 import { ConcurrencyPool } from "../concurrency";
-import type { ClientLifecycle, ConnectionSource } from "../datasource";
+import type { ClientLifecycle } from "../datasource";
+import { Transport, isConnectionNetworkError } from "../transport";
 import { s3Handler } from "./handler";
 import type { S3Target, S3Limits, S3RequestOptions, S3ObjectMetadata, S3ObjectPage, S3BucketPage, S3ObjectRead } from "./types";
 
@@ -36,7 +37,7 @@ export class S3Client implements Client {
   #sdk?: AwsS3Client;
   #http?: ReturnType<typeof s3Handler>;
 
-  constructor(private readonly source: ConnectionSource<S3Target>, private readonly limits: S3Limits,
+  constructor(private readonly configuration: S3Target | (() => Promise<S3Target>), private readonly transport: Transport, private readonly limits: S3Limits,
     private readonly lifecycle: ClientLifecycle = {}) {
     positive(limits.concurrency, "concurrency");
     positive(limits.connectTimeoutMs, "connectTimeoutMs", 2_147_483_647);
@@ -51,23 +52,30 @@ export class S3Client implements Client {
   }
 
   async #initialize(): Promise<void> {
-    const target = await this.source.resolve();
+    const target = await (typeof this.configuration === "function" ? this.configuration() : Promise.resolve(this.configuration));
     this.signal.throwIfAborted();
     const url = new URL(target.endpoint);
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
       throw new Error("S3 endpoint must be an HTTP(S) URL without embedded credentials, query or fragment");
     }
-    const transport = this.source.transports[0];
-    if (!transport || transport.kind !== "tcp") throw new Error("S3 requires a TCP transport");
-    const route = await transport.connect({ host: url.hostname,
-      port: Number(url.port || (url.protocol === "https:" ? 443 : 80)), servername: url.hostname });
+    const route = await this.transport.acquire({
+      name: "S3 route", signal: this.signal, connectTimeoutMs: this.limits.connectTimeoutMs,
+      onRoute: this.lifecycle.onRoute,
+      open: async (path, attempt) => {
+        if (path.kind !== "tcp") throw new Error("S3 requires a TCP transport");
+        const connection = await path.connect({ host: url.hostname,
+          port: Number(url.port || (url.protocol === "https:" ? 443 : 80)) }, attempt);
+        return { connection, transport: path.name };
+      },
+      close: () => {},
+      retryReason: error => isConnectionNetworkError(error) ? String((error as NodeJS.ErrnoException).code) : undefined,
+    });
     this.signal.throwIfAborted();
     this.#http = s3Handler(target, route, this.limits);
     this.#sdk = new AwsS3Client({ endpoint: target.endpoint, region: target.region,
       credentials: target.credentials, forcePathStyle: target.forcePathStyle ?? true,
       requestHandler: this.#http.handler, maxAttempts: 1, followRegionRedirects: false,
       responseChecksumValidation: "WHEN_REQUIRED" });
-    this.lifecycle.onRoute?.({ transport: transport.name });
   }
 
   #run<T>(options: S3RequestOptions, operation: (sdk: AwsS3Client, signal: AbortSignal) => Promise<T>): Promise<T> {

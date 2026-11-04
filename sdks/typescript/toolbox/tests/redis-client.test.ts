@@ -1,3 +1,4 @@
+import { Transport as ManagedTransport } from "../src/transport";
 import { expect, test } from "bun:test";
 import { SocketClosedUnexpectedlyError } from "@redis/client";
 import { RedisAccess, RedisClient, RedisConnection, discoverRedisTopology,
@@ -168,8 +169,7 @@ test("Sentinel discovery and discovered masters share transports with separate c
 });
 
 test("RedisClient retains topology configuration and rejects a nonzero Cluster DB", async () => {
-  const client = new RedisClient({ resolve: async () => ({ clusterType: "cluster", endpoints: [endpoint], database: 7, useSsl: false, timeoutMs: 100 }),
-    transports: [transport("native", async target => target)] });
+  const client = new RedisClient(async () => ({ clusterType: "cluster", endpoints: [endpoint], database: 7, useSsl: false, timeoutMs: 100 }), new ManagedTransport([transport("native", async target => target)]));
   await expect(client.initialize()).rejects.toThrow("Cluster requires database 0");
   await client.dispose();
 });
