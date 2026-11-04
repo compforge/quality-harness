@@ -5,6 +5,37 @@ and analyzing one Agent Session. SessionView follows a Session; JobView follows 
 The wire schema is `agent-ledger/session@1`; each JSON file contains exactly one Session.
 Trace Node/analysis and ATIF remain the domain evidence and evaluation contracts.
 
+## Facts, view models and rendering
+
+Trajectory is the execution-history concept; ATIF is the trajectory interchange standard adopted
+by Trajectory Harness, not the only industry format. ATIF Trajectory is its persisted fact and
+evaluation input. The three views primarily serve rendering and human supervision: show business
+progress, agent actions and request context so people can understand and inspect execution.
+SessionView and JobView are observation read models; text/TUI and Web are rendering surfaces.
+
+Recorded facts also feed Good/Fast/Cheap evaluation independently of rendering. Scores and views
+connect through evidence references: people can drill down from a result or identify issues outside
+current evaluator coverage. Viewing need not run evaluation, and evaluation need not render a view.
+
+```text
+actual model request messages --------------------------> Context View
+loop execution -> ATIF Trajectory -----------------------> SessionView -> text/TUI/Web
+                       └-> evaluators -> separate results
+business goal and its work across loops/operations ------> JobView
+```
+
+Context View organizes the actual message list by order, role and internal sections, with tool
+definitions and other request context at their recorded location. A message list alone may not
+contain the whole request. A project may choose one loop execution per ATIF document; one Session
+can contain several such documents. A business Job can span Sessions or select only some calls
+from a shared loop. Explicit business/call references establish that membership; concatenating
+SessionViews does not. These views are peer reading perspectives, not successive evaluation stages.
+
+SessionView can also be projected directly from Trace or native recordings. It is not a replacement
+trajectory storage format and need not round-trip to ATIF. Evaluate the canonical evidence under
+the project's declared criteria, retain scores and evidence references separately, and use views to
+inspect that evidence. Rendering does not evaluate or modify the source trajectory.
+
 ## Dependencies and ownership
 
 TypeScript uses the public `@compforge/agent-observation@0.1.0` model/renderer and
@@ -74,7 +105,8 @@ observations are absent; a prepared empty collection remains empty after saving 
 
 ## Trajectory
 
-`trajectory_harness.session_views(trajectories)` groups explicitly declared ATIF `session_id` values
+`trajectory_harness.session_views(trajectories)` groups declared ATIF `session_id` values, including
+ATIF-defined inheritance for embedded children,
 under the `atif` source namespace. Trajectory/Step IDs retain evidence identity inside each Session;
 multiple trajectory documents with the same declared Session can contribute without mixing other
 Sessions. Missing Session identity produces no fabricated SessionView. Report indexes record those

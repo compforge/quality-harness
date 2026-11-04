@@ -15,6 +15,37 @@ Harness 主要回答“哪里有问题、证据是什么、程度和趋势如何
 需要上层 quality plugin 的 trajectory skill 结合被测项目的 prompt、tool、loop、compact 和编排上下文，再设计
 可对照的改进实验。
 
+### 总纲：执行、观察、改进
+
+围绕 Agent 执行建立两条相互关联的路径：一条把业务经过、loop 行为与请求上下文呈现给人，
+便于观察与监督；另一条从 Good / Fast / Cheap（质量或效果、速度、成本）评价表现，选择待优化
+样本，证据归因后改进，并用新执行验证。低分 bad case 是筛选手段之一，高成本成功、偶发失败、
+退化趋势和人在视图中发现的异常也可以成为入口；量化信号本身不证明根因。
+
+![执行、观察、改进总纲](images/trajectory-overview.png)
+
+- **执行**：业务编排与 Agent framework/harness 组织 loop、model call 和 tool call，产生执行事实。
+- **观察**：三种 View 将业务经过、执行轨迹、请求上下文呈现给人，支持观察与监督。
+- **改进**：从质量、速度、成本评价表现，筛选待优化样本，证据归因后优化运行机制。
+
+每次优化都产生新的执行轨迹，通过同任务、同评价标准的对照复评验证效果；新一轮评价仍须保留
+完成率与证据覆盖，不能把提前失败带来的耗时或成本下降解释为改善。
+
+三种 View 主要工作在渲染与呈现层，让流程对人可见、可理解、可追查；`SessionView / JobView`
+是供渲染使用的读模型，TUI / Web 是展示界面。评分可以下钻到视图中的证据，人也可以发现尚未
+被评估器覆盖的问题。观察无需先评分，评分无需先渲染，两条路径通过事实身份与证据引用关联。
+自动评分结果不替代人的业务监督，人的观察也不自动成为已验证的结论。
+
+| 层次 | 职责 |
+|---|---|
+| Trajectory skill | 整体方法指导：观察、评价、选题、归因、优化与验证，并路由到已有专题方法。 |
+| Trajectory Harness | 工程支撑：标准化、固定 Dataset、重复评估、独立结果与证据引用、视图导出和比较报告。 |
+| CCR 等消费项目 | 实践：真实 loop 数据、领域判据、适配器，以及可复现的样本、改动与复评结果。 |
+
+这里的 Trajectory Harness 是质量分析 SDK；Agent framework/harness 是被观察的执行框架。
+二者职责不同。项目验证出可复用的机制后沉淀到 SDK，可复用的判断方法沉淀到 skill；领域
+工具、阶段和评分标准仍由项目持有。SDK 存在不等于项目已完成采集、评分或优化验证。
+
 | 视角 | 主要问题 | 分析本体 |
 |------|----------|----------|
 | eval_harness | 最终回答好不好 | response / sample |
@@ -78,6 +109,44 @@ Detector 与 Verifier 的输入。Detector 负责数据挖掘和发现并沉淀 
 `category=cost|effect` 与 `rule_type=hard|soft` 是两个正交维度。Measurer 只是派生 Measurements 的
 实现机制，不是与 Detector、Verifier 并列的判断角色。单个行为模式通常只是 Finding；除非存在明确契约，不能直接把它定性成
 Failure，也不能由 Harness 单独推导出应修改 prompt、tool、loop mechanism 还是 pipeline 编排。
+
+### 事实来源与视图投影
+
+Trajectory 是执行轨迹这一概念；ATIF 是本 Harness 采用的业界轨迹格式标准，并非唯一标准。
+`ATIF Trajectory` 保存标准化执行事实，作为持久化与评估输入。`SessionView` 是 Agent Ledger
+定义的观测读模型，主要服务渲染与人的监督；TUI / Web 是展示层。三者不是同一种格式的不同名字。
+
+```text
+一次模型调用的 message list -----------------------> Context View
+一次 loop execution -> ATIF Trajectory ------------> SessionView -> TUI / Web
+                            └-> 评估器 -> 独立评分结果
+一个业务目标的执行经过（一个或多个 loop + 确定性操作） -> JobView
+```
+
+| 视角 | 组织对象 | 主要回答 |
+|---|---|---|
+| Context View | 一次模型调用实际收到的消息列表及工具定义 | 当时给了什么上下文，如何组织，有什么缺口？ |
+| SessionView | 一个 Agent Session 中的输入、调用与执行关系 | Agent 如何决策、行动、接收反馈并继续执行？ |
+| JobView | 一个业务目标及参与它的调用、loop、确定性操作与结果 | 业务经过哪些工作、交接与交付，目标是否完成？ |
+
+Context View 按 message 的真实顺序、role 和内部章节组织；消息列表本身不等于完整请求，工具定义
+等可能位于消息之外。缺少原始请求时必须标明重建或缺失，不能从输出补造 prompt。
+
+这里的 loop 是一次实际 execution，不是 loop 算法或进程。以 CCR 为例，可把 R1 / R2 的每次
+loop execution 转为一条 ATIF Trajectory；这属于项目选择的评估粒度，不是 ATIF 强制一条文档
+只能包含一个 loop。一个原生 Session 可以承载多次 loop，所以多条 Trajectory 可以共享
+`session_id`，并投影进同一个 SessionView。`trajectory_id` 标识文档，不能替代 Session 身份。
+内嵌子轨迹的 Session 继承遵循 ATIF 契约，不从业务 Unit 或运行顺序猜测。
+
+业务经过可能跨 Session，也可能只使用共享 loop 的部分调用；一个 loop 也可能服务多个业务目标。
+JobView 通过业务身份与调用引用组织这些工作，不通过拼接整份 SessionView 推断归属，也不自动把
+所有 R1 / R2 当作父子 agent。SessionView 还可从 Trace 或原生录制直接生成，不要求所有来源先转为
+ATIF；投影视图不保证能无损反向重建 Trajectory。
+
+标准化与评分分离：同一固定 Trajectory 可以按多个明确维度反复评估，结果记录规则版本、维度、
+分数或 verdict，以及回到 trajectory / step 的证据引用。低分按项目阈值筛为 bad case，再诊断原因、
+实施优化，用相同任务与相同评分规则评估新执行产生的轨迹。缺失证据与不适用不能当作零分或通过；
+视图渲染不能改写轨迹或隐式重新评分。具体视图契约见 [Session observations](session-view.md)。
 
 ### 1.1 Source 与 Loader 边界
 

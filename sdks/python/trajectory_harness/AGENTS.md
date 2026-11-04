@@ -98,7 +98,22 @@ trajectory_harness/
 - ATIF v1.8：<https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md>
 - OTel GenAI 语义约定：<https://opentelemetry.io/docs/specs/semconv/gen-ai/>
 
+## 总纲与职责
+
+同一份执行事实分别支撑人的监督和评估改进。Job / Session / Context View 主要服务渲染与人的
+观察、监督；Good / Fast / Cheap 分别关注质量或效果、速度、成本，独立评估结果通过证据引用
+关联视图。低分只是选择待优化样本的手段之一；归因、优化和同任务同标准的新执行复评构成闭环。
+Trajectory skill 持有整体指导，本 SDK 提供工程机制，CCR 等项目持有领域数据、判据和实践结果。
+Agent 执行框架与 Trajectory Harness 质量分析 SDK 不混同。详见 `docs/trajectory-harness.md`。
+
 ## Session observation
+
+ATIF Trajectory is the standardized execution fact and evaluation input. SessionView is a projected
+observation read model; TUI/Web render it. Actual request messages feed Context View; loop execution
+feeds Trajectory and SessionView; business work across loops/operations feeds JobView through explicit
+call attribution. Multiple loop trajectories may share a Session. Scores are separate results that
+reference trajectory/step evidence; view rendering does not rewrite facts or rerun evaluation.
+See `docs/trajectory-harness.md` for the fact-to-view boundaries.
 
 `session_views` exports ATIF evidence through Agent Ledger's `observation.SessionView`.
 Each view contains one explicitly attributed Session. Trace uses the same model directly through
