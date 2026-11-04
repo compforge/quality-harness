@@ -1,9 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect, test, spyOn } from "bun:test";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describeOpenSearchError, OpenSearchEngine, OpenSearchClient, openOpenSearch } from "../src/opensearch";
 import { DirectTransport, type TcpTransport } from "../src/transport";
+import { Client } from "@opensearch-project/opensearch";
 import { TimeoutError, ToolboxError } from "../src/errors";
 
 async function serve(handler: (request: IncomingMessage, response: ServerResponse) => void) {
@@ -244,3 +245,47 @@ test("OpenSearch cleanup cannot wait forever after a failed probe", async () => 
   await expect(engine.close()).rejects.toMatchObject({ kind: "timeout" });
   expect(logs.join("\n")).toContain("OpenSearch close failed");
 }, 3000);
+
+// @case id=opensearch_primary_error,desc=`Probe fails and driver cleanup stalls`,expect=`Retain original error and separate cleanup diagnostics`
+test("OpenSearch cleanup timeout preserves the primary probe error without fallback", async () => {
+  const primary = Object.assign(new TypeError('The "options.servername" property is invalid. Received secret'), { code: "ERR_INVALID_ARG_VALUE" });
+  const probe = spyOn(OpenSearchEngine.prototype, "ping").mockRejectedValue(primary);
+  const close = spyOn(Client.prototype, "close").mockImplementation(() => new Promise(() => {}));
+  const logs: string[] = [];
+  let fallback = 0;
+  try {
+    const error = await openOpenSearch({
+      resolve: async () => ({ node: "https://search:9200", auth: {} }),
+      transports: [new DirectTransport(), { kind: "tcp", name: "unexpected", connect: async endpoint => { fallback++; return endpoint; } }],
+    }, { onDiagnostic: line => logs.push(line) }).catch(error => error);
+    expect(error).toBe(primary);
+    expect(fallback).toBe(0);
+    expect(logs.join("\n")).toContain("OpenSearch close failed error=TimeoutError");
+    expect(logs.join("\n")).toContain("OpenSearch connect failed error=TypeError argument=options.servername code=ERR_INVALID_ARG_VALUE");
+    expect(logs.join("\n")).not.toContain("secret");
+  } finally { probe.mockRestore(); close.mockRestore(); }
+}, 4000);
+
+test("OpenSearch cleanup rejection does not prevent network-error fallback", async () => {
+  const primary = Object.assign(new Error("private"), { code: "ECONNREFUSED" });
+  const probe = spyOn(OpenSearchEngine.prototype, "ping").mockRejectedValueOnce(primary).mockResolvedValue(undefined);
+  const close = spyOn(OpenSearchEngine.prototype, "close").mockRejectedValueOnce(new Error("cleanup failed")).mockResolvedValue(undefined);
+  const routes: unknown[] = [];
+  let client: OpenSearchClient | undefined;
+  try {
+    client = await openOpenSearch({
+      resolve: async () => ({ node: "http://search:9200", auth: {} }),
+      transports: [new DirectTransport(), { kind: "tcp", name: "fallback", connect: async endpoint => endpoint }],
+    }, { onRoute: route => routes.push(route) });
+    expect(routes).toEqual([{ transport: "fallback", reason: "ECONNREFUSED" }]);
+  } finally { await client?.close(); probe.mockRestore(); close.mockRestore(); }
+});
+
+test("OpenSearch invalid-argument diagnostics omit values and unrecognized messages", () => {
+  for (const message of ['The "options.servername" property is invalid. Received secret', "The property 'options.servername' must be valid. Received secret"]) {
+    const description = describeOpenSearchError(Object.assign(new TypeError(message), { code: "ERR_INVALID_ARG_VALUE" }));
+    expect(description).toContain("argument=options.servername");
+    expect(description).not.toContain("secret");
+  }
+  expect(describeOpenSearchError(Object.assign(new TypeError("private payload"), { code: "ERR_INVALID_ARG_VALUE" }))).not.toContain("private");
+});
