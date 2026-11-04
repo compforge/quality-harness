@@ -1,6 +1,7 @@
 import { Transport } from "./lifecycle";
 import type { Endpoint, TcpTransport, TransportPath } from "./index";
-import { awaitWithSignal, type ConnectionAttempt } from "../connection/acquire";
+import { raceSignal } from "race-signal";
+import type { ConnectionAttempt } from "../connection/acquire";
 import { KubectlExecutor, type Executor, type KubectlOptions } from "../kubernetes/executor";
 import { ServicePortForwarder } from "../kubernetes/service-port-forward";
 import type { StartPortForward } from "../kubernetes/port-forward";
@@ -29,7 +30,7 @@ export class ServicePortForwardTransport extends Transport implements TcpTranspo
         { ...this.options, signal: this.resourceSignal }, this.dependencies?.startForward);
       this.signal.throwIfAborted();
     })();
-    return awaitWithSignal(pending, this.signal);
+    return raceSignal(pending, this.signal);
   }
 
   get activeForwards() { return this.#forwarder?.activeForwards ?? []; }
@@ -37,8 +38,8 @@ export class ServicePortForwardTransport extends Transport implements TcpTranspo
   async connect(endpoint: Endpoint, attempt?: ConnectionAttempt): Promise<Endpoint> {
     this.signal.throwIfAborted();
     const signal = attempt ? AbortSignal.any([this.signal, attempt.signal]) : this.signal;
-    await awaitWithSignal(this.initialize(), signal);
-    const mapped = await awaitWithSignal(this.#forwarder!.forward(endpoint), signal);
+    await raceSignal(this.initialize(), signal);
+    const mapped = await raceSignal(this.#forwarder!.forward(endpoint), signal);
     return { host: mapped.host, port: mapped.port };
   }
 

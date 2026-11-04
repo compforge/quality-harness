@@ -355,6 +355,10 @@ pipelines execute outside this flow and are never replayed by fallback.
 Configuration resolution has root cancellation but no connection timeout: the acquisition budget starts after
 resolution supplies the target. Non-cooperative injected work may finish later; its result is never exposed as ready.
 
+Cancelable waits use `race-signal`; it preserves the abort reason and removes its listener after settling.
+Stopping a wait does not stop I/O. Protocol adapters still abort requests or destroy connections, while Transport
+retains shared channels and owns late-acquisition rollback. No separate async primitive is maintained in common or ts-stdx.
+
 Protocol identity stays separate from the mapped dial address: forwarding never changes HTTP Host, S3 signing identity
 or the original TLS DNS name. OpenSearch omits SNI for IP literals, keeps the successful probe's engine, and only
 tries HTTP/HTTPS when the target has no explicit scheme. Authentication, TLS verification and cleanup failures are terminal.

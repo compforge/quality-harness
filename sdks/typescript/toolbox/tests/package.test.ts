@@ -6,12 +6,13 @@ import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-function installCommon(root: string): void {
+function installSharedDependencies(root: string): void {
   const source = dirname(dirname(fileURLToPath(import.meta.resolve("@compforge/harness-common"))));
   const target = join(root, "node_modules/@compforge/harness-common");
   mkdirSync(target, { recursive: true });
   cpSync(join(source, "dist"), join(target, "dist"), { recursive: true });
   cpSync(join(source, "package.json"), join(target, "package.json"));
+  cpSync(new URL("../../", import.meta.resolve("race-signal")), join(root, "node_modules/race-signal"), { recursive: true });
 }
 
 test("published lifecycle and transport entries run in Node without protocol drivers", () => {
@@ -19,7 +20,7 @@ test("published lifecycle and transport entries run in Node without protocol dri
   const target = join(root, "node_modules/@compforge/harness-toolbox");
   mkdirSync(target, { recursive: true });
   try {
-    installCommon(root);
+    installSharedDependencies(root);
     cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const result = spawnSync("node", ["--input-type=module", "-e", `
@@ -70,7 +71,7 @@ test("published S3 entry performs bounded signed reads through a mapped route in
   const target = join(root, "node_modules/@compforge/harness-toolbox");
   mkdirSync(target, { recursive: true });
   try {
-    installCommon(root);
+    installSharedDependencies(root);
     cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const require = createRequire(import.meta.url);
@@ -121,7 +122,7 @@ test("published MySQL query helpers preserve typed parameters and isolated cache
   const target = join(root, "node_modules/@compforge/harness-toolbox");
   mkdirSync(target, { recursive: true });
   try {
-    installCommon(root);
+    installSharedDependencies(root);
     cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const require = createRequire(import.meta.url);
@@ -168,7 +169,7 @@ test("published OpenSearch entry falls back and does not replay reads on a reuse
   const target = join(root, "node_modules/@compforge/harness-toolbox");
   mkdirSync(target, { recursive: true });
   try {
-    installCommon(root);
+    installSharedDependencies(root);
     cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const require = createRequire(import.meta.url);
@@ -213,7 +214,7 @@ test("published file sources preserve Common type identity and read bytes in Nod
   const target = join(root, "node_modules/@compforge/harness-toolbox");
   mkdirSync(target, { recursive: true });
   try {
-    installCommon(root);
+    installSharedDependencies(root);
     cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     writeFileSync(join(root, "config"), new Uint8Array([0, 255, 128, 10]));
@@ -260,7 +261,7 @@ for (const mode of ["fallback", "no-replay", "cancel", "sentinel", "cluster"]) {
     const root = mkdtempSync(join(tmpdir(), "harness-toolbox-redis-package-"));
     const target = join(root, "node_modules/@compforge/harness-toolbox");
     try {
-      installCommon(root);
+      installSharedDependencies(root);
       mkdirSync(target, { recursive: true });
       cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
       cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));

@@ -1,21 +1,6 @@
+import { raceSignal } from "race-signal";
 import type { ClientLifecycle } from "../datasource";
 import { TimeoutError, ToolboxError } from "../errors";
-
-/** Stop waiting without leaving rejected preparation promises unobserved. */
-export async function awaitWithSignal<T>(pending: Promise<T>, signal: AbortSignal, cancel?: () => void): Promise<T> {
-  if (signal.aborted) {
-    cancel?.();
-    void pending.catch(() => {});
-    signal.throwIfAborted();
-  }
-  let abort!: () => void;
-  const cancelled = new Promise<never>((_, reject) => {
-    abort = () => { cancel?.(); reject(signal.reason); };
-    signal.addEventListener("abort", abort, { once: true });
-  });
-  try { return await Promise.race([pending, cancelled]); }
-  finally { signal.removeEventListener("abort", abort); }
-}
 
 export interface ConnectionAttempt {
   readonly signal: AbortSignal;
@@ -95,7 +80,7 @@ export async function acquireConnection<R extends { readonly name: string }, C>(
           return value;
         });
         options.onPending?.(prepared);
-        result = await awaitWithSignal(prepared, attemptSignal);
+        result = await raceSignal(prepared, attemptSignal);
       } catch (failure) {
         // Cancellation can win after open resolved but before its result was delivered.
         try { await discard(); }

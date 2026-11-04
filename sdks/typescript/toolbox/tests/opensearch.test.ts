@@ -187,6 +187,25 @@ test("OpenSearch probe enforces its deadline and logs without leaking driver met
   await engine.close();
 });
 
+test("OpenSearch caller cancellation aborts the SDK request and preserves the caller's reason", async () => {
+  const controller = new AbortController();
+  const reason = new Error("caller stopped waiting");
+  let aborted = 0;
+  let reject!: (error: unknown) => void;
+  const request = Object.assign(new Promise<unknown>((_resolve, fail) => { reject = fail; }), {
+    abort: () => { aborted++; reject(new Error("driver request aborted")); },
+  });
+  const engine = new OpenSearchEngine({ node: "http://search:9200", auth: {} }, {
+    ping: () => request, close: async () => {},
+    count: async () => ({ body: { count: 0 } }), search: async () => ({ body: {} }),
+  });
+  const probe = engine.ping(controller.signal);
+  controller.abort(reason);
+  await expect(probe).rejects.toBe(reason);
+  expect(aborted).toBe(1);
+  await engine.close();
+});
+
 test("OpenSearch error diagnostics preserve safe cause codes and status without payloads", () => {
   const error = Object.assign(new Error("password=private"), { meta: { statusCode: 403, body: "private" },
     cause: Object.assign(new Error("private"), { code: "ECONNRESET" }) });

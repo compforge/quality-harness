@@ -3,7 +3,8 @@ import { KubectlExecutor, type Executor, type ExecTarget, type KubectlOptions } 
 import { startPortForward, type PortForward, type StartPortForward } from "../kubernetes/port-forward";
 import { Transport } from "./lifecycle";
 import type { Endpoint, TcpTransport, TransportPath } from "./index";
-import { awaitWithSignal, type ConnectionAttempt } from "../connection/acquire";
+import { raceSignal } from "race-signal";
+import type { ConnectionAttempt } from "../connection/acquire";
 import { POD_RELAY_SCRIPT } from "./pod-relay-script";
 
 export interface PodRelayOptions extends KubectlOptions {
@@ -155,7 +156,7 @@ export class PodRelayTransport extends Transport implements TcpTransport, Client
       pending = this.#connect(endpoint, this.#startup);
       this.#targets.set(key, pending);
     }
-    return awaitWithSignal(pending, attempt ? AbortSignal.any([this.signal, attempt.signal]) : this.signal);
+    return raceSignal(pending, attempt ? AbortSignal.any([this.signal, attempt.signal]) : this.signal);
   }
   async #connect(endpoint: Endpoint, startup: Promise<RelayPod>): Promise<Endpoint> {
     const pod = await startup;

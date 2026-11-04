@@ -1,4 +1,4 @@
-import { awaitWithSignal } from "../connection/acquire";
+import { raceSignal } from "race-signal";
 import type { Client } from "../client";
 import { ConcurrencyPool } from "../concurrency";
 import { ToolboxError } from "../errors";
@@ -172,7 +172,7 @@ export class MysqlClient<Target extends DatabaseTarget = DatabaseTarget> impleme
   initialize(): Promise<void> {
     this.signal.throwIfAborted();
     return this.#initialization ??= (async () => {
-      this.#target = await awaitWithSignal((typeof this.configuration === "function" ? this.configuration() : Promise.resolve(this.configuration)), this.signal);
+      this.#target = await raceSignal((typeof this.configuration === "function" ? this.configuration() : Promise.resolve(this.configuration)), this.signal);
       this.signal.throwIfAborted();
       this.#database = new MysqlDatabase(this.transport, { ...this.options, signal: this.signal });
       await this.#database.initialize(this.#target);

@@ -1,4 +1,4 @@
-import { awaitWithSignal } from "../connection/acquire";
+import { raceSignal } from "race-signal";
 import type { Client as ManagedClient } from "../client";
 import type { ClientLifecycle } from "../datasource";
 import { Client, Connection, errors } from "@opensearch-project/opensearch";
@@ -172,15 +172,20 @@ export class OpenSearchEngine implements OpenSearchReadApi {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new TimeoutError(`OpenSearch probe timed out after ${timeoutMs}ms`)), timeoutMs);
     const active = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+    let request: ReturnType<OpenSearchClientApi["ping"]> | undefined;
     try {
-      const request = this.#run(() => this.client.ping({}, { requestTimeout: timeoutMs }));
-      const result = await awaitWithSignal(request, active, () => request.abort?.());
+      request = this.#run(() => this.client.ping({}, { requestTimeout: timeoutMs }));
+      const result = await raceSignal(request, active);
       log(`OpenSearch probe ok target=${target} elapsed_ms=${Date.now() - started}`);
       return result;
     } catch (error) {
       log(`OpenSearch probe failed target=${target} elapsed_ms=${Date.now() - started} ${describeOpenSearchError(error)}`);
       throw error;
-    } finally { clearTimeout(timer); }
+    } finally {
+      clearTimeout(timer);
+      // The protocol owns cancellation of its request; raceSignal only stops the caller's wait.
+      if (active.aborted) request?.abort?.();
+    }
   }
 
   async close(): Promise<void> {
@@ -188,7 +193,7 @@ export class OpenSearchEngine implements OpenSearchReadApi {
     for (const request of this.#requests) request.abort?.();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new TimeoutError("OpenSearch close timed out after 2000ms")), 2_000);
-    try { await awaitWithSignal(this.client.close(), controller.signal); }
+    try { await raceSignal(this.client.close(), controller.signal); }
     catch (error) {
       this.options.onDiagnostic?.(`OpenSearch close failed ${describeOpenSearchError(error)}`);
       throw error;
@@ -227,7 +232,7 @@ export class OpenSearchClient implements ManagedClient, OpenSearchReadApi {
   initialize(): Promise<void> {
     this.signal.throwIfAborted();
     return this.#initialization ??= (async () => {
-      const target = await awaitWithSignal((typeof this.configuration === "function" ? this.configuration() : Promise.resolve(this.configuration)), this.signal);
+      const target = await raceSignal((typeof this.configuration === "function" ? this.configuration() : Promise.resolve(this.configuration)), this.signal);
       this.signal.throwIfAborted();
       const explicit = target.node.includes("://");
       const preferred = target.preferredScheme ?? "http";

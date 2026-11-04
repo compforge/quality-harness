@@ -1,4 +1,4 @@
-import { awaitWithSignal } from "../connection/acquire";
+import { raceSignal } from "race-signal";
 import type { Client } from "../client";
 import type { ClientLifecycle } from "../datasource";
 import { Transport, isConnectionNetworkError, type TcpTransport } from "../transport";
@@ -139,7 +139,7 @@ export class RedisConnection implements RedisManagedConnection {
       ...(config.connectSignal ? [config.connectSignal] : [])]);
     const close = () => { if (client.isOpen) client.destroy(); };
     try {
-      await awaitWithSignal(client.connect(), signal, close);
+      await raceSignal(client.connect(), signal);
       signal.throwIfAborted();
       return new RedisConnection(endpoint, client, config.timeoutMs, () => lastError, config.signal);
     } catch (error) { close(); throw error; }
@@ -158,8 +158,12 @@ export class RedisConnection implements RedisManagedConnection {
     const timer = setTimeout(() => timeout.abort(new TimeoutError(
       `Redis ${operationName} timed out after ${this.timeoutMs}ms (${this.endpoint.host}:${this.endpoint.port})`)), this.timeoutMs);
     const signal = this.signal ? AbortSignal.any([this.signal, timeout.signal]) : timeout.signal;
-    try { return await awaitWithSignal(Promise.resolve().then(() => { signal.throwIfAborted(); return operation(); }), signal, () => this.close()); }
-    finally { clearTimeout(timer); }
+    try { return await raceSignal(Promise.resolve().then(() => { signal.throwIfAborted(); return operation(); }), signal); }
+    finally {
+      clearTimeout(timer);
+      // Cancelling the wait cannot stop the Redis command; retire its connection before returning.
+      if (signal.aborted) this.close();
+    }
   }
 
   ping(): Promise<string> {
@@ -299,7 +303,7 @@ export class RedisClient implements Client {
   initialize(): Promise<void> {
     this.signal.throwIfAborted();
     return this.#initialization ??= (async () => {
-      this.#target = await awaitWithSignal((typeof this.configuration === "function" ? this.configuration() : Promise.resolve(this.configuration)), this.signal);
+      this.#target = await raceSignal((typeof this.configuration === "function" ? this.configuration() : Promise.resolve(this.configuration)), this.signal);
       this.signal.throwIfAborted();
       if (this.#target.clusterType === "cluster" && this.#target.database !== 0) throw new Error("Redis Cluster requires database 0");
       this.#access = new RedisAccess(this.transport, this.#target,
