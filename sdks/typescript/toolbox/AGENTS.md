@@ -21,6 +21,7 @@ toolbox/
 ├── src/mysql/          # MySQL 原生与 Pod 协议执行
 ├── src/redis/           # Redis 连接与拓扑
 ├── src/opensearch/      # OpenSearch 访问
+├── src/http/            # 有界 HTTP 请求、Host/TLS 身份与共享 HTTP handler
 ├── src/s3/              # S3-compatible 只读访问、分页与有界对象读取
 ├── src/process/         # Node-compatible 进程原语
 ├── scripts/build.ts     # 保留共享模块身份的多入口 ESM 构建

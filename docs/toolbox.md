@@ -364,3 +364,18 @@ or the original TLS DNS name. OpenSearch omits SNI for IP literals, keeps the su
 tries HTTP/HTTPS when the target has no explicit scheme. Authentication, TLS verification and cleanup failures are terminal.
 The OpenSearch 3.6 adapter balances request accounting when request construction throws synchronously, so SDK close
 does not poll forever. A Node child-process regression verifies natural exit after this failure without process.exit().
+
+### HTTP clients
+
+`HttpClient` accepts a logical HTTP(S) endpoint, a borrowed `Transport`, and explicit concurrency,
+connect/request deadlines and response-byte limits. It shares HTTP handler mechanics with S3,
+including original Host and certificate identity through a mapped route. It exposes bounded
+`request(path, options)` responses: status, headers and fully consumed bytes. Oversized bodies fail;
+cancellation destroys the body before releasing capacity. No response stream escapes its lifecycle.
+
+A request can only address the configured origin. Redirects and non-success statuses are returned,
+not followed or retried. Caller cancellation only stops that request; disposing the client aborts
+its operations and destroys its pools, while the root retains ownership of the borrowed Transport.
+Route preparation may select another candidate; an HTTP operation is never replayed on another route.
+Protocol adapters retain credential, signing and response interpretation rules. HTTP is a Client,
+not a new Transport variant.
