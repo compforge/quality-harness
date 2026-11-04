@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -92,6 +92,10 @@
     "./file": {
       "types": "./dist/file/index.d.ts",
       "import": "./dist/file/index.js"
+    },
+    "./http": {
+      "types": "./dist/http/index.d.ts",
+      "import": "./dist/http/index.js"
     }
   },
   "files": [
@@ -108,7 +112,8 @@
     "mysql2": "3.23.1",
     "node-fetch": "2.7.0",
     "race-signal": "2.0.2",
-    "ws": "8.21.3"
+    "ws": "8.21.3",
+    "@smithy/core": "3.34.1"
   },
   "devDependencies": {
     "@types/bun": "latest",

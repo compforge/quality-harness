@@ -279,3 +279,69 @@ for (const mode of ["fallback", "no-replay", "cancel", "sentinel", "cluster"]) {
     } finally { rmSync(root, { recursive: true, force: true }); }
   }, 5000);
 }
+
+// Verify the published entry and natural process exit independently of the Bun test runtime.
+test("published HTTP client retains DNS SNI, IP identity and cancellation cleanup in Node", () => {
+  const root = mkdtempSync(join(tmpdir(), "harness-toolbox-http-package-"));
+  const target = join(root, "node_modules/@compforge/harness-toolbox");
+  mkdirSync(target, { recursive: true });
+  try {
+    installSharedDependencies(root);
+    cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
+    cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
+    cpSync(new URL("./fixtures/pod-log-tls", import.meta.url), join(root, "tls"), { recursive: true });
+    const require = createRequire(import.meta.url);
+    for (const name of ["@smithy/core", "@smithy/node-http-handler"]) {
+      const link = join(root, "node_modules", name);
+      mkdirSync(dirname(link), { recursive: true });
+      symlinkSync(dirname(require.resolve(`${name}/package.json`)), link, "dir");
+    }
+    const result = spawnSync("node", ["--input-type=module", "-e", `
+      import assert from 'node:assert/strict';
+      import {createServer} from 'node:https';
+      import {readFileSync} from 'node:fs';
+      import {HttpClient} from '@compforge/harness-toolbox/http';
+      import {PortForwardTransport} from '@compforge/harness-toolbox/transport';
+      const pem = name => readFileSync('tls/'+name+'.pem','utf8');
+      const names = [], hosts = [];
+      let received;
+      const started = new Promise(resolve => { received = resolve; });
+      const server = createServer({key:pem('server-key'),cert:pem('server-cert')},(req,res)=>{
+        hosts.push(req.headers.host);
+        if(req.url === '/slow') { res.write('partial'); received(); } else res.end('ok');
+      });
+      server.on('secureConnection',socket=>names.push(socket.servername));
+      await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+      let released=0;
+      const route=new PortForwardTransport(async()=>({host:'127.0.0.1',port:server.address().port}),()=>{released++;});
+      const limits={concurrency:1,connectTimeoutMs:500,requestTimeoutMs:1000,maxResponseBytes:100};
+      const clients=[];
+      try {
+        for(const host of ['localhost','127.0.0.1']) {
+          const http=new HttpClient({endpoint:'https://'+host+':9000',ca:pem('ca')},route,limits);clients.push(http);
+          if(host === 'localhost') assert.equal((await http.request('/')).status,200);
+          else await assert.rejects(http.request('/'), {code:'ERR_TLS_CERT_ALTNAME_INVALID'});
+          await http.dispose();
+          assert.equal(released,0);
+        }
+        assert.deepEqual(names,['localhost']);
+        assert.deepEqual(hosts,['localhost:9000']);
+        const wrong=new HttpClient({endpoint:'https://wrong.invalid:9000',ca:pem('ca')},route,limits);clients.push(wrong);
+        await assert.rejects(wrong.request('/'));
+        const http=new HttpClient({endpoint:'https://localhost:9000',ca:pem('ca')},route,limits);clients.push(http);
+        const abort=new AbortController(), reason=new Error('caller cancelled');
+        const request=http.request('/slow',{signal:abort.signal});
+        await started; abort.abort(reason);
+        await assert.rejects(request, error=>error===reason);
+        assert.equal((await http.request('/')).status,200);
+      } finally {
+        for(const http of clients) await http.dispose();
+        await route.dispose(); assert.equal(released,1);
+        server.closeAllConnections(); await new Promise(resolve=>server.close(resolve));
+      }
+    `], { cwd: root, encoding: "utf8", timeout: 5000 });
+    expect(result.error).toBeUndefined();
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

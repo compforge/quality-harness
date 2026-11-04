@@ -5,7 +5,7 @@ Client, ClientProvider, DataSource, EnvironmentContext and ClientManager are own
 its lifecycle entrypoints re-export the same common symbols.
 
 Shared infrastructure for diagnostic tools, test runners and business adapters. Use the same
-clients to access Kubernetes, MySQL, Redis, OpenSearch and S3-compatible object storage without depending on a particular
+clients to access HTTP(S), Kubernetes, MySQL, Redis, OpenSearch and S3-compatible object storage without depending on a particular
 command, plugin protocol, test model or verdict.
 
 The package supports Node.js 22+ and Bun. Install with `npm install @compforge/harness-toolbox`.
@@ -15,6 +15,31 @@ hit pages with a caller supplied query and stable sort. It streams pages without
 claiming snapshot consistency; callers supply cancellation and decide how to persist or verify results.
 Protocol adapters have separate entry points; importing lifecycle or transport contracts does
 not load database or Kubernetes drivers.
+
+## HTTP requests
+
+`HttpClient` borrows the same `Transport` as other protocol clients, keeping the logical Host and
+TLS identity even when the socket goes through a port-forward. Limits include the response body;
+statuses and redirects are returned without retries or redirect following.
+
+```ts
+import { ClientManager } from "@compforge/harness-common";
+import { HttpClient } from "@compforge/harness-toolbox/http";
+import { DirectTransport } from "@compforge/harness-toolbox/transport";
+
+const clients = new ClientManager();
+try {
+  const route = await clients.get({ clientKey: "direct", createClient: () => new DirectTransport() });
+  const http = await clients.create({ createClient: (_clients, signal) => new HttpClient(
+    { endpoint: "https://service.example" }, route,
+    { concurrency: 4, connectTimeoutMs: 5000, requestTimeoutMs: 10000, maxResponseBytes: 1024 * 1024 },
+    { signal },
+  ) });
+  const response = await http.request("/health");
+  console.log(response.status, new TextDecoder().decode(response.body));
+  await http.dispose(); // The shared route remains available until root disposal.
+} finally { await clients.dispose(); }
+```
 
 ## File sources
 
