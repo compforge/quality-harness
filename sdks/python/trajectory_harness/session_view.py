@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
+from urllib.parse import quote
 from agent_ledger.common import (
     CallError,
     CallRequest,
@@ -22,12 +24,14 @@ from agent_ledger.observation import (
 from spec_case import link, spec
 from atif import Trajectory
 from trajectory_harness.model import (
+    require_atif_version,
     step_failure,
     step_input_messages,
     step_name,
     step_operation,
     step_status,
     trajectory_execution,
+    trajectory_source,
 )
 
 
@@ -36,16 +40,17 @@ from trajectory_harness.model import (
 )
 @link("repo://docs/session-view.md")
 def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]:
-    """Group only explicitly declared ATIF Sessions; retain source Step evidence."""
+    """Group declared or inherited ATIF Sessions; retain source Step evidence."""
     grouped = {}
-    for trajectory in trajectories:
-        if not trajectory.session_id:
+    for context in _trajectory_contexts(trajectories):
+        trajectory = context.trajectory
+        if not context.session_id:
             continue
-        ref = SessionRef(source="atif", id=trajectory.session_id)
+        ref = SessionRef(source="atif", id=context.session_id)
         key = (ref.source, ref.id)
         view = grouped.setdefault(key, SessionView(session=ref, nodes=[]))
         issues = view.issues
-        identity = trajectory.trajectory_id or trajectory.session_id
+        identity = context.identity
         run_id = f"atif:{identity}"
         nodes = []
         for step in trajectory.steps:
@@ -223,7 +228,16 @@ def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]
         execution = trajectory_execution(trajectory)
         view.nodes.extend(nodes)
         view.attributes.setdefault("atif_trajectories", {})[identity] = {
-            "agent": trajectory.agent.model_dump(mode="json", exclude_none=True),
+            **trajectory.model_dump(
+                mode="json",
+                exclude_none=True,
+                exclude={"steps", "subagent_trajectories"},
+            ),
+            "parent_trajectory": context.parent_identity,
+            "source": context.source,
+            "subagent_trajectories": [
+                child.trajectory_id for child in trajectory.subagent_trajectories or ()
+            ],
             "extra": trajectory.extra or {},
             "execution": execution.to_dict() if execution else None,
         }
@@ -231,3 +245,38 @@ def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]
         SessionView.model_validate(view.model_dump(mode="json")).model_copy(deep=True)
         for view in grouped.values()
     )
+
+
+@dataclass(frozen=True)
+class _TrajectoryContext:
+    trajectory: Trajectory
+    identity: str
+    session_id: str | None
+    parent_identity: str | None
+    source: str
+
+
+@spec(
+    "Embedded children may inherit the parent session; document IDs remain parent-scoped"
+)
+@link("repo://docs/trajectory-harness.md")
+def _trajectory_contexts(
+    trajectories: Sequence[Trajectory],
+    parent: _TrajectoryContext | None = None,
+) -> Iterator[_TrajectoryContext]:
+    """Scope document IDs by ancestry; only embedded children inherit run identity."""
+    for trajectory in trajectories:
+        if parent is None:
+            require_atif_version(trajectory)
+        local_id = quote(
+            trajectory.trajectory_id or trajectory.session_id or "", safe=""
+        )
+        context = _TrajectoryContext(
+            trajectory=trajectory,
+            identity=f"{parent.identity}/{local_id}" if parent else local_id,
+            session_id=trajectory.session_id or (parent.session_id if parent else None),
+            parent_identity=parent.identity if parent else None,
+            source=trajectory_source(trajectory) or (parent.source if parent else ""),
+        )
+        yield context
+        yield from _trajectory_contexts(trajectory.subagent_trajectories or (), context)

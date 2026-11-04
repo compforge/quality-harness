@@ -27,7 +27,7 @@ Harness 主要回答“哪里有问题、证据是什么、程度和趋势如何
 RecordingSource
   -> Recording                         原始 record / trace，中间产物
   -> TrajectoryLoader / Adapter
-  -> ATIF v1.7 Trajectory               业界标准的过程事实
+  -> ATIF v1.8 Trajectory               业界标准的过程事实
        + TrajectoryAnnotation          人工、外部系统或模型提供的监督信息
   -> Trajectory Unit                   以 Case + Trajectory 为数据来源
   -> TrajectoryDataset                 可复用、版本化的 Unit facts
@@ -44,7 +44,7 @@ RecordingSource
 ```
 
 ATIF `Trajectory` 是 trajectory_harness 的 Observation，也是贯穿全链路的主记录；Harness 要求
-ATIF v1.7 可选的 `trajectory_id` 在进入 Dataset 时存在，并将其作为 Unit key 和 Worksheet 行键。
+ATIF v1.8 可选的 `trajectory_id` 在进入 Dataset 时存在，并将其作为 Unit key 和 Worksheet 行键。
 agent name、version、model 与 tool definitions 使用 ATIF 标准字段；Recording URI 以及
 instruction/skill、tool contract、loop、orchestration 等尚无标准字段的 provenance，只能进入
 ATIF namespaced `extra`。真实值由 Loader 或项目 wrapper 填写，Harness 不从 Dataset 或 Verifier
@@ -67,7 +67,7 @@ loop，也可以包含由多个 agent loop 和确定性操作共同组成的 pip
 3. loop mechanism：上下文压缩、停止条件、轮次或时间预算等运行策略。
 
 Trajectory 是这些 loop 配置及其编排共同作用后的运行证据，不要求 Loader 反推出某个行为究竟由哪一段
-配置单独造成。本次 Dataset 选择的 ATIF 文档就是一行 Trajectory；多个 loop 按 ATIF v1.7 使用
+配置单独造成。本次 Dataset 选择的 ATIF 文档就是一行 Trajectory；多个 loop 按 ATIF v1.8 使用
 `subagent_trajectories` 与 `SubagentTrajectoryRef` 表达。OTel span parent 等来源拓扑可以保存在
 namespaced `extra` 供专门分析使用，但不成为另一套通用 Step tree。具体业务可以选择某段 step 或
 subagent trajectory 进行评估，无需让通用 Harness 理解 Review 1、Review 2 等领域阶段。
@@ -114,13 +114,33 @@ Verifier 或 Dataset 提供。Detector 也可以结合这些领域输入发现�
 
 ### 2.1 Trajectory 与 Step
 
-`Trajectory` 与 `Step` 直接使用官方 `atif` v1.7 Pydantic models。Step 按标准表达
+`Trajectory` 与 `Step` 直接使用第三方 `atif` v1.8 Pydantic models。Step 按标准表达
 `system / user / agent` 消息、reasoning、tool calls、observations、LLM metrics 与 copied context；
 Harness 不复制这些字段，也不定义平行格式。Detector 与 Verifier 直接读取 ATIF；只有 Loader / Adapter
 读取 OTLP、session 或框架私有字段。顺序使用标准 `step_id`，多 agent 使用标准 subagent 结构。
 
 轨迹不是 trace tree 的别名。trace_harness 保留物理遥测事实并分析错误传播与拓扑；
 trajectory_harness 只保留 agent 决策和评估需要的语义步骤。
+
+### ATIF v1.8 输入与视图契约
+
+Harness 仅接受并输出 `ATIF-v1.8`，内嵌子轨迹也必须声明这一版本。Loader、Dataset 与
+SessionView 入口拒绝其它版本，不升级旧文档，也不将格式不符解释为空轨迹。Python 使用第三方
+`atif>=1.8,<1.9` 的模型校验内容，格式定义以 Harbor ATIF RFC 为准。
+
+`Step.message` 与 `ObservationResult.content` 保留字符串或 text/image/audio ContentPart 数组。
+音频的 `media_type / path / duration_sec` 与图像引用原样保留（MIME 别名由上游模型标准化）；
+Loader 收到的 source URI 保留在 recording provenance 中，为相对媒体路径提供来源上下文。
+Harness 不读取媒体文件、不自动转写，也不从路径长度推算媒体大小或 token。工具结果字节指标
+度量的是序列化 observation 的 UTF-8 JSON 大小，而非引用文件的大小。缺少音频语义能力的业务
+Verifier 应返回 `status=not_applicable` 并说明原因，不能把未评估当作通过或零分。
+
+Dataset 一行仍对应一个顶层轨迹文档；内嵌子轨迹不自动变成额外分析行。SessionView 递归投影
+内嵌子轨迹：省略 session_id 的子轨迹继承父级 run identity，显式声明其它 session_id 的子轨迹
+进入对应视图；根节点缺少 session_id 时保持未归属。节点 ID 由祖先路径限定，避免不同父级下
+同名子轨迹冲突。视图保留原始 trajectory/session ID、父子关系、source、final_metrics、notes
+与 continuation 引用；外部 trajectory_path 保留为引用，不隐式加载文件。视图展开不代表父子
+轨迹步骤存在全局时间顺序，也不重复计算父级聚合 usage。
 
 ### 2.2 Failure 与 ExecutionResult
 
@@ -472,8 +492,8 @@ HTML 模板。这个“模型产物先落盘、报告可独立重建”的做法
 
 ## 6. 外部语义
 
-[ATIF v1.7](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
-是唯一 Trajectory 数据契约，Python 实现直接依赖官方 `atif` 包。OTel GenAI semantic conventions
+[ATIF v1.8](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
+是唯一 Trajectory 数据契约，Python 实现直接依赖第三方 `atif` 包。OTel GenAI semantic conventions
 提供 operation、message、metrics 和 `error.type` 等遥测词汇；`OTelJsonLoader` 负责把它们映射到
 ATIF 标准字段，无法无损映射的来源事实保留在 namespaced `extra`。Harness 只拥有 Dataset/Run、
 Measurements、Detector、Verifier 和报告流程，不拥有另一个 Trajectory IR。

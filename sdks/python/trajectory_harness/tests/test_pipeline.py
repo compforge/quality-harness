@@ -228,7 +228,7 @@ def test_harness_persists_current_run_and_rerenders_without_source(tmp_path):
     dataset_doc = json.loads(result.dataset_path.read_text())
     assert "bundles" not in dataset_doc["dataset"]
     persisted = dataset_doc["dataset"]["trajectories"][0]
-    assert persisted["schema_version"] == "ATIF-v1.7"
+    assert persisted["schema_version"] == "ATIF-v1.8"
     assert persisted["extra"]["quality_harness"]["recording"]["id"] == "ok"
     assert [item.phase for item in result.artifact.build.summary.issues] == [
         "load",

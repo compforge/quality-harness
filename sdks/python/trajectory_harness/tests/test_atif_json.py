@@ -4,7 +4,7 @@ import json
 
 import pytest
 from atif import Agent, Metrics, Observation, ObservationResult, Step, ToolCall
-from atif import Trajectory as OfficialTrajectory
+from atif import Trajectory as UpstreamTrajectory
 from pydantic import ValidationError
 
 from trajectory_harness import (
@@ -17,14 +17,14 @@ from trajectory_harness import (
 )
 
 
-def _trajectory() -> OfficialTrajectory:
+def _trajectory() -> UpstreamTrajectory:
     call = ToolCall(
         tool_call_id="call-1",
         function_name="read_file",
         arguments={"path": "README.md"},
     )
-    return OfficialTrajectory(
-        schema_version="ATIF-v1.7",
+    return UpstreamTrajectory(
+        schema_version="ATIF-v1.8",
         trajectory_id="trajectory-1",
         session_id="session-1",
         agent=Agent(name="reviewer", version="1.2.3", model_name="gpt-5"),
@@ -67,8 +67,8 @@ def _trajectory() -> OfficialTrajectory:
     )
 
 
-def test_public_trajectory_is_official_atif_model() -> None:
-    assert Trajectory is OfficialTrajectory
+def test_public_trajectory_is_upstream_atif_model() -> None:
+    assert Trajectory is UpstreamTrajectory
 
 
 def test_native_atif_loads_without_quality_harness_extension() -> None:
@@ -90,7 +90,7 @@ def test_native_atif_loader_accepts_jsonl_and_enforces_schema() -> None:
     payload = json.dumps(_trajectory().to_json_dict())
     assert len(ATIFJsonLoader().loads(f"{payload}\n{payload}\n")) == 2
 
-    invalid = json.dumps({"schema_version": "ATIF-v1.7", "steps": []})
+    invalid = json.dumps({"schema_version": "ATIF-v1.8", "steps": []})
     with pytest.raises(ValidationError):
         ATIFJsonLoader().loads(invalid)
 

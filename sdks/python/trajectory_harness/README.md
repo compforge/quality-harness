@@ -1,8 +1,15 @@
 # trajectory_harness
 
-Consume standard ATIF v1.7 agent trajectories, adapt other recordings to ATIF, derive
+Consume standard ATIF v1.8 agent trajectories, adapt other recordings to ATIF, derive
 measurements, discover patterns, verify criteria, aggregate dataset-level metrics, and render
 comparable reports.
+
+Only `ATIF-v1.8` is accepted, including embedded trajectories; older versions are rejected.
+Messages and tool results retain text/image/audio content parts and media references.
+The loader retains a supplied source URI for relative media paths, without fetching media.
+Session views recursively project embedded children using declared or inherited session identity;
+Dataset rows remain top-level documents. Audio transcription and semantic scoring are outside
+this adapter. Tool result bytes measure serialized JSON, not referenced media size.
 
 `Trajectory` is the normalized execution fact. `Measurements` is deterministic data derived
 from that trajectory. Together they are the inputs to `Detector` (discovery and data mining)
@@ -17,9 +24,9 @@ from trajectory_harness import ATIFJsonLoader
 trajectories = ATIFJsonLoader().load("trajectory.json")
 ```
 
-Import ATIF models such as `Agent`, `Step`, `ToolCall`, and `Trajectory` from the official
+Import ATIF models such as `Agent`, `Step`, `ToolCall`, and `Trajectory` from the upstream
 `atif` package when producing trajectories. The `Trajectory` and `Step` names re-exported by
-`trajectory_harness` are those same official classes.
+`trajectory_harness` are those same upstream classes.
 
 ```python
 from datetime import datetime, timezone

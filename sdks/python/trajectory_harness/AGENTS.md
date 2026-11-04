@@ -8,7 +8,7 @@ loop 与确定性操作构成的 pipeline。它不替代 eval_harness 的最终�
 trace_harness 对物理 span、耗时与错误传播的归因。
 
 外部 session / trace 先由 `RecordingSource` 发现和读取，再经 `TrajectoryLoader` 转为业界
-ATIF v1.7 `Trajectory`，再从中确定性派生 `Measurements`。Trajectory 与 Measurements 共同作为
+ATIF v1.8 `Trajectory`，再从中确定性派生 `Measurements`。Trajectory 与 Measurements 共同作为
 Detector、Verifier 的输入；原生 ATIF 不需要再投影为一套 Harness 私有格式。轨迹事实、
 评估结论、批量指标和报告逐层分离：Failure 不是低分，Measurement 也不是 Dataset 级 Metric。
 
@@ -16,7 +16,7 @@ Detector、Verifier 的输入；原生 ATIF 不需要再投影为一套 Harness 
 
 ```
 trajectory_harness/
-├── model.py             # 官方 ATIF 类型重导出 + namespaced extra 访问器
+├── model.py             # 上游 ATIF 类型重导出 + namespaced extra 访问器
 ├── source.py            # RecordingQuery / RecordingRef / RecordingSource
 ├── dataset.py           # versioned Trajectory Unit facts / annotation relation
 ├── build.py             # Source + Loader → 固定 Dataset；领域对齐 annotation
@@ -42,14 +42,17 @@ trajectory_harness/
 
 ## 关键约定
 
-- **ATIF 是唯一 Trajectory 契约**：直接依赖官方 `atif` v1.7 Pydantic models，不定义平行的
+- **ATIF 是唯一 Trajectory 契约**：直接依赖第三方 `atif` v1.8 Pydantic models，不定义平行的
   `Trajectory / Step` schema。`dataset.json` 原样保存合法 ATIF；Harness 私有来源或诊断事实只能进入
   ATIF `extra.quality_harness`，不得新增私有顶层字段。
+- **仅支持 v1.8**：Loader、Dataset 与 SessionView 拒绝旧版本，包括内嵌子轨迹；不做历史兼容。
+  message / observation 的 text/image/audio 数组保留结构及媒体引用，不自动转写或估算媒体 token。
+  SessionView 可展开子轨迹；Dataset 仍按顶层文档定义分析单位，禁止因视图展开重复统计。
 - **Source 只负责选择和读取**：Source 返回轻量 `RecordingRef` 和原始 `Recording`，不解析为
   `Trajectory`，也不执行判定；领域标签作为 `TrajectoryAnnotation` 与 Dataset 组合，不塞进 Source 契约。
 - **Kernel 对齐**：Trajectory 是 Observation，`trajectory_id` 定义 Unit grain；`TrajectoryDataset` 固定 Case + Trajectory Unit 与 `TrajectoryAnnotation`。每次 `TrajectoryAnalysisRun` 记录实际选择的 Detector / Verifier / Measurer / Policy，并只填充自己的 Worksheet；同一 Dataset 可按成本或效果反复分析，详见 [`../../../docs/kernel.md`](../../../docs/kernel.md#dataset-与反复评估)。
 - **两个正交维度**：Detector 与 Verifier 的 `category` 只表达关注面 `cost / effect`，`rule_type` 只表达规则形态 `hard / soft`；两者不可互相推导。`target` 另行表达一行当前分析谁，如 CCR 的 Review 1 / Review 2。
-- **Loader 只做标准化适配**：`ATIFJsonLoader` 直接校验官方格式；session/OTLP Loader 把来源字段映射到
+- **Loader 只做标准化适配**：`ATIFJsonLoader` 直接校验标准格式；session/OTLP Loader 把来源字段映射到
   ATIF 的 `agent / steps / tool_calls / observation / metrics`。无法无损映射的来源事实保留在 namespaced
   `extra`，Detector / Verifier 不读取原始 Recording。Dataset Builder 也通过 `extra.quality_harness.recording`
   附加 `recording_id` 与 URI，不改变 ATIF schema。
@@ -92,7 +95,7 @@ trajectory_harness/
 ## References
 
 - 设计与外部实现取舍：[`../../../docs/trajectory-harness.md`](../../../docs/trajectory-harness.md)
-- ATIF v1.7：<https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md>
+- ATIF v1.8：<https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md>
 - OTel GenAI 语义约定：<https://opentelemetry.io/docs/specs/semconv/gen-ai/>
 
 ## Session observation

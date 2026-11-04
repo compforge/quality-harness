@@ -8,6 +8,7 @@ from typing import Any
 from atif import Trajectory
 
 from trajectory_harness.model import (
+    require_atif_version,
     require_trajectory_id,
     trajectory_from_dict,
     trajectory_recording_id,
@@ -72,6 +73,7 @@ class TrajectoryDataset:
 
         trajectories: dict[str, str] = {}
         for trajectory in self.trajectories:
+            require_atif_version(trajectory)
             trajectory_id = require_trajectory_id(trajectory)
             if trajectory_id in trajectories:
                 raise ValueError(f"duplicate trajectory_id {trajectory_id!r}")

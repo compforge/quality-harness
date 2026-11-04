@@ -1,6 +1,6 @@
 """ATIF trajectory types and quality-harness extension accessors.
 
-Trajectory and Step are the official ``atif`` package models. This module does
+Trajectory and Step are the upstream ``atif`` package models. This module does
 not define a second trajectory schema; it centralizes access to optional,
 namespaced evaluation provenance carried by ATIF's ``extra`` fields.
 """
@@ -10,9 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Sequence
 
-from atif import Agent, Step, Trajectory
+from atif import Agent, ContentPart, Step, Trajectory
+from spec_case import link, spec
 
-ATIF_SCHEMA_VERSION = "ATIF-v1.7"
+ATIF_SCHEMA_VERSION = "ATIF-v1.8"
 QUALITY_HARNESS_EXTENSION = "quality_harness"
 
 FailureKind = Literal["llm", "tool", "agent", "workflow", "unknown"]
@@ -91,21 +92,31 @@ class ExecutionResult:
 
 
 def trajectory_to_dict(trajectory: Trajectory) -> dict[str, Any]:
-    """Serialize the official ATIF model without introducing a local shape."""
+    """Serialize the standard ATIF model without introducing a local shape."""
 
+    require_atif_version(trajectory)
     return trajectory.to_json_dict()
 
 
 def trajectory_from_dict(value: Mapping[str, Any]) -> Trajectory:
-    """Validate one official ATIF trajectory document."""
+    """Validate one standard ATIF trajectory document."""
 
     trajectory = Trajectory.model_validate(value)
+    require_atif_version(trajectory)
+    return trajectory
+
+
+@spec("Accept only ATIF v1.8, including embedded trajectories")
+@link("repo://docs/trajectory-harness.md")
+def require_atif_version(trajectory: Trajectory) -> None:
+    """Enforce the Harness contract beyond the upstream model's version string."""
     if trajectory.schema_version != ATIF_SCHEMA_VERSION:
         raise ValueError(
             f"unsupported ATIF schema {trajectory.schema_version!r}; "
-            f"expected {ATIF_SCHEMA_VERSION!r}"
+            f"expected {ATIF_SCHEMA_VERSION!r} in trajectory {trajectory.trajectory_id!r}"
         )
-    return trajectory
+    for child in trajectory.subagent_trajectories or ():
+        require_atif_version(child)
 
 
 def require_trajectory_id(trajectory: Trajectory) -> str:
@@ -262,7 +273,7 @@ def make_atif_step(
     *,
     step_id: int | str,
     source: Literal["system", "user", "agent"] = "agent",
-    message: str = "",
+    message: str | list[ContentPart] = "",
     operation: str = "",
     name: str = "",
     parent_step_id: str | None = None,
@@ -275,7 +286,7 @@ def make_atif_step(
     attributes: Mapping[str, Any] | None = None,
     **standard_fields: Any,
 ) -> Step:
-    """Construct an official ATIF step from adapter facts."""
+    """Construct a standard ATIF step from adapter facts."""
 
     extension: dict[str, Any] = {
         "operation": operation,

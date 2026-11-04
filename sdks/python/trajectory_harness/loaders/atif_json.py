@@ -1,4 +1,4 @@
-"""Native ATIF v1.7 JSON loader."""
+"""Native ATIF v1.8 JSON loader."""
 
 from __future__ import annotations
 
@@ -8,18 +8,21 @@ from typing import Any
 
 from atif import Trajectory
 
-from trajectory_harness.model import trajectory_from_dict
+from trajectory_harness.model import (
+    trajectory_from_dict,
+    trajectory_recording_id,
+    with_recording,
+)
 
 
 class ATIFJsonLoader:
-    """Load official ATIF trajectory objects from JSON, arrays, or JSONL."""
+    """Load standard ATIF trajectory objects from JSON, arrays, or JSONL."""
 
     def load(self, source: str | Path) -> list[Trajectory]:
         path = Path(source)
         return self.loads(path.read_text(encoding="utf-8"), source=str(path))
 
     def loads(self, text: str, *, source: str = "") -> list[Trajectory]:
-        del source  # Collection provenance is attached by TrajectoryDatasetBuilder.
         text = text.strip()
         if not text:
             return []
@@ -28,7 +31,15 @@ class ATIFJsonLoader:
         except json.JSONDecodeError:
             value = [json.loads(line) for line in text.splitlines() if line.strip()]
         values = value if isinstance(value, list) else [value]
-        return [trajectory_from_dict(_object(item)) for item in values]
+        trajectories = [trajectory_from_dict(_object(item)) for item in values]
+        if source:
+            trajectories = [
+                with_recording(
+                    item, recording_id=trajectory_recording_id(item), source=source
+                )
+                for item in trajectories
+            ]
+        return trajectories
 
 
 def _object(value: Any) -> dict[str, Any]:
