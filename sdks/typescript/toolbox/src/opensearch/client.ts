@@ -45,10 +45,15 @@ export function describeOpenSearchError(error: unknown): string {
   const seen = new Set<unknown>();
   while (error && typeof error === "object" && !seen.has(error) && parts.length < 4) {
     seen.add(error);
-    const value = error as { name?: unknown; code?: unknown; kind?: unknown; statusCode?: unknown; meta?: { statusCode?: unknown }; cause?: unknown };
+    const value = error as { name?: unknown; code?: unknown; kind?: unknown; statusCode?: unknown; meta?: { statusCode?: unknown }; cause?: unknown; message?: unknown };
     const safe = (value: unknown) => typeof value === "number" ? String(value)
       : typeof value === "string" && /^[a-zA-Z0-9_.-]{1,80}$/.test(value) ? value : undefined;
-    parts.push([`error=${safe(value.name) ?? "Error"}`, safe(value.code) && `code=${safe(value.code)}`,
+    const argument = (value.code === "ERR_INVALID_ARG_VALUE" || value.code === "ERR_INVALID_ARG_TYPE")
+      && typeof value.message === "string"
+      ? value.message.match(/^The ["']([a-zA-Z][a-zA-Z0-9_.]{0,79})["'] (?:argument|option|property)/)?.[1]
+        ?? value.message.match(/^The (?:argument|option|property) ["']([a-zA-Z][a-zA-Z0-9_.]{0,79})["']/)?.[1]
+      : undefined;
+    parts.push([`error=${safe(value.name) ?? "Error"}`, argument && `argument=${argument}`, safe(value.code) && `code=${safe(value.code)}`,
       safe(value.kind) && `kind=${safe(value.kind)}`,
       safe(value.statusCode ?? value.meta?.statusCode) && `status=${safe(value.statusCode ?? value.meta?.statusCode)}`].filter(Boolean).join(" "));
     error = value.cause;
@@ -202,7 +207,12 @@ export class OpenSearchClient implements ManagedClient, OpenSearchReadApi {
             try {
               await engine.ping(attempt.signal, attempt.remainingMs());
               return { connection: engine, transport: transport.name };
-            } catch (error) { await engine.close(); throw error; }
+            } catch (error) {
+              // @spec Failed-probe cleanup must not replace the primary error or its retry classification.
+              // close() records its own bounded diagnostics; never expose driver payloads here.
+              try { await engine.close(); } catch { /* Preserve the probe failure. */ }
+              throw error;
+            }
           },
           close: engine => engine.close(),
           retryReason: openSearchRetryReason,
