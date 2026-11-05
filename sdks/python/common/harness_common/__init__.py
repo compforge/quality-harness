@@ -26,6 +26,9 @@ from __future__ import annotations
 
 from harness_common.execution.artifact import Artifact as Artifact
 from harness_common.system.component import Component as Component
+from harness_common.system.tool import Tool as Tool
+from harness_common.system.depot import Bin as Bin
+from harness_common.system.depot import Depot as Depot
 from harness_common.system.deployment import Deployer as Deployer
 from harness_common.system.deployment import Deployment as Deployment
 from harness_common.system.environment import Environment as Environment

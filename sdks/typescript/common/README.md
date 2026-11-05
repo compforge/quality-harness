@@ -203,3 +203,11 @@ Use `serializeValue` to preserve immutable JSON and reading hints, and `deserial
 with an explicit matching codec to restore runtime behavior. Encoding and decoding are pure.
 Doctor and its Plugins import these contracts directly from `@compforge/harness-common`;
 Observation identity, evidence and rendering remain with their consumers.
+
+## Component tools and Depot
+
+Component optionally declares `tools` and one logical `depot`. `Tool` describes a development
+tool and an optional declared version/constraint. `Depot.bins` groups `Bin` declarations with
+repository-relative paths and `dependencies`, `output` or `cache` kinds. Metadata does not change
+Component identity, prove physical existence or authorize deletion. Discovery, preparation,
+usage protection and reclamation belong to consumers. See [the shared contract](../../../docs/component-depot.md).

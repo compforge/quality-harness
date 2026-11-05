@@ -35,7 +35,8 @@ e2e、eval、perf、trace 和 trajectory 可以拥有不同执行模型，但共
 | **PullRequest** | Repository 内的代码合入提案，身份为目标 Repository 与仓内编号；状态和 revision 是可选平台事实。契约见 [PullRequest](pull-request.md)。 |
 | **Repository** | Forge 下的一份代码仓，以 Forge 与仓内路径共同确定；可以包含一个或多个 Component。可选字符串 `forked_from`（TypeScript：`forkedFrom`）记录同一 Forge 实例内直接父仓的 path，不参与身份；它不表示本地 checkout 或 fork 网络根仓。省略/空值表示未声明，查询失败由查询方单独表达；跨 Forge 的导入、镜像来源由后续独立标记表达。 |
 | **Product** | 面向业务的产品身份；可以由多个 Component 组成，公共 Component 也可以服务多个 Product，归属关系由 registry 维护。 |
-| **Component** | 代码 Repository 内一个可独立构建或发布的稳定组件；一个 Repository 可以包含一个或多个 Component，不会运行为 Workload 的 Component 不产生 Service。 |
+| **Component** | 代码 Repository 内一个可独立构建或发布的稳定组件；可选声明使用的 Tool 与一个逻辑 Depot，不改变 Repository + name 身份。一个 Repository 可以包含多个 Component；不会运行为 Workload 的 Component 不产生 Service。 |
+| **Tool / Depot / Bin** | Component 的开发工具与可恢复配套内容声明：Tool 描述使用的工具，Depot 聚合多个具有仓库相对路径的 Bin；安装、构建、使用保护与回收归消费方。见 [Component Depot](component-depot.md)。 |
 | **Environment** | 一组部署与运行所共享的命名环境，可包含 Host；它识别证据产生在哪里，凭据和发布策略归部署领域。 |
 | **Host** | Environment 的可选组成部分，描述主机身份及访问方式；在 Kubernetes 环境中是集群操作入口，不能代替目标 Pod 的执行事实。见 [Environment](environment.md)。 |
 | **Service** | 一个 Component 在某个 Environment 中具名的运行体现；由 service name、Component 与 Environment 共同确定，不等同于代码 Repository 或具体平台 Workload。 |

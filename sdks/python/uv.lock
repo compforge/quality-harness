@@ -468,7 +468,7 @@ wheels = [
 
 [[package]]
 name = "harness-common"
-version = "0.6.3"
+version = "0.6.4"
 source = { editable = "common" }
 
 [[package]]

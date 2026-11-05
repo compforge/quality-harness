@@ -53,14 +53,22 @@ func (p Product) SameIdentity(other Product) bool {
 }
 
 // Component is a named, independently buildable or releasable unit in a
-// Repository. Consumers may supply language and description metadata; directory
-// layout and discovery remain consumer responsibilities.
+// Repository. Consumers supply optional metadata; discovery and execution remain
+// consumer responsibilities.
+//
+// +spec=`Description, Language, Tools and Depot do not participate in Component identity`
+// +link=component://docs/component-depot.md
 type Component struct {
 	Repository  Repository `json:"repository" yaml:"repository"`
 	Name        string     `json:"name" yaml:"name"`
 	Description string     `json:"description,omitempty" yaml:"description,omitempty"`
 	// Language is optional implementation metadata; empty means unknown.
 	Language string `json:"language,omitempty" yaml:"language,omitempty"`
+	// Tools is nil when undeclared; a pointer to an empty slice declares no tools.
+	// The pointer preserves Component comparability; use SameIdentity, not ==, for identity.
+	Tools *[]Tool `json:"tools,omitempty" yaml:"tools,omitempty"`
+	// Depot is a logical declaration resolved separately in each checkout.
+	Depot *Depot `json:"depot,omitempty" yaml:"depot,omitempty"`
 }
 
 // SameIdentity compares stable identity, excluding descriptive metadata.

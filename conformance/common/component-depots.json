@@ -1,0 +1,120 @@
+[
+  {
+    "case": "undeclared",
+    "component": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/monorepo"
+      },
+      "name": "web"
+    }
+  },
+  {
+    "case": "node",
+    "component": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/monorepo"
+      },
+      "name": "web",
+      "language": "typescript",
+      "tools": [
+        {
+          "name": "pnpm",
+          "version": ">=9 <10"
+        },
+        {
+          "name": "vite"
+        }
+      ],
+      "depot": {
+        "bins": [
+          {
+            "path": "node_modules",
+            "kind": "dependencies"
+          },
+          {
+            "path": "apps/web/dist",
+            "kind": "output"
+          },
+          {
+            "path": "apps/web/.vite",
+            "kind": "cache"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case": "python",
+    "component": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/monorepo"
+      },
+      "name": "worker",
+      "language": "python",
+      "tools": [
+        {
+          "name": "uv",
+          "version": "0.9.0"
+        }
+      ],
+      "depot": {
+        "bins": [
+          {
+            "path": ".venv",
+            "kind": "dependencies"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case": "shared",
+    "component": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/monorepo"
+      },
+      "name": "admin",
+      "tools": [
+        {
+          "name": "pnpm"
+        }
+      ],
+      "depot": {
+        "bins": [
+          {
+            "path": "node_modules",
+            "kind": "dependencies"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case": "empty",
+    "component": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/monorepo"
+      },
+      "name": "docs",
+      "tools": [],
+      "depot": {
+        "bins": []
+      }
+    }
+  }
+]
