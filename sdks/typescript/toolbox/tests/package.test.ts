@@ -31,12 +31,23 @@ test("published lifecycle and transport entries run in Node without protocol dri
       import { ClientManager as Subpath } from '@compforge/harness-toolbox/client-manager';
       import { ClientManager as Common } from '@compforge/harness-common';
       import { collectClusterCompute } from '@compforge/harness-toolbox/kubernetes/compute';
+      import { KubernetesSecretDataSource } from '@compforge/harness-toolbox/kubernetes/secret-datasource';
       import { DirectTransport, PodRelayTransport } from '@compforge/harness-toolbox/transport';
       const relay = new PodRelayTransport({namespace:'test', startupTimeoutMs:1000, connectTimeoutMs:1000,
         maxConnections:2, maxTargets:2, maxCandidatePods:2});
       await relay.initialize(); await relay.dispose();
       assert.equal(ClientManager, Subpath);
       assert.equal(ClientManager, Common);
+      const secrets = new ClientManager();
+      const secretSource = new KubernetesSecretDataSource({clientKey:'guarded-access', createClient:() => ({
+        initialize:async()=>{}, dispose:async()=>{}, get:async(ref)=>{
+          assert.equal(ref.namespace,'demo'); assert.equal(ref.name,'rules');
+          return {metadata:{resourceVersion:'9'},data:{RULE:Buffer.from('allowed').toString('base64'),TOKEN:Buffer.from('hidden').toString('base64')}};
+        }
+      })}, {namespace:'demo',name:'rules'}, ['RULE']);
+      const secret = await secrets.get(secretSource);
+      assert.deepEqual({...((await secret.read()).values)}, {RULE:'allowed'});
+      await secrets.dispose();
       assert.ok(new KubernetesError('safe', {kind:'permission_denied'}) instanceof ToolboxError);
       const forbidden = { get: async () => { throw new KubernetesError('denied',{kind:'permission_denied',code:403}); },
         list: async () => { throw new KubernetesError('denied',{kind:'permission_denied',code:403}); } };
