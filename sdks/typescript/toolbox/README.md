@@ -426,3 +426,7 @@ MySQL, OpenSearch and Redis use the same acquisition lifecycle. `connectTimeoutM
 and handshake/probe; optional `acquireTimeoutMs` bounds all routes together (default: per-route budget × route count).
 Cancellation preserves the caller reason and prevents late mappings from starting a handshake. Query and command
 timeouts remain separate, and failed operations are never replayed on another transport.
+
+DataLoader accepts an optional `logger.debug(message)` and a non-sensitive `label`.
+Diagnostics distinguish miss, wait, hit, bypass, not-retained and close using scope/read
+identifiers, never keys, values or errors. Logging does not change retention or retry policy.

@@ -195,3 +195,11 @@ rendering remain consumer-owned. See [the shared contract](../../../docs/resourc
 State, branches, source repository, revisions and provider timestamps are optional facts.
 See [the shared contract](../../../docs/pull-request.md) for identity and unknown-state semantics.
 Forge access and polling remain consumer/toolkit responsibilities.
+
+## Portable values
+
+`Value`, `ValueCodec`, `Summary`, and JSON normalization are producer-owned data contracts.
+Use `serializeValue` to preserve immutable JSON and reading hints, and `deserializeValue`
+with an explicit matching codec to restore runtime behavior. Encoding and decoding are pure.
+Doctor and its Plugins import these contracts directly from `@compforge/harness-common`;
+Observation identity, evidence and rendering remain with their consumers.

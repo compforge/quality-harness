@@ -32,3 +32,5 @@ src/
 - 保持 Node ESM 发布产物可用；使用 `make lint`、`make test` 验证，版本独立维护。
 
 概念关系与主流程见 [通用内核](../../../docs/kernel.md)；分组不改变现有导出路径。
+
+`value.ts`、`summary.ts`、`json.ts` 提供纯数据的编码、恢复、阅读提示和不可变 JSON 契约；领域 Codec、Observation 和渲染归消费方。
