@@ -379,3 +379,16 @@ its operations and destroys its pools, while the root retains ownership of the b
 Route preparation may select another candidate; an HTTP operation is never replayed on another route.
 Protocol adapters retain credential, signing and response interpretation rules. HTTP is a Client,
 not a new Transport variant.
+
+
+### Kubernetes Secret DataSource（TypeScript）
+
+`KubernetesSecretDataSource` 接收根 ClientProvider、明确的 namespace/name 和非空 key 列表。
+它只执行命名 Secret 的 get；来源发现、访问权限和配置含义归消费方，不枚举其它 Secret。
+Client 返回所选 UTF-8 值、missingKeys、resourceVersion 和 observedAt，未选择的值不进入结果；
+403/404 等 API 失败保留 KubernetesError，不能解释成 key 缺失。Secret 的当前值不证明进程已加载。
+
+资源访问借用根客户端的并发、响应大小和默认超时预算，`read({ timeoutMs, signal })` 可传入请求预算。
+释放 Secret Client 会取消并等待自身读取结束，不关闭借用的 Kubernetes Client。
+宿主也可通过 `KubernetesSecretClient` 的 acquire 回调注入经过权限校验的资源访问视图；
+初始化时才执行目标发现，不由 Toolbox 解释业务配置。
