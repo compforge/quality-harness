@@ -67,3 +67,42 @@ test("close aborts and joins tracked work, including uncached reads; later calls
   await expect(scope.read("key", async () => 0)).rejects.toThrow("ended");
   await scope.close();
 });
+
+
+test("diagnostics distinguish concurrent waits, cached failures and bypass without revealing data", async () => {
+  const messages: string[] = [];
+  const scope = new DataLoader({ ...options(), maxEntries: 2, label: "database-read",
+    logger: { debug: message => messages.push(message) } });
+  let finish!: (value: string) => void;
+  const first = scope.read("secret-key", () => new Promise<string>(resolve => { finish = resolve; }));
+  const second = scope.read("secret-key", async () => "wrong");
+  await Promise.resolve(); finish("secret-value");
+  await Promise.all([first, second]);
+  await scope.read("secret-key", async () => "wrong");
+  for (let i = 0; i < 2; i++) await scope.read("failure-key", async () => { throw new Error("secret-error"); }).catch(() => {});
+  await scope.read("overflow-key", async () => 1);
+  await scope.read(undefined, async () => 1);
+  await scope.close(); await scope.close();
+  expect(messages.map(message => /event=([\w-]+)/.exec(message)![1]))
+    .toEqual(["miss", "wait", "hit", "miss", "hit", "bypass", "bypass", "close"]);
+  expect(messages[5]).toContain("reason=entry-limit");
+  expect(messages[6]).toContain("reason=no-key");
+  const firstId = /read=(\d+)/.exec(messages[0]!)![1];
+  for (const message of messages.slice(1, 3)) expect(message).toContain(`read=${firstId}`);
+  expect(messages.join("\n")).not.toMatch(/secret-|failure-key|overflow-key/);
+});
+
+test("diagnostics explain non-retention and a failed logger cannot change loading", async () => {
+  for (const [value, reason] of [["oversized", "byte-limit"], [() => {}, "not-serializable"]] as const) {
+    const messages: string[] = [];
+    const scope = new DataLoader({ ...options(), maxBytes: 1, logger: { debug: message => messages.push(message) } });
+    await scope.read("key", async () => value);
+    expect(messages.some(message => message.includes(`event=not-retained reason=${reason}`))).toBe(true);
+    await scope.close();
+  }
+  const scope = new DataLoader({ ...options(), logger: { debug() { throw new Error("sink failed"); } } });
+  let calls = 0;
+  expect(await scope.read("key", async () => ++calls)).toBe(1);
+  expect(await scope.read("key", async () => ++calls)).toBe(1);
+  await scope.close();
+});
