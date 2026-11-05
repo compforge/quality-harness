@@ -8,6 +8,8 @@ export * from "./system/forge.js";
 export * from "./system/repository.js";
 export * from "./system/pull-request.js";
 export * from "./system/component.js";
+export * from "./system/tool.js";
+export * from "./system/depot.js";
 export * from "./system/host.js";
 export * from "./system/environment.js";
 export * from "./system/service.js";

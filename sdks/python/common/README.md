@@ -45,3 +45,11 @@ quality-harness, so every dependency is available when a downstream package is i
 State, branches, source repository, revisions and provider timestamps are optional facts.
 See [the shared contract](../../../docs/pull-request.md) for identity and unknown-state semantics.
 Forge access and polling remain consumer/toolkit responsibilities.
+
+## Component tools and Depot
+
+Component optionally declares `tools` and one logical `depot`. `Tool` describes a development
+tool and an optional declared version/constraint. `Depot.bins` groups `Bin` declarations with
+repository-relative paths and `dependencies`, `output` or `cache` kinds. Metadata does not change
+Component identity, prove physical existence or authorize deletion. Discovery, preparation,
+usage protection and reclamation belong to consumers. See [the shared contract](../../../docs/component-depot.md).
