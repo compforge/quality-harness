@@ -14,6 +14,7 @@ toolbox/
 ├── src/concurrency.ts   # 可取消的共享容量
 ├── src/errors.ts        # 稳定错误 kind/code；原始 cause 只供调试
 ├── src/connection/     # 共享连接获取预算、取消、路由回退与晚到连接回收
+├── src/network/         # Endpoint 地址投影、校验与指定执行环境的 DNS/TCP/TLS 探测
 ├── src/transport/       # TCP、端口转发与 Pod Python 路径
 ├── src/kubernetes/compute* # 集群/实例 CPU、内存与独立采集覆盖
 ├── src/kubernetes/      # 资源 get/list、根 HTTP 连接池、exec/forward 与日志采集

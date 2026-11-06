@@ -392,3 +392,14 @@ Client 返回所选 UTF-8 值、missingKeys、resourceVersion 和 observedAt，�
 释放 Secret Client 会取消并等待自身读取结束，不关闭借用的 Kubernetes Client。
 宿主也可通过 `KubernetesSecretClient` 的 acquire 回调注入经过权限校验的资源访问视图；
 初始化时才执行目标发现，不由 Toolbox 解释业务配置。
+
+### Endpoint 与连通性（TypeScript）
+
+Common 的 `Endpoint` 描述访问地址（scheme、host、port、secure），不继承 Service 或 DataSource，
+也不携带执行位置、凭据或完整资源 URL。Service、DataSource 与独立资源都可提供 Endpoint；关系归消费方。
+Toolbox 的 `endpointFromUrl` 提取网络入口并剔除资源路径和签名，`validateEndpoint` 统一校验地址字段。
+
+`secure` 表示加密传输要求，具体握手由协议决定；不表示可信下载策略允许访问或业务功能正常。
+`probeConnectivity` 在调用方选择的执行环境观察 DNS、TCP、TLS 阶段及耗时，当前只支持
+https/wss/tls 的直接 TLS。其它加密协议抛 `ProtocolError`（继承 `ToolboxError`，kind 为 `protocol`，code 为 `Unsupported`），不能降级为 TCP 成功。
+协议客户端仍负责 MySQL 等协议内的 TLS 协商；网络失败证据与执行能力缺口分别保留。

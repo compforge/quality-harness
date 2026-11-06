@@ -22,3 +22,4 @@ export * from "./system/resource.js";
 export * from "./json.js";
 export * from "./summary.js";
 export * from "./value.js";
+export type { Endpoint } from "./access/endpoint.js";

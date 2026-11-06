@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -100,6 +100,10 @@
     "./network": {
       "types": "./dist/network/connectivity.d.ts",
       "import": "./dist/network/connectivity.js"
+    },
+    "./endpoint": {
+      "types": "./dist/network/endpoint.d.ts",
+      "import": "./dist/network/endpoint.js"
     }
   },
   "files": [
@@ -108,7 +112,7 @@
   ],
   "dependencies": {
     "@aws-sdk/client-s3": "3.1133.0",
-    "@compforge/harness-common": "0.5.11",
+    "@compforge/harness-common": "0.5.13",
     "@kubernetes/client-node": "1.4.0",
     "@opensearch-project/opensearch": "3.6.0",
     "@redis/client": "6.1.0",

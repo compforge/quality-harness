@@ -1,5 +1,6 @@
-/** A probe runs in the caller-selected environment; it never falls back to the Doctor/CLI host. */
-export interface ConnectivityTarget { host: string; port: number; tls?: boolean }
+import type { Endpoint } from "@compforge/harness-common";
+import { ProtocolError } from "../errors.js";
+import { validateEndpoint } from "./endpoint.js";
 export interface ConnectivityStage {
   stage: "dns" | "tcp" | "tls";
   status: "passed" | "failed";
@@ -9,7 +10,7 @@ export interface ConnectivityStage {
   error?: string;
 }
 export interface ConnectivityResult {
-  target: ConnectivityTarget;
+  target: Endpoint;
   stages: ConnectivityStage[];
   status: "passed" | "failed";
 }
@@ -66,19 +67,24 @@ print(json.dumps(dict(stages=stages,status="failed" if any(s["status"]=="failed"
 /**
  * @spec DNS, TCP and optional verified TLS are observed from the supplied executor's network context.
  * @rule A hostname (including service.namespace) and an IP use the same path; connectivity requires an explicit port.
+ * @spec secure uses verified direct TLS for https/wss/tls; other encrypted protocols throw ProtocolError(code=Unsupported) before I/O.
  * @rule Tool failure/timeout throws; it is not evidence that the target is unhealthy. No ICMP, credentials or HTTP policy is implied.
  */
-export async function probeConnectivity(target: ConnectivityTarget, execute: ConnectivityExecutor,
+export async function probeConnectivity(target: Endpoint, execute: ConnectivityExecutor,
   options: { timeoutMs: number; signal?: AbortSignal }): Promise<ConnectivityResult> {
-  if (!target.host.trim() || /[\s/\\?#@]/.test(target.host) || !Number.isInteger(target.port) || target.port < 1 || target.port > 65535) {
-    throw new Error("Connectivity requires a hostname/IP and a port between 1 and 65535");
+  validateEndpoint(target);
+  const endpoint: Endpoint = { host: target.host, port: target.port,
+    ...(target.scheme !== undefined ? { scheme: target.scheme } : {}),
+    ...(target.secure !== undefined ? { secure: target.secure } : {}) };
+  if (endpoint.secure && !["https", "wss", "tls"].includes(endpoint.scheme ?? "")) {
+    throw new ProtocolError(`Encrypted connectivity is not supported for scheme ${endpoint.scheme ?? "(unspecified)"}; supported schemes: https, wss, tls`, { code: "Unsupported" });
   }
   if (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0) throw new Error("Connectivity timeout must be positive");
   options.signal?.throwIfAborted();
-  const raw = await execute(["python3", "-c", SCRIPT], { ...options, stdin: JSON.stringify({ ...target, timeoutMs: options.timeoutMs }) });
+  const raw = await execute(["python3", "-c", SCRIPT], { ...options, stdin: JSON.stringify({ host: endpoint.host, port: endpoint.port, tls: endpoint.secure, timeoutMs: options.timeoutMs }) });
   options.signal?.throwIfAborted();
   const value = JSON.parse(raw) as Omit<ConnectivityResult, "target">;
-  const expected = ["dns", "tcp", ...(target.tls ? ["tls"] : [])];
+  const expected = ["dns", "tcp", ...(endpoint.secure ? ["tls"] : [])];
   if (!value || !Array.isArray(value.stages) || !value.stages.length || value.stages.length > expected.length
     || !["passed", "failed"].includes(value.status)
     || value.stages.some((stage, index) => !stage || stage.stage !== expected[index] || !["passed", "failed"].includes(stage.status)
@@ -86,5 +92,5 @@ export async function probeConnectivity(target: ConnectivityTarget, execute: Con
       || (index < value.stages.length - 1 && stage.status !== "passed"))
     || (value.status === "passed" ? value.stages.length !== expected.length || value.stages.some(stage => stage.status !== "passed")
       : value.stages.at(-1)?.status !== "failed")) throw new Error("Invalid connectivity probe result");
-  return { target: { ...target }, stages: value.stages, status: value.status };
+  return { target: endpoint, stages: value.stages, status: value.status };
 }

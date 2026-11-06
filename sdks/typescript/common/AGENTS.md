@@ -18,7 +18,7 @@ src/
 │   └── workload.ts / resource.ts / knowledge.ts
 ├── access/       # 获取事实所需的访问契约和客户端生命周期
 │   ├── client.ts / client-provider.ts / client-manager.ts
-│   └── datasource.ts / file.ts / context.ts
+│   └── datasource.ts / endpoint.ts / file.ts / context.ts
 ├── execution.ts  # 执行事实骨架，领域拥有调度与判据
 ├── identity.ts   # 由具体模型定义范围的身份契约
 └── index.ts      # 唯一包级公共入口，目录调整不改变导出
