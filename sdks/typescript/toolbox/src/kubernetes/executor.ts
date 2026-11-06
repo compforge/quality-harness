@@ -117,22 +117,23 @@ export async function runArgv(argv: string[], opts?: RunOptions): Promise<ExecRe
   let aborted = false;
   const abort = () => {
     aborted = true;
-    proc.kill();
+    proc.kill("SIGKILL");
   };
   const timer = setTimeout(() => {
     timedOut = true;
-    proc.kill();
+    proc.kill("SIGKILL");
   }, timeoutMs);
   if (opts?.signal?.aborted) abort();
   else opts?.signal?.addEventListener("abort", abort, { once: true });
+  const outputs = [
+    readOutput(proc.stdout, opts?.onStdout, opts?.onStdoutBytes, opts?.collectStdout ?? true),
+    readOutput(proc.stderr, opts?.onStderr),
+    proc.exited,
+  ] as const;
   try {
-    const [stdout, stderr, exitCode] = await Promise.all([
-      readOutput(proc.stdout, opts?.onStdout, opts?.onStdoutBytes, opts?.collectStdout ?? true),
-      readOutput(proc.stderr, opts?.onStderr),
-      proc.exited,
-    ]);
+    const [stdout, stderr, exitCode] = await Promise.all(outputs);
     return {
-      ok: exitCode === 0 && !timedOut,
+      ok: exitCode === 0 && !timedOut && !aborted,
       exitCode,
       stdout,
       stderr: timedOut
@@ -145,6 +146,9 @@ export async function runArgv(argv: string[], opts?: RunOptions): Promise<ExecRe
       command: argv,
     };
   } catch (err) {
+    // Output callbacks may fail while the process is still running. Release it before returning the slot.
+    proc.kill("SIGKILL");
+    await Promise.allSettled(outputs);
     // Node 在可执行文件不存在时异步发出 error；保持原有“步骤不可用而非整条采集抛错”的契约。
     return {
       ok: false,
@@ -169,7 +173,7 @@ export class KubectlExecutor implements Executor {
   }
 
   exec(target: ExecTarget, cmd: string[], opts?: RunOptions): Promise<ExecResult> {
-    // stdin 有内容才需要 -i（探针经 stdin 送入目标容器，不落盘不残留）
+    // 显式提供 stdin（包括空输入）时需要 -i（探针经 stdin 送入目标容器，不落盘不残留）
     return runArgv(buildExecArgs(this.opts, target, cmd, opts?.stdin !== undefined), opts);
   }
 }

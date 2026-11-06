@@ -116,3 +116,11 @@ setInterval(() => {}, 10000);
     expect(result.status).toBe(0);
   } finally { rmSync(root, { recursive: true, force: true }); }
 }, 5000);
+
+for (const runtime of ["node", "bun"]) test(`Kubernetes stdin ${runtime} preserves EOF, budgets and cancellation without replay`, () => {
+  const result = spawnSync(runtime, [fileURLToPath(new URL("./fixtures/kubernetes-stdin.mjs", import.meta.url))],
+    { encoding: "utf8", timeout: 10000 });
+  expect(result.error).toBeUndefined();
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout.trim()).toBe("disposed");
+}, 12000);

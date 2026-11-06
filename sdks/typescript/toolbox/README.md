@@ -152,23 +152,27 @@ selectorless Services and failed access raise KubernetesError.
 
 The resource path uses client-node kubeconfig authentication/TLS and bounded native JSON reads,
 not kubectl error text. Configure request timeout, concurrency and response bytes with the
-client's ResourceLimits constructor argument. Native exec uses the same root capacity/byte policy
+client's ResourceLimits constructor argument. Exec uses the same root capacity/byte policy
 with a separate slot pool; its per-call timeout defaults to that policy and covers queueing,
 authentication, upgrade and execution. Explicit per-call timeouts support longer commands.
 
-Exec requires `get pods/exec` permission for the WebSocket upgrade (kubectl/SPDY paths may use
-`create pods/exec`). It connects directly to the Pod exec WebSocket endpoint without a preliminary Pod GET or
-kubectl subprocess. Each command owns a stream session; failures are never retried or replayed.
-Kubeconfig controls authentication, TLS and proxy access. stdout/stderr and remote exit status
-remain separate; retained output and individual messages are bounded. Streaming callers may
-set `collectStdout: false` and enforce their own total byte budget. Root disposal cancels active
-and queued sessions. Protocol v4 is accepted for output-only commands; stdin requires v5 to
-close input without losing remaining output/status. Bun does not expose HTTP upgrade rejection
-status, so those failures retain an unknown connection error. Native exec with a kubeconfig
-proxy requires Node: Bun cannot reliably release proxy sockets or preserve TLS name overrides.
-It fails before opening a session on Bun; use Node or explicitly provide an Executor adapter.
-The transport never bypasses the proxy or TLS checks.
-Port-forward still uses kubectl.
+Output-only exec connects directly to the Pod exec WebSocket endpoint without a preliminary
+Pod GET and requires `get pods/exec`. Commands with explicit stdin (including empty input) use
+`kubectl exec -i`, which handles input EOF through SPDY/v5 on older and newer clusters. This
+path requires a compatible kubectl on the Host, Pod read permission and `create pods/exec`
+for SPDY (`get pods/exec` for WebSocket). The channel is selected before execution; failures
+are never retried or replayed by Toolbox. The result's `command` records the actual channel.
+Kubeconfig controls authentication, TLS and proxy access. Both paths share the root exec slot
+pool, deadline, retained-output byte limit and cancellation. stdout/stderr remain separate;
+native exec uses remote status and kubectl uses process exit status, retaining raw CLI stderr
+without guessing structured HTTP error kinds. Streaming callers may set `collectStdout: false`
+and enforce their own total byte budget; individual output chunks remain bounded. Root disposal
+cancels active and queued sessions and waits for the local kubectl process to exit.
+Output-only sessions accept v4/v5. Bun does not expose HTTP upgrade rejection status, so those
+failures retain an unknown connection error. Native exec with a kubeconfig proxy requires Node:
+Bun cannot reliably release proxy sockets or preserve TLS name overrides. This restriction does
+not apply to the kubectl stdin path. Neither path bypasses proxy or TLS checks.
+Port-forward also uses kubectl.
 See [the shared Workload model](../../../docs/workload.md).
 
 ```ts

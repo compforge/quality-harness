@@ -57,24 +57,6 @@ test("native exec preserves binary stdout, split UTF-8, stderr and remote exit s
   } finally { await f.close(); }
 });
 
-test("stdin half-close preserves output and completion and streams without retained stdout", async () => {
-  const input: Buffer[] = [];
-  const f = await fixture(socket => socket.on("message", data => {
-    const bytes = Buffer.from(data as Buffer);
-    if (bytes[0] === 0) input.push(bytes.subarray(1));
-    if (bytes[0] === 255) { frame(socket, 1, "done"); status(socket); }
-  }));
-  try {
-    let output = "";
-    const result = await f.client.exec("demo", { pod: "pod" }, ["cat"], {
-      stdin: new ReadableStream({ start(controller) { controller.enqueue(Buffer.from("input")); controller.close(); } }),
-      collectStdout: false, onStdout: chunk => output += chunk,
-    });
-    expect(Buffer.concat(input).toString()).toBe("input"); expect(output).toBe("done");
-    expect(result).toMatchObject({ ok: true, stdout: "", exitCode: 0 });
-  } finally { await f.close(); }
-});
-
 test("capacity deadlines never start queued exec and active timeout releases its slot", async () => {
   const f = await fixture((socket, url) => { if (url.searchParams.get("command") === "done") status(socket); });
   try {
