@@ -396,7 +396,8 @@ Client 返回所选 UTF-8 值、missingKeys、resourceVersion 和 observedAt，�
 ### Endpoint 与连通性（TypeScript）
 
 Common 的 `Endpoint` 描述访问地址（scheme、host、port、secure），不继承 Service 或 DataSource，
-也不携带执行位置、凭据或完整资源 URL。Service、DataSource 与独立资源都可提供 Endpoint；关系归消费方。
+可选 id、description 和 workload 描述消费方声明；workload 指消费方逻辑 Workload，不是远端服务。
+Endpoint 不携带执行适配器、凭据或完整资源 URL。Service、DataSource 与独立资源都可提供 Endpoint；关系归消费方。
 Toolbox 的 `endpointFromUrl` 提取网络入口并剔除资源路径和签名，`validateEndpoint` 统一校验地址字段。
 
 `secure` 表示加密传输要求，具体握手由协议决定；不表示可信下载策略允许访问或业务功能正常。
