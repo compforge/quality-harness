@@ -25,6 +25,8 @@ test("published lifecycle and transport entries run in Node without protocol dri
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const result = spawnSync("node", ["--input-type=module", "-e", `
       import assert from 'node:assert/strict';
+      import { probeConnectivity } from '@compforge/harness-toolbox/network';
+      assert.equal(typeof probeConnectivity, 'function');
       import { ClientManager, EnvironmentContext, clientKey } from '@compforge/harness-toolbox';
       import { ToolboxError } from '@compforge/harness-toolbox';
       import { KubernetesError } from '@compforge/harness-toolbox/errors';
