@@ -2,10 +2,9 @@ import { KubeConfig } from "@kubernetes/client-node";
 import WebSocket from "ws";
 import type { RequestOptions } from "node:https";
 import type { Agent } from "node:http";
-import type { ReadableStreamDefaultReader } from "node:stream/web";
 import { ConcurrencyPool } from "../concurrency";
 import { KubernetesError, kubernetesHttpError } from "../errors";
-import type { ExecTarget, ExecResult, RunOptions } from "./executor";
+import { KubectlExecutor, buildExecArgs, type ExecTarget, type ExecResult, type RunOptions } from "./executor";
 import type { KubernetesConnectionOptions } from "./resource-transport";
 
 export interface KubernetesExecLimits { timeoutMs: number; concurrency: number; maxBytes: number }
@@ -20,20 +19,16 @@ export class KubernetesExecTransport {
   readonly #capacity: ConcurrencyPool;
   readonly #server: string;
 
-  constructor(options: KubernetesConnectionOptions, private readonly signal: AbortSignal,
+  constructor(private readonly connection: KubernetesConnectionOptions, private readonly signal: AbortSignal,
     private readonly limits: KubernetesExecLimits) {
     if (!Object.values(limits).every(value => Number.isSafeInteger(value) && value > 0)) {
       throw new KubernetesError("Exec limits must be positive integers", { kind: "invalid_argument" });
     }
-    if (options.kubeconfig) this.#config.loadFromFile(options.kubeconfig);
+    if (connection.kubeconfig) this.#config.loadFromFile(connection.kubeconfig);
     else this.#config.loadFromDefault();
-    if (options.context) this.#config.setCurrentContext(options.context);
+    if (connection.context) this.#config.setCurrentContext(connection.context);
     const cluster = this.#config.getCurrentCluster();
     if (!cluster) throw new KubernetesError("Kubernetes context has no cluster", { kind: "invalid_argument" });
-    // Bun's proxy WebSocket retains sockets after terminate and cannot preserve all TLS overrides.
-    if (process.versions.bun && cluster.proxyUrl) {
-      throw new KubernetesError("Native exec through a kubeconfig proxy requires a Node host", { kind: "unsupported_operation" });
-    }
     this.#server = cluster.server.replace(/\/$/, "");
     if (new URL(cluster.server).protocol === "http:") this.#config.clusters = this.#config.clusters.map(
       item => item === cluster ? { ...item, skipTLSVerify: true } : item);
@@ -51,12 +46,61 @@ export class KubernetesExecTransport {
     const signal = AbortSignal.any([caller, deadline.signal]);
     const timer = setTimeout(() => deadline.abort(), timeoutMs);
     try {
-      return await this.#capacity.run(() => this.#session(namespace, target, command, options, signal, started, deadline.signal), signal);
+      return await this.#capacity.run(() => options.stdin === undefined
+        ? this.#session(namespace, target, command, options, signal, started, deadline.signal)
+        : this.#stdinSession(namespace, target, command, options, signal, started), signal);
     } catch (error) {
       if (caller.aborted) throw caller.reason;
-      if (deadline.signal.aborted) return this.#result(namespace, target, command, started, null, "", "Exec deadline exceeded", true);
+      if (deadline.signal.aborted) {
+        const result = this.#result(namespace, target, command, started, null, "", "Exec deadline exceeded", true);
+        if (options.stdin !== undefined) result.command = buildExecArgs({ ...this.connection, namespace }, target, command, true);
+        return result;
+      }
       throw error;
     } finally { clearTimeout(timer); }
+  }
+
+  /**
+   * @spec Select kubectl before starting stdin commands; never probe by executing then replaying.
+   * @why v4 WebSockets cannot close stdin independently. EOF readers need kubectl's SPDY/v5 transport.
+   */
+  async #stdinSession(namespace: string, target: ExecTarget, command: string[], options: RunOptions,
+    signal: AbortSignal, started: number): Promise<ExecResult> {
+    const controller = new AbortController();
+    const combined = AbortSignal.any([signal, controller.signal]);
+    let retained = 0;
+    let stdout = "";
+    let failure: unknown;
+    const guard = (action: () => void) => {
+      if (combined.aborted) return;
+      try { action(); }
+      catch (cause) { failure = cause; controller.abort(cause); throw cause; }
+    };
+    const count = (size: number, retain: boolean) => {
+      if (retain) retained += size;
+      if (size > this.limits.maxBytes || retained > this.limits.maxBytes) {
+        throw new KubernetesError(`Kubernetes exec ${namespace}/${target.pod} output exceeds ${this.limits.maxBytes} bytes`,
+          { kind: "limit_exceeded" });
+      }
+    };
+    const executor = new KubectlExecutor({ ...this.connection, namespace });
+    const result = await executor.exec(target, command, {
+      ...options, signal: combined,
+      timeoutMs: Math.max(1, (options.timeoutMs ?? this.limits.timeoutMs) - (performance.now() - started)),
+      collectStdout: false,
+      onStdoutBytes: bytes => guard(() => {
+        count(bytes.length, options.collectStdout !== false);
+        options.onStdoutBytes?.(bytes);
+      }),
+      onStdout: text => guard(() => {
+        if (options.collectStdout !== false) stdout += text;
+        options.onStdout?.(text);
+      }),
+      onStderr: text => guard(() => { count(Buffer.byteLength(text), true); options.onStderr?.(text); }),
+    });
+    if (controller.signal.aborted) throw failure;
+    if (signal.aborted) throw signal.reason;
+    return { ...result, stdout, durationMs: performance.now() - started };
   }
 
   #result(namespace: string, target: ExecTarget, command: string[], started: number,
@@ -68,10 +112,13 @@ export class KubernetesExecTransport {
 
   #session(namespace: string, target: ExecTarget, command: string[], options: RunOptions,
     signal: AbortSignal, started: number, deadline: AbortSignal): Promise<ExecResult> {
+    // Bun's proxy WebSocket retains sockets after terminate and cannot preserve all TLS overrides.
+    if (process.versions.bun && this.#config.getCurrentCluster()?.proxyUrl) {
+      throw new KubernetesError("Native exec through a kubeconfig proxy requires a Node host", { kind: "unsupported_operation" });
+    }
     return new Promise((resolve, reject) => {
       let socket: WebSocket | undefined;
       let agent: Agent | undefined;
-      let input: ReadableStreamDefaultReader<Uint8Array> | undefined;
       let settled = false;
       let stdout = "", stderr = "", retained = 0;
       const outDecoder = new TextDecoder(), errDecoder = new TextDecoder();
@@ -81,7 +128,6 @@ export class KubernetesExecTransport {
         signal.removeEventListener("abort", abort);
         socket?.terminate();
         agent?.destroy();
-        void input?.cancel().catch(() => {});
         const tail = outDecoder.decode(), errTail = errDecoder.decode();
         if (options.collectStdout !== false) stdout += tail;
         stderr += errTail;
@@ -108,10 +154,10 @@ export class KubernetesExecTransport {
         url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
         for (const arg of command) url.searchParams.append("command", arg);
         url.searchParams.set("stdout", "true"); url.searchParams.set("stderr", "true");
-        url.searchParams.set("stdin", String(options.stdin !== undefined)); url.searchParams.set("tty", "false");
+        url.searchParams.set("stdin", "false"); url.searchParams.set("tty", "false");
         if (target.container) url.searchParams.set("container", target.container);
-        // v5 supports closing stdin without terminating stdout/status. Older sessions are safe only without stdin.
-        socket = new WebSocket(url, options.stdin === undefined ? ["v5.channel.k8s.io", "v4.channel.k8s.io"] : ["v5.channel.k8s.io"],
+        // Output-only sessions need no stdin half-close and accept either protocol.
+        socket = new WebSocket(url, ["v5.channel.k8s.io", "v4.channel.k8s.io"],
           { ...request, ...(process.versions.bun ? { tls: { ca: request.ca, cert: request.cert, key: request.key, pfx: request.pfx,
                 passphrase: request.passphrase, rejectUnauthorized: request.rejectUnauthorized, serverName: request.servername } } : {}), maxPayload: this.limits.maxBytes, handshakeTimeout: this.limits.timeoutMs });
         // Bun's ws shim does not expose upgrade responses; preserve an unknown connection failure there.
@@ -158,23 +204,7 @@ export class KubernetesExecTransport {
             }
           } catch (error) { fail("invalid_response", error); }
         });
-        socket.on("open", () => {
-          if (options.stdin === undefined || settled) return;
-          const send = (bytes: Uint8Array) => new Promise<void>((done, failed) => {
-            if (settled) { failed(new Error("Exec closed")); return; }
-            socket!.send(Buffer.concat([Buffer.from([0]), bytes]), error => error ? failed(error) : done());
-          });
-          void (async () => {
-            const stdin = options.stdin!;
-            if (typeof stdin === "string" || stdin instanceof Uint8Array) await send(typeof stdin === "string" ? new TextEncoder().encode(stdin) : stdin);
-            else {
-              const reader = stdin.getReader();
-              input = reader;
-              while (!settled) { const chunk = await reader.read(); if (chunk.done) break; await send(chunk.value); }
-            }
-            if (!settled) socket!.send(Buffer.from([255, 0]));
-          })().catch(error => { if (!settled) fail("connection_failed", error); });
-        });
+
       }).catch(error => { if (!settled) fail("connection_failed", error); });
     });
   }
