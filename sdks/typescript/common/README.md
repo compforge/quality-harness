@@ -211,3 +211,15 @@ tool and an optional declared version/constraint. `Depot.bins` groups `Bin` decl
 repository-relative paths and `dependencies`, `output` or `cache` kinds. Metadata does not change
 Component identity, prove physical existence or authorize deletion. Discovery, preparation,
 usage protection and reclamation belong to consumers. See [the shared contract](../../../docs/component-depot.md).
+
+## Endpoint
+
+`Endpoint` describes a network access address: optional lowercase `scheme`, `host`, explicit
+`port`, and optional `secure`. It is independent of the Service, DataSource or resource behind
+that address. IPv6 hosts are unbracketed. Credentials, paths, query parameters, execution
+locations and timeouts are not part of this contract.
+
+`secure: true` requires encrypted transport; the protocol determines whether it uses direct
+TLS or protocol-specific negotiation. Omission makes no encryption requirement. HTTPS/WSS/TLS
+endpoints require `secure: true`. This declaration does not assert connectivity, trust-policy
+approval or authorization. Toolbox owns URL projection, validation and network probing.

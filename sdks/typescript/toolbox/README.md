@@ -433,7 +433,31 @@ identifiers, never keys, values or errors. Logging does not change retention or 
 
 ### Network connectivity
 
-`@compforge/harness-toolbox/network` exports `probeConnectivity({host, port, tls?}, execute, {timeoutMs, signal?})`.
+`@compforge/harness-toolbox/network` exports `probeConnectivity(endpoint, execute, {timeoutMs, signal?})`.
+It consumes `Endpoint` from `@compforge/harness-common`; `ConnectivityTarget` is removed.
+
+```typescript
+import type { Endpoint } from "@compforge/harness-common";
+import { endpointFromUrl, validateEndpoint } from "@compforge/harness-toolbox/endpoint";
+
+const endpoint: Endpoint = endpointFromUrl("https://storage.example:9443/object?signature=private");
+// { scheme: "https", host: "storage.example", port: 9443, secure: true }
+validateEndpoint(endpoint); // Pure validation; no DNS or I/O.
+```
+
+The URL projection drops credentials, path, query and fragment, and unbrackets IPv6 hosts.
+HTTP(S), WS(S) and FTP have default ports. The `tls` scheme requires a port and sets `secure: true`.
+Other schemes require an explicit port and leave
+`secure` unspecified; callers supply any encryption requirement from their protocol configuration.
+Errors do not expose the original URL. Keep the full URL separately for resource access.
+
+`secure` replaces `tls` in probe inputs and result targets. HTTPS/WSS/TLS require `secure: true`;
+HTTP/WS reject it. With `secure: true`, this probe supports direct TLS for `https`, `wss`, and
+explicit `tls` schemes. Other schemes, or a missing scheme, throw `ProtocolError` (a `ToolboxError` with `kind: "protocol"`, `code: "Unsupported"`)
+before execution: protocol-negotiated encryption such as MySQL or STARTTLS is not implemented.
+Without an encryption requirement, a successful TCP check does not prove application-protocol
+availability or encryption. TLS remains the name of the observed handshake stage.
+
 The caller supplies an executor in the consumer environment (host, Pod or sandbox),
 which runs Python 3 with the supplied argv and stdin and enforces timeout/cancellation.
 DNS, TCP and optional verified TLS have separate results and timings. Domain names,

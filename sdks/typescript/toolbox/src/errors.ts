@@ -3,7 +3,7 @@ export type ErrorKind =
   | "connection_failed" | "connection_lost" | "tls_verification_failed"
   | "authentication_failed" | "permission_denied" | "resource_not_found"
   | "timeout" | "limit_exceeded" | "invalid_response" | "operation_failed"
-  | "invalid_argument" | "unsupported_operation";
+  | "invalid_argument" | "unsupported_operation" | "protocol";
 
 export class ToolboxError extends Error {
   readonly kind: ErrorKind;
@@ -13,6 +13,13 @@ export class ToolboxError extends Error {
     this.name = new.target.name;
     this.kind = options.kind;
     this.code = options.code;
+  }
+}
+
+/** Protocol errors retain a specific code; Unsupported denotes a capability gap, not target health. */
+export class ProtocolError extends ToolboxError {
+  constructor(message: string, options: { code: string; cause?: unknown }) {
+    super(message, { ...options, kind: "protocol" });
   }
 }
 

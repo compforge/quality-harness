@@ -27,9 +27,17 @@ test("published lifecycle and transport entries run in Node without protocol dri
       import assert from 'node:assert/strict';
       import { probeConnectivity } from '@compforge/harness-toolbox/network';
       assert.equal(typeof probeConnectivity, 'function');
+      import { endpointFromUrl, validateEndpoint } from '@compforge/harness-toolbox/endpoint';
+      const endpoint = endpointFromUrl('https://user:secret@storage.test/object?signature=hidden');
+      assert.deepEqual(endpoint, { scheme: 'https', host: 'storage.test', port: 443, secure: true });
+      validateEndpoint(endpoint);
       import { ClientManager, EnvironmentContext, clientKey } from '@compforge/harness-toolbox';
       import { ToolboxError } from '@compforge/harness-toolbox';
-      import { KubernetesError } from '@compforge/harness-toolbox/errors';
+      import { KubernetesError, ProtocolError } from '@compforge/harness-toolbox/errors';
+      const unsupported = new ProtocolError('Unsupported encrypted probe', { code: 'Unsupported' });
+      assert.ok(unsupported instanceof ToolboxError);
+      assert.equal(unsupported.kind, 'protocol');
+      assert.equal(unsupported.code, 'Unsupported');
       import { ClientManager as Subpath } from '@compforge/harness-toolbox/client-manager';
       import { ClientManager as Common } from '@compforge/harness-common';
       import { collectClusterCompute } from '@compforge/harness-toolbox/kubernetes/compute';

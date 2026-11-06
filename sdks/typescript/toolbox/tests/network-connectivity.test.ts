@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
+import { ToolboxError, ProtocolError } from "../src/errors";
 import { probeConnectivity, type ConnectivityExecutor } from "../src/network/connectivity";
 
 const execute: ConnectivityExecutor = (command, options) => new Promise((resolve, reject) => {
@@ -35,7 +36,7 @@ test("a connected plaintext socket does not count as verified TLS", async () => 
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as { port: number };
   try {
-    const value = await probeConnectivity({ host: "127.0.0.1", port: address.port, tls: true }, execute, { timeoutMs: 2000 });
+    const value = await probeConnectivity({ host: "127.0.0.1", port: address.port, scheme: "https", secure: true }, execute, { timeoutMs: 2000 });
     expect(value.stages.at(-1)).toMatchObject({ stage: "tls", status: "failed" });
     expect(value.status).toBe("failed");
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
@@ -61,3 +62,35 @@ test("tool failures, malformed evidence and cancellation are not connectivity fa
   await expect(probeConnectivity(target, async () => { throw new Error("must not execute"); }, { timeoutMs: 100, signal: AbortSignal.abort(new Error("cancelled")) })).rejects.toThrow("cancelled");
   await expect(probeConnectivity({ host: "https://user:secret@example.test", port: 443 }, execute, { timeoutMs: 100 })).rejects.toThrow("hostname/IP");
 });
+
+
+test("unsupported encrypted protocols are a capability gap, not an unhealthy endpoint", async () => {
+  let calls = 0;
+  const execute: ConnectivityExecutor = async () => { calls++; throw new Error("must not execute"); };
+  for (const scheme of [undefined, "mysql", "postgresql", "smtp", "ftp", "custom"]) {
+    const result = probeConnectivity({ host: "store.demo", port: 1234, scheme, secure: true }, execute, { timeoutMs: 100 });
+    await expect(result).rejects.toBeInstanceOf(ProtocolError);
+    await expect(result).rejects.toBeInstanceOf(ToolboxError);
+    await expect(result).rejects.toMatchObject({ name: "ProtocolError", kind: "protocol", code: "Unsupported" });
+  }
+  expect(calls).toBe(0);
+});
+
+for (const scheme of ["https", "wss", "tls"]) {
+  test(`${scheme} secure endpoint requires TLS evidence and excludes undeclared URL data`, async () => {
+    const target = { scheme, host: "store.demo", port: 443, secure: true, url: "https://store.demo/?signature=secret" };
+    const result = await probeConnectivity(target, async (_command, options) => {
+      expect(JSON.parse(options.stdin)).toEqual({ host: "store.demo", port: 443, tls: true, timeoutMs: 100 });
+      return JSON.stringify({ status: "passed", stages: [
+        { stage: "dns", status: "passed", elapsedMs: 1 },
+        { stage: "tcp", status: "passed", elapsedMs: 1 },
+        { stage: "tls", status: "passed", elapsedMs: 1 },
+      ] });
+    }, { timeoutMs: 100 });
+    expect(result.target).toEqual({ scheme, host: "store.demo", port: 443, secure: true });
+    expect(JSON.stringify(result)).not.toContain("secret");
+    await expect(probeConnectivity(target, async () => JSON.stringify({ status: "passed", stages: [
+      { stage: "dns", status: "passed", elapsedMs: 1 }, { stage: "tcp", status: "passed", elapsedMs: 1 },
+    ] }), { timeoutMs: 100 })).rejects.toThrow("Invalid connectivity");
+  });
+}

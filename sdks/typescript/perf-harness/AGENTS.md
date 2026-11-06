@@ -37,9 +37,9 @@ Prometheus、Kubernetes 等资源观测由消费方通过 Prombed 或自己的�
 
 ```bash
 bun install --frozen-lockfile # 从 sdks/typescript workspace 安装
-bun test
-bun run typecheck
-bun run build
+make test
+make lint
+make build
 ```
 
 ## References
