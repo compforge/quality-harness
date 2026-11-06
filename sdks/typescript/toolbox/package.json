@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -96,6 +96,10 @@
     "./http": {
       "types": "./dist/http/index.d.ts",
       "import": "./dist/http/index.js"
+    },
+    "./network": {
+      "types": "./dist/network/connectivity.d.ts",
+      "import": "./dist/network/connectivity.js"
     }
   },
   "files": [

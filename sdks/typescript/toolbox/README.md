@@ -430,3 +430,14 @@ timeouts remain separate, and failed operations are never replayed on another tr
 DataLoader accepts an optional `logger.debug(message)` and a non-sensitive `label`.
 Diagnostics distinguish miss, wait, hit, bypass, not-retained and close using scope/read
 identifiers, never keys, values or errors. Logging does not change retention or retry policy.
+
+### Network connectivity
+
+`@compforge/harness-toolbox/network` exports `probeConnectivity({host, port, tls?}, execute, {timeoutMs, signal?})`.
+The caller supplies an executor in the consumer environment (host, Pod or sandbox),
+which runs Python 3 with the supplied argv and stdin and enforces timeout/cancellation.
+DNS, TCP and optional verified TLS have separate results and timings. Domain names,
+IP literals and Kubernetes `service.namespace` names use the same API. There is no
+implicit execution on the caller host or ICMP requirement. Network failure returns
+evidence; missing Python, execution failure and incomplete output throw. TLS success
+does not establish HTTP authorization, object access or application download policy.
