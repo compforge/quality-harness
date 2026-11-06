@@ -220,9 +220,10 @@ that address. IPv6 hosts are unbracketed. Credentials, paths, query parameters, 
 adapters and timeouts are not part of this contract.
 
 Optional `id` and `description` identify and describe the dependency within its consumer.
-Optional `workload` names the consumer Workload from which the address is accessed, not the
-remote Service. Consumers resolve and validate that reference; a declaration does not discover
-instances or grant access. Protocol probing can consume the address fields alone.
+Optional `workload` carries the complete consumer `Workload` declaration from which the address
+is accessed and probed, including platform, location, namespace and container. Consumers resolve
+instances directly from this declaration without looking up a name in a Service catalog. A declaration
+does not discover instances or grant access. Protocol probing can consume the address fields alone.
 
 `secure: true` requires encrypted transport; the protocol determines whether it uses direct
 TLS or protocol-specific negotiation. Omission makes no encryption requirement. HTTPS/WSS/TLS

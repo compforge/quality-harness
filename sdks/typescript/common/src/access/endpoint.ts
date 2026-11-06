@@ -1,3 +1,5 @@
+import type { Workload } from "../system/workload.js";
+
 /**
  * A network access address, independent of the Service, DataSource or resource behind it.
  * @spec Endpoint contains no credentials, resource path, query or execution adapter.
@@ -9,8 +11,8 @@ export interface Endpoint {
   readonly id?: string;
   /** Human-readable description; never credentials or a signed resource URL. */
   readonly description?: string;
-  /** Canonical consumer Workload name, not the remote Service or destination workload. */
-  readonly workload?: string;
+  /** Consumer Workload declaration: where this dependency is accessed and probed. */
+  readonly workload?: Workload;
   /** Lowercase URI scheme without a colon; protocol metadata, not a health assertion. */
   readonly scheme?: string;
   /** Hostname or IP literal; IPv6 literals have no surrounding brackets. */
