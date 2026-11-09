@@ -14,7 +14,7 @@ from trajectory_harness.measurers._tokens import (
 )
 from atif import Trajectory
 
-from trajectory_harness.model import step_id, step_operation
+from trajectory_harness.model import recorded_step_duration_ms, step_id, step_operation
 
 _DISTRIBUTION_AGGREGATIONS = ("sum", "mean", "p50", "p95")
 
@@ -30,6 +30,20 @@ class ModelUsageMeasurer:
         category="cost",
         owner="trajectory_harness",
         measurements=(
+            MeasurementSpec(
+                "model_duration_ms",
+                "ms",
+                "Summed recorded model-call intervals, not wall time.",
+                "neutral",
+                _DISTRIBUTION_AGGREGATIONS,
+            ),
+            MeasurementSpec(
+                "duration_reported_call_count",
+                "count",
+                "Model calls with recorded duration, including zero.",
+                "neutral",
+                _DISTRIBUTION_AGGREGATIONS,
+            ),
             MeasurementSpec(
                 "model_call_count",
                 "count",
@@ -202,6 +216,14 @@ class ModelUsageMeasurer:
             "usage_reported_call_count": usage_reported_calls,
             "usage_coverage_ratio": round(usage_reported_calls / len(calls), 6),
         }
+        durations = [
+            value
+            for call in calls
+            if (value := recorded_step_duration_ms(call)) is not None
+        ]
+        measurements["duration_reported_call_count"] = len(durations)
+        if durations:
+            measurements["model_duration_ms"] = round(sum(durations), 6)
         if input_reported:
             measurements["input_tokens"] = input_tokens
             measurements["average_input_tokens_per_call"] = round(

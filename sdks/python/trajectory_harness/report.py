@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -111,6 +112,7 @@ class TrajectoryReportBuilder:
         artifacts = (*history, current)
         runs = tuple(artifact.run for artifact in artifacts)
         sections = [_collection_section(current.build.summary)]
+        sections.extend(_measurement_sections(current))
         sections.extend(self.extra_sections(current, history))
         return build_report(
             runs,
@@ -138,10 +140,34 @@ class TrajectoryReportBuilder:
         trajectories = [
             t for t in current.dataset.trajectories if t.trajectory_id in selected
         ]
+        from trajectory_harness.measurement_view import (
+            MEASUREMENT_VIEW_FILE,
+            measurement_views,
+        )
+
+        measurement_path = target.parent / MEASUREMENT_VIEW_FILE
+        temporary = measurement_path.with_name(f".{measurement_path.name}.tmp")
+        temporary.write_text(
+            json.dumps(
+                measurement_views(current.run, trajectories=trajectories).to_dict(),
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(measurement_path)
+        logging.getLogger(__name__).info(
+            "Measurement views written run_id=%s dataset_version=%s path=%s",
+            current.run.run_id,
+            current.run.dataset_version,
+            measurement_path,
+        )
         directory = target.parent / "session-views"
         directory.mkdir(parents=True, exist_ok=True)
         index = {
             "sessions": [],
+            "measurement_views": "../" + MEASUREMENT_VIEW_FILE,
             "unassigned_trajectories": [
                 t.trajectory_id for t in trajectories if not t.session_id
             ],
@@ -172,6 +198,70 @@ class TrajectoryReportBuilder:
         current = load_run_artifact(run_dir)
         history = tuple(load_run_artifact(path) for path in history_dirs)
         return self.write(run_dir, current, history=history)
+
+
+def _measurement_sections(artifact: TrajectoryRunArtifact) -> tuple[Section, ...]:
+    from trajectory_harness.measurement_view import measurement_views
+
+    views = measurement_views(artifact.run, trajectories=artifact.dataset.trajectories)
+    columns = [
+        "Measurer",
+        "Measurement",
+        "Value",
+        "Unit",
+        "Aggregation",
+        "Status",
+        "Coverage",
+    ]
+
+    def row(value: dict) -> list[str]:
+        coverage = value["coverage"]
+        return [
+            value["measurer_title"],
+            value["name"],
+            "—" if value["value"] is None else _measurement_value(value["value"]),
+            value["unit"],
+            value["aggregation"] or "—",
+            value["status"],
+            ", ".join(
+                f"{number} {status}" for status, number in coverage.items() if number
+            )
+            or "No results",
+        ]
+
+    return (
+        Section(
+            heading="Global measurements",
+            blocks=[
+                Table(
+                    columns=columns,
+                    rows=[row(value) for value in views.global_view.values],
+                )
+            ],
+        ),
+        Section(
+            heading="Session measurements",
+            blocks=[
+                Table(
+                    columns=["Session", *columns, "Evidence"],
+                    rows=[
+                        [
+                            view.session.id,
+                            *row(value),
+                            ", ".join(
+                                f"{ref['uri']}#step={ref['id']}"
+                                for ref in value["evidence"]
+                            )
+                            or "—",
+                        ]
+                        for view in views.sessions
+                        if view.session is not None
+                        for value in view.values
+                    ],
+                )
+            ],
+        ),
+    )
 
 
 def _collection_section(summary: DatasetBuildSummary) -> Section:

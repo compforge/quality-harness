@@ -572,3 +572,35 @@ Measurements、Detector、Verifier 和报告流程，不拥有另一个 Trajecto
 Harness 扩展统一读写 `extra.quality_harness`，不提供旧命名空间兼容或迁移。
 Trajectory 与 Step 的来源、执行和诊断事实均遵循此约定；其它 producer 的 `extra` 内容保持原样。
 回归契约见 `sdks/python/trajectory_harness/tests/test_atif_json.py` 与 `test_pipeline.py`。
+
+## Measurement 的 Session / Global 展示
+
+`measurement_views(run, trajectories=dataset.trajectories)` 是纯结果投影，不执行 Source、Loader、Measurer、Detector 或 Verifier。
+它返回带 Run ID、Dataset version 与生成时间的轻量 JSON 契约，可由 Web、TUI 或其它消费者通用渲染。
+值以 `measurer_id + measurement name` 标识，目录提供标题、描述、单位、方向与聚合方式；注册并执行的新 Measurer
+自动进入展示，不需要在 Viewer 中增加指标分支。基础 token、model/tool 次数与累计调用耗时也来自同一套 Measurement。
+
+- Session 根据顶层 Trajectory 的显式 `session_id` 分组，保留可定位 ATIF Step 的证据；同一 Session 的多个 loop 只生成一个展示分组。
+- Global 对所选 Run 的顶层测量结果聚合一次，不展开子轨迹重复计数，也不包含 Session 分布或调用证据明细。
+  业务侧选择当前 Review 对应的 Run/Worksheet；Harness 不理解 Review、Unit 或 Lane。
+- 数值聚合复用 `aggregate_measurements`。`MeasurementSpec.summary_aggregation` 选择已声明的一个聚合；省略时使用
+  `aggregations` 的第一项。次数通常先声明 sum，比例和均值遵循自身定义，不能作为总次数相加。
+- 每个值保留 measured、missing、error 与 not_applicable 的 Trajectory 覆盖数。部分结果缺失时状态为 partial；
+  没有可用值时返回 null，不伪装成零。已测得但未声明可用聚合的值标为 not_aggregated。
+  这里的覆盖粒度是 Trajectory；模型 usage 与耗时的调用级覆盖继续由对应 Measurer 的计数表达。
+- ModelUsageMeasurer 的 model_duration_ms 和 ToolUsageMeasurer 的 tool_duration_ms 是已记录区间的累计值，
+  不等于 wall time。duration_reported_call_count 区分未知耗时和真实零耗时。
+
+`TrajectoryReportBuilder.write/rerender` 自动导出 `measurement-views.json`，并在 HTML 中生成 Session measurements 与
+Global measurements 两个通用表。`session-views/index.json` 保存测量视图文件引用；原生 `SessionView` schema 保持不变。
+结果文件原子替换，历史读取和重渲染只消费既有 Dataset/Run，不会重新测量。
+运行中消费者可以针对新的固定快照重复执行确定性测量；展示只说明该 Run 已观测到的事实，不承诺评审完成或数据完整。
+
+```python
+from trajectory_harness import measurement_views
+
+views = measurement_views(artifact.run, trajectories=artifact.dataset.trajectories)
+consumer_payload = views.to_dict()
+# consumer_payload["global"]["values"]: 单个汇总值，无 Session 分布
+# consumer_payload["sessions"]: 按显式 Session 归属的值及证据
+```

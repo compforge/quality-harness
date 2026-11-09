@@ -9,6 +9,7 @@ from atif import Step, Trajectory
 from trajectory_harness._tool_calls import has_tool_execution, tool_output_bytes
 from trajectory_harness.measure import MeasurementResult, MeasurementSpec, MeasurerSpec
 from trajectory_harness.model import (
+    recorded_step_duration_ms,
     step_duration_ms,
     step_failure,
     step_id,
@@ -33,6 +34,13 @@ class ToolUsageMeasurer:
         category="cost",
         owner="trajectory_harness",
         measurements=(
+            MeasurementSpec(
+                "duration_reported_call_count",
+                "count",
+                "Executed tool calls with recorded duration, including zero.",
+                "neutral",
+                _DISTRIBUTION_AGGREGATIONS,
+            ),
             MeasurementSpec(
                 "tool_call_count",
                 "count",
@@ -126,12 +134,19 @@ class ToolUsageMeasurer:
             "tool_call_count": len(calls),
             "failed_tool_call_count": failed,
             "tool_failure_ratio": round(failed / len(calls), 6),
-            "tool_duration_ms": round(sum(step_duration_ms(call) for call in calls), 6),
             "result_reported_call_count": len(reported),
             "result_coverage_ratio": round(len(reported) / len(calls), 6),
             "result_bytes": sum(result_sizes),
             "max_concurrent_tool_calls": _max_concurrency(calls),
         }
+        durations = [
+            value
+            for call in calls
+            if (value := recorded_step_duration_ms(call)) is not None
+        ]
+        measurements["duration_reported_call_count"] = len(durations)
+        if durations:
+            measurements["tool_duration_ms"] = round(sum(durations), 6)
         if result_sizes:
             measurements["average_result_bytes_per_call"] = round(
                 sum(result_sizes) / len(result_sizes), 6

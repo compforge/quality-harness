@@ -289,3 +289,12 @@ rather than silently treating findings as gates.
 
 See [`../../../docs/trajectory-harness.md`](../../../docs/trajectory-harness.md) for the model and
 its boundary with eval/trace analysis.
+
+### Session and Global measurements
+
+`measurement_views(run, trajectories=dataset.trajectories)` projects the selected Run's recorded measurements into
+Session summaries with Step evidence and one Global summary without a Session distribution. The catalog supplies
+names, units and declared aggregation, so new registered measurers require no metric-specific rendering code.
+Missing values remain null with coverage/status; measured zero remains zero. `TrajectoryReportBuilder` exports
+`measurement-views.json` and renders both tables; offline rerender never executes the analysis plugins again.
+See the repository's `docs/trajectory-harness.md` for scope and aggregation rules.
