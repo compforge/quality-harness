@@ -1,0 +1,137 @@
+{
+  "sessions": [
+    {
+      "schema_version": "agent-ledger/session@1",
+      "session": {
+        "source": "fixture",
+        "id": "alpha"
+      },
+      "nodes": [
+        {
+          "kind": "model_call",
+          "id": "m1",
+          "status": "completed",
+          "started_at": "2026-11-09T00:00:00Z",
+          "finished_at": "2026-11-09T00:00:00.010Z",
+          "response": {
+            "usage": {
+              "input_tokens": 100,
+              "cache_write_input_tokens": 20,
+              "output_tokens": 10,
+              "cache_read_input_tokens": 40
+            }
+          }
+        },
+        {
+          "kind": "model_call",
+          "id": "m2",
+          "status": "failed",
+          "started_at": "2026-11-09T00:00:00Z",
+          "finished_at": "2026-11-09T00:00:00.000Z"
+        },
+        {
+          "kind": "model_call",
+          "id": "m3",
+          "status": "",
+          "started_at": "2026-11-09T00:00:00Z"
+        },
+        {
+          "kind": "tool_call",
+          "id": "t1",
+          "status": "completed",
+          "started_at": "2026-11-09T00:00:00Z",
+          "finished_at": "2026-11-09T00:00:00.003Z"
+        },
+        {
+          "kind": "tool_call",
+          "id": "t2",
+          "status": "failed",
+          "started_at": "2026-11-09T00:00:00Z",
+          "finished_at": "2026-11-09T00:00:00.004Z"
+        },
+        {
+          "kind": "tool_call",
+          "id": "t3",
+          "status": "",
+          "started_at": "2026-11-09T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "schema_version": "agent-ledger/session@1",
+      "session": {
+        "source": "fixture",
+        "id": "beta"
+      },
+      "nodes": [
+        {
+          "kind": "model_call",
+          "id": "b1",
+          "status": "completed",
+          "started_at": "2026-11-09T00:00:00Z",
+          "finished_at": "2026-11-09T00:00:00.000Z",
+          "response": {
+            "usage": {
+              "input_tokens": 0,
+              "output_tokens": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema_version": "agent-ledger/session@1",
+      "session": {
+        "source": "fixture",
+        "id": "empty"
+      },
+      "nodes": []
+    }
+  ],
+  "expected": {
+    "global": {
+      "model_usage": {
+        "model_call_count": 4,
+        "usage_reported_call_count": 2,
+        "input_tokens": 120,
+        "output_tokens": 10,
+        "cached_input_tokens": 40,
+        "model_duration_ms": 10,
+        "duration_reported_call_count": 3,
+        "average_input_tokens_per_call": 60,
+        "usage_coverage_ratio": 0.666667
+      },
+      "tool_usage": {
+        "tool_call_count": 3,
+        "failed_tool_call_count": 1,
+        "tool_duration_ms": 7,
+        "duration_reported_call_count": 2,
+        "tool_failure_ratio": 0.333333
+      }
+    },
+    "sessions": {
+      "alpha": {
+        "model_usage": {
+          "model_call_count": 3,
+          "usage_reported_call_count": 1,
+          "model_duration_ms": 10,
+          "duration_reported_call_count": 2
+        },
+        "tool_usage": {
+          "tool_call_count": 3,
+          "failed_tool_call_count": 1,
+          "tool_duration_ms": 7,
+          "duration_reported_call_count": 2
+        }
+      },
+      "beta": {
+        "model_usage": {
+          "model_call_count": 1,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "model_duration_ms": 0
+        }
+      }
+    }
+  }
+}

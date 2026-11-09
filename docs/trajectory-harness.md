@@ -604,3 +604,18 @@ consumer_payload = views.to_dict()
 # consumer_payload["global"]["values"]: 单个汇总值，无 Session 分布
 # consumer_payload["sessions"]: 按显式 Session 归属的值及证据
 ```
+
+### Go 的原生 Session 测量入口
+
+`sdks/go/trajectory` 是独立 Go 1.26 module，直接消费 agent-ledger `SessionView` 已记录的
+模型和工具调用，不在 SDK 中新建另一套 Trajectory/Step 格式。Python 继续消费 ATIF，重叠
+measurement 通过 `conformance/trajectory/session-measurements.json` 共享事实与预期结果。
+
+Go 的 `Runner` 只执行确定性 Measurer，产出目录与逐 Session 结果；`Project` 纯粹生成 schema 1
+的 Session / Global 展示投影。默认支持 model usage 与 tool usage，包括工具失败数、状态覆盖、
+调用次数、token、累计耗时与耗时覆盖。来源包含 gaps 时已知结果标为 partial。失败比例以全部
+已观察工具调用为分母；状态覆盖独立展示，不将未知状态解释为成功。
+
+消费者可在读取视图时显式调用 Runner，并以录制内容指纹和 `Runner.Fingerprint()` 缓存结果。
+后者覆盖 Measurer 目录、版本和投影契约；算法变更必须更新版本。重复原生 Session 只计算一次，
+冲突快照报错，ToolCall 引用的其它 Session 不展开。Go 此阶段不实现 Detector/Verifier。
