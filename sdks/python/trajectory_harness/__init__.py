@@ -130,3 +130,8 @@ from trajectory_harness.verdict import (
 )
 
 from trajectory_harness.session_view import session_views as session_views
+
+from trajectory_harness.measurement_view import MeasurementView as MeasurementView
+from trajectory_harness.measurement_view import MeasurementViews as MeasurementViews
+from trajectory_harness.measurement_view import measurement_views as measurement_views
+from trajectory_harness.metrics import aggregate_measurements as aggregate_measurements

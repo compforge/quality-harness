@@ -58,6 +58,8 @@ def test_model_usage_accepts_otel_and_framework_token_names():
     assert result.status == "measured"
     assert result.measurements == {
         "model_call_count": 3,
+        "model_duration_ms": 3.0,
+        "duration_reported_call_count": 3,
         "usage_reported_call_count": 2,
         "usage_coverage_ratio": 0.666667,
         "input_tokens": 150,
@@ -83,6 +85,8 @@ def test_model_usage_counts_calls_without_inventing_missing_token_values():
 
     assert result.measurements == {
         "model_call_count": 1,
+        "model_duration_ms": 1.0,
+        "duration_reported_call_count": 1,
         "usage_reported_call_count": 0,
         "usage_coverage_ratio": 0.0,
     }

@@ -8,6 +8,7 @@ namespaced evaluation provenance carried by ATIF's ``extra`` fields.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any, Literal, Mapping, Sequence
 
 from atif import Agent, ContentPart, Step, Trajectory
@@ -209,6 +210,19 @@ def step_start_ms(step: Step) -> float:
 
 def step_duration_ms(step: Step) -> float:
     return _number(_step_extension(step).get("duration_ms"))
+
+
+def recorded_step_duration_ms(step: Step) -> float | None:
+    """Keep missing durations distinct from recorded zero-length intervals."""
+    value = _step_extension(step).get("duration_ms")
+    if (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value >= 0
+    ):
+        return float(value)
+    return None
 
 
 def step_status(step: Step) -> str:

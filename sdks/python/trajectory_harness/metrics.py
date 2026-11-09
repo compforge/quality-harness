@@ -217,7 +217,7 @@ def aggregate_metrics(
         metrics.extend(_failure_metrics(run, target, trajectories))
     metrics.extend(_detection_metrics(run))
     metrics.extend(_verification_metrics(run))
-    metrics.extend(_measurement_metrics(run))
+    metrics.extend(aggregate_measurements(run))
     return tuple(metrics)
 
 
@@ -524,20 +524,29 @@ def _verification_metrics(run: TrajectoryAnalysisRun) -> list[Metric]:
     return result
 
 
-def _measurement_metrics(run: TrajectoryAnalysisRun) -> list[Metric]:
+def aggregate_measurements(
+    run: TrajectoryAnalysisRun, *, group_by_target: bool = True
+) -> tuple[Metric, ...]:
+    """Aggregate recorded measurements using their declared operations, without analysis."""
     result = []
     specs = {spec.measurer_id: spec for spec in run.measurer_specs}
     grouped = defaultdict(list)
     for item in run.measurements:
         for measurement in item.results:
-            grouped[(item.target, item.category, measurement.measurer_id)].append(
-                measurement
-            )
+            grouped[
+                (
+                    item.target if group_by_target else "",
+                    item.category,
+                    measurement.measurer_id,
+                )
+            ].append(measurement)
     for (target, category, measurer_id), measurements in sorted(grouped.items()):
         spec = specs.get(measurer_id)
         if spec is None:
             continue
-        total = _target_total(run, target)
+        total = (
+            _target_total(run, target) if group_by_target else len(run.trajectory_ids)
+        )
         measured = [item for item in measurements if item.status == "measured"]
         errors = [item for item in measurements if item.status == "error"]
         dimensions = _context_dimensions(target, category) + (
@@ -584,7 +593,7 @@ def _measurement_metrics(run: TrajectoryAnalysisRun) -> list[Metric]:
                     dimensions + (("measurement", measurement_spec.name),),
                 )
             )
-    return result
+    return tuple(result)
 
 
 def _distribution_metrics(

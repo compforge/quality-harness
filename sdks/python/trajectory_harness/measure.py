@@ -24,6 +24,14 @@ class MeasurementSpec:
     description: str = ""
     direction: MetricDirection = "neutral"
     aggregations: tuple[Aggregation, ...] = ("mean",)
+    summary_aggregation: Aggregation | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            self.summary_aggregation is not None
+            and self.summary_aggregation not in self.aggregations
+        ):
+            raise ValueError("summary aggregation must be declared in aggregations")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,6 +40,7 @@ class MeasurementSpec:
             "description": self.description,
             "direction": self.direction,
             "aggregations": list(self.aggregations),
+            "summary_aggregation": self.summary_aggregation,
         }
 
     @classmethod
@@ -42,6 +51,7 @@ class MeasurementSpec:
             description=str(value.get("description") or ""),
             direction=value.get("direction", "neutral"),
             aggregations=tuple(value.get("aggregations", ("mean",))),
+            summary_aggregation=value.get("summary_aggregation"),
         )
 
 

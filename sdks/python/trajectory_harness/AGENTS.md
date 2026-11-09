@@ -25,6 +25,7 @@ trajectory_harness/
 ├── detect.py            # DetectorSpec / DetectionResult / Finding 与发现编排
 ├── verify.py            # VerifierSpec / VerificationResult 与判定编排
 ├── measure.py           # MeasurerSpec / MeasurementResult 与测量编排函数
+├── measurement_view.py  # 持久化 Measurement → Session / Global 轻量展示投影
 ├── metrics.py           # TrajectoryAnalysisRun / Metric 与 target/category 维度聚合
 ├── runner.py            # 固定 Dataset → Run（measurement → detection / verification）
 ├── runio.py             # dataset.json + 单次 run.json 持久化
@@ -119,3 +120,8 @@ See `docs/trajectory-harness.md` for the fact-to-view boundaries.
 Each view contains one explicitly attributed Session. Trace uses the same model directly through
 its extractors. Missing identity stays unassigned; never infer it from a business Unit. Retain
 unmatched tool outcomes and evidence issues. See repository `docs/session-view.md`.
+
+Measurement 展示复用 `MeasurementSpec` 与 `aggregate_measurements`，不按指标名维护 UI 清单。
+`measurement_views` 只读取固定 Run：Session 按显式 session_id 关联，Global 按顶层 Trajectory 身份聚合一次，
+不因共享 Session 或子轨迹视图展开重复计数。`summary_aggregation` 必须属于已声明的 aggregations；省略时使用其第一项。
+导出的 `measurement-views.json` 与原生 SessionView 分开保存，通过 session-views/index.json 关联，不把派生结果回写到原始事实。
