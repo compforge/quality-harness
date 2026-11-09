@@ -58,3 +58,10 @@ go run github.com/compforge/quality-harness/sdks/go/cmd/casegen check --source .
 - 跨 Harness 环境操作与观测工具箱：[`../../docs/toolbox.md`](../../docs/toolbox.md)
 - 跨语言约定（case/config schema）：[`../../spec/conventions.md`](../../spec/conventions.md)
 - `+case` 注解 fixture：[`e2e/contract/testdata/src/sandbox.go`](e2e/contract/testdata/src/sandbox.go)
+
+## Trajectory 独立 module
+
+`trajectory/` 提供确定性的 Session 测量与 Global 聚合，消费 agent-ledger 的 `SessionView`，
+不定义第二套 Trajectory/Step。其独立 `go.mod` 使用 Go 1.26，与现有 Go 1.22 module 分开。
+Measurer 的版本参与缓存身份；算法变化必须更新版本。跨语言共享 fixture 位于
+`conformance/trajectory/`，Python 对相同事实通过已有 ATIF 构造入口测量。
