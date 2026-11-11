@@ -14,7 +14,7 @@ from perf_harness.drive.load import LoadPlan, Warmup
 from perf_harness.drive.runner import Runner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.metric.store import MetricStore
-from perf_harness.model import Outcome, ResourceProfile, Service, SloAssertion
+from perf_harness.model import Outcome, ResourceProfile, Service
 from perf_harness.observe import ProbeContext
 from perf_harness.report import write_run
 from perf_harness.runio import load_run
@@ -102,20 +102,20 @@ def config(probe):
     )
 
 
-def test_config_declares_remote_probe_and_slo(tmp_path):
+def test_config_declares_remote_probe_and_report(tmp_path):
     path = tmp_path / "experiment.yaml"
     path.write_text(
         config(
             "        url: http://prom/proxy\n        timeout_ms: 1000\n        connection_pool_maxsize: 2\n"
             "        queries:\n          - {name: first_p50_s, promql: 'histogram_quantile(0.5, sum by (le) (rate(first_bucket[1m])))', unit: s}\n"
         )
-        + "slo: [{metric: 'prometheus_query.first_p50_s{service=\"chat\"}.mean', lt: 10}]\n"
+        + 'report:\n  columns:\n  - title: metric0\n    metric: prometheus_query.first_p50_s{service="chat"}.mean\n'
     )
     exp, _ = load_experiment(str(path))
     probe = next(p for p in exp.probes if isinstance(p, PrometheusQueryProbe))
     assert probe.data_source.url == "http://prom/proxy"
     assert probe.data_source.options.connection_pool_maxsize == 2
-    assert exp.slo[0].metric == 'prometheus_query.first_p50_s{service="chat"}.mean'
+    assert exp.report_columns[0].metric == 'prometheus_query.first_p50_s{service="chat"}.mean'
 
 
 @pytest.mark.parametrize(
@@ -142,9 +142,7 @@ class FastRunner(Runner):
 
 
 @pytest.mark.parametrize("state", ["data", "empty", "warning"])
-async def test_remote_metrics_survive_run_slo_report_and_offline_reload(
-    monkeypatch, tmp_path, state
-):
+async def test_remote_metrics_survive_run_report_and_offline_reload(monkeypatch, tmp_path, state):
     def handler(request):
         assert parse_qs(request.content.decode())["query"] == [
             "sum(rate(first_sum[1m])) / sum(rate(first_count[1m]))"
@@ -179,12 +177,10 @@ async def test_remote_metrics_survive_run_slo_report_and_offline_reload(
                 ],
             )
         ],
-        slo=[SloAssertion(metric=ref, op="lt", threshold=3)],
-        strict_slo=True,
         observe_interval_s=0.01,
     )
     run = await Engine(exp, run_id=state).run()
-    assert run.passed is (state == "data")
+    assert run.status == "completed"
     assert bool(run.arm_runs[0].probe_errors) is (state == "warning")
     write_run(run, str(tmp_path))
     path = tmp_path / "remote" / state
@@ -195,6 +191,6 @@ async def test_remote_metrics_survive_run_slo_report_and_offline_reload(
         assert MetricStore(restored.arm_runs).query(arm, ref) == 2.5
         assert "Server first output" in arm.metrics["prometheus_query.first_mean_s"].description
         assert "prometheus_query.first_mean_s" in (path / "timeseries.csv").read_text()
-        assert arm.slo[0].state == "pass"
+        assert arm.measurement.probe_metrics
     else:
-        assert arm.slo[0].state == "skipped"
+        assert not isinstance(MetricStore(restored.arm_runs).query(arm, ref), float)

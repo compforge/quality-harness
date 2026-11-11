@@ -5,7 +5,16 @@ additionalProperties:
   type: object
   additionalProperties:
     type: object
-    required: [ok]
+    required:
+    - result
     properties:
-      ok: {type: boolean}
-      error_kind: {type: [string, 'null']}
+      error_kind:
+        type:
+        - string
+        - 'null'
+      result:
+        enum:
+        - success
+        - failure
+        - rejected
+        - timeout

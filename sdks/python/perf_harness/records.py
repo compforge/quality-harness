@@ -8,8 +8,16 @@ from typing import Literal
 
 @dataclass(frozen=True)
 class RequestEvaluation:
-    ok: bool
+    result: Literal["success", "failure", "rejected", "timeout"]
     error_kind: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.result not in {"success", "failure", "rejected", "timeout"}:
+            raise ValueError(f"invalid request result: {self.result!r}")
+
+    @property
+    def ok(self) -> bool:
+        return self.result == "success"
 
 
 @dataclass

@@ -11,7 +11,6 @@ import importlib
 import os
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import get_args
 
 import yaml
 from harness_common import (
@@ -34,14 +33,12 @@ from perf_harness.drive.runner import MockRunner, Runner, build_runner
 from perf_harness.engine import Experiment
 from perf_harness.judge import build_judge
 from perf_harness.metric import MetricFamily, parse_ref, validate_ref
-from perf_harness.metric.store import PER_REQUEST_DESCRIPTORS, REQUEST_DESCRIPTORS, SLO_METRICS
+from perf_harness.metric.store import PER_REQUEST_DESCRIPTORS, REQUEST_ALIASES, REQUEST_DESCRIPTORS
 from perf_harness.model import (
     Deployment,
     ReportColumn,
     ResourceProfile,
     Service,
-    SloAssertion,
-    SloOp,
 )
 from perf_harness.observe import (
     ClientProbe,
@@ -55,10 +52,7 @@ from perf_harness.observe import (
     RestartProbe,
     build_probe,
 )
-from perf_harness.observe.configuration import parse_columns, parse_metric_probe, parse_window
-
-# valid enum values, derived from the Literal types so they can't drift
-_SLO_OPS = get_args(SloOp)
+from perf_harness.observe.configuration import parse_columns, parse_metric_probe
 
 _PROBES = {
     "client": ClientProbe,
@@ -122,7 +116,11 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     caseset = _load_caseset_ref(raw.get("caseset"), config_path.parent)
     cases = _parse_cases(raw, caseset)
     mix = _parse_mix(raw, cases)
-    slo = _parse_slo(raw.get("slo"))
+    removed = {"slo", "strict_slo", "abort_on_fail"} & raw.keys()
+    if removed:
+        raise ValueError(
+            f"Removed acceptance options: {sorted(removed)}; perf records observations"
+        )
     cooldown_s = float(raw.get("cooldown_s", 0.0))
     if cooldown_s < 0:
         raise ValueError("cooldown_s must be >= 0")
@@ -133,11 +131,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     # observed services close the `{service="…"}` label value space (the family-keyed
     # registry no longer carries a per-service entry to check against)
     declared_services = {p.labels["service"] for p in probes if "service" in p.labels}
-    # (family, service) pairs whose series are per-pod ONLY: per_pod emits {pod,service}
-    # series and no service-level aggregate, so a {service="…"} SLO on one would resolve
-    # Missing → skipped on EVERY run (a gate that silently stops gating). Fail fast in
-    # _validate_slo instead. A same-family non-per_pod probe for the service (programmatic
-    # Experiments) restores the aggregate, hence the subtraction.
+    # A per-pod series has no implicit service aggregate; require a concrete selector.
     summed = {
         (d.name, p.labels["service"])
         for p in probes
@@ -150,26 +144,19 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
         if "service" in p.labels and getattr(p, "_per_pod", False)
         for d in p.describe()
     } - summed
-    _validate_slo(
-        slo,
-        registry,
-        declared_facets,
-        declared_services,
-        loads,
-        per_pod_only,
-        cooldown_s=cooldown_s,
-    )
     report_columns = parse_columns(raw.get("report"))
-    _validate_slo(report_columns, registry, declared_facets, declared_services, loads, per_pod_only)
+    _validate_columns(
+        report_columns, registry, declared_facets, declared_services, loads, per_pod_only
+    )
     for probe in probes:
         if not isinstance(probe, MetricProbe):
             continue
         for summary in probe.summaries:
-            for selection in [*slo, *report_columns]:
+            for selection in report_columns:
                 name, labels, _ = parse_ref(selection.metric)
-                if name != f"{probe.family}.{summary.name}" or labels.get(
-                    "service"
-                ) != probe.labels.get("service"):
+                if name != f"{probe.family}.{summary.name}" or any(
+                    labels.get(key) != value for key, value in probe.labels.items()
+                ):
                     continue
                 source_window = summary.window
                 selected = selection.window
@@ -191,9 +178,6 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
         cases=cases,
         mix=mix,
         facet_order=facet_schema.ordered_value_lists(),
-        slo=slo,
-        abort_on_fail=bool(raw.get("abort_on_fail", False)),
-        strict_slo=bool(raw.get("strict_slo", False)),  # skip → run failure (default lenient)
         # experiment name = config `name` (the named experiment dir), default service slug
         name=str(raw.get("name") or _slug(subj_name)),
         observe_interval_s=float(raw.get("observe_interval_s", 5.0)),
@@ -520,43 +504,14 @@ def _parse_loads(c: dict | list[dict]) -> list[LoadPlan]:
     return result
 
 
-def _parse_slo(items: list[dict] | None) -> list[SloAssertion]:
-    """``slo:`` list → SloAssertions. Metric labels select entities; ``window``
-    selects time. Each item carries exactly one comparison operator.
-    Syntax only here; metric/label existence is checked in ``_validate_slo``."""
-    out: list[SloAssertion] = []
-    for s in items or []:
-        metric = s.get("metric")
-        if not isinstance(metric, str) or not metric:
-            raise ValueError(f"slo entry needs a string `metric`: {s!r}")
-        if "scope" in s:
-            raise ValueError(
-                "slo.scope was removed — put the slice in the metric as a label: "
-                "facet:difficulty=simple → 'duration_ms{difficulty=\"simple\"}.p99'"
-            )
-        ops = [k for k in _SLO_OPS if k in s]
-        if len(ops) != 1:
-            raise ValueError(f"slo entry needs exactly one of {list(_SLO_OPS)}: {s!r}")
-        op = ops[0]
-        threshold = tuple(float(x) for x in s[op]) if op == "between" else float(s[op])
-        window = parse_window(s.get("window"), default="measurement")
-        out.append(
-            SloAssertion(
-                metric=metric,
-                op=op,
-                threshold=threshold,
-                window=window,
-            )
-        )
-    return out
-
-
 def _validate_producers(probes: list[Probe], runner: Runner) -> None:
     """Fail-fast (config time) on a producer that declares a metric family wrongly:
     a Runner may only declare ``request``-side distributions; a Probe only
     ``resource``-side families; no producer may shadow a builtin ``request.*`` family;
     and a family re-declared by two producers must agree on its metadata. Keeps the
-    side → who-produces-it invariant honest (the report/SLO trust ``describe()``)."""
+    side → who-produces-it invariant honest (the report/analysis trust ``describe()``)."""
+    if len({probe.name for probe in probes}) != len(probes):
+        raise ValueError("observation probe names must be unique; bind each API explicitly")
     builtin_request = {d.name for d in REQUEST_DESCRIPTORS}
     seen: dict[str, MetricFamily] = {}
 
@@ -588,7 +543,7 @@ def _validate_producers(probes: list[Probe], runner: Runner) -> None:
 
 
 def _static_registry(probes: list[Probe], runner: Runner) -> dict[str, MetricFamily]:
-    """Statically-knowable metric FAMILIES for SLO validation: builtin ``request.*`` +
+    """Statically-knowable metric FAMILIES for report validation: builtin ``request.*`` +
     each Probe's ``describe()`` + the Runner's declared per-request metrics. Keyed
     by family name so metadata is stored once rather than once per service."""
     reg: dict[str, MetricFamily] = {
@@ -597,7 +552,7 @@ def _static_registry(probes: list[Probe], runner: Runner) -> dict[str, MetricFam
     for p in probes:
         reg.update({d.name: d for d in p.describe()})  # by family (dedup across services)
         # the Engine synthesizes `<family>.up` health series per probe — declare it
-        # so observation availability can be an explicit SLO.
+        # so reports can show observation availability.
         reg[f"{p.family}.up"] = MetricFamily(
             name=f"{p.family}.up",
             unit="",
@@ -612,7 +567,7 @@ def _static_registry(probes: list[Probe], runner: Runner) -> dict[str, MetricFam
 
 
 def _declared_facet_pairs(facet_schema: FacetSchema, cases: list[Case], runner: Runner) -> set[str]:
-    """``k=v`` facet pairs an SLO scope may gate: the static Case mix + the
+    """``k=v`` facet pairs a configured column may select: the static Case mix + the
     Runner's declared runtime facets + any ``facets:`` block values."""
     pairs = {f"{k}={v}" for c in cases for k, v in c.facets.items()}
     for fd in runner.describe_facets():
@@ -622,35 +577,34 @@ def _declared_facet_pairs(facet_schema: FacetSchema, cases: list[Case], runner: 
     return pairs
 
 
-def _validate_slo(
-    slo: list[SloAssertion] | list[ReportColumn],
+def _validate_columns(
+    columns: list[ReportColumn],
     registry: dict[str, MetricFamily],
     declared_facets: set[str],
     declared_services: set[str],
     loads: list[LoadPlan],
     per_pod_only: set[tuple[str, str]] = frozenset(),  # (family, service) with no aggregate
-    *,
-    cooldown_s: float = 0.0,
 ) -> None:
-    """Fail fast on a misconfigured gate (a perf gate must not silently skip).
+    """Validate report metric references before collecting observations.
 
     One rule per ``side`` (the family declares it; no name-pattern special cases):
       - resource side — selected by a ``{service=…}`` label: explicit legal stat,
         observed service, and the service must have an
-        aggregate series (a ``per_pod``-only family would skip every run).
+        aggregate series or an explicit pod selector.
       - request side — facet labels select a slice: at most ONE (the report is
         a marginal pivot, not a cube) and its value must be one a run produces.
     ``value_kind`` gates the stat either way (``validate_ref``)."""
     planned = [stage for load in loads for stage in load.planned_stages]
-    for a in slo:
+    for a in columns:
         name, labels, stat = parse_ref(a.metric)
         fam = registry.get(name)
         non_service_labels = {k: v for k, v in labels.items() if k != "service"}
-        if fam is None and name not in SLO_METRICS:
+        if fam is None and name not in REQUEST_ALIASES:
             raise ValueError(
-                f"slo.metric {a.metric!r}: {name!r} is not a declared metric — only declared "
-                "metrics can gate (declare a per-request metric via Runner.describe(); a "
-                "dynamic first_<event>_ms reaches the report but can't gate)"
+                f"report.metric {a.metric!r}: {name!r} is not a declared metric — only declared "
+                "metrics can be selected (declare a per-request metric via Runner.describe(); a "
+                "dynamic first_<event>_ms reaches the report but needs a declaration "
+                "for configured columns)"
             )
 
         if a.window.kind in ("warmup", "ramp", "hold"):
@@ -660,83 +614,62 @@ def _validate_slo(
             if a.window.level is not None:
                 candidates = [stage for stage in candidates if stage.level == a.window.level]
             if not candidates:
-                raise ValueError(f"slo.window {a.window!r} matches no configured stage")
+                raise ValueError(f"report.window {a.window!r} matches no configured stage")
         elif a.window.name is not None or a.window.level is not None:
-            raise ValueError("slo.window name/level only apply to ramp or hold windows")
-
-        if (
-            isinstance(a, SloAssertion)
-            and a.window.kind == "cooldown"
-            and (fam is None or fam.side == "request")
-            and name
-            not in {
-                "request.completed",
-                "request.succeeded",
-                "request.throughput_rps",
-                "request.success_rps",
-                "request.inflight_peak",
-                "request.inflight_end",
-                "throughput_rps",
-                "success_rps",
-                "completed",
-                "succeeded",
-                "inflight_peak",
-                "inflight_end",
-            }
-        ):
-            raise ValueError("cooldown request SLO must use completion or inflight metrics")
+            raise ValueError("report.window name/level only apply to ramp or hold windows")
 
         if fam is not None and fam.side == "resource":
             if stat is None:
                 raise ValueError(
-                    f"slo.metric {a.metric!r}: a resource metric needs an explicit "
+                    f"report.metric {a.metric!r}: a resource metric needs an explicit "
                     "stat ('<name>{labels}.<stat>')"
                 )
             unknown_labels = set(labels) - fam.labels
             if unknown_labels:
                 raise ValueError(
-                    f"slo.metric {a.metric!r}: unknown labels {sorted(unknown_labels)} "
+                    f"report.metric {a.metric!r}: unknown labels {sorted(unknown_labels)} "
                     f"for {name!r}; declared labels: {sorted(fam.labels) or 'none'}"
                 )
             validate_ref(a.metric, registry)  # stat legal for the family's value_kind
             service = labels.get("service")
             if service is not None and service not in declared_services:
                 raise ValueError(
-                    f"slo.metric {a.metric!r}: service {service!r} not observed "
+                    f"report.metric {a.metric!r}: service {service!r} not observed "
                     f"(observe: {sorted(declared_services) or 'none'})"
                 )
-            if service is not None and (name, service) in per_pod_only:
+            if service is not None and (name, service) in per_pod_only and "pod" not in labels:
                 raise ValueError(
-                    f"slo.metric {a.metric!r}: service {service!r} is observed "
+                    f"report.metric {a.metric!r}: service {service!r} is observed "
                     f"per_pod — only {{pod,service}} series exist (no service-level "
-                    f"aggregate), so this gate would skip every run; drop per_pod for "
-                    f"that service or remove this SLO"
+                    f"aggregate); drop per_pod for "
+                    f"that service or select a concrete series"
                 )
             continue
 
         # request side (no service label): a builtin alias, or a declared family + legal stat
         if "service" in labels:
             raise ValueError(
-                f"slo.metric {a.metric!r}: a `service` label is only valid on a "
+                f"report.metric {a.metric!r}: a `service` label is only valid on a "
                 f"resource-side metric; {name!r} is request-side"
             )
         slice_labels = non_service_labels
         if len(slice_labels) > 1:
             raise ValueError(
-                f"slo.metric {a.metric!r}: at most one facet slice label "
+                f"report.metric {a.metric!r}: at most one facet slice label "
                 f"(report is a marginal pivot, not a cube); got {sorted(slice_labels)}"
             )
         if stat is None:
-            if name not in SLO_METRICS:
+            if name not in REQUEST_ALIASES:
                 raise ValueError(
-                    f"slo.metric {a.metric!r}: {name!r} is not a builtin field "
-                    f"{sorted(SLO_METRICS)} (for a probe/per-request metric use '<name>.<stat>')"
+                    f"report.metric {a.metric!r}: {name!r} is not a builtin field "
+                    f"{sorted(REQUEST_ALIASES)} "
+                    "(for a probe/per-request metric use '<name>.<stat>')"
                 )
         elif fam is not None:
             validate_ref(a.metric, registry)  # stat legal for the family's value_kind
             if fam.side == "resource" and slice_labels:
                 raise ValueError(
-                    f"slo.metric {name!r} is a resource-side metric — arm_run-global, "
+                    f"report.metric {name!r} is a resource-side metric — arm_run-global, "
                     f"can't be sliced by {sorted(slice_labels)}"
                 )
 
@@ -744,7 +677,7 @@ def _validate_slo(
         for k, v in slice_labels.items():
             if f"{k}={v}" not in declared_facets:
                 raise ValueError(
-                    f"slo.metric {a.metric!r}: facet {k}={v} unknown "
+                    f"report.metric {a.metric!r}: facet {k}={v} unknown "
                     f"(declared: {sorted(declared_facets) or 'none'})"
                 )
 

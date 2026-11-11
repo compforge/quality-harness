@@ -8,12 +8,13 @@ required:
 - experiment
 - created_at
 - service
-- passed
 - executions
+- status
+- environment
 properties:
   schema:
     type: integer
-    const: 6
+    const: 7
   run_id:
     type: string
     minLength: 1
@@ -25,21 +26,32 @@ properties:
   service:
     type: string
     minLength: 1
-  passed:
-    type: boolean
   report_columns:
     type: array
     items:
       type: object
-      required: [title, metric, window]
+      required:
+      - title
+      - metric
+      - window
       properties:
-        title: {type: string}
-        metric: {type: string}
-        window: {type: object}
+        title:
+          type: string
+        metric:
+          type: string
+        window:
+          type: object
   executions:
     type: array
     items:
       $ref: '#/$defs/arm_run'
+  status:
+    enum:
+    - completed
+    - stopped
+    - error
+  environment:
+    type: string
 additionalProperties: true
 $defs:
   resources:
@@ -191,6 +203,16 @@ $defs:
     - arrival_rps
     - dispatch_rps
     - success_rps
+    - failed
+    - rejected
+    - timed_out
+    - unjudged
+    - interrupted
+    - n_judged
+    - failure_rps
+    - rejection_rps
+    - timeout_rps
+    - unjudged_rps
     properties:
       n:
         type: integer
@@ -264,6 +286,36 @@ $defs:
       success_rps:
         type: number
         minimum: 0
+      failed:
+        type: integer
+        minimum: 0
+      rejected:
+        type: integer
+        minimum: 0
+      timed_out:
+        type: integer
+        minimum: 0
+      unjudged:
+        type: integer
+        minimum: 0
+      interrupted:
+        type: integer
+        minimum: 0
+      n_judged:
+        type: integer
+        minimum: 0
+      failure_rps:
+        type: number
+        minimum: 0
+      rejection_rps:
+        type: number
+        minimum: 0
+      timeout_rps:
+        type: number
+        minimum: 0
+      unjudged_rps:
+        type: number
+        minimum: 0
     additionalProperties: true
   window:
     type: object
@@ -307,7 +359,9 @@ $defs:
         - 'null'
         minimum: 0
       end_reason:
-        type: [string, "null"]
+        type:
+        - string
+        - 'null'
       limited_s:
         type: number
         minimum: 0
@@ -382,7 +436,6 @@ $defs:
     - service
     - arm
     - stop
-    - slo
     - registry
     - windows
     - probe_errors
@@ -414,8 +467,6 @@ $defs:
         additionalProperties: true
       stop:
         $ref: '#/$defs/stop'
-      slo:
-        type: array
       registry:
         type: object
       windows:
@@ -427,19 +478,38 @@ $defs:
         type: array
         items:
           type: object
-          required: [probe, window_id, metric, expression, source_key, start_ms, end_ms, values]
+          required:
+          - probe
+          - window_id
+          - metric
+          - expression
+          - source_key
+          - start_ms
+          - end_ms
+          - values
           properties:
-            probe: {type: string}
-            window_id: {type: string}
-            metric: {type: string}
-            expression: {type: string}
-            source_key: {type: string}
-            start_ms: {type: integer}
-            end_ms: {type: integer}
+            probe:
+              type: string
+            window_id:
+              type: string
+            metric:
+              type: string
+            expression:
+              type: string
+            source_key:
+              type: string
+            start_ms:
+              type: integer
+            end_ms:
+              type: integer
             values:
               type: object
-              additionalProperties: {type: number}
-            error: {type: [string, "null"]}
+              additionalProperties:
+                type: number
+            error:
+              type:
+              - string
+              - 'null'
       probe_errors:
         type: object
       phase_errors:

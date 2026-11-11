@@ -8,7 +8,7 @@ extrapolation, sample adequacy, breaker reachability. Each lens emits
 conclusions / needs attention). The judgement 20% — what it *means*, what to do —
 stays with the reader (human or agent); observations just save them the legwork.
 
-Reads go through ``MetricStore`` (the same face report/SLO use), so an analyzer
+Reads go through ``MetricStore`` (the same face report/analysis use), so an analyzer
 can never compute a number the rest of the system couldn't address.
 """
 

@@ -5,7 +5,7 @@ The whole harness is four lines::
     一个 Experiment 比较一组 Arm;
     一个 Arm 是命名的 ResourceProfile(资源档) + LoadPlan(负载档);
     一个 ArmRun 是 Arm 的真实执行, 由 Runner 发 Case、Probe 周期采样并按 Window 归约;
-    report / SLO / analyze 都是对这张表的查询。
+    report / analyze 都是对这张表的查询。
 
 This module holds the nouns that are *just data* (no behaviour): the
 time-series primitives (`Sample`/`Series`), one request's `Outcome` + its
@@ -183,7 +183,8 @@ class Arm:
 class RequestStats:
     """Request-side aggregate over one Window, or one facet slice within it.
 
-    ``n`` / latency / error_rate describe completed requests in the dispatch cohort.
+    ``n`` / latency describe completed requests in the dispatch cohort.
+    error_rate divides non-success judgments by judged completions in that cohort.
     Throughput uses actual completion events in the window, not cohort size.
     Drops are never latency samples; drop_rate divides drops by planned arrivals.
     Interrupted requests preserve incomplete evidence and are excluded from latency.
@@ -201,10 +202,20 @@ class RequestStats:
     dispatched: int = 0
     completed: int = 0
     succeeded: int = 0
+    failed: int = 0
+    rejected: int = 0
+    timed_out: int = 0
+    unjudged: int = 0
+    interrupted: int = 0
+    n_judged: int = 0
     n_interrupted: int = 0
     arrival_rps: float = 0.0
     dispatch_rps: float = 0.0
     success_rps: float = 0.0
+    failure_rps: float = 0.0
+    rejection_rps: float = 0.0
+    timeout_rps: float = 0.0
+    unjudged_rps: float = 0.0
     inflight_peak: int = 0
     inflight_end: int = 0
     n_dropped: int = 0
@@ -288,7 +299,7 @@ class PhaseError:
     """An ordinary exception raised while executing a ArmRun lifecycle phase.
 
     This is harness execution evidence, not a request ``Outcome``, Probe health,
-    or an SLO result. Keeping it on the ArmRun lets a failed setup/cleanup still
+    or a business acceptance result. Keeping it on the ArmRun lets a failed setup/cleanup still
     produce a complete run artifact without inventing request facts.
     """
 
@@ -355,12 +366,11 @@ class ArmRun(Execution[Outcome]):
     are *partial* — throughput describes only the actually observed
     window — so the report flags it from ``stop.reason``/``stop.snapshot`` and reads
     'it broke at this load', not a clean capacity point."""
-    slo: list[SloCheck] = field(default_factory=list)  # per-run SLO gate, evaluated on this arm_run
     metrics: dict[str, MetricFamily] = field(default_factory=dict)
     """Unified metric registry: every report-visible metric FAMILY name → its
     family descriptor (no labels — metadata declared once), spanning all kinds:
     ``per_request`` (slice ``RequestStats.metrics``), ``time_sampled``
-    (``probe_metrics``) and ``derived`` (builtin ``request.*``). report/SLO read
+    (``probe_metrics``) and ``derived`` (builtin ``request.*``). report/analysis read
     value_kind/source/unit from here and address any series as ``<name>{labels}.<stat>``
     regardless of which pipeline produced it. The MetricStore wraps these arm_runs to
     serve those reads."""
@@ -376,7 +386,7 @@ class ArmRun(Execution[Outcome]):
     """Exceptions from ArmRun lifecycle hooks or orchestration, in occurrence order.
 
     A non-empty list makes the Run an execution error. It remains separate from
-    request outcomes, Probe observation failures, and SLO evaluation.
+    request outcomes, Probe observation failures, and business acceptance.
     """
 
     def label(self) -> str:
@@ -389,10 +399,8 @@ class ArmRun(Execution[Outcome]):
 
 
 # ---------------------------------------------------------------------------
-# SLO — the per-run gate (aggregate verdict, distinct from per-request judge)
+# Report window selection
 # ---------------------------------------------------------------------------
-
-SloOp = Literal["lt", "lte", "gt", "gte", "between"]
 
 
 @dataclass(frozen=True)
@@ -420,52 +428,6 @@ class ReportColumn:
     window: WindowSelector = field(default_factory=WindowSelector)
 
 
-@dataclass(frozen=True)
-class SloAssertion:
-    """One declarative SLO: resolve ``metric`` on a arm_run and compare via ``op`` to
-    ``threshold``. Metric labels select entities (facet/service); ``window`` selects
-    time. One selector may match multiple Windows, yielding one check per Window.
-    """
-
-    metric: str
-    op: SloOp
-    threshold: float | tuple[float, float]
-    window: WindowSelector = field(default_factory=WindowSelector)
-
-
-SloState = Literal["pass", "fail", "skipped"]
-
-
-@dataclass(frozen=True)
-class SloCheck:
-    """Result of one SloAssertion on one arm_run — a THREE-state verdict.
-
-    ``skipped`` (``observed is None``) means the metric's slice had no value on this
-    arm_run: a declared facet value no request carried, or a probe that returned no
-    data. The check could NOT be evaluated — and a skip is **not** a pass. It never
-    lets a arm_run count as confirmed capacity, and under ``strict_slo`` it fails the
-    run; by default it leaves the run's exit code alone but is surfaced as skipped,
-    never silently read as green (Prometheus alerts may no-fire on empty; a CI gate
-    must not)."""
-
-    assertion: SloAssertion
-    observed: float | None
-    state: SloState
-    window_id: str | None = None
-
-    @property
-    def passed(self) -> bool:
-        return self.state == "pass"
-
-    @property
-    def skipped(self) -> bool:
-        return self.state == "skipped"
-
-    @property
-    def failed(self) -> bool:
-        return self.state == "fail"
-
-
 @dataclass
 class Run(ExperimentRun):
     """One execution of an Experiment — its identity plus the per-ArmRun results.
@@ -473,14 +435,26 @@ class Run(ExperimentRun):
     ``Engine.run()`` returns this; ``write_run`` lays it out under
     ``runs/<experiment>/<run_id>/`` and serialises it to ``run.json``. ``arm_runs``
     are the cells of the Constraint × Load sweep (the experiment's arms).
-    ``passed`` is the operational run gate: every arm_run completed its planned
-    window and all gated SLOs passed. The CLI maps it to the process exit code for
-    CI.
+    ``status`` describes execution health, independently of request results.
     """
 
     service: str
-    passed: bool = True
+    environment: str = ""
     report_columns: list[ReportColumn] = field(default_factory=list)
+
+    @property
+    def status(self) -> Literal["completed", "stopped", "error"]:
+        """Execution health only; request outcomes never determine run acceptance.
+
+        @spec A completed run does not assert a business SLO or sustainable capacity.
+        """
+        if any(arm.phase_errors for arm in self.arm_runs):
+            return "error"
+        if not self.arm_runs or any(
+            arm.stop.early or arm.stop.interrupted for arm in self.arm_runs
+        ):
+            return "stopped"
+        return "completed"
 
     @property
     def arm_runs(self) -> list[ArmRun]:

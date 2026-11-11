@@ -1,5 +1,5 @@
 """Unified metric model: per_request metrics (Outcome.metrics → distribution),
-the time_sampled probe side tagged into the same registry, SLO addressing, and
+the time_sampled probe side tagged into the same registry, metric addressing, and
 the ttft / on_frame plumbing in stream_sse."""
 
 import json
@@ -9,14 +9,12 @@ import pytest
 from spec_case.model import Case
 
 from perf_harness import Engine, Experiment, Service
-from perf_harness.config import load_experiment
 from perf_harness.drive.load import LoadPlan, Warmup
 from perf_harness.drive.runner import Runner, stream_sse
 from perf_harness.metric import MetricFamily
-from perf_harness.model import Outcome, ResourceProfile, SloAssertion
+from perf_harness.model import Outcome, ResourceProfile
 from perf_harness.observe import ClientProbe
 from perf_harness.report import write_report
-from perf_harness.slo import evaluate_slo
 
 
 class _MetricWL(Runner):
@@ -123,20 +121,6 @@ async def test_unified_registry_tags_both_kinds():
     assert resource and all(m.source == "client" for m in resource)
 
 
-async def test_slo_targets_per_request_metric_percentile():
-    r = await _one_arm_run()
-
-    def check(metric, op, thr):
-        return evaluate_slo(r, [SloAssertion(metric=metric, op=op, threshold=thr)])[0]
-
-    assert check("first_byte_ms.p95", "lt", 10).passed  # 5 < 10
-    assert not check("first_byte_ms.p95", "lt", 1).passed  # 5 !< 1
-    # an absent metric is SKIPPED (three-state) — never a silent failure, and never a
-    # silent pass either (a skip is not green)
-    skipped = check("nonexistent_ms.p95", "lt", 1)
-    assert skipped.observed is None and skipped.skipped and not skipped.passed
-
-
 async def test_report_shows_metric_columns_and_header_tooltips(tmp_path):
     r = await _one_arm_run()
     write_report([r], str(tmp_path))
@@ -194,22 +178,6 @@ async def test_stream_sse_records_ttft_and_delivers_frames():
     assert [json.loads(d)["event"] for d in seen] == ["start", "message", "end"]
 
 
-def test_config_accepts_per_request_metric_slo(tmp_path):
-    cfg = tmp_path / "c.yaml"
-    cfg.write_text(
-        "name: x\n"
-        'service: { name: s, base_url: "http://x" }\n'
-        "resources: [ {} ]\n"
-        "runner: { name: mock }\n"
-        "load: { request_rate: inf, max_inflight: 1, hold_s: 0.2 }\n"
-        "slo:\n"
-        "  - { metric: first_byte_ms.p95, lt: 2000 }\n"
-        "  - { metric: error_rate, lt: 0.01 }\n"
-    )
-    experiment, _ = load_experiment(str(cfg))
-    assert {a.metric for a in experiment.slo} == {"first_byte_ms.p95", "error_rate"}
-
-
 class _BadKindWL(Runner):
     """Declares first_byte_ms as a resource-side gauge — wrong: a Runner only does request side."""
 
@@ -243,22 +211,3 @@ def test_producer_contract_fails_fast():
     # …and may not shadow a builtin derived request.* family
     with pytest.raises(ValueError, match="builtin"):
         _validate_producers([], _ShadowWL())
-
-
-def test_config_rejects_bad_metric_stat(tmp_path):
-    cfg = tmp_path / "c.yaml"
-    cfg.write_text(
-        "name: x\n"
-        'service: { name: s, base_url: "http://x" }\n'
-        "resources: [ {} ]\n"
-        "runner: { name: mock }\n"
-        "load: { request_rate: inf, max_inflight: 1, hold_s: 0.2 }\n"
-        "slo:\n"
-        "  - { metric: first_byte_ms.p42, lt: 1 }\n"  # p42 is not a real stat
-    )
-    try:
-        load_experiment(str(cfg))
-    except ValueError as e:
-        assert "metric" in str(e)
-    else:
-        raise AssertionError("expected ValueError for bad metric stat")

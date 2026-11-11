@@ -30,11 +30,12 @@ export function requestStats(
   const completions = records.filter(
     (r) => r.state === "finished" && within(r.finished_at),
   );
-  const succeeded = completions.filter(
-    (r) => execution.evaluations[r.operation_run_id!]?.ok,
-  ).length;
+  const counts = { success: 0, failure: 0, rejected: 0, timeout: 0, unjudged: 0 };
+  for (const record of completions) counts[execution.evaluations[record.operation_run_id!]?.result ?? "unjudged"]++;
   const n = finished.length,
-    n_ok = evaluations.filter((e) => e?.ok).length;
+    n_ok = evaluations.filter(e => e?.result === "success").length,
+    n_judged = evaluations.filter(e => e !== undefined).length;
+  const interrupted = records.filter(r => r.state === "interrupted" && within(r.finished_at)).length;
   const n_dropped = arrived.filter((r) => r.state === "dropped").length;
   const n_interrupted = cohort.filter((r) => r.state === "interrupted").length;
   const caveats: string[] = [];
@@ -82,7 +83,7 @@ export function requestStats(
   }
   const error_breakdown: Record<string, number> = {};
   for (const e of evaluations)
-    if (!e?.ok) {
+    if (e && e.result !== "success") {
       const key = e ? (e.error_kind ?? "unknown") : "unjudged";
       error_breakdown[key] = (error_breakdown[key] ?? 0) + 1;
     }
@@ -95,17 +96,27 @@ export function requestStats(
     p95_ms: pct(durs, 0.95),
     p99_ms: pct(durs, 0.99),
     mean_ms: n ? durs.reduce((a, b) => a + b, 0) / n : 0,
-    error_rate: n ? (n - n_ok) / n : 0,
+    error_rate: n_judged ? (n_judged - n_ok) / n_judged : 0,
+    n_judged,
     error_breakdown,
     n_dropped,
     n_interrupted,
     arrived: arrived.length,
     dispatched: cohort.length,
     completed: completions.length,
-    succeeded,
+    succeeded: counts.success,
+    failed: counts.failure,
+    rejected: counts.rejected,
+    timed_out: counts.timeout,
+    unjudged: counts.unjudged,
+    interrupted,
     arrival_rps: arrived.length / dt,
     dispatch_rps: cohort.length / dt,
-    success_rps: succeeded / dt,
+    success_rps: counts.success / dt,
+    failure_rps: counts.failure / dt,
+    rejection_rps: counts.rejected / dt,
+    timeout_rps: counts.timeout / dt,
+    unjudged_rps: counts.unjudged / dt,
     inflight_peak: peak,
     inflight_end: current,
     caveats,

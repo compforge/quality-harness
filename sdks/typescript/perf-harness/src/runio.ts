@@ -5,12 +5,13 @@ import { serializeLoadPlan } from "./load";
 
 export function serializeRun(run: Run): Record<string, unknown> {
   return {
-    schema: 6,
+    schema: 7,
     run_id: run.run_id,
     experiment: run.experiment,
     created_at: run.created_at,
     service: run.service,
-    passed: run.passed,
+    status: run.status,
+    environment: run.environment,
     executions: run.executions.map((e) => ({
       id: e.id,
       service: e.service,
@@ -21,7 +22,6 @@ export function serializeRun(run: Run): Record<string, unknown> {
       },
       windows: e.windows,
       stop: e.stop,
-      slo: e.slo,
       registry: e.registry,
       probe_errors: e.probe_errors,
       phase_errors: e.phase_errors,
@@ -73,7 +73,7 @@ export function serializeVerdict(run: Run): Record<string, unknown> {
     harness: "perf",
     scope: run.experiment,
     run_id: run.run_id,
-    status: error ? "error" : failed ? "fail" : "skipped",
+    status: error ? "error" : "skipped",
     ...(error
       ? { reason: `execution ${error.id}: ${error.phase_errors[0]!.message}` }
       : failed
@@ -114,7 +114,7 @@ export function writeRunData(run: Run, directory: string) {
 /** Load facts and evaluations without contacting the tested service. */
 export function loadRun(directory: string): Run {
   const data = JSON.parse(readFileSync(join(directory, "run.json"), "utf8"));
-  if (data.schema !== 6)
+  if (data.schema !== 7)
     throw new Error(`unsupported perf schema ${data.schema}`);
   const evaluations = JSON.parse(
     readFileSync(join(directory, "evaluations.json"), "utf8"),

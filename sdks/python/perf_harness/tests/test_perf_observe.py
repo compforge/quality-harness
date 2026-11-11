@@ -157,37 +157,6 @@ def test_observe_rejects_unknown_probe(tmp_path):
         raise AssertionError("expected ValueError for a non-service probe in observe")
 
 
-def test_slo_service_label_only_on_time_sampled(tmp_path):
-    """A `service` label belongs to a resource (time_sampled) series only — never a
-    request slice. The family-keyed registry no longer fail-fasts these for free, so
-    _validate_slo pins the rule down explicitly (else they'd silently go missing or
-    crash the resolver)."""
-    base = _SERVICE + "observe:\n  - { name: chat, probes: [top] }\n"
-
-    def cfg(metric: str) -> str:
-        c = tmp_path / "c.yaml"
-        # single-quote the metric: it carries `{...}` and `"` that YAML flow syntax
-        # would otherwise choke on
-        c.write_text(base + f"slo: [ {{ metric: '{metric}', lt: 100 }} ]\n")
-        return str(c)
-
-    # valid: a resource metric with a service label + an explicit stat
-    exp, _ = load_experiment(cfg('top.cpu_m{service="chat"}.peak'))
-    assert exp.slo[0].metric == 'top.cpu_m{service="chat"}.peak'
-
-    # a request (derived) metric can NOT carry a service label
-    with pytest.raises(ValueError, match="service"):
-        load_experiment(cfg('request.duration_ms{service="chat"}.p99'))
-
-    # a builtin alias + service (no stat) is rejected too (would crash the resolver)
-    with pytest.raises(ValueError, match="service"):
-        load_experiment(cfg('p99_ms{service="chat"}'))
-
-    # an unobserved service value still fails
-    with pytest.raises(ValueError, match="not observed"):
-        load_experiment(cfg('top.cpu_m{service="planit"}.peak'))
-
-
 def test_resource_limits_probe_describes_request_and_limit_gauges():
     # request/limit are just metrics whose series never varies — gauges, k8s-sourced,
     # and (crucially) the SAME units as `top`, so the report overlays them as flat
@@ -418,19 +387,6 @@ async def test_engine_fans_pod_labeled_keys_into_per_pod_series():
     assert r.metrics["fan.cpu_m"].side == "resource"
 
 
-def test_slo_service_gate_fails_fast_under_per_pod(tmp_path):
-    # per_pod emits only {pod,service} series — a {service="…"} gate would resolve
-    # Missing → skipped on EVERY run (and strict_slo defaults false, so an existing CI
-    # gate would silently stop gating). That must be a config-time error, not a skip.
-    cfg = tmp_path / "c.yaml"
-    cfg.write_text(
-        _SERVICE + "observe:\n  - { name: chat, probes: [top], per_pod: true }\n"
-        "slo: [ { metric: 'top.cpu_m{service=\"chat\"}.peak', lt: 100 } ]\n"
-    )
-    with pytest.raises(ValueError, match="per_pod"):
-        load_experiment(str(cfg))
-
-
 def test_observe_per_pod_wires_the_flag(tmp_path):
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
@@ -538,27 +494,17 @@ async def test_downstream_prometheus_does_not_receive_subject_credentials(monkey
     assert "Authorization" not in seen_headers
 
 
-def test_observe_prometheus_wires_queries_and_slo_labels(tmp_path):
+def test_observe_prometheus_wires_queries_and_report_labels(tmp_path):
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
-        _SERVICE + "observe:\n"
-        "  - name: chat\n"
-        "    probes:\n"
-        "      - name: metric\n"
-        "        queries:\n"
-        "          - name: requests_by_path\n"
-        "            promql: sum by (path) (requests_total)\n"
-        "            kind: counter\n"
-        "            unit: count\n"
-        "            labels: [path]\n"
-        "      - top\n"
-        'slo: [ { metric: \'metric.requests_by_path{service="chat",path="/v1"}.rate\', lt: 5 } ]\n'
+        _SERVICE
+        + 'observe:\n- name: chat\n  probes:\n  - name: metric\n    queries:\n    - name: requests_by_path\n      promql: sum by (path) (requests_total)\n      kind: counter\n      unit: count\n      labels:\n      - path\n  - top\nreport:\n  columns:\n  - title: metric0\n    metric: metric.requests_by_path{service="chat",path="/v1"}.rate\n'
     )
     exp, _ = load_experiment(str(cfg))
     probe = next(p for p in exp.probes if p.name == "metric.chat")
     assert probe.queries[0].promql == "sum by (path) (requests_total)"
     assert probe.queries[0].labels == ("path",)
-    assert exp.slo[0].metric == 'metric.requests_by_path{service="chat",path="/v1"}.rate'
+    assert exp.report_columns[0].metric == 'metric.requests_by_path{service="chat",path="/v1"}.rate'
 
 
 def test_observe_rejects_removed_scrape_surface(tmp_path):
@@ -636,22 +582,14 @@ async def test_probe_errors_flow_to_arm_run_and_store():
 def test_prometheus_query_replaces_derived_metrics(tmp_path):
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
-        _SERVICE + "observe:\n"
-        "  - name: chat\n"
-        "    probes:\n"
-        "      - name: metric\n"
-        "        retention_ms: 120000\n"
-        "        queries:\n"
-        "          - name: x_mean_s\n"
-        "            promql: sum(rate(x_seconds_sum[1m])) / sum(rate(x_seconds_count[1m]))\n"
-        "            unit: s\n"
-        "slo: [ { metric: 'metric.x_mean_s{service=\"chat\"}.mean', lt: 1 } ]\n"
+        _SERVICE
+        + 'observe:\n- name: chat\n  probes:\n  - name: metric\n    retention_ms: 120000\n    queries:\n    - name: x_mean_s\n      promql: sum(rate(x_seconds_sum[1m])) / sum(rate(x_seconds_count[1m]))\n      unit: s\nreport:\n  columns:\n  - title: metric0\n    metric: metric.x_mean_s{service="chat"}.mean\n'
     )
     exp, _ = load_experiment(str(cfg))
     probe = next(p for p in exp.probes if p.name == "metric.chat")
     assert probe._options.retention_ms == 120000
     assert probe.queries[0].promql.startswith("sum(rate(")
-    assert exp.slo[0].metric == 'metric.x_mean_s{service="chat"}.mean'
+    assert exp.report_columns[0].metric == 'metric.x_mean_s{service="chat"}.mean'
 
 
 def test_observe_prometheus_downstream_url_config(tmp_path):
@@ -718,15 +656,15 @@ def test_prometheus_query_may_not_shadow_up(tmp_path):
         load_experiment(str(cfg))
 
 
-def test_up_is_slo_addressable(tmp_path):
-    # observation availability can gate — explicitly, like everything observational
+def test_up_is_report_addressable(tmp_path):
+    # observation availability can be selected explicitly in reports
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
-        _SERVICE + "observe:\n  - { name: chat, probes: [top] }\n"
-        "slo: [ { metric: 'top.up{service=\"chat\"}.mean', gte: 0.99 } ]\n"
+        _SERVICE
+        + 'observe:\n- name: chat\n  probes:\n  - top\nreport:\n  columns:\n  - title: metric0\n    metric: top.up{service="chat"}.mean\n'
     )
     exp, _ = load_experiment(str(cfg))
-    assert exp.slo[0].metric == 'top.up{service="chat"}.mean'
+    assert exp.report_columns[0].metric == 'top.up{service="chat"}.mean'
 
 
 def test_limits_colors_are_report_palette():

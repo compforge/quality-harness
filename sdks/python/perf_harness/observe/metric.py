@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass, field, replace
 from urllib.parse import urlsplit
 
-from harness_common import KubernetesWorkload
+from harness_common import KubernetesWorkload, Operation
 from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
 from prombed import ScrapeTarget
@@ -38,6 +38,7 @@ class MetricProbe(_PrometheusResultProbe):
         queries: list[PrometheusQuery] | None = None,
         summaries: list[WindowQuery] | None = None,
         service: str | None = None,
+        operation: Operation | None = None,
         target_service: Service | None = None,
         path: str = "/metrics",
         url: str | None = None,
@@ -50,7 +51,7 @@ class MetricProbe(_PrometheusResultProbe):
         max_samples_per_series: int = 10_000,
         connection_pool_maxsize: int = 8,
     ) -> None:
-        super().__init__(queries=queries or [], service=service)
+        super().__init__(queries=queries or [], service=service, operation=operation)
         self.summaries = list(summaries or [])
         self.needs_observation_window = any(q.window.kind == "observation" for q in self.summaries)
         if not self.queries and not self.summaries:
@@ -60,6 +61,8 @@ class MetricProbe(_PrometheusResultProbe):
         if url and targets:
             raise ValueError("Configure a metrics URL or targets, not both")
         for summary in self.summaries:
+            if set(summary.labels) & set(self.labels):
+                raise ValueError("summary labels cannot override the observation binding")
             if summary.name in self.families or summary.name == "up":
                 raise ValueError("Metric query names must be unique and cannot use up")
             self.families[summary.name] = FamilySpec(

@@ -21,14 +21,10 @@ load:
   max_inflight: 32
   hold_s: 60
   cooldown_timeout_s: 180
-slo:
-  - {metric: error_rate, lt: 0.01}
-  - {metric: p99_ms, lt: 180000}
-  - {metric: drop_rate, lte: 0}
 ```
 
 consumer 在 `my_project.perf` 注册 Runner 和可选独立 Judge。Runner 完整消费一次响应；SSE 的
-HTTP 200 不等于业务完成，Judge 应读取 Runner 保存的完成事件。框架默认 Judge 只判断传输与状态码。
+HTTP 200 不等于业务完成，Judge 应读取 Runner 保存的完成事件。框架默认 Judge 按传输与状态码区分成功、失败、拒绝、超时；缺少判定单列。
 
 `request_rate` 与 `max_inflight` 独立：满在途暂停发起，有空位按目标速率补充，不排队；`inf` 表示按并发补充。
 `load` 可为配置列表，与 `resources` 展开网格。资源档在未配置 Deployer 时只作标注。
@@ -47,16 +43,20 @@ python -m perf_harness.cli report <run_dir>
 
 | 产物 | 内容 |
 |---|---|
-| run.json | schema 6：Execution、Arm、Window 与归约结果 |
+| run.json | schema 7：Execution、Arm、Window 与归约结果 |
 | requests.jsonl | 调度记录与关联 OperationRun 的唯一原始 Outcome |
 | evaluations.json | 按 OperationRun ID 保存的独立请求判定 |
 | timeseries.csv | Probe 原始采样 |
 | report.html / report.md / lifecycle.csv | 报告与请求生命周期统计 |
-| verdict.json | 执行完整性与显式 SLO 的跨 harness 判定 |
+| verdict.json | 执行诊断；无业务验收策略时为 skipped |
 
 CLI 打印 HTML 路径，不自动打开。`load_run` 可离线加载事实；更换 Judge 后可用 `reduce_requests`
-重算请求统计，再通过 `evaluate_slo` 重新判定，均不会发出新请求。单纯重渲染报告不重判。
+重算窗口、Case 与 facet 的请求统计，不会发出新请求。单纯重渲染报告不重判。
 
 资源观测通过 `observe` 配置 Prometheus、Kubernetes 或项目 Probe。停用后观察可设 `cooldown_s`。
 详细配置与边界见 [负载模型](docs/load-model-redesign.md)、[扩展](docs/extensions.md)、
 [指标模型](docs/metric-model.md)、[结果语义](docs/result-semantics.md)。
+
+Run.status 只描述 completed / stopped / error；请求失败不会直接判定实验失败。
+吞吐按实际完成时间分窗，成功、失败、拒绝、超时和未判定互斥计数。
+下游 API 指标绑定及示例见 [服务指标](docs/service-metrics.md#下游-api-绑定)。

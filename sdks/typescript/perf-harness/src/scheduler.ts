@@ -138,9 +138,11 @@ export async function drive(options: {
         });
         if (record.state === "finished") {
           const evaluation = judge(outcome);
+          if (!["success", "failure", "rejected", "timeout"].includes(evaluation.result))
+            throw new Error(`invalid request result: ${evaluation.result}`);
           execution.evaluations[record.id] = evaluation;
           completed++;
-          if (!evaluation.ok) failed++;
+          if (evaluation.result !== "success") failed++;
         }
       })
       .catch((error) => {

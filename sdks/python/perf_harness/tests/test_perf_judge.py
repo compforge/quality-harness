@@ -21,12 +21,12 @@ def sse_judge(o: Outcome) -> Verdict:
     if not base.ok:
         return base  # transport error / non-2xx — base already ruled
     if o.events == 0:
-        return Verdict(False, "empty_stream")
+        return Verdict("failure", "empty_stream")
     if o.meta.get("error_frames"):
-        return Verdict(False, "sse_error_event")
+        return Verdict("failure", "sse_error_event")
     if not o.meta.get("saw_done"):
-        return Verdict(False, "truncated")
-    return Verdict(True)
+        return Verdict("failure", "truncated")
+    return Verdict("success")
 
 
 def test_sse_override_catches_200_failures():

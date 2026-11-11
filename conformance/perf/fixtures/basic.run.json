@@ -1,10 +1,9 @@
 {
-  "schema": 6,
+  "schema": 7,
   "run_id": "run",
   "experiment": "fixture",
   "created_at": "2026-09-17T00:00:00Z",
   "service": "mock",
-  "passed": true,
   "executions": [
     {
       "id": "run:one",
@@ -40,7 +39,6 @@
         "interrupted": 0,
         "force_cancelled": false
       },
-      "slo": [],
       "registry": {
         "request.duration_ms": {
           "unit": "ms",
@@ -212,7 +210,17 @@
               "co_biased",
               "few_samples",
               "high_drop"
-            ]
+            ],
+            "failed": 0,
+            "rejected": 0,
+            "timed_out": 0,
+            "unjudged": 0,
+            "interrupted": 0,
+            "n_judged": 1,
+            "failure_rps": 0,
+            "rejection_rps": 0,
+            "timeout_rps": 0,
+            "unjudged_rps": 0
           },
           "by_case": {
             "hello": {
@@ -255,7 +263,17 @@
                 "co_biased",
                 "few_samples",
                 "high_drop"
-              ]
+              ],
+              "failed": 0,
+              "rejected": 0,
+              "timed_out": 0,
+              "unjudged": 0,
+              "interrupted": 0,
+              "n_judged": 1,
+              "failure_rps": 0,
+              "rejection_rps": 0,
+              "timeout_rps": 0,
+              "unjudged_rps": 0
             }
           },
           "by_facet": {},
@@ -309,7 +327,17 @@
               "co_biased",
               "few_samples",
               "high_drop"
-            ]
+            ],
+            "failed": 0,
+            "rejected": 0,
+            "timed_out": 0,
+            "unjudged": 0,
+            "interrupted": 0,
+            "n_judged": 1,
+            "failure_rps": 0,
+            "rejection_rps": 0,
+            "timeout_rps": 0,
+            "unjudged_rps": 0
           },
           "by_case": {
             "hello": {
@@ -352,7 +380,17 @@
                 "co_biased",
                 "few_samples",
                 "high_drop"
-              ]
+              ],
+              "failed": 0,
+              "rejected": 0,
+              "timed_out": 0,
+              "unjudged": 0,
+              "interrupted": 0,
+              "n_judged": 1,
+              "failure_rps": 0,
+              "rejection_rps": 0,
+              "timeout_rps": 0,
+              "unjudged_rps": 0
             }
           },
           "by_facet": {},
@@ -390,7 +428,17 @@
             "metrics": {},
             "caveats": [
               "few_samples"
-            ]
+            ],
+            "failed": 0,
+            "rejected": 0,
+            "timed_out": 0,
+            "unjudged": 0,
+            "interrupted": 0,
+            "n_judged": 0,
+            "failure_rps": 0,
+            "rejection_rps": 0,
+            "timeout_rps": 0,
+            "unjudged_rps": 0
           },
           "by_case": {
             "hello": {
@@ -417,7 +465,17 @@
               "metrics": {},
               "caveats": [
                 "few_samples"
-              ]
+              ],
+              "failed": 0,
+              "rejected": 0,
+              "timed_out": 0,
+              "unjudged": 0,
+              "interrupted": 0,
+              "n_judged": 0,
+              "failure_rps": 0,
+              "rejection_rps": 0,
+              "timeout_rps": 0,
+              "unjudged_rps": 0
             }
           },
           "by_facet": {},
@@ -427,5 +485,7 @@
       "probe_errors": {},
       "phase_errors": []
     }
-  ]
+  ],
+  "status": "completed",
+  "environment": "qa"
 }

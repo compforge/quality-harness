@@ -1,6 +1,6 @@
 """The metric waist — the one table everything narrows through.
 
-Producers (drive/observe) write into it, consumers (report / SLO / analysis)
+Producers (drive/observe) write into it, consumers (report / analysis)
 read from it; neither knows the other. Three submodules:
 
   - ``family``: the pure model — ``MetricFamily`` (identity + side + value_kind),

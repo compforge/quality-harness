@@ -15,11 +15,10 @@ from perf_harness.drive.runner import Runner
 from perf_harness.engine import Engine, Experiment
 from perf_harness.metric import series_id
 from perf_harness.metric.store import MetricStore
-from perf_harness.model import Outcome, ResourceProfile, Service, SloAssertion, WindowSelector
+from perf_harness.model import Outcome, ResourceProfile, Service
 from perf_harness.observe import FamilySpec, Probe
 from perf_harness.report import write_run
 from perf_harness.runio import RUN_SCHEMA, load_run
-from perf_harness.slo import evaluate_slo
 
 PERF_FIXTURES = Path(__file__).parents[4] / "conformance" / "perf" / "fixtures"
 
@@ -64,16 +63,6 @@ async def _run(tmp_path):
         ],
         probes=[_FakeTop()],
         cases=[Case(id="a", input={}, facets={"difficulty": "simple"})],
-        slo=[
-            SloAssertion(metric="error_rate", op="lt", threshold=0.5),
-            SloAssertion(metric="nonexistent_ms.p95", op="lt", threshold=1.0),  # → skipped
-            SloAssertion(
-                metric='top.cpu_m{service="chat"}.last',
-                op="lte",
-                threshold=123.0,
-                window=WindowSelector(kind="cooldown"),
-            ),
-        ],
         observe_interval_s=0.1,
         cooldown_s=0.12,
         name="rt",
@@ -95,12 +84,7 @@ async def test_run_json_is_the_full_model(tmp_path):
     assert t["arm"]["load"]["abort_on_error_rate"] == 0.5
     assert t["arm"]["load"]["breaker_min_n"] == 5
     assert t["stop"]["reason"] == "deadline"
-    states = {(c["metric"], c["window"]["kind"]): c["state"] for c in t["slo"]}
-    assert states == {
-        ("error_rate", "measurement"): "pass",
-        ("nonexistent_ms.p95", "measurement"): "skipped",
-        ('top.cpu_m{service="chat"}.last', "cooldown"): "pass",
-    }
+    assert "slo" not in t and "passed" not in doc
     windows = {window["id"]: window for window in t["windows"]}
     assert "cooldown" in windows
     assert t["registry"]["first_byte_ms"]["unit"] == "ms"  # metric metadata persisted
@@ -142,14 +126,11 @@ async def test_load_run_round_trips_the_store(tmp_path):
     ]
     assert [s.t for s in offline.series[sid].samples] == [s.t for s in live.series[sid].samples]
     assert offline.metrics["top.cpu_m"].labels == live.metrics["top.cpu_m"].labels
-    # stop/slo verdicts survive (offline SLO re-reads agree)
+    # stop facts survive the offline round trip
     assert offline.stop == live.stop
     assert [(w.id, w.start_s, w.end_s) for w in offline.windows] == [
         (w.id, w.start_s, w.end_s) for w in live.windows
     ]
-    assert [c.state for c in offline.slo] == [c.state for c in live.slo]
-    assert [c.assertion.window for c in offline.slo] == [c.assertion.window for c in live.slo]
-    assert evaluate_slo(offline, [offline.slo[-1].assertion])[0].passed
 
 
 async def test_request_facts_and_evaluations_round_trip_separately(tmp_path):
@@ -269,7 +250,7 @@ async def test_setup_error_still_writes_complete_run_artifacts(tmp_path):
         path.name for path in run_dir.iterdir()
     }
     doc = json.loads((run_dir / "run.json").read_text())
-    assert doc["passed"] is False
+    assert doc["status"] == "error"
     assert doc["executions"][0]["phase_errors"] == [
         {"phase": "setup", "error_type": "RuntimeError", "message": "target unavailable"}
     ]
@@ -279,7 +260,7 @@ async def test_setup_error_still_writes_complete_run_artifacts(tmp_path):
     verdict = json.loads((run_dir / "verdict.json").read_text())
     assert verdict["status"] == "error"
     assert "setup: RuntimeError: target unavailable" in verdict["reason"]
-    assert "ERROR" in (run_dir / "report.md").read_text()
+    assert "error" in (run_dir / "report.md").read_text()
 
 
 async def test_model_and_verdict_survive_report_renderer_failure(tmp_path, monkeypatch):

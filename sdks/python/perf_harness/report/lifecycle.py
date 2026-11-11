@@ -13,6 +13,10 @@ COLUMNS = [
     "dispatched",
     "completed",
     "succeeded",
+    "failed",
+    "rejected",
+    "timed_out",
+    "unjudged",
     "dropped",
     "interrupted",
     "dispatch_rps",
@@ -50,8 +54,12 @@ def rows(executions: list[ArmRun]) -> list[list[str]]:
                     str(s.dispatched),
                     str(s.completed),
                     str(s.succeeded),
+                    str(s.failed),
+                    str(s.rejected),
+                    str(s.timed_out),
+                    str(s.unjudged),
                     str(s.n_dropped),
-                    str(s.n_interrupted),
+                    str(s.interrupted),
                     f"{s.dispatch_rps:.2f}",
                     f"{s.throughput_rps:.2f}",
                     str(s.inflight_peak),
@@ -77,6 +85,9 @@ def markdown(executions: list[ArmRun]) -> list[str]:
             "| " + " | ".join(COLUMNS) + " |",
             "|" + "|".join(["---"] * len(COLUMNS)) + "|",
         ]
-        + ["| " + " | ".join(row) + " |" for row in rows(executions)]
+        + [
+            "| " + " | ".join(cell.replace("|", "\\|") for cell in row) + " |"
+            for row in rows(executions)
+        ]
         + [""]
     )

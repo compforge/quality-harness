@@ -10,11 +10,16 @@ Judge = Callable[[Outcome], RequestEvaluation]
 
 def default_judge(outcome: Outcome) -> RequestEvaluation:
     if outcome.meta.get("exc"):
-        return RequestEvaluation(False, str(outcome.meta["exc"]))
+        exc = str(outcome.meta["exc"])
+        return RequestEvaluation("timeout" if "timeout" in exc.lower() else "failure", exc)
     if outcome.status is not None and 200 <= outcome.status < 300:
-        return RequestEvaluation(True)
+        return RequestEvaluation("success")
+    # 429 explicitly refuses admission; 503 alone does not prove rejection.
+    result = "rejected" if outcome.status == 429 else "failure"
+    if outcome.status in {408, 504}:
+        result = "timeout"
     return RequestEvaluation(
-        False, str(outcome.status) if outcome.status is not None else "unknown"
+        result, str(outcome.status) if outcome.status is not None else "unknown"
     )
 
 

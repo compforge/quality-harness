@@ -51,7 +51,7 @@ export interface Outcome {
 }
 
 export interface RequestEvaluation {
-  ok: boolean;
+  result: "success" | "failure" | "rejected" | "timeout";
   error_kind?: string;
 }
 
@@ -80,6 +80,16 @@ export interface RequestStats {
   dispatched: number;
   completed: number;
   succeeded: number;
+  failed: number;
+  rejected: number;
+  timed_out: number;
+  unjudged: number;
+  interrupted: number;
+  n_judged: number;
+  failure_rps: number;
+  rejection_rps: number;
+  timeout_rps: number;
+  unjudged_rps: number;
   n_interrupted: number;
   arrival_rps: number;
   dispatch_rps: number;
@@ -154,7 +164,6 @@ export interface ArmRun extends Execution<Outcome> {
   finished_at: string;
   windows: Window[];
   stop: ArmStop;
-  slo: unknown[];
   registry: Record<string, unknown>;
   probe_errors: Record<string, unknown>;
   phase_errors: PhaseError[];
@@ -163,7 +172,8 @@ export interface ArmRun extends Execution<Outcome> {
 }
 
 export interface Run extends ExperimentRun<ArmRun> {
-  schema: 6;
+  schema: 7;
   service: string;
-  passed: boolean;
+  status: "completed" | "stopped" | "error";
+  environment: string;
 }

@@ -13,8 +13,6 @@ from perf_harness.model import (
     ResourceProfile,
     Sample,
     Service,
-    SloAssertion,
-    WindowSelector,
 )
 from perf_harness.observe import ClientProbe, FamilySpec, Probe
 
@@ -182,7 +180,7 @@ async def test_circuit_breaker_aborts_arm_run_on_error_rate():
     r = run.arm_runs[0]
     # structured ArmStop (the truth); aborted is a convenience alias over stop.early
     assert r.stop.early is True
-    assert not run.passed  # a partial measurement window cannot pass the run gate
+    assert run.status != "completed"  # a partial measurement window cannot pass the run gate
     assert r.stop.reason == "error_rate"
     snap = r.stop.snapshot
     assert snap is not None  # the trip view (not post-warmup overall)
@@ -326,14 +324,6 @@ async def test_arm_run_hooks_wrap_load_and_cooldown_only_extends_raw_series():
         probes=[PhaseProbe()],
         observe_interval_s=0.03,
         cooldown_s=0.12,
-        slo=[
-            SloAssertion(
-                "phase.post_load.last",
-                "gte",
-                1,
-                window=WindowSelector(kind="cooldown"),
-            )
-        ],
     )
     run = await Engine(exp).run()
     arm_run = run.arm_runs[0]
@@ -343,7 +333,7 @@ async def test_arm_run_hooks_wrap_load_and_cooldown_only_extends_raw_series():
     assert arm_run.measurement.probe_metrics["phase.post_load"].peak == 0.0
     assert any(s.value == 1.0 for s in arm_run.series["phase.post_load"].samples)
     assert any(window.kind == "cooldown" for window in arm_run.windows)
-    assert run.passed and arm_run.slo[0].passed and arm_run.slo[0].observed == 1.0
+    assert run.status == "completed"
 
 
 async def test_cleanup_runs_when_setup_fails():
@@ -385,7 +375,7 @@ async def test_cleanup_runs_when_setup_fails():
     assert len(run.arm_runs) == 1
     arm_run = run.arm_runs[0]
     assert events == ["setup", "cleanup"]
-    assert not run.passed
+    assert run.status != "completed"
     assert arm_run.stop.reason == "aborted"
     assert arm_run.measurement.complete is False
     assert arm_run.measurement.request.n == 0
@@ -481,38 +471,7 @@ async def test_cleanup_error_marks_completed_arm_run_as_phase_error():
     assert arm_run.stop.reason == "deadline"
     assert arm_run.measurement.complete is True
     assert arm_run.phase_errors == [PhaseError("cleanup", "RuntimeError", "cleanup failed")]
-    assert not run.passed
-
-
-async def test_cooldown_slo_missing_data_fails_closed():
-    class EmptyProbe(Probe):
-        name = "empty"
-        source = "test"
-        families = {"value": FamilySpec("count")}
-
-        async def sample(self, ctx):
-            return {}
-
-    exp = Experiment(
-        service=Service("mock", base_url="http://127.0.0.1:0"),
-        runner=MockRunner(base_ms=1),
-        resources=[ResourceProfile()],
-        loads=[
-            LoadPlan(
-                warmup=Warmup(step_s=0),
-                request_rate=float("inf"),
-                max_inflight=1,
-                hold_s=(0.0 + 0.05),
-            )
-        ],
-        probes=[EmptyProbe()],
-        observe_interval_s=0.01,
-        cooldown_s=0.03,
-        slo=[SloAssertion("empty.value.last", "lte", 0, window=WindowSelector(kind="cooldown"))],
-    )
-    run = await Engine(exp).run()
-    assert run.arm_runs[0].slo[0].skipped
-    assert not run.passed
+    assert run.status != "completed"
 
 
 def test_cooldown_window_omits_stale_or_failed_probe_data():

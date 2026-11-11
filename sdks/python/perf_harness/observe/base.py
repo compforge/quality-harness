@@ -129,7 +129,7 @@ class Probe(ABC):
         """This probe's contributions as ``resource``-side metric FAMILIES (no labels).
 
         The seam that makes a Probe part of the one metric model: its series are
-        ``resource`` metrics, addressed ``<name>{labels}.<stat>`` in the report/SLO
+        ``resource`` metrics, addressed ``<name>{labels}.<stat>`` in the report/analysis
         exactly like the request-side metrics a Runner records on the Outcome. The
         family is label-free (``top.cpu_m``); ``service`` is a label on the concrete
         series (built in the Engine from ``self.labels``), so two service-bound probes

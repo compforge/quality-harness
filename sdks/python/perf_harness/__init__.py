@@ -4,7 +4,7 @@ Three lines::
 
     一个 Experiment = ResourceProfile(资源档) × LoadPlan(负载档) 的网格;
     每个格子(ArmRun)由 Runner 发带 facet 的 Case、Probe 周期采样, 产出一张 metric 表;
-    report / SLO / analyze 都是对这张表的查询。
+    report / analyze 都是对这张表的查询。
 
 Two things a service extends: a **Runner** (how to push) and a **Probe** (what
 to observe). Everything else — load shaping, the resources × load sweep, the
@@ -58,8 +58,6 @@ from perf_harness.model import Run as Run
 from perf_harness.model import Sample as Sample
 from perf_harness.model import Series as Series
 from perf_harness.model import Service as Service
-from perf_harness.model import SloAssertion as SloAssertion
-from perf_harness.model import SloCheck as SloCheck
 from perf_harness.model import StopSnapshot as StopSnapshot
 from perf_harness.model import Window as Window
 from perf_harness.model import WindowSelector as WindowSelector

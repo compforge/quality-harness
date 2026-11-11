@@ -73,7 +73,7 @@ setup 完成后先抓取基线，之后才开始发压计时；warmup/hold/coold
 默认历史保留时间至少覆盖声明的负载时长、请求 cooldown 和额外观测时间；显式设置 `retention_ms`
 则以该配置为准。`max_series`、`max_samples_per_series` 与字节/时间预算仍然生效；历史不足、目标
 抓取失败、非有限结果等保留为缺失/错误，不产生伪造的零值或看似完整的窗口平均值。
-没有请求时 `_count` 没有增量，平均耗时缺失是合法事实。Probe 故障不会默认改变业务判定；门禁仍须显式 SLO。
+没有请求时 `_count` 没有增量，平均耗时缺失是合法事实。Probe 故障不会默认改变业务判定；采集状态与请求结果独立记录。
 
 共享服务的指标可能包含其它流量；没有 run/case 标签时不能声称只归属本次压测。混合多个 case
 的实验在汇总表中列出 case 集合，服务指标仍属于同一个服务时间窗口。
@@ -86,3 +86,34 @@ MetricStore 读取其 Window，HTML、Markdown 与 summary.csv 使用同样的�
 
 窗口结果和列配置保存在 run.json。`perf report` 从已有事实重渲染，不访问服务或 Prometheus，
 不重新发压。趋势图继续使用周期样本，表格单值使用窗口结果，两者各自保留时间口径。
+
+## 下游 API 绑定
+
+一个 metric / prometheus_query Probe 可用 `operation` 声明它观察的 API。
+Service 名来自 observe 条目；Common Operation 负责生成 service-qualified ID，随后作为
+`operation` label 进入 series、窗口统计与报告。配置无须声明拓扑。
+
+```yaml
+observe:
+  - name: search
+    base_url: http://search:9200
+    probes:
+      - name: metric
+        operation: search
+        queries:
+          - name: latency_s
+            promql: sum(rate(api_duration_sum{operation="search"}[1m])) / sum(rate(api_duration_count{operation="search"}[1m]))
+            unit: s
+          - name: requests_rps
+            promql: sum(rate(api_requests_total{operation="search"}[1m]))
+            unit: rps
+report:
+  columns:
+    - title: Search latency
+      metric: 'metric.latency_s{service="search",operation="operation:search/search"}.mean'
+```
+
+此处 latency_s 是滚动平均延迟的采样值，不能当作客户端端到端延迟或整窗请求加权平均。
+Operation 绑定只提供归属，不自动修改 PromQL 过滤条件，也不证明这些请求全部来自本次压测。
+不同 API 可共享采集源与查询客户端，但各自保存 series；查询结果不得覆盖绑定的 service/operation 标签。
+动态多 API 查询可继续通过 `labels: [operation]` 保留上游标签，此时由项目负责其命名与映射。

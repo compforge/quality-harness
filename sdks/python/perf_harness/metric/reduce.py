@@ -84,10 +84,17 @@ def reduce_requests(
         for r in records
         if r.state == "finished" and r.finished_at is not None and start <= r.finished_at < end
     ]
-    succeeded = sum(
-        execution.evaluations.get(r.operation_run_id) is not None
-        and execution.evaluations[r.operation_run_id].ok
+    # Completion classes partition the same event window, not the dispatch cohort.
+    counts = Counter(
+        evaluation.result
+        if (evaluation := execution.evaluations.get(r.operation_run_id))
+        else "unjudged"
         for r in completions
+    )
+    n_judged = sum(e is not None for e in evaluations)
+    interrupted_events = sum(
+        r.state == "interrupted" and r.finished_at is not None and start <= r.finished_at < end
+        for r in records
     )
     dropped = sum(r.state == "dropped" for r in arrived)
     interrupted = sum(r.state == "interrupted" for r in cohort)
@@ -144,7 +151,7 @@ def reduce_requests(
     breakdown = Counter(
         (e.error_kind or "unknown") if e else "unjudged"
         for e in evaluations
-        if e is None or not e.ok
+        if e is not None and not e.ok
     )
     return RequestStats(
         n=n,
@@ -154,17 +161,27 @@ def reduce_requests(
         p95_ms=pct(durs, 0.95),
         p99_ms=pct(durs, 0.99),
         mean_ms=sum(durs) / n if n else 0,
-        error_rate=(n - n_ok) / n if n else 0,
+        error_rate=(n_judged - n_ok) / n_judged if n_judged else 0,
+        n_judged=n_judged,
         error_breakdown=dict(breakdown),
         n_dropped=dropped,
         n_interrupted=interrupted,
         arrived=len(arrived),
         dispatched=len(cohort),
         completed=len(completions),
-        succeeded=succeeded,
+        succeeded=counts["success"],
+        failed=counts["failure"],
+        rejected=counts["rejected"],
+        timed_out=counts["timeout"],
+        unjudged=counts["unjudged"],
+        interrupted=interrupted_events,
         arrival_rps=len(arrived) / dt,
         dispatch_rps=len(cohort) / dt,
-        success_rps=succeeded / dt,
+        success_rps=counts["success"] / dt,
+        failure_rps=counts["failure"] / dt,
+        rejection_rps=counts["rejected"] / dt,
+        timeout_rps=counts["timeout"] / dt,
+        unjudged_rps=counts["unjudged"] / dt,
         inflight_peak=peak,
         inflight_end=current,
         metrics=metrics,
