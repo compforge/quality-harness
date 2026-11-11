@@ -15,7 +15,7 @@ src/
 ├── system/       # 产品/代码身份、运行对象、资源与离线知识
 │   ├── product.ts / component.ts / repository.ts / forge.ts / pull-request.ts
 │   ├── service.ts / environment.ts / host.ts
-│   └── workload.ts / resource.ts / knowledge.ts
+│   └── workload.ts / resource.ts / knowledge.ts / graph.ts
 ├── access/       # 获取事实所需的访问契约和客户端生命周期
 │   ├── client.ts / client-provider.ts / client-manager.ts
 │   └── datasource.ts / endpoint.ts / file.ts / context.ts

@@ -229,3 +229,10 @@ does not discover instances or grant access. Protocol probing can consume the ad
 TLS or protocol-specific negotiation. Omission makes no encryption requirement. HTTPS/WSS/TLS
 endpoints require `secure: true`. This declaration does not assert connectivity, trust-policy
 approval or authorization. Toolbox owns URL projection, validation and network probing.
+
+## System Graph
+
+`Graph`, `Node` and `Relation` describe offline topology in one environment.
+Service/operation nodes connect through `belongs_to` and `calls`; other kinds remain extensible.
+Build validated snapshots, query dependencies and serialize them independently of metrics or tests.
+See [the Graph contract and example](../../../docs/graph.md).

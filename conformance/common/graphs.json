@@ -1,0 +1,550 @@
+{
+  "graph": {
+    "schema_version": 1,
+    "environment": "qa",
+    "source": "project:topology",
+    "version": "revision-1",
+    "nodes": [
+      {
+        "id": "service:chat",
+        "kind": "service"
+      },
+      {
+        "id": "service:a",
+        "kind": "service"
+      },
+      {
+        "id": "service:b",
+        "kind": "service"
+      },
+      {
+        "id": "service:d",
+        "kind": "service"
+      },
+      {
+        "id": "operation:chat/ask",
+        "kind": "operation"
+      },
+      {
+        "id": "operation:a/api1",
+        "kind": "operation"
+      },
+      {
+        "id": "operation:b/api2",
+        "kind": "operation"
+      },
+      {
+        "id": "operation:d/api4",
+        "kind": "operation"
+      },
+      {
+        "id": "operation:a/unrelated",
+        "kind": "operation"
+      }
+    ],
+    "relations": [
+      {
+        "id": "[\"operation:chat/ask\",\"belongs_to\",\"service:chat\"]",
+        "source": "operation:chat/ask",
+        "target": "service:chat",
+        "kind": "belongs_to"
+      },
+      {
+        "id": "[\"operation:a/api1\",\"belongs_to\",\"service:a\"]",
+        "source": "operation:a/api1",
+        "target": "service:a",
+        "kind": "belongs_to"
+      },
+      {
+        "id": "[\"operation:b/api2\",\"belongs_to\",\"service:b\"]",
+        "source": "operation:b/api2",
+        "target": "service:b",
+        "kind": "belongs_to"
+      },
+      {
+        "id": "[\"operation:d/api4\",\"belongs_to\",\"service:d\"]",
+        "source": "operation:d/api4",
+        "target": "service:d",
+        "kind": "belongs_to"
+      },
+      {
+        "id": "[\"operation:a/unrelated\",\"belongs_to\",\"service:a\"]",
+        "source": "operation:a/unrelated",
+        "target": "service:a",
+        "kind": "belongs_to"
+      },
+      {
+        "id": "[\"operation:chat/ask\",\"calls\",\"operation:a/api1\"]",
+        "source": "operation:chat/ask",
+        "target": "operation:a/api1",
+        "kind": "calls"
+      },
+      {
+        "id": "[\"operation:chat/ask\",\"calls\",\"operation:b/api2\"]",
+        "source": "operation:chat/ask",
+        "target": "operation:b/api2",
+        "kind": "calls"
+      },
+      {
+        "id": "[\"operation:a/api1\",\"calls\",\"operation:d/api4\"]",
+        "source": "operation:a/api1",
+        "target": "operation:d/api4",
+        "kind": "calls"
+      },
+      {
+        "id": "[\"operation:b/api2\",\"calls\",\"operation:d/api4\"]",
+        "source": "operation:b/api2",
+        "target": "operation:d/api4",
+        "kind": "calls"
+      },
+      {
+        "id": "[\"operation:d/api4\",\"calls\",\"operation:a/api1\"]",
+        "source": "operation:d/api4",
+        "target": "operation:a/api1",
+        "kind": "calls"
+      }
+    ]
+  },
+  "root": "operation:chat/ask",
+  "reachable": [
+    "operation:chat/ask",
+    "operation:a/api1",
+    "operation:b/api2",
+    "operation:d/api4"
+  ],
+  "ids": [
+    {
+      "service": "chat",
+      "operation": "ask",
+      "service_id": "service:chat",
+      "operation_id": "operation:chat/ask"
+    },
+    {
+      "service": "a/b",
+      "operation": "查/询 !'()*%",
+      "service_id": "service:a%2Fb",
+      "operation_id": "operation:a%2Fb/%E6%9F%A5%2F%E8%AF%A2%20%21%27%28%29%2A%25"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "duplicate node",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          },
+          {
+            "id": "s",
+            "kind": "service"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate relation",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          },
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dangling endpoint",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          },
+          {
+            "id": "[\"o\",\"calls\",\"missing\"]",
+            "source": "o",
+            "target": "missing",
+            "kind": "calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "wrong calls endpoint",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          },
+          {
+            "id": "[\"s\",\"calls\",\"o\"]",
+            "source": "s",
+            "target": "o",
+            "kind": "calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "wrong ownership endpoint",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          },
+          {
+            "id": "[\"s\",\"belongs_to\",\"s\"]",
+            "source": "s",
+            "target": "s",
+            "kind": "belongs_to"
+          }
+        ]
+      }
+    },
+    {
+      "name": "multiple owners",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          },
+          {
+            "id": "s2",
+            "kind": "service"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          },
+          {
+            "id": "[\"o\",\"belongs_to\",\"s2\"]",
+            "source": "o",
+            "target": "s2",
+            "kind": "belongs_to"
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing owner",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": []
+      }
+    },
+    {
+      "name": "unsupported schema",
+      "graph": {
+        "schema_version": 2,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          }
+        ]
+      }
+    },
+    {
+      "name": "boolean schema",
+      "graph": {
+        "schema_version": true,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty environment",
+      "graph": {
+        "schema_version": 1,
+        "environment": "",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          }
+        ]
+      }
+    },
+    {
+      "name": "tampered relation id",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "incorrect",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          }
+        ]
+      }
+    },
+    {
+      "name": "null provenance",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          }
+        ],
+        "source": null
+      }
+    },
+    {
+      "name": "nonstring endpoint",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          },
+          {
+            "id": "[1,\"calls\",\"o\"]",
+            "source": 1,
+            "target": "o",
+            "kind": "calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty node kind",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": ""
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty relation kind",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "nodes": [
+          {
+            "id": "s",
+            "kind": "service"
+          },
+          {
+            "id": "o",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"o\",\"belongs_to\",\"s\"]",
+            "source": "o",
+            "target": "s",
+            "kind": "belongs_to"
+          },
+          {
+            "id": "[\"s\",\"\",\"o\"]",
+            "source": "s",
+            "target": "o",
+            "kind": ""
+          }
+        ]
+      }
+    }
+  ]
+}

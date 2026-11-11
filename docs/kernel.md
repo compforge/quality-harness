@@ -76,6 +76,13 @@ Service.workloads 使用共享 Workload 声明；不同语言保持惯用 API，
 TypeScript Service 的可选 upstream 引用调用当前 Service 的标准名称，由消费方目录解析。
 省略表示关系未声明，空数组表示声明无上游；该关系不改变身份，也不表示某次请求实际经过的路径。
 
+#### 系统拓扑
+
+Common 的 `Graph` 以带 kind 的 `Node` 和 `Relation` 描述一个环境内的拓扑快照。
+Service / Operation 对应节点，`belongs_to` 表达 Operation 所属 Service，`calls` 表达
+Operation 间声明的调用关系。图结构、身份与查询见 [System Graph](graph.md)。
+拓扑不包含 Case、实时 metrics 或业务判据；领域 Harness 通过节点身份关联独立采集的证据。
+
 #### 静态知识
 
 TypeScript common 的 Product 与 Service 通过可选的 `knowledge` 贡献 `Knowledge`：Concept 解释核心对象、关系与约束，
