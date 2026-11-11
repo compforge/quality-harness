@@ -1,6 +1,6 @@
 # Perf Harness 跨语言契约
 
-Python 与 TypeScript 共享本契约；各语言保持惯用 API，功能覆盖可以不同。当前产物使用 schema 6。
+Python 与 TypeScript 共享本契约；各语言保持惯用 API，功能覆盖可以不同。当前产物使用 schema 7。
 
 ## 事实骨架
 
@@ -50,7 +50,7 @@ Python 资源观察覆盖发压、排空、停用与 cooldown；TypeScript 资�
 普通生命周期异常记录 phase_errors，终止 sweep，verdict=error；控制流取消允许继续向调用方传播。
 停止发压时立即记录 measurement 边界、停止原因与在途数量；取消并 join 后补齐中断清点。
 这些事实随 ArmRun 生命周期维护，不依赖 scheduler 正常返回。Judge 异常保留已完成 Outcome，
-标记缺失判定并使 Run 失败；排空期间的异常不得重置或延长 measurement，也不得改写已发生的停止原因。
+标记缺失判定并使 Run.status=error；排空期间的异常不得重置或延长 measurement，也不得改写已发生的停止原因。
 每个实际中断请求保留独立事实，不执行 Judge，不把短暂取消耗时混入延迟样本。
 
 ## 时间与统计
@@ -61,21 +61,31 @@ Python 指标采集可增加 observation Window，覆盖发压前基线至最终
 
 - arrived / arrival_rps 按源头实际接受的发起机会 scheduled_at 归窗；arrived_at 保留实际处理时刻。
 - dispatched / dispatch_rps 按实际 dispatched_at 归窗。
-- completed / throughput_rps / succeeded / success_rps 按实际 finished_at 归窗，只含 finished 请求。
-- n / n_ok / error_rate / latency 按 dispatch cohort 归窗，包含排空后才完成的 Outcome。
+- completed / throughput_rps 按实际 finished_at 归窗，只含 finished 请求。
+- completed_by_code / throughput_by_code 按开放的 Judge code 保存已判定的完成数和速率。
+- succeeded / success_rps 从 code=success 派生；其它 code 均表示失败，不固定失败类别。
+- 没有 Judge 结果的完成事件独立计入 unjudged / unjudged_rps，不伪造一个 code。
+- completed = sum(completed_by_code.values()) + unjudged；各 code 速率之和加 unjudged_rps 等于 throughput_rps。
+- interrupted 单列实际中断事件。
+- n / n_ok / n_judged / error_rate / latency 按 dispatch cohort 归窗，包含排空后完成的 Outcome。
+- error_rate 是已判定非成功数 / n_judged；未判定不计为失败，无判定时读取 Missing。
 - inflight_peak/end 由实际调用起止事件求得，包括前一个窗口带入的请求。
 - scheduler_lag_ms = (arrived_at - scheduled_at) × 1000。
 
 measurement 从首个实际 hold 开始；warmup/ramp/hold 对齐实际执行的 Stage；
 cooldown 记录停压后的完成事件与资源观测。Window.end_reason 记录阶段结束原因，
 limited_s 记录已经允许发起但被在途上限阻塞的时间。nearest-rank 百分位索引为 `ceil(q*n)-1`。
-丢弃、中断不进入延迟分布；无完成样本的延迟/错误率 SLO 为缺数据。
+丢弃、中断不进入延迟分布；无完成样本的延迟与无判定的错误率为缺数据。
 co_biased/high_drop/incomplete/few_samples 等可信度标记必须随 summary 保存。
 
-Python capacity 只读取有请求、无丢弃/中断/未判定且匹配 SLO 全通过的完整 hold。
-有限速率窗口被在途上限阻塞时，不确认配置速率容量，也不参与资源曲线外推。
-无 SLO 的正常运行 verdict=skipped，不表示容量通过。TypeScript 当前不提供 SLO 评估与 HTML 报告。
-离线可更换 Judge、重算统计与 SLO；重渲染报告不重新发压或判定。当前 perf 请求判定表是领域投影，
+Perf 不提供 SLO 或业务容量判定。Run.status=completed/stopped/error 只描述实验执行。
+phase_errors 优先为 error；没有执行、提前停止或中断为 stopped，其余 completed。
+业务 Judge 返回非空字符串 code，只有 success 表示成功；其余 code 含义由 Judge 定义。
+code 独立保存在 evaluations.json，原始 HTTP status / 异常仍归 Outcome。缺失判定为 unjudged 计数，
+不占用 code 值。error_breakdown 以 dispatch cohort 的非 success code 分组。
+默认 Judge 只按传输与 HTTP 状态分类（429 拒绝，408/504/Timeout 超时，其他非 2xx 失败）；
+业务 SSE 完成规则由项目定义。CLI 退出码 completed=0、stopped=2、error=1。
+离线可更换 Judge 并重算统计；报告重渲染不重新发压或判定。当前 perf 请求判定表是领域投影，
 未实现通用 EvaluationRun/Worksheet 的全量持久化，不把设计目标写成已实现能力。
 
 ## 比较条件
@@ -85,18 +95,18 @@ Python capacity 只读取有请求、无丢弃/中断/未判定且匹配 SLO 全
 归一化后也必须相同。不同条件分组，条件相同且至少有两个不同档位才绘制响应曲线或拟合斜率。
 固定有限速率、只改变并发上限的实验保留为不同条件的结果点，不推导速率容量曲线。
 
-分析、SLO 容量汇总与报告共用比较分组；图表标明扫描轴及单位，汇总表保留两轴峰值，
+分析与报告共用比较分组；图表标明扫描轴及单位，汇总表保留两轴峰值，
 精确阶段配置保留在 Arm 中。分组标签中的短 hash 仅供显示，完整配置决定分组归属。
 
 ## 产物
 
 | 文件 | 契约 |
 |---|---|
-| run.json | schema=6，executions 数组；无重复的 arm_runs/outcomes 存储 |
+| run.json | schema=7，executions 数组；无重复的 arm_runs/outcomes 存储 |
 | requests.jsonl | 每行 arm_run_id + request + 可选 operation_run（拥有唯一原始 Outcome） |
 | evaluations.json | ArmRun ID → OperationRun ID → RequestEvaluation |
 | timeseries.csv | arm_run,series,t,value 的资源采样 |
-| verdict.json | 统一 verdict-schema.yaml；执行异常 error，提前停止/中断 fail |
+| verdict.json | 统一 verdict-schema.yaml；执行异常 error，其余 skipped；无业务验收结论 |
 
 JSON 中无限速率写为字符串 `inf`；有限速率为 number。可空请求时刻允许缺省或 null。
 Reader 必须恢复原始关联与完整请求记录；支持当前 schema 的可选扩展字段，不接受旧主 schema。
@@ -109,4 +119,4 @@ Reader 必须恢复原始关联与完整请求记录；支持当前 schema 的�
 
 Python 的 MetricProbe 默认直接抓服务指标，显式配置 PrometheusQueryProbe 才访问远端查询 API。
 可选 window_observations 保存窗口查询事实；report_columns 保存指标与窗口的报告选择。
-两者是 schema 6 的附加字段。直接采集查询与汇总列目前由 Python 实现，报告重渲染只读取已保存结果。
+两者是 schema 7 的附加字段。直接采集查询与汇总列目前由 Python 实现，报告重渲染只读取已保存结果。

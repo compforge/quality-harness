@@ -1,5 +1,6 @@
 """Remote Prometheus queries projected onto the existing perf metric contract."""
 
+from harness_common import Operation
 from harness_toolbox.errors import ErrorKind, PrometheusQueryError
 from harness_toolbox.prometheus_query import PrometheusQueryDataSource, PrometheusQueryOptions
 
@@ -24,13 +25,14 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
         url: str,
         queries: list[PrometheusQuery],
         service: str | None = None,
+        operation: Operation | None = None,
         headers: dict[str, str] | None = None,
         timeout_ms: int = 5_000,
         max_response_bytes: int = 16 * 1024 * 1024,
         max_series: int = 20_000,
         connection_pool_maxsize: int = 8,
     ) -> None:
-        super().__init__(queries=queries, service=service)
+        super().__init__(queries=queries, service=service, operation=operation)
         # Explicit remote credentials never inherit the load target's headers.
         self.data_source = PrometheusQueryDataSource(
             url=url,

@@ -58,7 +58,7 @@ def test_restart_summarize_counter_total():
 
 def test_counter_reset_uses_positive_delta_accumulation():
     # a scraped service counter resets when its pod restarts: last-first would be
-    # NEGATIVE and poison rate/SLO. increase = Σ max(0, Δ) (Prometheus increase()
+    # NEGATIVE and poison rate summaries. increase = Σ max(0, Δ) (Prometheus increase()
     # semantics) and the summary carries the counter_reset caveat.
     probe = MetricProbe(queries=[PrometheusQuery("req_total", "sum(requests_total)", "counter")])
     out = probe.summarize(

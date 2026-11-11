@@ -52,8 +52,8 @@ setup → warmup → hold → cooldown → cleanup
 ```
 
 顶层 `cooldown_s` 控制停用后的观测窗口。cooldown 样本进入 `run.json` /
-`timeseries.csv` 和 HTML 曲线，用于回收、缩容与泄漏观察；ArmRun 汇总和默认 SLO
-仍只统计 measurement，只有显式 `window: {kind: cooldown}` 的资源 SLO 读取 cooldown。
+`timeseries.csv` 和 HTML 曲线，用于回收、缩容与泄漏观察；ArmRun 汇总和默认汇总
+仍只统计 measurement，只有显式 `window: {kind: cooldown}` 的报告列 读取 cooldown。
 即使 setup 或 measurement 抛错，`cleanup` 仍会执行。
 
 ## 自定义 Probe
@@ -93,7 +93,7 @@ observe:
       - { name: queue, path: /debug/queue }
 ```
 
-自定义 Probe 和内置 Probe 使用同一 `FamilySpec`、series label、汇总、SLO 与报告链路；不要在
+自定义 Probe 和内置 Probe 使用同一 `FamilySpec`、series label、汇总与报告链路；不要在
 factory 中写 load 编排或业务判定。
 
 ## 动态 Pod 数量
@@ -172,16 +172,12 @@ observe:
             unit: s
             description: Server duration, rolling 1m mean across api instances
 observe_interval_s: 5
-slo:
-  - {metric: error_rate, window: {kind: hold}, lt: 0.01}
-  - {metric: 'prometheus_query.duration_mean_s{service="api"}.peak', window: {kind: hold}, lt: 10}
-strict_slo: true
 ```
 
 `queries` 复用 scrape Probe 的 `name/promql/kind/unit/description/labels` 契约，支持 scalar 与
 vector 浮点样本。远端结果的 `instance` 是真实维度，保留并要求在 `labels` 中声明；
 仅移除 Prometheus 的 `__name__`。空向量保持缺失，warnings、非有限值、超时及超限进入
-probe error 与 `up=0`，不伪造零值。SLO 缺失为 skipped，`strict_slo` 下未验证门禁使 run 失败。
+probe error 与 `up=0`，不伪造零值。缺失与采集错误保留为事实，不产生业务验收结论。
 
 采样值沿用时序落盘、阶段统计、HTML 报告与离线重载，不需要修改 Case。数据源不携带压测
 run ID，租户/环境/实例过滤必须写入 PromQL；多 case 混合加压时不能把同一服务聚合值
@@ -198,7 +194,7 @@ from perf_harness import RequestEvaluation, register_judge
 
 def chat_completed(outcome):
     ok = outcome.status == 200 and outcome.meta.get("saw_done") and not outcome.meta.get("exc")
-    return RequestEvaluation(bool(ok), None if ok else "incomplete_stream")
+    return RequestEvaluation("success" if ok else "incomplete_stream")
 
 
 register_judge("chat-completed", chat_completed)

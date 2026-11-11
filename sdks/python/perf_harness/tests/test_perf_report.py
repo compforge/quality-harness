@@ -11,11 +11,8 @@ from perf_harness.model import (
     ResourceProfile,
     Sample,
     Series,
-    SloAssertion,
-    SloCheck,
     StopSnapshot,
     Window,
-    WindowSelector,
 )
 from perf_harness.report import write_report
 
@@ -106,14 +103,14 @@ def test_write_report_emits_artifacts(tmp_path):
     assert "cooldown" in windows
 
 
-def test_report_flags_knee(tmp_path):
+def test_report_does_not_invent_acceptance_thresholds(tmp_path):
     low = _arm_run(level=5)
     low.measurement.request.error_rate = 0.0
     high = _arm_run(level=40)
     high.measurement.request.error_rate = 0.11
     paths = write_report([low, high], str(tmp_path))
     md = Path(paths["report"]).read_text()
-    assert "拐点" in md
+    assert "拐点" not in md
 
 
 def test_report_rejects_early_stop_as_capacity(tmp_path):
@@ -128,14 +125,12 @@ def test_report_rejects_early_stop_as_capacity(tmp_path):
             threshold=0.1,
         ),
     )
-    assertion = SloAssertion("p99_ms", "lt", 1000)
-    arm_run.slo = [SloCheck(assertion, observed=400, state="pass")]
 
     paths = write_report([arm_run], str(tmp_path))
     md = Path(paths["report"]).read_text()
-    assert "Run 判定（arm_run 完整性 + SLO）" in md
-    assert "FAIL" in md and "部分窗口不能确认" in md
-    assert "SLO-aware 容量" in md and "—（无档达标）" in md
+    assert "执行状态" in md
+    assert "stopped" in md and "error_rate" in md
+    assert "SLO" not in md
 
 
 def test_report_distinguishes_phase_error_from_load_failure(tmp_path):
@@ -145,23 +140,9 @@ def test_report_distinguishes_phase_error_from_load_failure(tmp_path):
 
     paths = write_report([arm_run], str(tmp_path))
     md = Path(paths["report"]).read_text()
-    assert "ERROR" in md
+    assert "error" in md
     assert "setup: RuntimeError: target unavailable" in md
-    assert "不是请求失败或 SLO fail" in md
-
-
-def test_report_names_actual_window_and_fails_closed_on_cooldown_skip(tmp_path):
-    arm_run = _arm_run(level=10)
-    assertion = SloAssertion(
-        "client.inflight.last", "lte", 0, window=WindowSelector(kind="cooldown")
-    )
-    arm_run.slo = [SloCheck(assertion, observed=None, state="skipped", window_id="cooldown")]
-
-    paths = write_report([arm_run], str(tmp_path))
-    md = Path(paths["report"]).read_text()
-    assert "FAIL" in md
-    assert "client.inflight.last [window=cooldown]" in md
-    assert "WindowSelector(" not in md
+    assert "不是请求失败或 业务验收失败" in md
 
 
 def test_facet_order_sorts_ordinal(tmp_path):

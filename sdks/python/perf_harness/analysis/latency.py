@@ -20,7 +20,7 @@ MIN_N_FOR_TAIL = 100
 TTFT_STABLE_SPREAD = 0.10
 #: caveat → what it means for the reader (mirrors reduce.py's minting reasons)
 _CAVEAT_TEXT = {
-    "co_biased": "闭环 CO-bias——慢响应期间少采样，尾延迟偏乐观，勿当严格 SLO 证据",
+    "co_biased": "闭环 CO-bias——慢响应期间少采样，尾延迟偏乐观，需保留采样偏差说明",
     "high_drop": "开环 drop 比例高——压力机欠投放，延迟分位低估真实负载",
     "few_samples": "样本过少——分位数波动大",
 }

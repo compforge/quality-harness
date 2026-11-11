@@ -104,19 +104,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"report: {paths['report']}")
     if paths.get("report_html"):
         print(f"  html: {paths['report_html']}")
-    errors = [r for r in run_result.arm_runs if r.phase_errors]
-    early = [r for r in run_result.arm_runs if r.stop.early and not r.phase_errors]
-    if errors:
-        print(f"run: ERROR ({len(errors)} arm_run(s) had phase errors)")
-    elif early:
-        reasons = ", ".join(sorted({r.stop.reason for r in early}))
-        print(f"run: FAIL ({len(early)} arm_run(s) stopped early: {reasons})")
-    elif run_result.arm_runs and any(r.slo for r in run_result.arm_runs):
-        skipped = sum(1 for r in run_result.arm_runs for c in r.slo if c.observed is None)
-        note = f" ({skipped} skipped — metric/slice absent; check label typos)" if skipped else ""
-        print(f"SLO: {'PASS' if run_result.passed else 'FAIL'}{note}")
-    # non-zero exit on an incomplete arm_run or SLO failure → CI gate
-    return 0 if run_result.passed else 1
+    print(f"execution: {run_result.status}")
+    # Exit status describes execution, never business acceptance.
+    return {"completed": 0, "stopped": 2, "error": 1}[run_result.status]
 
 
 if __name__ == "__main__":

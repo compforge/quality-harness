@@ -151,7 +151,7 @@ test("hard stop records every interrupted call and leaves no tasks", async () =>
       },
     }).run();
   const arm = run.executions[0]!;
-  expect(run.passed).toBe(false);
+  expect(run.status).not.toBe("completed");
   expect(runner.active).toBe(0);
   expect(arm.stop.interrupted).toBe(4);
   expect(arm.operation_runs.length).toBe(4);
@@ -173,7 +173,7 @@ test("artifact round trip and rejudge do not change raw evidence", async () => {
     const arm = loaded.executions[0]!,
       before = serializeRequests(loaded);
     for (const op of arm.operation_runs)
-      arm.evaluations[op.id] = { ok: false, error_kind: "business" };
+      arm.evaluations[op.id] = { code: "business" };
     expect(requestStats(arm, 0, 0.04).error_rate).toBe(1);
     expect(serializeRequests(loaded)).toBe(before);
   } finally {
@@ -230,7 +230,7 @@ test("setup failure still cleans up and preserves phase evidence", async () => {
     loads: [{ request_rate: 1, max_inflight: 1, warmup: { step_s: 0 }, hold_s: 0.01 }],
   }).run();
   expect(cleaned).toBe(true);
-  expect(run.passed).toBe(false);
+  expect(run.status).not.toBe("completed");
   expect(run.executions[0]!.phase_errors[0]!.phase).toBe("setup");
   expect(run.executions[0]!.operation_runs.length).toBe(0);
 });
@@ -423,7 +423,7 @@ for (const scenario of failureScenarios) {
     }).run();
     const arm = run.executions[0]!,
       measurement = arm.windows[0]!;
-    expect(run.passed).toBe(false);
+    expect(run.status).not.toBe("completed");
     expect(cleaned).toBe(true);
     expect(arm.phase_errors[0]!.message).toBe("judge unavailable");
     expect(arm.stop.reason).toBe(scenario.stop_reason);
@@ -438,7 +438,8 @@ for (const scenario of failureScenarios) {
     expect(measurement.request!.completed).toBe(scenario.completed);
     expect(measurement.request!.n).toBe(1);
     expect(measurement.request!.n_interrupted).toBe(1);
-    expect(measurement.request!.error_breakdown).toEqual({ unjudged: 1 });
+    expect(measurement.request!.error_breakdown).toEqual({});
+    expect(measurement.request!.n_judged).toBe(0);
     expect(arm.evaluations).toEqual({});
     const interrupted = arm.requests.find((r) => r.state === "interrupted")!;
     expect(interrupted.finished_at!).toBeGreaterThan(measurement.end_s);

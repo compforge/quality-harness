@@ -9,8 +9,7 @@ Artifacts:
     same observed Window boundaries.
   - ``timeseries.csv``: long ``(arm_run, series, t, value)`` for plotting.
 
-The md leads with the overall summary and flags the knee — the first Load level
-per resource profile whose overall error rate crosses a threshold.
+The md leads with execution health and observed throughput, followed by API metrics.
 
 One config = one named *experiment* (the perf analogue of an eval_harness
 experiment; its arms are the resources × load sweep). ``write_run`` lays each
@@ -30,7 +29,6 @@ from pathlib import Path
 import yaml
 from harness_common.execution.run import run_dir_for
 from harness_common.report_kit import (
-    KV,
     Chart,
     Heading,
     LineSeries,
@@ -50,25 +48,44 @@ from perf_harness.metric import (
     series_id,
     split_series,
 )
-from perf_harness.model import ArmRun, ReportColumn, RequestStats, Run, Series, SloCheck
+from perf_harness.model import ArmRun, ReportColumn, RequestStats, Run, Series
 from perf_harness.report import lifecycle
 from perf_harness.report.columns import cases_cell, selected_cells
 from perf_harness.report.palette import family_color as _family_color
 from perf_harness.runio import PerfReducer, write_timeseries_data
-from perf_harness.slo import slo_aware_capacity
 
 # service is constant across a report's rows (one Experiment = one Service) and is
 # already in the title — so it's not a table column.
 _KEY_COLS = ["resources", "peak_request_rate", "peak_max_inflight"]
-_STAT_COLS = ["n", "ok", "rps", "err%", "drop%", "p50_ms", "p95_ms", "p99_ms", "err_top"]
+_THROUGHPUT_COLS = [
+    "dispatch_rps",
+    "success_rps",
+    "unjudged_rps",
+    "interrupted",
+]
+_STAT_COLS = _THROUGHPUT_COLS + [
+    "completed_by_code",
+    "throughput_by_code",
+    "n",
+    "ok",
+    "completion_rps",
+    "err%",
+    "drop%",
+    "p50_ms",
+    "p95_ms",
+    "p99_ms",
+    "err_top",
+]
 
 # header hover tooltips for the built-in request-side stat columns (metric/probe
 # columns describe themselves from their MetricFamily — see _display_col_tips)
 _STAT_TIPS = {
+    "completed_by_code": "judged completions by code; missing judgments counted separately",
+    "throughput_by_code": "judged completion throughput by code (req/s)",
     "n": "completed requests in this dispatch cohort (excludes drops/interruption)",
     "ok": "requests judged OK (Judge)",
-    "rps": "throughput = completions in this time window ÷ window duration",
-    "err%": "error rate — judged failures ÷ completed dispatch cohort",
+    "completion_rps": "throughput = completions in this time window ÷ window duration",
+    "err%": "error rate — judged non-successes ÷ judged completions in dispatch cohort",
     "drop%": "drops ÷ planned arrivals (not latency samples)",
     "p50_ms": "median request latency",
     "p95_ms": "95th-pct request latency",
@@ -83,15 +100,6 @@ _SATURATION_FLAG = 0.01
 
 def _arm_run_id(r: ArmRun) -> str:
     return r.label()  # the model's stable arm_run id — keys the raw artifacts too
-
-
-def _slo_window_suffix(check: SloCheck) -> str:
-    window = check.window_id or check.assertion.window.kind
-    return "" if window == "measurement" else f" [window={window}]"
-
-
-def _blocking_slo_skip(check: SloCheck) -> bool:
-    return check.skipped and check.assertion.window.kind == "cooldown"
 
 
 def _err_top(s: RequestStats) -> str:
@@ -135,11 +143,13 @@ def _key_cells(r: ArmRun) -> list[str]:
 
 
 def _stat_cells(s: RequestStats) -> list[str]:
-    return [
+    return [f"{getattr(s, key):.2f}" for key in _THROUGHPUT_COLS] + [
+        json.dumps(s.completed_by_code, ensure_ascii=False, sort_keys=True),
+        json.dumps(s.throughput_by_code, ensure_ascii=False, sort_keys=True),
         str(s.n),
         str(s.n_ok),
         f"{s.throughput_rps:.2f}",
-        f"{s.error_rate * 100:.1f}",
+        f"{s.error_rate * 100:.1f}" if s.n_judged else "—",
         f"{s.drop_rate * 100:.1f}",
         f"{s.p50_ms:.0f}",
         f"{s.p95_ms:.0f}",
@@ -233,16 +243,28 @@ def _sorted_values(
 # ---------------------------------------------------------------------------
 
 # request-side display columns: latency p50/p95/p99 merged into one `lat_ms` cell
-_DISPLAY_STAT_COLS = ["n", "ok", "rps", "err%", "drop%", "lat_ms", "err_top"]
+_DISPLAY_STAT_COLS = _THROUGHPUT_COLS + [
+    "completed_by_code",
+    "throughput_by_code",
+    "n",
+    "ok",
+    "completion_rps",
+    "err%",
+    "drop%",
+    "lat_ms",
+    "err_top",
+]
 _DISPLAY_STAT_TIPS = {**_STAT_TIPS, "lat_ms": "request latency — p50/p95/p99 (ms)"}
 
 
 def _display_stat_cells(s: RequestStats) -> list[str]:
-    return [
+    return [f"{getattr(s, key):.2f}" for key in _THROUGHPUT_COLS] + [
+        json.dumps(s.completed_by_code, ensure_ascii=False, sort_keys=True),
+        json.dumps(s.throughput_by_code, ensure_ascii=False, sort_keys=True),
         str(s.n),
         str(s.n_ok),
         f"{s.throughput_rps:.2f}",
-        f"{s.error_rate * 100:.1f}",
+        f"{s.error_rate * 100:.1f}" if s.n_judged else "—",
         f"{s.drop_rate * 100:.1f}",
         f"{s.p50_ms:.0f}/{s.p95_ms:.0f}/{s.p99_ms:.0f}",
         _err_top(s),
@@ -256,6 +278,31 @@ def _display_metric_cells(stats: RequestStats, keys: list[str]) -> list[str]:
         ms = stats.metrics.get(k)
         out.append(f"{ms.p50:.0f}/{ms.p95:.0f}" if ms else "-")
     return out
+
+
+def _api_observations(results: list[ArmRun]) -> Table:
+    """Keep API-bound observations visible even with a single load level."""
+    rows: list[list[str]] = []
+    for run in results:
+        for sid, summary in run.measurement.probe_metrics.items():
+            name, labels = split_series(sid)
+            if "operation" not in labels:
+                continue
+            family = run.metrics[name]
+            stats = flatten({sid: summary})
+            rows.append(
+                [
+                    run.id,
+                    "measurement",
+                    sid,
+                    ", ".join(
+                        f"{key.rsplit('.', 1)[1]}={_fmt(value)}" for key, value in stats.items()
+                    ),
+                    family.unit,
+                    family.source,
+                ]
+            )
+    return Table(["arm_run", "window", "series", "statistics", "unit", "source"], rows)
 
 
 def _display_probe_cols(results: list[ArmRun]) -> list[str]:
@@ -335,7 +382,7 @@ _CHART_UNIT_NAME = {
     "millicores": "CPU",
     "MiB": "内存",
     "count": "计数",
-    "rps": "吞吐",
+    "completion_rps": "吞吐",
     "ms": "延迟",
     "s": "时长(s)",
 }
@@ -370,7 +417,6 @@ def write_run(
     runs_dir: str,
     *,
     facet_order: dict[str, list[str]] | None = None,
-    knee_err_rate: float = 0.05,
     config_path: str | None = None,
 ) -> dict[str, str]:
     """Lay one ``Run`` down under ``<runs_dir>/<experiment>/<run_id>/`` — report.md +
@@ -394,7 +440,7 @@ def write_run(
     }
     paths["run_dir"] = str(run_dir)
 
-    # cross-harness verdict.json (run-level SLO gate) — what devloop reads to self-correct
+    # Cross-harness verdict.json carries execution diagnostics without business acceptance.
     from perf_harness.verdict import write_verdict
 
     paths["verdict"] = str(write_verdict(run_dir, run))
@@ -437,7 +483,6 @@ def write_run(
         write_report(
             run.arm_runs,
             str(run_dir),
-            knee_err_rate=knee_err_rate,
             facet_order=facet_order,
             columns=run.report_columns,
         )
@@ -450,7 +495,6 @@ def write_report(
     results: list[ArmRun],
     outdir: str,
     *,
-    knee_err_rate: float = 0.05,
     facet_order: dict[str, list[str]] | None = None,
     columns: list[ReportColumn] | None = None,
 ) -> dict[str, str]:
@@ -557,13 +601,13 @@ def write_report(
         writer = csv.writer(f)
         writer.writerow(lifecycle.COLUMNS)
         writer.writerows(lifecycle.rows(results))
-    md_path.write_text(_render_md(results, metric_keys, knee_err_rate, facet_order, columns))
+    md_path.write_text(_render_md(results, metric_keys, facet_order, columns))
 
     # HTML companion: mirrors report.md, but §3 actually plots the Probe timeseries
     # (the md only points at timeseries.csv). Tables render offline; only the charts
     # pull ECharts from CDN.
     html_path = out / "report.html"
-    doc = _build_doc(results, metric_keys, knee_err_rate, facet_order, columns)
+    doc = _build_doc(results, metric_keys, facet_order, columns)
     html_path.write_text(render_html(doc), encoding="utf-8")
 
     return {
@@ -576,65 +620,9 @@ def write_report(
     }
 
 
-def _render_slo(lines: list[str], results: list[ArmRun]) -> None:
-    """Run gate: arm_run completeness, SLO checks, and confirmed capacity."""
-    errors = [r for r in results if r.phase_errors]
-    early = [r for r in results if (r.stop.early or r.stop.interrupted) and not r.phase_errors]
-    if not any(r.slo for r in results) and not early and not errors:
-        return
-    has_fail = bool(early) or any(c.failed or _blocking_slo_skip(c) for r in results for c in r.slo)
-    has_skip = any(c.skipped for r in results for c in r.slo)
-    lines.append("## Run 判定（arm_run 完整性 + SLO）")
-    lines.append("")
-    verdict = (
-        "ERROR ❌"
-        if errors
-        else ("FAIL ❌" if has_fail else ("PASS ✅（含 skipped，见下）" if has_skip else "PASS ✅"))
-    )
-    lines.append(f"**{verdict}**")
-    lines.append("")
-    if errors:
-        lines.append("**执行异常**（不是请求失败或 SLO fail；本次 arm_run 未完整执行）：")
-        for r in errors:
-            lines.append(f"- `{_phase_error_brief(r)}`")
-        lines.append("")
-    if early:
-        lines.append("**提前停止**（部分窗口不能确认该负载档容量）：")
-        for r in early:
-            lines.append(f"- `{_stop_brief(r)}`")
-        lines.append("")
-    for r in results:
-        fails = [c for c in r.slo if c.failed]
-        if not fails:
-            continue
-        lines.append(f"- `{_arm_run_id(r)}` ❌")
-        for c in fails:
-            a = c.assertion
-            thr = f"{a.threshold[0]}..{a.threshold[1]}" if a.op == "between" else a.threshold
-            obs = "—" if c.observed is None else f"{c.observed:.2f}"
-            lines.append(f"  - {a.metric}{_slo_window_suffix(c)} = {obs}（需 {a.op} {thr}）")
-    skipped = sorted(
-        {c.assertion.metric + _slo_window_suffix(c) for r in results for c in r.slo if c.skipped}
-    )
-    if skipped:
-        lines.append("")
-        lines.append(
-            "**skipped**（该 metric 的 slice 在此 arm_run 无数据 → 未判定，**别误读为通过**；"
-            f"留意 label 拼写）：{', '.join(skipped)}"
-        )
-    if any(r.slo for r in results):
-        cap = slo_aware_capacity(results)
-        lines.append("")
-        lines.append("**SLO-aware 容量**（完整 hold Window 内的全部匹配 SLO 均通过）：")
-        for label, lvl in cap.items():
-            lines.append(f"- `{label}`: {f'{lvl:g}' if lvl is not None else '—（无档达标）'}")
-    lines.append("")
-
-
 def _build_doc(
     results: list[ArmRun],
     metric_keys: list[str],
-    knee_err_rate: float,
     facet_order: dict[str, list[str]] | None,
     columns: list[ReportColumn] | None = None,
 ) -> Report:
@@ -643,71 +631,30 @@ def _build_doc(
     service = results[0].service if results else "?"
     report = Report(title=f"perf report — {service}", meta=[("service", service)])
 
-    # Run gate: a partial arm_run fails before the three-state SLO rollup.
-    errors = [r for r in results if r.phase_errors]
-    early = [r for r in results if (r.stop.early or r.stop.interrupted) and not r.phase_errors]
-    if any(r.slo for r in results) or early or errors:
-        has_fail = bool(early) or any(
-            c.failed or _blocking_slo_skip(c) for r in results for c in r.slo
-        )
-        has_skip = any(c.skipped for r in results for c in r.slo)
-        verdict = (
-            "ERROR ❌"
-            if errors
-            else ("FAIL ❌" if has_fail else ("PASS ✅（含 skipped）" if has_skip else "PASS ✅"))
-        )
-        sec = Section("Run 判定（arm_run 完整性 + SLO）", [Prose(verdict)])
-        if errors:
-            sec.blocks.append(
+    report.sections.append(
+        Section(
+            "执行状态",
+            [
                 Table(
-                    ["execution error"],
-                    [[_phase_error_brief(r)] for r in errors],
-                )
-            )
-        if early:
-            sec.blocks.append(
-                Table(
-                    ["early stop"],
-                    [[_stop_brief(r)] for r in early],
-                )
-            )
-        fail_rows: list[list[str]] = []
-        for r in results:
-            for c in (c for c in r.slo if c.failed):
-                a = c.assertion
-                thr = (
-                    f"{a.threshold[0]}..{a.threshold[1]}" if a.op == "between" else str(a.threshold)
-                )
-                obs = "—" if c.observed is None else f"{c.observed:.2f}"
-                metric = a.metric + _slo_window_suffix(c)
-                fail_rows.append([_arm_run_id(r), metric, obs, a.op, thr])
-        if fail_rows:
-            sec.blocks.append(
-                Table(["arm_run", "metric", "observed", "op", "threshold"], fail_rows)
-            )
-        skipped = sorted(
-            {
-                c.assertion.metric + _slo_window_suffix(c)
-                for r in results
-                for c in r.slo
-                if c.skipped
-            }
-        )
-        if skipped:
-            sec.blocks.append(
-                Prose("skipped（slice 无数据 → 未判定，别误读为通过）：" + ", ".join(skipped))
-            )
-        if any(r.slo for r in results):
-            cap = slo_aware_capacity(results)
-            sec.blocks.append(
-                KV(
+                    ["arm_run", "status", "reason"],
                     [
-                        (lbl, f"{lvl:g}" if lvl is not None else "—（无档达标）")
-                        for lbl, lvl in cap.items()
-                    ]
+                        [
+                            r.id,
+                            (
+                                "error"
+                                if r.phase_errors
+                                else "stopped"
+                                if r.stop.early or r.stop.interrupted
+                                else "completed"
+                            ),
+                            _phase_error_brief(r) if r.phase_errors else _stop_brief(r),
+                        ]
+                        for r in results
+                    ],
                 )
-            )
-        report.sections.append(sec)
+            ],
+        )
+    )
 
     # §1 overall summary — narrow: constant key cols hoisted to a caption, and each
     # metric is ONE slashed column (lat_ms = p50/p95/p99, client.inflight = last/mean/peak…).
@@ -729,31 +676,21 @@ def _build_doc(
         )
         for r in results
     ]
-    knees = _knees(results, knee_err_rate)
-    knee_ids = {_arm_run_id(r) for r in knees.values()}
-    highlight = {i: "knee" for i, r in enumerate(results) if _arm_run_id(r) in knee_ids}
     # hover a column header → the merged stats + what the metric is (unit · source).
     tips = _display_col_tips(results, metric_keys, dprobe)
     tips.update({c.title: f"{c.metric} · window={c.window.kind}" for c in columns or []})
     sec1 = Section("1. 汇总（overall）")
     if consts:
         sec1.blocks.append(Prose("固定：" + " · ".join(f"`{k}={v}`" for k, v in consts)))
-    sec1.blocks.append(Table(cols, rows, highlight=highlight, col_tips=tips))
+    sec1.blocks.append(Table(cols, rows, col_tips=tips))
     if any(r.arm.load.saturated for r in results):
         sec1.blocks.append(
             Prose(
                 "闭环（closed）arm_run 的延迟百分位是 CO-biased"
                 "（响应变慢时少采高延迟样本，尾延迟偏乐观）"
-                "——勿当严格 SLO 尾延迟；有限 request_rate 也须结合丢弃与调度延迟判断样本偏差。"
+                "——勿当严格 无偏尾延迟；有限 request_rate 也须结合丢弃与调度延迟判断样本偏差。"
             )
         )
-    if knees:
-        knee_txt = "；".join(
-            f"{c}: 约 {r.arm.load.label()} (err {r.measurement.request.error_rate * 100:.1f}%, "
-            f"rps {r.measurement.request.throughput_rps:.1f})"
-            for c, r in knees.items()
-        )
-        sec1.blocks.append(Prose(f"拐点（首个错误率越过阈值的档位）：{knee_txt}"))
     saturated = [r for r in results if r.measurement.request.drop_rate >= _SATURATION_FLAG]
     if saturated:
         sat_txt = "；".join(
@@ -770,7 +707,7 @@ def _build_doc(
     errors = [r for r in results if r.phase_errors]
     if errors:
         error_txt = "；".join(_phase_error_brief(r) for r in errors)
-        sec1.blocks.append(Prose(f"⚠ 执行异常（非请求失败或 SLO fail）：{error_txt}"))
+        sec1.blocks.append(Prose(f"⚠ 执行异常（非请求失败或 业务验收失败）：{error_txt}"))
     broke = [r for r in results if (r.stop.early or r.stop.interrupted) and not r.phase_errors]
     if broke:
         broke_txt = "；".join(_stop_brief(r) for r in broke)
@@ -779,6 +716,9 @@ def _build_doc(
         )
     report.sections.append(sec1)
     report.sections.append(lifecycle.section(results))
+    api = _api_observations(results)
+    if api.rows:
+        report.sections.append(Section("API 观测（measurement）", [api]))
 
     # (no per-service resource TABLE: §3's response curves + §4's timeseries carry the
     # per-service story visually; the exact numbers live in summary.csv / run.json)
@@ -879,7 +819,11 @@ def _response_section(results: list[ArmRun]) -> Section | None:
     sec.blocks.append(Heading("请求侧（入口）"))
     for clabel, rs in groups:
         pts = [(r.arm.load.peak_level, r) for r in rs]
-        err = [(lv, round(r.measurement.request.error_rate * 100, 2)) for lv, r in pts]
+        err = [
+            (lv, round(r.measurement.request.error_rate * 100, 2))
+            for lv, r in pts
+            if r.measurement.request.n_judged
+        ]
         drop = [(lv, round(r.measurement.request.drop_rate * 100, 2)) for lv, r in pts]
         sec.blocks.append(
             Chart(
@@ -1095,7 +1039,6 @@ def _timeseries_section(results: list[ArmRun]) -> Section:
 def _render_md(
     results: list[ArmRun],
     metric_keys: list[str],
-    knee_err_rate: float,
     facet_order: dict[str, list[str]] | None,
     columns: list[ReportColumn] | None = None,
 ) -> str:
@@ -1104,8 +1047,29 @@ def _render_md(
     lines.append(f"# perf report — {service}")
     lines.append("")
 
-    _render_slo(lines, results)
+    lines.extend(["## 执行状态", "", "| arm_run | status | reason |", "| --- | --- | --- |"])
+    for r in results:
+        status = (
+            "error"
+            if r.phase_errors
+            else "stopped"
+            if r.stop.early or r.stop.interrupted
+            else "completed"
+        )
+        detail = _phase_error_brief(r) if r.phase_errors else _stop_brief(r)
+        lines.append(
+            "| " + " | ".join(cell.replace("|", "\\|") for cell in [r.id, status, detail]) + " |"
+        )
+    lines.append("")
     lines.extend(lifecycle.markdown(results))
+    api = _api_observations(results)
+    if api.rows:
+        lines.extend(["## API 观测（measurement）", ""])
+        lines.append("| " + " | ".join(api.columns) + " |")
+        lines.append("|" + "|".join(["---"] * len(api.columns)) + "|")
+        for row in api.rows:
+            lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in row) + " |")
+        lines.append("")
 
     # §1 overall summary — narrow: constant key cols → caption, each metric one slashed col
     lines.append("## 1. 汇总（overall）")
@@ -1130,24 +1094,13 @@ def _render_md(
             + _display_metric_cells(r.measurement.request, metric_keys)
             + _display_probe_cells(r, dprobe)
         )
-        lines.append("| " + " | ".join(cells) + " |")
+        lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
     lines.append("")
     if any(r.arm.load.saturated for r in results):
         lines.append(
             "> 闭环（closed）arm_run 的延迟百分位是 **CO-biased**（响应变慢时会少采高延迟样本，"
             "尾延迟偏乐观）；有限 request_rate 也须结合丢弃与调度延迟判断偏差。"
         )
-        lines.append("")
-
-    knees = _knees(results, knee_err_rate)
-    if knees:
-        lines.append("**拐点**（首个错误率越过阈值的档位）：")
-        for res_label, r in knees.items():
-            lines.append(
-                f"- `{res_label}`: 约在 {r.arm.load.label()} 处 "
-                f"(err {r.measurement.request.error_rate * 100:.1f}%, "
-                f"rps {r.measurement.request.throughput_rps:.1f})"
-            )
         lines.append("")
 
     saturated = [r for r in results if r.measurement.request.drop_rate >= _SATURATION_FLAG]
@@ -1165,7 +1118,7 @@ def _render_md(
 
     errors = [r for r in results if r.phase_errors]
     if errors:
-        lines.append("**⚠ 执行异常**（不是请求失败或 SLO fail；本次 arm_run 未完整执行）：")
+        lines.append("**⚠ 执行异常**（不是请求失败或 业务验收失败；本次 arm_run 未完整执行）：")
         for r in errors:
             lines.append(f"- `{_phase_error_brief(r)}`")
         lines.append("")
@@ -1203,7 +1156,9 @@ def _render_md(
                 for val in _sorted_values(key, list(r.measurement.by_facet[key]), facet_order):
                     sl = r.measurement.by_facet[key][val]
                     cells = [val, *_display_stat_cells(sl), *_display_metric_cells(sl, metric_keys)]
-                    lines.append("| " + " | ".join(cells) + " |")
+                    lines.append(
+                        "| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |"
+                    )
                 lines.append("")
 
     # §2b observed Window breakdown
@@ -1233,7 +1188,7 @@ def _render_md(
                     *_display_stat_cells(window.request),
                     *_display_metric_cells(window.request, metric_keys),
                 ]
-                lines.append("| " + " | ".join(cells) + " |")
+                lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
             lines.append("")
 
     # §3/§4 are charts (markdown can't carry them) — point at the html + the data layer
@@ -1247,17 +1202,6 @@ def _render_md(
     )
     lines.append("")
     return "\n".join(lines)
-
-
-def _knees(results: list[ArmRun], thr: float) -> dict[str, ArmRun]:
-    """First ArmRun per resource profile (by ascending level) whose overall error rate ≥ thr."""
-    knees: dict[str, ArmRun] = {}
-    for label, rows in comparison_groups(results):
-        for r in rows:
-            if r.measurement.request.error_rate >= thr:
-                knees[label] = r
-                break
-    return knees
 
 
 def _fmt(v: float | None) -> str:

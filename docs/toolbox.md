@@ -257,7 +257,7 @@ LitmusChaos 已经包含 Workflow、Probe 和 Result 等平台模型。接入这
 
 ## References
 
-- 跨 Harness 通用内核：[`kernel.md`](kernel.md)
+- 跨 Harness 模型、主流程与职责：[开发约定](../AGENTS.md)
 - e2e Target Driver 边界：[`e2e-harness.md`](e2e-harness.md)
 - Go Kubernetes 实现：[`../sdks/go/toolbox/kube`](../sdks/go/toolbox/kube)
 - Python Kubernetes 实现：[`../sdks/python/toolbox/harness_toolbox/kube`](../sdks/python/toolbox/harness_toolbox/kube)

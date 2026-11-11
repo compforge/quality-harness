@@ -97,7 +97,7 @@ async def test_hard_stop_keeps_each_interrupted_call_and_does_not_judge_it():
         )
     ).run()
     arm = run.arm_runs[0]
-    assert not run.passed and runner.active == 0
+    assert run.status != "completed" and runner.active == 0
     assert len(arm.operation_runs) == arm.stop.interrupted == 4
     assert all(r.state == "interrupted" and r.finished_at is not None for r in arm.requests)
     assert not arm.evaluations
@@ -114,7 +114,7 @@ async def test_offline_rejudge_preserves_raw_evidence():
     arm = run.arm_runs[0]
     evidence = copy.deepcopy(arm.operation_runs)
     arm.evaluations = {
-        call.id: RequestEvaluation(False, "business_failure") for call in arm.operation_runs
+        call.id: RequestEvaluation("business_failure") for call in arm.operation_runs
     }
     stats = reduce_requests(arm, 0, 0.04)
     assert stats.error_rate == 1 and arm.operation_runs == evidence
@@ -143,7 +143,7 @@ async def test_runner_error_measures_actual_elapsed_and_judge_error_is_phase_fai
             judge=broken_judge,
         )
     ).run()
-    assert not run.passed and run.arm_runs[0].phase_errors
+    assert run.status != "completed" and run.arm_runs[0].phase_errors
     assert len(run.arm_runs[0].operation_runs) == 1
 
 
@@ -173,8 +173,6 @@ async def test_generator_stall_does_not_catch_up_after_the_hold_deadline():
 
 
 async def test_interrupted_run_verdict_and_no_latency_evidence(tmp_path):
-    from perf_harness import SloAssertion
-    from perf_harness.slo import evaluate_slo
     from perf_harness.verdict import build_verdict_doc
 
     run = await Engine(
@@ -189,9 +187,7 @@ async def test_interrupted_run_verdict_and_no_latency_evidence(tmp_path):
             ),
         )
     ).run()
-    assert build_verdict_doc(run)["status"] == "fail"
-    checks = evaluate_slo(run.arm_runs[0], [SloAssertion(metric="p99_ms", op="lt", threshold=100)])
-    assert checks[0].skipped and checks[0].observed is None
+    assert build_verdict_doc(run)["status"] == "skipped"
 
 
 JUDGE_FAILURES = json.loads(
@@ -245,7 +241,7 @@ async def test_judge_failure_preserves_boundaries_and_census(scenario, tmp_path)
         )
     ).run()
     arm = run.arm_runs[0]
-    assert not run.passed and runner.cleaned and runner.active == 0
+    assert run.status != "completed" and runner.cleaned and runner.active == 0
     assert arm.phase_errors[0].message == "judge unavailable"
     assert arm.stop.reason == scenario["stop_reason"]
     assert arm.stop.inflight_at_stop == scenario["inflight_at_stop"]
@@ -259,7 +255,8 @@ async def test_judge_failure_preserves_boundaries_and_census(scenario, tmp_path)
     assert arm.measurement.request.completed == scenario["completed"]
     assert arm.measurement.request.n == 1
     assert arm.measurement.request.n_interrupted == 1
-    assert arm.measurement.request.error_breakdown == {"unjudged": 1}
+    assert arm.measurement.request.error_breakdown == {}
+    assert arm.measurement.request.n_judged == 0
     assert not arm.evaluations
     finished = next(r for r in arm.requests if r.state == "finished")
     interrupted = next(r for r in arm.requests if r.state == "interrupted")

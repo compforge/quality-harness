@@ -251,10 +251,8 @@ def test_two_dimensional_load_slices_are_shared_by_analysis_report_and_capacity(
     import csv
     from pathlib import Path
 
-    from perf_harness.model import SloAssertion, SloCheck
     from perf_harness.report import write_report
     from perf_harness.report.render import _curve_groups
-    from perf_harness.slo import slo_aware_capacity
 
     rows = [
         _rate_arm(10, 1, 110),
@@ -280,11 +278,6 @@ def test_two_dimensional_load_slices_are_shared_by_analysis_report_and_capacity(
     for r in rows:
         hold = replace(r.measurement, id="hold", kind="hold", target_level=r.arm.load.request_rate)
         r.windows.append(hold)
-        r.slo = [SloCheck(SloAssertion("p99_ms", "lt", 100), 30, "pass", "hold")]
-    capacities = slo_aware_capacity(rows)
-    assert len(capacities) == 2 and list(capacities.values()) == [20, 20]
-    assert any("max_inflight=1|" in label for label in capacities)
-    assert any("max_inflight=10|" in label for label in capacities)
     paths = write_report(rows, str(tmp_path))
     html = Path(paths["report_html"]).read_text()
     assert "request_rate (requests/s)" in html

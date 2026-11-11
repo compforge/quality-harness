@@ -84,10 +84,17 @@ def reduce_requests(
         for r in records
         if r.state == "finished" and r.finished_at is not None and start <= r.finished_at < end
     ]
-    succeeded = sum(
-        execution.evaluations.get(r.operation_run_id) is not None
-        and execution.evaluations[r.operation_run_id].ok
+    # Codes partition judged completion events; missing judgments are not codes.
+    counts = Counter(
+        evaluation.code
         for r in completions
+        if (evaluation := execution.evaluations.get(r.operation_run_id)) is not None
+    )
+    unjudged = len(completions) - sum(counts.values())
+    n_judged = sum(e is not None for e in evaluations)
+    interrupted_events = sum(
+        r.state == "interrupted" and r.finished_at is not None and start <= r.finished_at < end
+        for r in records
     )
     dropped = sum(r.state == "dropped" for r in arrived)
     interrupted = sum(r.state == "interrupted" for r in cohort)
@@ -141,11 +148,7 @@ def reduce_requests(
         current += delta
         peak = max(peak, current)
     dt = max(end - start, 1e-9)
-    breakdown = Counter(
-        (e.error_kind or "unknown") if e else "unjudged"
-        for e in evaluations
-        if e is None or not e.ok
-    )
+    breakdown = Counter(e.code for e in evaluations if e is not None and not e.ok)
     return RequestStats(
         n=n,
         n_ok=n_ok,
@@ -154,17 +157,23 @@ def reduce_requests(
         p95_ms=pct(durs, 0.95),
         p99_ms=pct(durs, 0.99),
         mean_ms=sum(durs) / n if n else 0,
-        error_rate=(n - n_ok) / n if n else 0,
+        error_rate=(n_judged - n_ok) / n_judged if n_judged else 0,
+        n_judged=n_judged,
         error_breakdown=dict(breakdown),
         n_dropped=dropped,
         n_interrupted=interrupted,
         arrived=len(arrived),
         dispatched=len(cohort),
         completed=len(completions),
-        succeeded=succeeded,
+        succeeded=counts["success"],
+        completed_by_code=dict(counts),
+        throughput_by_code={code: count / dt for code, count in counts.items()},
+        unjudged=unjudged,
+        interrupted=interrupted_events,
         arrival_rps=len(arrived) / dt,
         dispatch_rps=len(cohort) / dt,
-        success_rps=succeeded / dt,
+        success_rps=counts["success"] / dt,
+        unjudged_rps=unjudged / dt,
         inflight_peak=peak,
         inflight_end=current,
         metrics=metrics,

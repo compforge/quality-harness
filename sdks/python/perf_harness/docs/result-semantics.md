@@ -1,42 +1,63 @@
 # Perf 结果语义
 
-## 事实与判定
+Perf 执行指定负载并保存观测，不要求事先定义验收阈值。SLO 配置、聚合验收和基于 SLO 的容量判定不属于 Perf Harness。
 
-Runner 只返回原始 Outcome；独立 Judge 返回 RequestEvaluation，按 OperationRun ID 保存。
-HTTP/SSE 状态、完成事件与 trace_id 留在 Outcome；ok/error_kind 不写回事实。
-未发出的 drop 只有 RequestRecord。已经发出但被取消的调用保留 OperationRun 与 interrupted 标记，
-不执行 Judge、不进入延迟样本。请求异常保留真实经过时长；生命周期异常另记 phase_errors。
+## 请求事实与分类
 
-## Window
+Runner 保存原始 Outcome：状态码、耗时、流式事件、错误和关联 ID。独立 Judge 返回
+`RequestEvaluation(code="success")`；code 是非空字符串，只有 `success` 表示成功，其余值都表示失败。
+code 由 Judge 定义，使用稳定名称（如 `model_unavailable`），不把动态错误文本或请求 ID 当作 code。
+原始 HTTP status、异常细节仍在 Outcome 中；缺少 Judge 结果单独计为 unjudged，不占用一个 code。
+HTTP 200 不自动证明 SSE 业务完成；业务 Judge 读取 Runner 保留的完成信号。
+默认 Judge 将 2xx 映射为 success，其余 HTTP 状态映射为 `http_<status>`；Timeout 异常为 timeout，
+其它异常为 transport_error，没有状态或异常信息为 unknown。项目可替换这些映射。
 
-所有边界使用相对 ArmRun 发压起点的秒数与半开区间 `[start_s, end_s)`：
+## 时间窗口与统计
 
-| 指标 | 归属口径 |
-|---|---|
-| arrived / arrival_rps / dropped | 源头实际接受的发起机会；满在途暂停期间不虚构请求 |
-| dispatched / dispatch_rps | 实际调用开始时刻 |
-| completed / throughput_rps | 实际完成时刻，含成功与失败 |
-| succeeded / success_rps | 实际完成时刻，且 Judge 通过 |
-| n / n_ok / error_rate / 延迟 | 本窗 dispatch 的请求 cohort；排空后完成的请求仍归本窗 |
-| inflight_peak / inflight_end | 真实调用起止事件，包含上个窗口尚未完成的请求 |
-| scheduler_lag_ms | arrived_at - scheduled_at；量化加压器处理到达的延迟 |
+所有窗口采用 `[start_s, end_s)`，时间相对 ArmRun 发压起点。请求延迟按 dispatched_at
+归入 cohort，即使请求在后续排空阶段完成。吞吐按 finished_at 统计实际完成事件。
 
-measurement 从首个实际 hold 开始；Stage 形成实际 warmup/ramp/hold 窗口；
-cooldown 展示停止发压后的完成事件和资源观测。不能用 cohort 样本数除以窗口时长冒充完成吞吐。
-nearest-rank 百分位使用 `ceil(q*n)-1`；无完成样本时，延迟/错误率 SLO 返回 Missing 而不是零值通过。
+| 指标 | 口径 |
+| --- | --- |
+| dispatch_rps | 窗口内实际发起数 / 窗口时长 |
+| throughput_rps | 窗口内完成数 / 窗口时长 |
+| completed_by_code / throughput_by_code | 按 Judge code 分组的完成数 / 完成速率 |
+| succeeded / success_rps | 从 code=success 的完成数和速率派生 |
+| unjudged / unjudged_rps | 没有 Judge 结果的完成数和速率，不属于任何 code |
+| n / n_ok / n_judged | dispatch cohort 中完成数、成功数、已判定数 |
+| error_rate | dispatch cohort 中已判定的非成功数 / n_judged |
+| interrupted | 窗口内实际中断事件数；不属于完成吞吐 |
+| n_interrupted | dispatch cohort 的中断数，用于关联该批请求的完整性 |
+| n_dropped | 未发出的丢弃数，不属于服务响应 |
 
-## 判定与可信度
+`completed = sum(completed_by_code.values()) + unjudged`；各 code 速率之和加 unjudged_rps 等于
+throughput_rps。失败吞吐可由所有非 success 的 code 速率相加得到，不预设拒绝、超时等固定字段。
+error_breakdown 按 dispatch cohort 内的非 success code 统计，不能与完成事件的 by-code 数量混用。
+即使业务使用名为 `unjudged` 的 code，它也表示明确的失败判定，与没有 Judge 结果独立。
+没有已判定请求时 error_rate 的 MetricStore 读取为 Missing，报告显示缺失；原始计数仍保留。
+中断和丢弃不进入延迟分布。nearest-rank 百分位索引为 `ceil(q*n)-1`。
 
-错误率 breaker 控制本 ArmRun 的停止；`abort_on_fail` 控制 Arm 之间是否继续。
-phase_errors 使 verdict=error；提前停止或 interrupted 使 run 失败；否则按显式 SLO 汇总。
-无 SLO 的正常执行只证明完成了测试，verdict=skipped，不表示容量达标。
-缺数据的 SLO 为 skipped；`strict_slo` 决定是否阻断，cooldown 缺数据默认阻断。
+## 执行与采集状态
 
-capacity 只读取完整 hold 窗口：有已完成请求、无丢弃/中断/缺失判定，且该窗口匹配的 SLO 全部通过。
-有限速率下 limited_s > 0 的窗口不确认目标速率容量。
-其含义是“本轮该配置已观测通过”，不能由短时实验外推长期稳定容量。
-inf 的响应相关补充会产生 coordinated omission；有限速率达到并发上限时也会遗漏慢请求群体。
-`co_biased`、`high_drop`、`incomplete` 和 `few_samples` 随 summary 保存，不只出现在报告文案中。
+Run.status 为 `completed`、`stopped`、`error`。正常结束只表示实验执行完成，不表示业务达标。
+phase_errors 表示执行异常并停止后续 Arm；熔断或排空超时导致的请求中断表示 stopped。
+请求级失败率本身不改变 Run.status；显式错误率熔断仍可提前停止当前 Arm，以保护运行。
+CLI 退出码为 completed=0、stopped=2、error=1。
 
-离线重算应保留 requests.jsonl 原样，只更新 evaluations 与相应 Window/SLO 投影；报告是这些投影的
-下游，不再接触被测服务。当前 perf 使用自己的请求判定表，不宣称已实现通用 EvaluationRun/Worksheet 存储。
+通用 verdict.json 仅保留执行诊断：执行异常映射 error，其余为 skipped（没有验收策略），
+不输出业务 pass/fail。采集错误保存在 probe_errors 与 up=0，缺少指标不会补成零，也不自动改变执行状态。
+
+## 离线数据
+
+schema 7 保存运行状态、环境、请求时间线、独立判定与窗口统计。旧主 schema 不由新 reader 兼容。
+load_run 不连接目标；更换 Judge 后可用 reduce_requests 重算每个 Window、Case 和 facet 的请求统计。
+保存重算结果时保持 requests.jsonl 原样；report 只读取已保存的窗口结果，不隐式执行 Judge。
+下游 API 数据按 Service / Operation 和实际窗口独立保存，不需要 Graph，也不能仅由相关性证明瓶颈。
+
+
+## 按 code 查询与展示
+
+`request.completed_by_code{code="model_unavailable"}.value` 与
+`request.throughput_by_code{code="model_unavailable"}.value` 通过 MetricStore 读取指定窗口的数量和速率。
+可再加一个已声明 facet label 选择请求分组。code 是开放的结果维度，不要求预注册；没有观测到的
+code bucket 读取为 Missing。默认 Markdown、HTML 与 CSV 包含完整 code 映射，原始键值落在 run.json。

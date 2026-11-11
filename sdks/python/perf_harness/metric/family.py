@@ -7,20 +7,19 @@ Three layers, Prometheus-typed in spirit but not in storage (see docs/metric-mod
     (counter/gauge/distribution/scalar) decides which ``stat`` is legal, exactly
     like Prometheus's type decides valid functions. ``side`` says which slice axes
     the family's series live on — ``request`` series slice by facet,
-    ``resource`` series by service (and only those; the SLO parser enforces it).
+    ``resource`` series by service (and only those; the report parser enforces it).
     A concrete *series* is the family plus labels (``top.cpu_m{service="chat"}``)
     — labels are NOT baked into the family, so its unit/value_kind/description are
     never duplicated per series.
   - a per-``value_kind`` summary union (``CounterSummary`` / ``GaugeSummary`` /
     ``DistributionSummary`` / ``ScalarSummary``) — typed, not one nullable matrix.
     Each summary carries its own ``caveats`` (CO-bias, saturation, thin samples),
-    so a number's trustworthiness travels WITH it and a gate/report can never read
+    so a number's trustworthiness travels WITH it and a report can never read
     a biased value as if it were clean.
   - ``Missing``: ``query`` returns a value OR a ``Missing`` (with a reason), never a
-    bare ``None`` — a consumer must handle absence explicitly (an SLO maps it to
-    *skipped*, never silently to pass).
+    bare ``None`` — a consumer must handle absence explicitly.
 
-Everything (report / SLO / CSV / HTML) reads through one resolver: ``<name>{labels}.<stat>``.
+Everything (report / CSV / HTML) reads through one resolver: ``<name>{labels}.<stat>``.
 This module is pure (stdlib only) and the resolver works on plain dicts
 (``{series_id: MetricSummary}`` + ``{family_name: MetricFamily}``), so it never
 imports model.py — keeping the dependency DAG ``metric ← model ← {store, engine}`` acyclic.
@@ -34,7 +33,7 @@ from typing import Literal
 # Which storage/slice side a family's series live on. ``request`` = computed from
 # Outcomes, sliceable by facet within any Window. ``resource`` = Probe samples,
 # sliceable by service within the same Window. This is the ONE routing bit the
-# store/report/SLO need; how a value
+# store/report/analysis need; how a value
 # was produced is plain metadata (``source``), not a type axis.
 MetricSide = Literal["request", "resource"]
 MetricValueKind = Literal["counter", "gauge", "distribution", "scalar"]
@@ -42,7 +41,7 @@ MetricValueKind = Literal["counter", "gauge", "distribution", "scalar"]
 # A summary's self-reported trustworthiness, minted at REDUCE and carried on the
 # value so analysis can't silently read a biased number as clean:
 #   - co_biased     : closed-loop tail latency under-samples slow responses (a arm_run-level
-#                     property of model=closed) → don't treat as a strict SLO tail.
+#                     property of model=closed) → don't treat as a unbiased tail.
 #   - high_drop     : request evidence contains dropped arrivals → percentiles understate reality.
 #   - few_samples   : the slice has too few observations for stable percentiles.
 #   - stale         : a probe missed enough ticks that the series is patchy.
@@ -127,7 +126,7 @@ class ScalarSummary:
 
 MetricSummary = CounterSummary | GaugeSummary | DistributionSummary | ScalarSummary
 
-# value_kind → the stats it legally exposes (the resolver/SLO validate against this).
+# value_kind → the stats it legally exposes (the resolver/report validate against this).
 # ``caveats`` is metadata on every summary, not an addressable stat.
 LEGAL_STATS: dict[MetricValueKind, frozenset[str]] = {
     "counter": frozenset({"total", "rate", "increase"}),
@@ -139,7 +138,7 @@ LEGAL_STATS: dict[MetricValueKind, frozenset[str]] = {
 
 @dataclass(frozen=True)
 class FacetDescriptor:
-    """A facet a Runner declares it may stamp at runtime (so an SLO can gate it via
+    """A facet a Runner declares it may stamp at runtime (so a report can select it via
     a ``{facet="val"}`` label even though it isn't in the static Case mix). See
     Runner.describe_facets."""
 
@@ -150,8 +149,8 @@ class FacetDescriptor:
 @dataclass(frozen=True)
 class Missing:
     """A ``query`` result when a metric's slice has no value on a arm_run — a value,
-    NOT ``None``, so a consumer must handle absence explicitly. An SLO maps it to a
-    *skipped* check (never silently to pass); the report lists it as skipped.
+    NOT ``None``, so a consumer must handle absence explicitly.
+    The report shows missing values rather than a numeric zero.
 
     ``reason``: ``no_slice`` (the labeled slice was never produced — e.g. a facet
     value no request carried this arm_run), ``no_data`` (the family exists but the
@@ -217,7 +216,7 @@ def validate_ref(ref: str, registry: dict[str, MetricFamily]) -> None:
     """Static check (parse time): the metric family exists and the stat is legal for
     its ``value_kind``. ``registry`` is keyed by FAMILY name (labels are slice
     selectors, not identity), so a labeled ref is validated against its family.
-    Raises ValueError — a perf gate must fail fast on a typo."""
+    Raises ValueError — a configured metric reference must fail fast on a typo."""
     name, _labels, stat = parse_ref(ref)
     if stat is None:
         raise ValueError(f"metric ref must carry a stat '<name>.<stat>', got {ref!r}")
@@ -236,8 +235,8 @@ def resolve(summaries: dict[str, MetricSummary], ref: str) -> float | None:
     series id). ``None`` when the series is absent or the stat value wasn't computed
     (e.g. a counter ``rate`` with <2 samples) → the store turns ``None`` into a
     ``Missing`` for the caller."""
-    sid, stat = split_ref(ref)
-    summary = summaries.get(sid)
+    name, labels, stat = parse_ref(ref)
+    summary = summaries.get(series_id(name, labels))
     if summary is None:
         return None
     val = getattr(summary, stat, None)

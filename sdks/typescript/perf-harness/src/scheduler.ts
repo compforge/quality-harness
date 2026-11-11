@@ -11,7 +11,7 @@ import type {
   Phase,
 } from "./model";
 import type { ArmContext, Runner } from "./runner";
-import type { Judge } from "./judge";
+import { validateEvaluation, type Judge } from "./judge";
 
 // Owned by the ArmRun lifecycle, so exceptions cannot discard already observed facts.
 export interface DriveState {
@@ -138,9 +138,10 @@ export async function drive(options: {
         });
         if (record.state === "finished") {
           const evaluation = judge(outcome);
+          validateEvaluation(evaluation);
           execution.evaluations[record.id] = evaluation;
           completed++;
-          if (!evaluation.ok) failed++;
+          if (evaluation.code !== "success") failed++;
         }
       })
       .catch((error) => {

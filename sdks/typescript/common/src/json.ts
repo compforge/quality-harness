@@ -88,7 +88,7 @@ function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
 /**
  * @spec Undefined object properties mean absence and are omitted recursively; null remains explicit.
  * @rule Top-level undefined, undefined array elements and holes are rejected, never converted to null.
- * @see ../../../../docs/kernel.md
+ * @see ../AGENTS.md
  */
 export function immutableJsonValue(value: unknown, label: string): JsonValue {
   return cloneJson(value, label, new Set());

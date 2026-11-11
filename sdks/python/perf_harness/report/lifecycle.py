@@ -1,5 +1,7 @@
 """Lifecycle view keeps event rates separate from dispatch-cohort latency."""
 
+import json
+
 from harness_common.report_kit import Prose, Section, Table
 
 from perf_harness.model import ArmRun
@@ -13,6 +15,8 @@ COLUMNS = [
     "dispatched",
     "completed",
     "succeeded",
+    "completed_by_code",
+    "unjudged",
     "dropped",
     "interrupted",
     "dispatch_rps",
@@ -50,8 +54,10 @@ def rows(executions: list[ArmRun]) -> list[list[str]]:
                     str(s.dispatched),
                     str(s.completed),
                     str(s.succeeded),
+                    json.dumps(s.completed_by_code, ensure_ascii=False, sort_keys=True),
+                    str(s.unjudged),
                     str(s.n_dropped),
-                    str(s.n_interrupted),
+                    str(s.interrupted),
                     f"{s.dispatch_rps:.2f}",
                     f"{s.throughput_rps:.2f}",
                     str(s.inflight_peak),
@@ -77,6 +83,9 @@ def markdown(executions: list[ArmRun]) -> list[str]:
             "| " + " | ".join(COLUMNS) + " |",
             "|" + "|".join(["---"] * len(COLUMNS)) + "|",
         ]
-        + ["| " + " | ".join(row) + " |" for row in rows(executions)]
+        + [
+            "| " + " | ".join(cell.replace("|", "\\|") for cell in row) + " |"
+            for row in rows(executions)
+        ]
         + [""]
     )

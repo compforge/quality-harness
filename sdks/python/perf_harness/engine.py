@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import time
 from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
@@ -48,7 +49,6 @@ from perf_harness.model import (
     Sample,
     Series,
     Service,
-    SloAssertion,
     Window,
     make_run_id,
 )
@@ -59,7 +59,8 @@ from perf_harness.observe import (
     ProbeStore,
     observe_loop,
 )
-from perf_harness.slo import evaluate_slo
+
+logger = logging.getLogger(__name__)
 
 
 def _phase_error(phase: Phase, exc: Exception) -> PhaseError:
@@ -86,6 +87,12 @@ class _ArmExecution:
 
     def record(self, exc: Exception, *, phase: Phase | None = None) -> None:
         self.phase_errors.append(_phase_error(phase or self.phase, exc))
+        logger.error(
+            "perf phase failed: run=%s phase=%s error_type=%s",
+            self.context.run_id,
+            phase or self.phase,
+            type(exc).__name__,
+        )
 
 
 @dataclass(kw_only=True)
@@ -111,9 +118,6 @@ class Experiment(BaseExperiment):
     # An Overlay, not a Case field — weight is "how this run uses the case", not its identity.
     mix: Overlay = field(default_factory=Overlay)
     facet_order: dict[str, list[str]] = field(default_factory=dict)
-    slo: list[SloAssertion] = field(default_factory=list)  # per-run gate (aggregate verdict)
-    abort_on_fail: bool = False  # stop the sweep at the first SLO-failing arm_run
-    strict_slo: bool = False  # treat a skipped SLO (no data) as a run failure, not a pass
     name: str = "perf"  # experiment name → runs/<name>/<run_id>/
     observe_interval_s: float = 5.0
     cooldown_s: float = 0.0  # keep probes running after deactivation for scale-down curves
@@ -161,7 +165,6 @@ class Engine:
         exp = self.experiment
         started = time.strftime("%Y-%m-%dT%H:%M:%S")
         arm_runs: list[ArmRun] = []
-        passed = True
         try:
             applied: ResourceProfile | None = None
             for arm in exp.resolved_arms():
@@ -170,32 +173,23 @@ class Engine:
                         Deployment(service=exp.service, resources=arm.resources)
                     )
                     applied = arm.resources
-                arm_run = await self._run_arm_run(exp.service, arm)
-                # A breaker-ended arm_run only observed a partial load window. Even
-                # if every evaluated SLO happens to pass, it cannot prove this
-                # load level was sustained.
-                failed = (
-                    arm_run.stop.early or bool(arm_run.phase_errors) or arm_run.stop.interrupted > 0
+                logger.info(
+                    "perf arm started: run=%s arm=%s service=%s",
+                    self.run_id,
+                    arm.id,
+                    exp.service.name,
                 )
-                if exp.slo and not arm_run.phase_errors:
-                    arm_run.slo = evaluate_slo(arm_run, exp.slo)
-                    # the run gate is lenient on skip by default: a skipped check
-                    # (slice absent) is surfaced but doesn't flip the exit code;
-                    # strict_slo treats an unverifiable SLO as a failure.
-                    failed = (
-                        failed
-                        or any(c.failed for c in arm_run.slo)
-                        or any(
-                            c.skipped and (exp.strict_slo or c.assertion.window.kind == "cooldown")
-                            for c in arm_run.slo
-                        )
-                    )
-                passed = passed and not failed
+                arm_run = await self._run_arm_run(exp.service, arm)
+                logger.info(
+                    "perf arm ended: run=%s arm=%s stop=%s phase_errors=%d",
+                    self.run_id,
+                    arm.id,
+                    arm_run.stop.reason,
+                    len(arm_run.phase_errors),
+                )
                 arm_runs.append(arm_run)
-                # A phase error says the testbed/execution chain itself is no
-                # longer trustworthy. Continuing the sweep can compound leaked
-                # state, so it stops independently of the SLO-oriented policy.
-                if arm_run.phase_errors or (exp.abort_on_fail and failed):
+                # A broken lifecycle cannot safely provide the next Arm's testbed.
+                if arm_run.phase_errors:
                     break
         finally:
             if exp.teardown and exp.deployer is not None:
@@ -206,7 +200,7 @@ class Engine:
             created_at=started,
             executions=arm_runs,
             service=exp.service.name,
-            passed=passed,
+            environment=exp.service.environment.name,
             report_columns=list(exp.report_columns),
         )
 
@@ -494,7 +488,7 @@ class Engine:
         measurement = windows[0]
         assert measurement.request is not None
 
-        # unified metric registry: every report/SLO-visible metric → its descriptor.
+        # unified metric registry: every report/analysis-visible metric → its descriptor.
         # (1) builtin request.* (duration_ms / error_rate / throughput_rps /
         # drop_rate). (2) per-request distributions: a Runner may declare
         # unit/source (describe()); undeclared keys (e.g. dynamic first_<event>_ms)
@@ -575,7 +569,7 @@ class Engine:
                             summary = replace(summary, caveats=summary.caveats | {"probe_error"})
                         window.probe_metrics[series_id(f"{probe.family}.{bare}", labels)] = summary
             # the synthesized health series (`up`, see _observe): full series for §4's
-            # outage view, gauge summary (mean = availability ratio, SLO-addressable as
+            # outage view, gauge summary (mean = availability ratio, queryable as
             # `<family>.up{service=…}.mean`). No probe_error caveat — up IS that signal.
             if up_samples:
                 up_fam = f"{probe.family}.up"

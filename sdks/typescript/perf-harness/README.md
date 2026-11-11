@@ -48,10 +48,16 @@ function evaluates raw Outcomes; the default checks transport/status, not busine
 ArmRuns; each actual invocation owns one OperationRun/Outcome. Dispatch-cohort latency includes drained
 responses, while completion throughput uses actual completion timestamps.
 
-Schema 6 artifacts: `run.json`, `requests.jsonl`, `evaluations.json`, `timeseries.csv`, `verdict.json`.
-`loadRun` reads them offline. The TypeScript SDK does not provide resource probes, rendered reports or
-SLO evaluation. Its successful execution verdict is `skipped`; phase errors, early stops and interrupted
-calls fail. Python provides the richer reporting and SLO layer using the same persisted facts.
+Schema 7 artifacts: `run.json`, `requests.jsonl`, `evaluations.json`, `timeseries.csv`, `verdict.json`.
+`loadRun` reads them offline. Run.status is completed/stopped/error and describes execution only.
+RequestEvaluation.code is an open nonempty string; only "success" denotes success.
+completed_by_code and throughput_by_code group completion events by code; missing judgments remain
+separate in unjudged/unjudged_rps. The default Judge uses http_<status> for non-2xx responses, timeout
+for timeout exceptions, transport_error for other exceptions and unknown when no status is available.
+These five mutually exclusive completion rates sum to throughput_rps. Interrupted calls are separate.
+The SDK does not provide business acceptance gates. verdict.json is error for execution failures and
+skipped otherwise. Python also provides resource/API observation and rendered reports.
+
 
 Development from `sdks/typescript`: `bun install --frozen-lockfile`, then build `common` before
 `perf-harness`. Run `bun test`, `bun run typecheck`, and `bun run build` in each package.

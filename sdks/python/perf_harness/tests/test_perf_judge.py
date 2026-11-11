@@ -9,11 +9,11 @@ from perf_harness.records import RequestEvaluation as Verdict
 def test_base_judge_status_and_exc():
     assert default_judge(Outcome(status=200, duration_ms=1)).ok
     v503 = default_judge(Outcome(status=503, duration_ms=1))
-    assert (v503.ok, v503.error_kind) == (False, "503")
+    assert (v503.ok, v503.code) == (False, "http_503")
     vexc = default_judge(Outcome(status=None, duration_ms=0, meta={"exc": "ReadTimeout"}))
-    assert (vexc.ok, vexc.error_kind) == (False, "ReadTimeout")
+    assert (vexc.ok, vexc.code) == (False, "timeout")
     vnone = default_judge(Outcome(status=None, duration_ms=0))
-    assert (vnone.ok, vnone.error_kind) == (False, "unknown")
+    assert (vnone.ok, vnone.code) == (False, "unknown")
 
 
 def sse_judge(o: Outcome) -> Verdict:
@@ -21,12 +21,12 @@ def sse_judge(o: Outcome) -> Verdict:
     if not base.ok:
         return base  # transport error / non-2xx — base already ruled
     if o.events == 0:
-        return Verdict(False, "empty_stream")
+        return Verdict("empty_stream")
     if o.meta.get("error_frames"):
-        return Verdict(False, "sse_error_event")
+        return Verdict("sse_error_event")
     if not o.meta.get("saw_done"):
-        return Verdict(False, "truncated")
-    return Verdict(True)
+        return Verdict("truncated")
+    return Verdict("success")
 
 
 def test_sse_override_catches_200_failures():
@@ -42,19 +42,19 @@ def test_sse_override_catches_200_failures():
             events=5,
             meta={"saw_done": True, "error_frames": 1},
         ),
-        "ConnectError": Outcome(status=None, duration_ms=0, meta={"exc": "ConnectError"}),
+        "transport_error": Outcome(status=None, duration_ms=0, meta={"exc": "ConnectError"}),
     }
     for expected_kind, o in cases.items():
         v = sse_judge(o)
         assert v.ok is False
-        assert v.error_kind == expected_kind
+        assert v.code == expected_kind
 
 
 class _Failing(Runner):
     name = "failing"
 
     async def fire(self, ctx):
-        return Outcome(status=500, duration_ms=1.0)  # raw — base judge buckets it as "500"
+        return Outcome(status=500, duration_ms=1.0)  # raw — base judge buckets it as "http_500"
 
 
 async def test_engine_buckets_judged_errors():
@@ -74,4 +74,4 @@ async def test_engine_buckets_judged_errors():
     r = (await Engine(exp).run()).arm_runs[0]
     assert r.measurement.request.n > 0
     assert r.measurement.request.error_rate == 1.0
-    assert r.measurement.request.error_breakdown.get("500", 0) > 0
+    assert r.measurement.request.error_breakdown.get("http_500", 0) > 0

@@ -4,7 +4,7 @@
  * @spec text explains what the evidence means and limits on judgment; fields expose supporting counts, objects, and evidence.
  * @spec The enclosing command or query result owns status: it describes execution completeness, not application health.
  * @rule For partial results, truncation, zero matches, or failed sources, explain what was obtained, what is missing, and which judgments remain unsupported.
- * @see ../../../../docs/kernel.md
+ * @see ../AGENTS.md
  */
 export interface Summary {
   readonly title: string;

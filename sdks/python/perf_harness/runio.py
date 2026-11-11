@@ -5,7 +5,7 @@ A run dir (``runs/<experiment>/<run_id>/``) holds three artifact layers:
   raw    ``requests.jsonl``（每请求一行的事实，含 warmup/drop）+ ``timeseries.csv``
          （probe 每 tick 采样）— append-only facts, never re-derived.
   model  ``run.json`` — the FULL serialized ``Run``（schema 版本化）: per arm_run the
-         resources / load（含停止策略）/ stop / SLO 明细、metric registry（family →
+         resources / load（含停止策略）/ stop / 执行状态、metric registry（family →
          unit/kind/source/description）、每个 Window 的请求/资源 summary。
          内存模型知道的一切，离线同样可寻址。
   views  ``report.md/html`` + ``summary/by_facet.csv``（``report.py``）— 给人看的
@@ -13,7 +13,7 @@ A run dir (``runs/<experiment>/<run_id>/``) holds three artifact layers:
 
 ``write_run_data`` lays down raw + model. ``load_run`` reconstructs the ``Run``
 from a run dir — so ``MetricStore(load_run(d).arm_runs)`` serves the SAME
-``<family>{labels}.<stat>`` reads offline that the live process served, and SLO /
+``<family>{labels}.<stat>`` reads offline that the live process served, and request /
 analysis can re-evaluate without re-firing. ``load_run`` restores all raw request
 records and independent evaluations for re-slicing and recomputing percentiles.
 """
@@ -63,8 +63,6 @@ from perf_harness.model import (
     Run,
     Sample,
     Series,
-    SloAssertion,
-    SloCheck,
     StopSnapshot,
     Window,
     WindowSelector,
@@ -72,11 +70,11 @@ from perf_harness.model import (
 from perf_harness.records import RequestEvaluation, RequestRecord
 
 #: bump when run.json's shape changes incompatibly — offline readers check this first
-RUN_SCHEMA = 6
+RUN_SCHEMA = 7
 
 
 def _record(model, data: dict):
-    """Read known fields while accepting additive fields from another schema-6 writer."""
+    """Read known fields while accepting additive fields from another schema-7 writer."""
     return model(**{f.name: data[f.name] for f in fields(model) if f.name in data})
 
 
@@ -241,44 +239,6 @@ def _stop_from(d: dict) -> ArmStop:
     )
 
 
-def _slo_json(c: SloCheck) -> dict:
-    a = c.assertion
-    return {
-        "metric": a.metric,
-        "op": a.op,
-        # a `between` threshold is a (lo, hi) tuple — JSON carries it as a list
-        "threshold": list(a.threshold) if isinstance(a.threshold, tuple) else a.threshold,
-        "window": {
-            "kind": a.window.kind,
-            "name": a.window.name,
-            "level": a.window.level,
-        },
-        "window_id": c.window_id,
-        "observed": c.observed,
-        "state": c.state,
-    }
-
-
-def _slo_from(d: dict) -> SloCheck:
-    thr = d["threshold"]
-    window = d.get("window") or {"kind": "measurement"}
-    return SloCheck(
-        assertion=SloAssertion(
-            metric=d["metric"],
-            op=d["op"],
-            threshold=tuple(thr) if isinstance(thr, list) else thr,
-            window=WindowSelector(
-                kind=window.get("kind", "measurement"),
-                name=window.get("name"),
-                level=window.get("level"),
-            ),
-        ),
-        observed=d.get("observed"),
-        state=d["state"],
-        window_id=d.get("window_id"),
-    )
-
-
 def _operation_json(call: OperationRun) -> dict:
     service = call.service
     return {
@@ -331,7 +291,6 @@ def _arm_run_json(r: ArmRun) -> dict:
             "load": _load_json(r.arm.load),
         },
         "stop": _stop_json(r.stop),
-        "slo": [_slo_json(c) for c in r.slo],
         "registry": {name: _family_json(f) for name, f in r.metrics.items()},
         "windows": [
             {
@@ -412,7 +371,6 @@ def _arm_run_from(d: dict, service: str) -> ArmRun:
         ],
         series={},  # filled from timeseries.csv by load_run
         stop=_stop_from(d.get("stop") or {}),
-        slo=[_slo_from(c) for c in d.get("slo") or []],
         metrics={name: _family_from(name, f) for name, f in (d.get("registry") or {}).items()},
         probe_errors={
             name: ProbeErrors(
@@ -466,7 +424,8 @@ def write_run_data(run: Run, run_dir: str | Path) -> dict[str, str]:
         "experiment": run.experiment,
         "created_at": run.created_at,
         "service": run.service,
-        "passed": run.passed,
+        "status": run.status,
+        "environment": run.environment,
         "report_columns": [asdict(column) for column in run.report_columns],
         "executions": [_arm_run_json(r) for r in run.arm_runs],
     }
@@ -558,7 +517,7 @@ def load_run(run_dir: str | Path, *, with_series: bool = True) -> Run:
         created_at=doc.get("created_at", ""),
         executions=arm_runs,
         service=service,
-        passed=bool(doc.get("passed", True)),
+        environment=doc["environment"],
         report_columns=[
             ReportColumn(item["title"], item["metric"], WindowSelector(**item.get("window", {})))
             for item in doc.get("report_columns", [])

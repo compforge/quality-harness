@@ -3,7 +3,7 @@
 # register_runner("example", ...)). Semantics live in the docs — this file is a
 # template to copy, not a manual:
 #   load shape / breaker / graceful stop → docs/load-model-redesign.md
-#   SLO refs / labels / skip semantics   → docs/result-semantics.md + metric-model.md
+#   Result categories / labels / missing data   → docs/result-semantics.md + metric-model.md
 name: example-sizing              # experiment name → runs/<name>/<run_id>/ (runs accumulate)
 # extensions: [my_project.perf]   # imports register_runner/register_probe side effects
 
@@ -81,12 +81,3 @@ observe:                          # 资源观测：Service 自身 + 下游 Servi
 observe_interval_s: 5
 # cooldown_s: 300                 # deactivate 后继续采样；window: {kind: cooldown} 可门禁
 runs_dir: ./runs                  # each run → runs/example-sizing/<run_id>/
-
-# slo:                            # run 级门（三态，skip≠pass）→ CI 退出码 + SLO-aware 容量
-#   - { metric: error_rate,        lt: 0.01 }
-#   - { metric: drop_rate,         lt: 0.01 }
-#   - { metric: p99_ms,            lt: 5000, level: 40 }
-#   - { metric: ttft_ms.p95,       lt: 2000 }
-#   - { metric: 'p99_ms{difficulty="complex"}',     lt: 30000 }
-#   - { metric: 'prometheus.latency_p95_s{service="example"}.peak', lt: 2 }
-# abort_on_fail: false            # between-arm_run SLO 门：一档压完不达标即停 sweep

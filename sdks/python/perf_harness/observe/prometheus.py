@@ -3,6 +3,8 @@
 import math
 from dataclasses import dataclass
 
+from harness_common import Operation
+
 from perf_harness.metric import MetricValueKind, series_id
 from perf_harness.observe.base import FamilySpec, Probe
 
@@ -27,9 +29,18 @@ class PrometheusQuery:
 class _PrometheusResultProbe(Probe):
     """Shared metric/label projection; subclasses own only their query source."""
 
-    def __init__(self, *, queries: list[PrometheusQuery], service: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        queries: list[PrometheusQuery],
+        service: str | None = None,
+        operation: Operation | None = None,
+    ) -> None:
         self.queries = list(queries)
         self._service = service
+        self.operation = operation
+        if operation is not None and operation.service_name != service:
+            raise ValueError("metric operation owner must match the observed service")
         self.families = {
             query.name: FamilySpec(
                 query.unit,
@@ -43,6 +54,22 @@ class _PrometheusResultProbe(Probe):
             raise ValueError("Prometheus query names must be unique within one probe")
         if service:
             self.name = f"{self.name}.{service}"
+        if operation is not None:
+            self.name += f".{operation.id()}"
+        for query in queries:
+            if set(query.labels) & set(self.labels):
+                raise ValueError("query labels cannot override the observation binding")
+
+    @property
+    def labels(self) -> dict[str, str]:
+        """API observations remain independent of topology and generated traffic.
+
+        @spec Operation ID is model-owned; service binding cannot be overridden by a vector.
+        """
+        labels = super().labels
+        if self.operation is not None:
+            labels["operation"] = self.operation.id()
+        return labels
 
     @staticmethod
     def _labels(metric: dict[str, str]) -> dict[str, str]:

@@ -19,7 +19,7 @@ Prometheus、Kubernetes 等资源观测由消费方通过 Prombed 或自己的�
 | `scheduler.ts` | 发压、熔断、并发上限与停止语义 |
 | `reduce.ts` | Outcome 到 Window/RequestStats 的归约 |
 | `engine.ts` | Experiment 与 Arm/ArmRun 编排 |
-| `runio.ts` | 跨语言 schema 6 对齐的 raw/model 产物 |
+| `runio.ts` | 跨语言 schema 7 对齐的 raw/model 产物 |
 
 ## 关键约定
 
@@ -29,7 +29,7 @@ Prometheus、Kubernetes 等资源观测由消费方通过 Prombed 或自己的�
 4. `trace_id` 等跨平面对齐键放在 `Outcome.meta`，落盘时不得丢失。
 5. 通用包不写业务 SSE 语义；业务 Plugin/consumer 实现 Runner。
 6. Case/CaseSet 归 spec-case；Perf Experiment 只通过 `caseMix` 选择 id 和设置 weight。
-7. Kernel 对齐：Outcome 是 request Observation；request、window、run 是不同 Unit grain，必须区分分析粒度。raw/model Run facts 可由不同 独立 Judge、SLO 和 analysis 组件离线复评，当前请求判定保存为独立 evaluations 表，不得因换判定口径重新发压；详见 `../../../docs/kernel.md#dataset-与反复评估`。
+7. 证据与复评：Outcome 是 request Observation；request、window、run 是不同 Unit grain，必须区分分析粒度。raw/model Run facts 可由不同 独立 Judge 和 analysis 组件离线复评，当前请求判定保存为独立 evaluations 表，不得因换判定口径重新发压；详见 `../../../docs/evaluation-data.md#dataset-与反复评估`。
 
 ## 开发与测试
 

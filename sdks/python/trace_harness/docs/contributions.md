@@ -1,29 +1,7 @@
-# Trace Harness 内核
+# Trace 业务贡献与 Detector 执行
 
-Trace Harness 把物理 span 映射成逻辑事件，由业务贡献事实、度量与规则，框架执行数据准备、分析和呈现。
-单条与批量共用这套模型；[加载](load.md)、[单条分析](single.md)、[批量分析](batch.md)各自展开具体机制。
-
-## 概念与主流程
-
-```text
-Source ── select ──▶ Dataset ── detect ──▶ Findings
-                        └─ 按需准备 tree、Fact、Measurement
-```
-
-| 概念 | 职责 |
-|---|---|
-| Source | 遥测后端适配，异步选择 trace、读取骨架及证据 |
-| Dataset | 固定 trace 成员、查询条件与可复用证据，不保存运行结论 |
-| Span | 带存储身份的物理观测，保留原始证据与关联 |
-| Node / tree | 一个逻辑事件对应一到多个 span；平 Node 集与只读关系索引 |
-| Fact | 业务映射与转换所得的命名事实 |
-| Measurement | 独立量化结果，包含适用性、状态、数值与证据 |
-| Finding | 带作用域和证据的观察；异常与结构信息均可表达 |
-| AnalysisContext | 当前 trace 的分析状态与逻辑数据访问入口 |
-
-`TraceHarness.open` 创建资源作用域，`select` 固定 Dataset，`tree` 取得有生命周期的分析上下文。
-`detect` 流式遍历成员，写出独立 Run。相同 Dataset 可以执行不同的分析，不复用先前运行的 findings。
-Measurement 不挂在 Node 上，通过 `context.measure(node, name)` 请求。
+核心概念与入口生命周期见 [开发约定](../AGENTS.md#核心模型与主流程)。本主题说明业务如何贡献
+映射、事实、度量与规则，以及框架如何准备依赖、执行和保存结果。
 
 ## 业务扩展与执行边界
 

@@ -118,16 +118,16 @@ class Runner(ABC):
         unit (``prompt_tokens`` → ``tok``) or a server-sourced number echoed in a
         frame (``source="server"``). Returned descriptors must be
         ``side="request"``, ``value_kind="distribution"``. Declaring a metric also
-        lets an SLO reference ``<name>.<stat>`` be validated at parse.
+        lets a report reference ``<name>.<stat>`` be validated at parse.
         """
         return []
 
     def describe_facets(self) -> list[FacetDescriptor]:
         """Declare the runtime facets ``fire()`` may stamp on the Outcome (beyond
         the static Case mix), e.g. ``heavy=yes|no``. Only declared facets can be
-        referenced by an SLO ``{facet="val"}`` label — an undeclared runtime facet
-        still appears in the report but can't gate a run (it has no static schema
-        to validate against, which would let a typo'd gate silently pass)."""
+        referenced by a report ``{facet="val"}`` label — an undeclared runtime facet
+        still appears in the report but cannot be a configured column without a
+        static declaration for validating its name."""
         return []
 
 

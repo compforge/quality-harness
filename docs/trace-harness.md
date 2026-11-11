@@ -50,7 +50,7 @@ trace 解释执行过程，eval 评估产出质量，perf 验证负载下的性�
 | TraceHarness | 分析配置的作用域 owner，显式组合业务贡献并执行分析和投影 |
 | Observation SessionView | 从 trace 提取的 agent 语义表示，保留 Node / span 溯源 |
 
-按照 [Kernel](kernel.md#dataset-与反复评估)，Node 可以作为 Observation，
+按照 [Dataset 与复评](evaluation-data.md#dataset-与反复评估)，Node 可以作为 Observation，
 `trace_id + node_id` 定义 node-grain Unit。固定的事实和来源构成可复评 Dataset；
 本轮 Measurement / Finding 属于 EvaluationRun 的 Worksheet，不写回 Dataset。
 提升到 request、trace 或 trajectory 粒度时，需要明确自己的 Unit key 和 Worksheet。
@@ -98,7 +98,7 @@ select 圈定固定成员，detect 执行选定的判读；measure 作为可选�
 统一入口以加载策略选择按需或预加载，单条 / batch、是否生成 HTML 均不决定该策略；
 预加载与按需加载共享数据语义、缓存和资源预算。
 
-- [内核](../sdks/python/trace_harness/docs/kernel.md)：核心概念、业务接口与框架执行边界。
+- [业务贡献与 Detector](../sdks/python/trace_harness/docs/contributions.md)：业务接口、依赖与执行边界。
 - [数据加载](../sdks/python/trace_harness/docs/load.md)：字段依赖、按需读取、预加载、缓存与资源生命周期。
 - [单条分析](../sdks/python/trace_harness/docs/single.md)：单 trace 分析、call stack、HTML 与下钻。
 - [Batch 分析](../sdks/python/trace_harness/docs/batch.md)：Dataset、有限内存执行、统计与版本对比。

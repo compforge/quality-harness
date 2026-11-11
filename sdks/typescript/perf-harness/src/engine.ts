@@ -221,7 +221,6 @@ export class Engine {
           interrupted: 0,
           force_cancelled: false,
         },
-        slo: [],
         registry: {},
         probe_errors: {},
         phase_errors: [],
@@ -290,24 +289,19 @@ export class Engine {
       arm_runs.push(arm_run);
       await this.#experiment.onArmFinish?.(arm_run);
       // A phase failure means the execution/testbed state is no longer a safe
-      // baseline for the next Arm, regardless of any future SLO stop policy.
+      // baseline for the next Arm.
       if (arm_run.phase_errors.length) break;
     }
     return {
-      schema: 6,
+      schema: 7,
       run_id: this.#runId,
       experiment: this.#experiment.name ?? "perf",
       created_at: created.toISOString(),
       service: this.#experiment.service.name,
-      passed:
-        !this.#experiment.signal?.aborted &&
-        arm_runs.length === resolvedArms.length &&
-        arm_runs.every(
-          (arm_run) =>
-            !arm_run.phase_errors.length &&
-            arm_run.stop.reason === "deadline" &&
-            !arm_run.stop.interrupted,
-        ),
+      environment: this.#experiment.service.environment?.name ?? "",
+      status: arm_runs.some(a => a.phase_errors.length) ? "error"
+        : this.#experiment.signal?.aborted || arm_runs.length !== resolvedArms.length || !arm_runs.length ||
+          arm_runs.some(a => a.stop.reason !== "deadline" || a.stop.interrupted) ? "stopped" : "completed",
       executions: arm_runs,
       artifacts: [],
     };

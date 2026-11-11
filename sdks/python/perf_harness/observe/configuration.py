@@ -2,6 +2,7 @@
 
 from typing import get_args
 
+from harness_common import Operation
 from prombed import ScrapeTarget
 
 from perf_harness.model import ReportColumn, Service, WindowKind, WindowSelector
@@ -16,7 +17,7 @@ def parse_window(raw: dict | None, *, default: str) -> WindowSelector:
         raise ValueError("window must contain only kind, name and level")
     kind = raw.get("kind", default)
     if kind not in get_args(WindowKind):
-        raise ValueError(f"slo.window/report.window: invalid kind: {kind!r}")
+        raise ValueError(f"window: invalid kind: {kind!r}")
     if kind not in {"hold", "ramp", "warmup"} and ("name" in raw or "level" in raw):
         raise ValueError("window name/level only apply to load stages")
     return WindowSelector(
@@ -26,6 +27,10 @@ def parse_window(raw: dict | None, *, default: str) -> WindowSelector:
 
 def parse_metric_probe(name: str, options: dict, service: Service):
     options = dict(options)
+    operation_name = options.pop("operation", None)
+    if operation_name is not None and (not isinstance(operation_name, str) or not operation_name):
+        raise ValueError("metric operation must be a nonempty name")
+    operation = Operation(operation_name, service_name=service.name) if operation_name else None
     headers = options.get("headers")
     if headers is not None and not isinstance(headers, dict):
         raise ValueError("headers must be a mapping")
@@ -44,7 +49,9 @@ def parse_metric_probe(name: str, options: dict, service: Service):
             raise ValueError("prometheus_query requires an explicit `url` and queries")
         if set(options) - allowed:
             raise ValueError(f"prometheus_query: unknown options: {sorted(set(options) - allowed)}")
-        return PrometheusQueryProbe(service=service.name, queries=queries, **options)
+        return PrometheusQueryProbe(
+            service=service.name, operation=operation, queries=queries, **options
+        )
     summaries = []
     for item in options.pop("summaries", []):
         definition = {key: value for key, value in item.items() if key != "window"}
@@ -90,6 +97,7 @@ def parse_metric_probe(name: str, options: dict, service: Service):
     return MetricProbe(
         service=service.name,
         target_service=service,
+        operation=operation,
         queries=queries,
         summaries=summaries,
         targets=tuple(parsed_targets),

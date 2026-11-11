@@ -10,12 +10,11 @@ Judge = Callable[[Outcome], RequestEvaluation]
 
 def default_judge(outcome: Outcome) -> RequestEvaluation:
     if outcome.meta.get("exc"):
-        return RequestEvaluation(False, str(outcome.meta["exc"]))
+        exc = str(outcome.meta["exc"])
+        return RequestEvaluation("timeout" if "timeout" in exc.lower() else "transport_error")
     if outcome.status is not None and 200 <= outcome.status < 300:
-        return RequestEvaluation(True)
-    return RequestEvaluation(
-        False, str(outcome.status) if outcome.status is not None else "unknown"
-    )
+        return RequestEvaluation("success")
+    return RequestEvaluation(f"http_{outcome.status}" if outcome.status is not None else "unknown")
 
 
 _REGISTRY: dict[str, Judge] = {"default": default_judge}

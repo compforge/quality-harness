@@ -1,6 +1,6 @@
 # Perf conformance
 
-公共 fixture 表达 schema 6 的一次完成调用和一次未发出的 drop，供 Python/TypeScript 共同读取。
+公共 fixture 表达 schema 7 的一次完成调用和一次未发出的 drop，供 Python/TypeScript 共同读取。
 `basic.run.json` 只有 Execution/Arm/Window 投影；`basic.requests.jsonl` 保存调度记录与唯一原始
 OperationRun/Outcome；`basic.evaluations.json` 单独保存判定。
 

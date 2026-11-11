@@ -5,7 +5,11 @@ additionalProperties:
   type: object
   additionalProperties:
     type: object
-    required: [ok]
+    required:
+    - code
     properties:
-      ok: {type: boolean}
-      error_kind: {type: [string, 'null']}
+      code:
+        type: string
+        pattern: \S
+        description: Judge-owned result code; success is the only successful value.
+    additionalProperties: false

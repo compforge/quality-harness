@@ -47,7 +47,7 @@ test("cancellation immediately reaches requests with its original reason and pre
   expect(requestReason).toBe(reason);
   expect(cleaned).toBe(true);
   expect(calls).toBe(1);
-  expect(run.passed).toBe(false);
+  expect(run.status).not.toBe("completed");
   expect(run.executions).toHaveLength(1);
   expect(run.executions[0]!.stop).toMatchObject({ reason: "aborted", inflight_at_stop: 1, interrupted: 1 });
   expect(run.executions[0]!.requests[0]!.state).toBe("interrupted");
@@ -82,7 +82,7 @@ test.each(["setup", "onArmStart"] as const)("cancellation during %s prevents loa
   expect(events).toEqual(phase === "setup" ? ["setup", "cleanup"] : ["setup", "start", "cleanup"]);
 });
 
-test("cleanup still receives cancellation and cannot report a passed run", async () => {
+test("cleanup still receives cancellation and cannot report a completed run", async () => {
   const controller = new AbortController();
   const reason = new Error("cancel during cleanup");
   let cleanupReason: unknown;
@@ -98,7 +98,7 @@ test("cleanup still receives cancellation and cannot report a passed run", async
     },
   }).run();
   expect(cleanupReason).toBe(reason);
-  expect(run.passed).toBe(false);
+  expect(run.status).not.toBe("completed");
   // Cancellation after measurement does not rewrite its already recorded boundary.
   expect(run.executions[0]!.stop.reason).toBe("deadline");
 });
@@ -114,6 +114,6 @@ test("an already cancelled experiment does not acquire runner resources", async 
       async fire() { throw new Error("must not send requests"); },
     },
   }).run();
-  expect(run.passed).toBe(false);
+  expect(run.status).not.toBe("completed");
   expect(run.executions).toEqual([]);
 });

@@ -182,7 +182,7 @@ checkpoint 等内容及 schema 由各 Harness 持有。`Report` 是一个或多�
   （eval 早期是扁平 `runs/<exp>/`，已对齐补上 run-id 层。）
 - **verdict.json**：每个 run 目录必产一份；只承载"判定结论 + 对齐用最小结构"，富产物用
   `artifact_paths` 指过去，不复制内容。两类判定单元分开：per-case 判定走 `cases[]`（对齐键
-  `case_id`，与「Case 规范」第 1 条同一主键），run 级断言门走 `checks[]`（perf SLO 是首个实例）。
+  `case_id`，与「Case 规范」第 1 条同一主键），run 级断言门走 `checks[]`。
   wire 只存这两份事实 + run rollup，**不存派生计数**——"多少 pass/fail"消费方读时自己 fold
   `cases[]`/`checks[]`（perf 无 per-case 行，结论落 `checks[]`）。字段见 [`verdict-schema.yaml`](verdict-schema.yaml)。
 
@@ -192,12 +192,12 @@ checkpoint 等内容及 schema 由各 Harness 持有。`Report` 是一个或多�
 |---------|------------------|------|
 | e2e | `e2e_harness.engine` / Go `caserun.Recorder` | CaseRun 阶段结果 + 结构化 assertion |
 | eval | `eval_harness/verdict.py`，`engine.run_experiment` 收尾调用 `write_verdict()` | `row_overall`（weighted）+ per-cell state |
-| perf | `perf_harness/verdict.py`，`report.write_run` 收尾调用 `write_verdict()` | 每条 SLO check → `checks[]`；run status 按 per-check rollup，cooldown skip 失败关闭；**不取 `run.passed`** |
+| perf | `perf_harness/verdict.py` | 执行异常 error；其余 skipped，无业务验收策略。Run.status 独立保存 completed/stopped/error |
 | trace | `trace_harness/verdict.py`，`corpus.experiment.run_experiment` 收尾调用 `write_verdict()` | experiment 显式声明的 `gates:`（对三表/算子结果的断言）→ `checks[]`；**Finding 是发现不是判定**、永不直接变 verdict；无 gates → `skipped`（同 perf 记录门原则） |
 | trajectory | `trajectory_harness/verdict.py`，`TrajectoryHarness.run` 收尾写出 | Dataset/Runner 执行健康 + 领域显式 `TrajectoryVerdictPolicy` → `checks[]`；Finding 不自动成为 check；无 Policy → `skipped` |
 
 > status 语义：e2e/perf 有 pass/fail/error/skipped；eval **无 fail**（质量不判对错）——status 表"执行是否完成"（pass/error/skipped），质量信号走 `score`（run 级 weighted overall）。trace/trajectory 的判定单元是 run 级 check 而非 case，分别断言遥测分析产物与轨迹聚合效果/成本指标；未声明 gate/policy 时只分析不判定。各家 error 优先于 fail：判不了 → 结果不可信 → 先暴露。
-> perf 尤其要分清两个门：`run.passed` 是**运行门**（CLI 退出码 / `abort_on_fail` / `strict_slo` 宽松），默认放过普通 skip；`verdict.status` 是**记录门**，按 per-check 状态 rollup——SLO 声明了却全 skip（或没声明 SLO）→ `skipped` 而非 `pass`。cooldown 用于证明恢复，skip 在两个门都失败关闭。
+> Perf 请求级 Judge 只分类请求；运行状态不由业务成功率决定。超时、取消与熔断仍是执行控制。
 
 ## 对齐键（跨平面 join 的前提，各 harness 迭代必守）
 
@@ -210,7 +210,7 @@ checkpoint 等内容及 schema 由各 Harness 持有。`Report` 是一个或多�
 - **case_id**：输入 `case.id` == 输出 `verdict.case_id`（「Case 规范」第 1 条主键）——
   case ↔ 判定的对齐，也是跨 harness 按题对齐的主键。
 - **arm_id**：Experiment 内命名配置的对齐键。一个 case 在多个 Arm 上执行时，`case_id`
-  不变、`arm_id` 区分配置；perf 的 SLO check 同样携带 Arm。Arm 的配置形状由各 harness
+  不变、`arm_id` 区分配置；perf 的窗口观测同样携带 Arm。Arm 的配置形状由各 harness
   强类型定义，共享的是语义和键，不是一个通用配置袋。
 - **trace_id**：黑盒产物 ↔ 遥测的桥。各 harness 的 run 产物应尽量记录——eval `results.csv`
   已有列、perf `Outcome.meta` 已记、e2e 可放 `Outcome.metadata`；trace 的 `sibling_run`

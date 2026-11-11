@@ -8,8 +8,17 @@ from typing import Literal
 
 @dataclass(frozen=True)
 class RequestEvaluation:
-    ok: bool
-    error_kind: str | None = None
+    """Judge-owned code; only ``success`` has framework-defined meaning."""
+
+    code: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.code, str) or not self.code.strip():
+            raise ValueError("request code must be a nonempty string")
+
+    @property
+    def ok(self) -> bool:
+        return self.code == "success"
 
 
 @dataclass

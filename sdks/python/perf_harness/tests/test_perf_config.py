@@ -255,35 +255,6 @@ def test_top_level_mix_is_a_migration_error(tmp_path):
         load_experiment(_write(tmp_path, extra))
 
 
-def test_slo_facet_label_typo_fails_fast(tmp_path):
-    extra = (
-        "cases:\n  - { id: a, facets: {difficulty: simple} }\n"
-        "slo: [ { metric: 'p99_ms{difficulty=\"complx\"}', lt: 1 } ]\n"
-        "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
-    )
-    with pytest.raises(ValueError, match="facet difficulty=complx unknown"):
-        load_experiment(_write(tmp_path, extra))
-
-
-def test_slo_window_name_typo_fails_fast(tmp_path):
-    extra = (
-        "slo: [ { metric: p99_ms, window: {kind: hold, name: 'hold@99'}, lt: 1 } ]\n"
-        "load:\n  request_rate: 10\n  max_inflight: 32\n  hold_s: 0.2\n  stages:\n"
-        "    - {request_rate: 10, max_inflight: 32, duration_s: 0.1}\n    - {request_rate: 20, max_inflight: 32, duration_s: 0.1}\n"
-    )
-    with pytest.raises(ValueError, match="matches no configured stage"):
-        load_experiment(_write(tmp_path, extra))
-
-
-def test_slo_legacy_scope_key_rejected(tmp_path):
-    extra = (
-        'slo: [ { metric: p99_ms, lt: 1, scope: "overall" } ]\n'
-        "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
-    )
-    with pytest.raises(ValueError, match="slo.scope was removed"):
-        load_experiment(_write(tmp_path, extra))
-
-
 _UNREGISTERED = """
 service: { name: s, base_url: "http://x" }
 resources: [ {} ]
@@ -352,43 +323,13 @@ def test_cooldown_parses_and_rejects_negative(tmp_path):
         load_experiment(str(cfg))
 
 
-def test_slo_multi_facet_label_rejected(tmp_path):
-    # marginal pivot, not a cube → at most one facet slice label
-    extra = (
-        "cases:\n  - { id: a, facets: {difficulty: simple, lang: zh} }\n"
-        'slo: [ { metric: \'p99_ms{difficulty="simple",lang="zh"}\', lt: 1 } ]\n'
-        "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
-    )
-    with pytest.raises(ValueError, match="at most one facet slice"):
-        load_experiment(_write(tmp_path, extra))
-
-
-def test_slo_undeclared_per_request_metric_rejected(tmp_path):
-    # a dynamic first_<event>_ms reaches the report but cannot gate (fail-fast)
-    extra = (
-        "slo: [ { metric: first_answer_ms.p95, lt: 1 } ]\n"
-        "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
-    )
-    with pytest.raises(ValueError, match="not a declared metric"):
-        load_experiment(_write(tmp_path, extra))
-
-
-def test_slo_framework_ttft_is_declared(tmp_path):
-    extra = (
-        "slo: [ { metric: first_byte_ms.p95, lt: 2000 } ]\n"
-        "load: { request_rate: 1, max_inflight: 128, hold_s: 0.1 }\n"
-    )
-    exp, _ = load_experiment(_write(tmp_path, extra))  # first_byte_ms is framework-declared
-    assert exp.slo[0].metric == "first_byte_ms.p95"
-
-
 def test_named_judge_and_common_workload(tmp_path):
     from harness_common import KubernetesWorkload
 
     from perf_harness import RequestEvaluation, register_judge
 
     def judge(outcome):
-        return RequestEvaluation(False, "business")
+        return RequestEvaluation("business")
 
     register_judge("fixture-business", judge)
     path = _write(

@@ -77,7 +77,7 @@ schema。
 
 ## References
 
-- 通用数据与评估内核：[`kernel.md`](kernel.md)
+- 执行事实与产物：[Experiment 执行](execution.md)；事实复用与评估：[Dataset](evaluation-data.md)
 - 跨 Harness 环境操作与观测：[`toolbox.md`](toolbox.md)
 - Canonical Case 与 CaseRun：[`case-unification.md`](case-unification.md)
 - 暂缓能力与启动条件：[`backlog.md`](backlog.md)

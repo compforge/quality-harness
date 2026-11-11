@@ -1,10 +1,9 @@
 {
-  "schema": 6,
+  "schema": 7,
   "run_id": "run",
   "experiment": "fixture",
   "created_at": "2026-09-17T00:00:00Z",
   "service": "mock",
-  "passed": true,
   "executions": [
     {
       "id": "run:one",
@@ -40,7 +39,6 @@
         "interrupted": 0,
         "force_cancelled": false
       },
-      "slo": [],
       "registry": {
         "request.duration_ms": {
           "unit": "ms",
@@ -55,7 +53,7 @@
           "side": "request",
           "value_kind": "scalar",
           "source": "client",
-          "description": "judged failures \u00f7 sent requests (Judge)",
+          "description": "judged failures ÷ sent requests (Judge)",
           "labels": []
         },
         "request.throughput_rps": {
@@ -63,7 +61,7 @@
           "side": "request",
           "value_kind": "scalar",
           "source": "client",
-          "description": "completed requests \u00f7 steady window",
+          "description": "completed requests ÷ steady window",
           "labels": []
         },
         "request.drop_rate": {
@@ -71,7 +69,7 @@
           "side": "request",
           "value_kind": "scalar",
           "source": "client",
-          "description": "open-loop client_saturated drops \u00f7 offered (not latency samples)",
+          "description": "open-loop client_saturated drops ÷ offered (not latency samples)",
           "labels": []
         },
         "request.arrived": {
@@ -212,7 +210,13 @@
               "co_biased",
               "few_samples",
               "high_drop"
-            ]
+            ],
+            "unjudged": 0,
+            "interrupted": 0,
+            "n_judged": 1,
+            "unjudged_rps": 0,
+            "completed_by_code": {},
+            "throughput_by_code": {}
           },
           "by_case": {
             "hello": {
@@ -255,7 +259,13 @@
                 "co_biased",
                 "few_samples",
                 "high_drop"
-              ]
+              ],
+              "unjudged": 0,
+              "interrupted": 0,
+              "n_judged": 1,
+              "unjudged_rps": 0,
+              "completed_by_code": {},
+              "throughput_by_code": {}
             }
           },
           "by_facet": {},
@@ -309,7 +319,13 @@
               "co_biased",
               "few_samples",
               "high_drop"
-            ]
+            ],
+            "unjudged": 0,
+            "interrupted": 0,
+            "n_judged": 1,
+            "unjudged_rps": 0,
+            "completed_by_code": {},
+            "throughput_by_code": {}
           },
           "by_case": {
             "hello": {
@@ -352,7 +368,13 @@
                 "co_biased",
                 "few_samples",
                 "high_drop"
-              ]
+              ],
+              "unjudged": 0,
+              "interrupted": 0,
+              "n_judged": 1,
+              "unjudged_rps": 0,
+              "completed_by_code": {},
+              "throughput_by_code": {}
             }
           },
           "by_facet": {},
@@ -390,7 +412,17 @@
             "metrics": {},
             "caveats": [
               "few_samples"
-            ]
+            ],
+            "unjudged": 0,
+            "interrupted": 0,
+            "n_judged": 0,
+            "unjudged_rps": 0,
+            "completed_by_code": {
+              "success": 1
+            },
+            "throughput_by_code": {
+              "success": 0.9999999999989999
+            }
           },
           "by_case": {
             "hello": {
@@ -417,7 +449,17 @@
               "metrics": {},
               "caveats": [
                 "few_samples"
-              ]
+              ],
+              "unjudged": 0,
+              "interrupted": 0,
+              "n_judged": 0,
+              "unjudged_rps": 0,
+              "completed_by_code": {
+                "success": 1
+              },
+              "throughput_by_code": {
+                "success": 0.9999999999989999
+              }
             }
           },
           "by_facet": {},
@@ -427,5 +469,7 @@
       "probe_errors": {},
       "phase_errors": []
     }
-  ]
+  ],
+  "status": "completed",
+  "environment": "qa"
 }

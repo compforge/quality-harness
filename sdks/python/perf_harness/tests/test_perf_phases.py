@@ -132,34 +132,3 @@ async def test_slow_generator_does_not_burst_to_catch_up():
     assert all(b - a >= 0.008 for a, b in zip(starts, starts[1:], strict=False))
     assert arm.measurement.request.n_dropped == 0
     assert max(r.arrived_at - r.scheduled_at for r in arm.requests) >= 0.015
-
-
-def test_capped_window_does_not_confirm_target_rate_capacity():
-    from perf_harness.model import Arm, ArmRun, RequestStats, SloAssertion, SloCheck, Window
-    from perf_harness.slo import slo_aware_capacity
-
-    stats = RequestStats(
-        n=10,
-        n_ok=10,
-        throughput_rps=1,
-        p50_ms=10,
-        p95_ms=10,
-        p99_ms=10,
-        error_rate=0,
-        error_breakdown={},
-    )
-    hold = Window(
-        "hold", "hold@4", "hold", 0, 60, True, target_level=4, request=stats, limited_s=10
-    )
-    arm = ArmRun(
-        id="cap",
-        service="mock",
-        arm=Arm("cap", ResourceProfile(), LoadPlan(request_rate=4, max_inflight=1)),
-        windows=[
-            Window("measurement", "measurement", "measurement", 0, 60, True, request=stats),
-            hold,
-        ],
-        series={},
-    )
-    arm.slo = [SloCheck(SloAssertion("error_rate", "lte", 0), 0, "pass", window_id="hold")]
-    assert list(slo_aware_capacity([arm]).values()) == [None]

@@ -123,7 +123,7 @@ async def test_baseline_precedes_load_final_scrape_includes_cooldown_and_report_
         )
     ).run()
     arm = run.arm_runs[0]
-    assert run.passed and not arm.probe_errors and not arm.phase_errors
+    assert run.status == "completed" and not arm.probe_errors and not arm.phase_errors
     assert completed == 2 and scrape_counts[0] == 0 and scrape_counts[-1] == 2
     assert arm.measurement.duration_s == pytest.approx(0.04)
     assert all(client._http.is_closed for client in clients)

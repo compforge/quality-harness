@@ -51,8 +51,8 @@ export interface Outcome {
 }
 
 export interface RequestEvaluation {
-  ok: boolean;
-  error_kind?: string;
+  /** Only "success" is reserved; all other nonempty codes denote failure. */
+  code: string;
 }
 
 export interface DistributionSummary {
@@ -80,6 +80,12 @@ export interface RequestStats {
   dispatched: number;
   completed: number;
   succeeded: number;
+  completed_by_code: Record<string, number>;
+  throughput_by_code: Record<string, number>;
+  unjudged: number;
+  interrupted: number;
+  n_judged: number;
+  unjudged_rps: number;
   n_interrupted: number;
   arrival_rps: number;
   dispatch_rps: number;
@@ -154,7 +160,6 @@ export interface ArmRun extends Execution<Outcome> {
   finished_at: string;
   windows: Window[];
   stop: ArmStop;
-  slo: unknown[];
   registry: Record<string, unknown>;
   probe_errors: Record<string, unknown>;
   phase_errors: PhaseError[];
@@ -163,7 +168,8 @@ export interface ArmRun extends Execution<Outcome> {
 }
 
 export interface Run extends ExperimentRun<ArmRun> {
-  schema: 6;
+  schema: 7;
   service: string;
-  passed: boolean;
+  status: "completed" | "stopped" | "error";
+  environment: string;
 }
