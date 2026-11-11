@@ -6,7 +6,6 @@ import json
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Iterable, Self
-from urllib.parse import quote
 
 
 class _OpenKind(StrEnum):
@@ -35,27 +34,14 @@ class RelationKind(_OpenKind):
     CALLS = "calls"
 
 
-def service_node_id(name: str) -> str:
-    """Name-based identity within one environment; renaming changes identity."""
-    if not name:
-        raise ValueError("service name must not be empty")
-    return "service:" + quote(name, safe="")
-
-
-def operation_node_id(service: str, operation: str) -> str:
-    """Qualify an operation name by its service, escaping each segment."""
-    if not service or not operation:
-        raise ValueError("service and operation names must not be empty")
-    return "operation:" + quote(service, safe="") + "/" + quote(operation, safe="")
-
-
 @dataclass(frozen=True, slots=True)
 class Node:
     id: str
-    kind: NodeKind | str
+    kind: NodeKind
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "kind", NodeKind(self.kind))
+        if not isinstance(self.kind, NodeKind):
+            raise TypeError("node kind must be NodeKind")
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,11 +53,12 @@ class Relation:
 
     source: str
     target: str
-    kind: RelationKind | str
+    kind: RelationKind
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "kind", RelationKind(self.kind))
+        if not isinstance(self.kind, RelationKind):
+            raise TypeError("relation kind must be RelationKind")
         if any(
             not isinstance(value, str) or not value
             for value in (self.source, self.target, self.kind)
@@ -156,7 +143,7 @@ class Graph:
         return next((node for node in self.nodes if node.id == node_id), None)
 
     def relations_from(
-        self, node_id: str, *, kind: RelationKind | str | None = None
+        self, node_id: str, *, kind: RelationKind | None = None
     ) -> tuple[Relation, ...]:
         return tuple(
             r
@@ -165,7 +152,7 @@ class Graph:
         )
 
     def relations_to(
-        self, node_id: str, *, kind: RelationKind | str | None = None
+        self, node_id: str, *, kind: RelationKind | None = None
     ) -> tuple[Relation, ...]:
         return tuple(
             r
@@ -174,7 +161,7 @@ class Graph:
         )
 
     def reachable_from(
-        self, node_id: str, *, kind: RelationKind | str | None = None
+        self, node_id: str, *, kind: RelationKind | None = None
     ) -> tuple[Node, ...]:
         """Return reachable nodes including root, in declaration order; cycles terminate."""
         if self.node(node_id) is None:
@@ -251,7 +238,7 @@ class Graph:
             relation = Relation(
                 source=item.get("source"),
                 target=item.get("target"),
-                kind=item.get("kind"),
+                kind=RelationKind(item.get("kind")),
             )
             if item.get("id") != relation.id:
                 raise ValueError(
@@ -263,7 +250,8 @@ class Graph:
             source=value.get("source"),
             version=value.get("version"),
             nodes=tuple(
-                Node(id=n.get("id"), kind=n.get("kind")) for n in value["nodes"]
+                Node(id=n.get("id"), kind=NodeKind(n.get("kind")))
+                for n in value["nodes"]
             ),
             relations=tuple(relations),
         )

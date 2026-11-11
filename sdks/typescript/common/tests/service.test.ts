@@ -3,7 +3,7 @@ import {
   repositoryId, articleToMarkdown, conceptToMarkdown, knowledgeToMarkdown, ClientManager, EnvironmentContext,
   type Knowledge, type Client, type ClientProvider, type Component, type Environment,
   type Forge, type Host, type HostEnvironment, type Repository,
-  type Service, type ServiceDataSource, type Workload,
+  Service, HttpOperation, type Identity, type ServiceDataSource, type Workload,
 } from "../src/index.js";
 
 const forge: Forge = { name: "github" };
@@ -23,9 +23,9 @@ test("Component description is optional discovery metadata", () => {
 });
 
 test("Service binds code identity, environment and zero or more workload declarations", () => {
-  const service: Service = { name: "chat", component, environment, workloads: [] };
-  const deployed: Service = { ...service, workloads: [workload] };
-  const described: Service = { ...service, description: "Conversation API" };
+  const service: Service = new Service({ name: "chat", component, environment, workloads: [] });
+  const deployed: Service = new Service({ ...service, workloads: [workload] });
+  const described: Service = new Service({ ...service, description: "Conversation API" });
   expect(service.description).toBeUndefined();
   expect(described.description).toBe("Conversation API");
   expect(deployed.name).not.toBe(workload.name);
@@ -42,15 +42,14 @@ test("consumers extend Service without replacing its shared topology", () => {
     readonly aliases: readonly string[];
     inspect(): string;
   }
-  const service: DiagnosticService = {
-    name: "chat", aliases: ["conversation"], component, environment,
-    workloads: [workload], inspect: () => "ready",
-  };
+  const service: DiagnosticService = Object.assign(new Service({
+    name: "chat", component, environment, workloads: [workload],
+  }), { aliases: ["conversation"], inspect: () => "ready" });
   const shared: Service = service;
   expect(shared.workloads[0]).toBe(workload);
   expect(service.inspect()).toBe("ready");
   // @ts-expect-error A runtime Service must identify its Environment.
-  const noEnvironment: Service = { name: "chat", component, workloads: [] };
+  const noEnvironment = new Service({ name: "chat", component, workloads: [] });
   // @ts-expect-error Component identity includes its Repository, not only a display name.
   const noRepository: Component = { name: "api" };
   // @ts-expect-error A Kubernetes Service lookup requires the common Workload shape.
@@ -89,9 +88,9 @@ test("Service preserves accessible Environment type and shares the root client l
       initialize: async () => { starts++; }, dispose: async () => { closes++; },
     }),
   } satisfies Environment & ClientProvider<Client>;
-  const service: Service<typeof accessible> = {
+  const service: Service<typeof accessible> = new Service({
     name: "chat", component, environment: accessible, workloads: [workload],
-  };
+  });
   const clients = new ClientManager();
   try {
     const ctx = new EnvironmentContext(service.environment, clients, performance.now() + 1_000);
@@ -116,20 +115,35 @@ test("structured knowledge is optional Service metadata and survives JSON", () =
     concepts: [{ id: "message", name: "Message", description: "A persisted turn.", markdown() { return conceptToMarkdown(this); } }],
     articles: [{ id: "history", title: "History", summary: "Stored turns.", sections: [], markdown() { return articleToMarkdown(this); } }],
   };
-  const service: Service = { name: "chat", component, environment, workloads: [], knowledge };
+  const service: Service = new Service({ name: "chat", component, environment, workloads: [], knowledge });
   expect(JSON.parse(JSON.stringify(service)).knowledge).toEqual(JSON.parse(JSON.stringify(knowledge)));
   expect(service.component).toBe(component);
   expect(service.environment).toBe(environment);
 });
 
 test("Service upstream preserves caller names and undeclared versus empty metadata", () => {
-  const service: Service = { name: "chat", component, environment, workloads: [] };
-  const declared: Service = { ...service, upstream: ["platform-node", "proxy"] };
-  const entry: Service = { ...service, upstream: [] };
+  const service: Service = new Service({ name: "chat", component, environment, workloads: [] });
+  const declared: Service = new Service({ ...service, upstream: ["platform-node", "proxy"] });
+  const entry: Service = new Service({ ...service, upstream: [] });
   expect(JSON.parse(JSON.stringify(service))).not.toHaveProperty("upstream");
   expect(JSON.parse(JSON.stringify(entry)).upstream).toEqual([]);
   expect(JSON.parse(JSON.stringify(declared)).upstream).toEqual(["platform-node", "proxy"]);
   expect(declared.name).toBe(service.name);
   expect(declared.component).toBe(component);
   expect(declared.environment).toBe(environment);
+});
+
+
+test("Service and Operation implement Identity without graph helper functions", () => {
+  const service = new Service({ name: "chat", component, environment, workloads: [] });
+  const identity: Identity = service;
+  expect(identity.id()).toBe("service:chat");
+  expect(new Service({ ...service, description: "renamed description", workloads: [workload] }).id()).toBe(identity.id());
+  const operation = new HttpOperation({ name: "ask", serviceName: service.name, method: "POST", path: "/chat" });
+  const capability: Identity = operation;
+  expect(capability.id()).toBe("operation:chat/ask");
+  expect(new HttpOperation({ ...operation, path: "/v2/chat" }).id()).toBe(capability.id());
+  const restored = new HttpOperation(JSON.parse(JSON.stringify(operation)));
+  expect(restored.id()).toBe(operation.id());
+  expect(JSON.parse(JSON.stringify(service))).not.toHaveProperty("id");
 });

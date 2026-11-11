@@ -68,7 +68,7 @@ class Runner(ABC):
         from the Case input. The stable default treats the registered Runner
         name as the capability name.
         """
-        return Operation(name=self.name)
+        return Operation(name=self.name, service_name=ctx.arm_run.service.name)
 
     async def setup(self, ctx: ArmContext) -> None:
         """Prepare external state before measurement and observation begin.

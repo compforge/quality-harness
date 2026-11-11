@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { Graph, NodeKind, RelationKind, createRelation, operationNodeId, serviceNodeId, type Node, type GraphSnapshot } from "../src/index.js";
+import { Graph, NodeKind, RelationKind, createRelation, Service, Operation, repositoryId, type Identity, type Node, type GraphSnapshot } from "../src/index.js";
 
 const fixture = JSON.parse(readFileSync(new URL("../../../../conformance/common/graphs.json", import.meta.url), "utf8")) as {
   graph: GraphSnapshot; root: string; reachable: string[];
@@ -36,14 +36,21 @@ for (const item of fixture.invalid) {
   test(`invalid topology: ${item.name}`, () => { expect(() => Graph.fromJSON(item.graph)).toThrow(); });
 }
 
-test("name-derived IDs share escaping rules and service qualification", () => {
+function service(name: string): Service {
+  return new Service({ name, component: { name: "api", repository: { forge: { name: "github" }, path: "example/app", id() { return repositoryId(this); } } }, environment: { name: "qa" }, workloads: [] });
+}
+
+test("model identities share escaping rules and service qualification", () => {
   for (const item of fixture.ids) {
-    expect(serviceNodeId(item.service)).toBe(item.service_id);
-    expect(operationNodeId(item.service, item.operation)).toBe(item.operation_id);
+    const serviceIdentity: Identity = service(item.service);
+    const operationIdentity: Identity = new Operation({ serviceName: item.service, name: item.operation });
+    expect(serviceIdentity.id()).toBe(item.service_id);
+    expect(operationIdentity.id()).toBe(item.operation_id);
   }
-  expect(operationNodeId("a/b", "c")).not.toBe(operationNodeId("a", "b/c"));
-  expect(operationNodeId("a", "same")).not.toBe(operationNodeId("b", "same"));
-  expect(() => operationNodeId("a", "")).toThrow();
+  expect(new Operation({serviceName: "a/b", name: "c"}).id()).not.toBe(new Operation({serviceName: "a", name: "b/c"}).id());
+  expect(new Operation({serviceName: "a", name: "same"}).id()).not.toBe(new Operation({serviceName: "b", name: "same"}).id());
+  expect(() => new Operation({serviceName: "a", name: ""}).id()).toThrow();
+  expect(() => service("").id()).toThrow();
 });
 
 test("snapshot detaches input and allows consumer kinds", () => {

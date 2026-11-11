@@ -27,19 +27,6 @@ export interface GraphSnapshot {
   readonly relations: readonly Relation[];
 }
 
-function segment(name: string): string {
-  if (!name) throw new Error("graph names must not be empty");
-  return encodeURIComponent(name).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
-}
-
-export function serviceNodeId(name: string): string {
-  return `service:${segment(name)}`;
-}
-
-export function operationNodeId(service: string, operation: string): string {
-  return `operation:${segment(service)}/${segment(operation)}`;
-}
-
 /** @spec Identity is source/kind/target; repeated calls share a static edge. */
 export function createRelation(source: string, target: string, kind: RelationKind): Relation {
   if ([source, target, kind].some(value => typeof value !== "string" || !value)) {

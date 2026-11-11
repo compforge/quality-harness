@@ -11,8 +11,8 @@ consumers can introduce additional kinds without introducing node subclasses.
 strings. Python uses open `StrEnum` values: `NodeKind.SERVICE`, `NodeKind.OPERATION`,
 `RelationKind.BELONGS_TO`, `RelationKind.CALLS`; `NodeKind("model")` and
 `RelationKind("uses")` preserve unknown values without registering new members.
-Existing raw string arguments remain supported. Nodes and relations normalize their
-kind into the corresponding enum on construction and loading.
+Python Node/Relation constructors require the corresponding enum type. JSON decoding
+constructs enum values at the boundary, including unknown custom kinds.
 
 TypeScript exports frozen constants `NodeKind.Service`, `NodeKind.Operation`,
 `RelationKind.BelongsTo`, `RelationKind.Calls` and same-named open string types.
@@ -30,19 +30,27 @@ revision it describes. They are provenance, not evidence that the declaration is
 complete or matches current traffic. The wire format carries `schema_version: 1`;
 `version` is the consumer's topology revision, not the format version.
 
-Nodes initially use `service` and `operation`. Existing Service and Operation
-models are unchanged. Name-derived node IDs use these helpers:
+Nodes use the IDs supplied by models implementing `Identity.id()`. Graph does not
+own another identity algorithm or export service/operation ID helpers.
 
-- Python `service_node_id(name)` / TypeScript `serviceNodeId(name)`:
-  `service:<escaped-name>`.
-- Python `operation_node_id(service, operation)` / TypeScript
-  `operationNodeId(service, operation)`: `operation:<escaped-service>/<escaped-operation>`.
+- `Service.id()`: `service:<escaped-name>`, scoped to one environment's service catalog.
+- `Operation.id()`: `operation:<escaped-service>/<escaped-name>`, using its required
+  `service_name` (Python) / `serviceName` (TypeScript) and `name`.
+- `HttpOperation` inherits the identity; method/path are transport details.
 
-Each segment uses UTF-8 percent encoding (only RFC 3986 unreserved characters
-remain literal), preventing slash and percent collisions. Names must be nonempty.
-The project must ensure service names are unique within the graph's environment;
-renaming changes identity. Node IDs are opaque to Graph validation and traversal.
-A future identity scheme can replace these helpers without changing the graph model.
+Each segment uses UTF-8 percent encoding (only RFC 3986 unreserved characters remain
+literal). Names must be nonempty when requesting an ID. Projects must keep service
+names unique within the environment catalog. These local IDs are not global Service
+identity: Component and Environment remain part of Service's full runtime identity,
+and the graph/run supplies that scope. Renaming changes the local ID.
+
+Python Service and Operation implement the existing Identity protocol. TypeScript
+Service, Operation and HttpOperation are concrete classes implementing Identity;
+construct them from their declaration fields, including when restoring JSON.
+Methods are not persisted. OperationRun's Service is the runtime binding, and the
+operation's service name must match it. Python checks this at construction. In Perf's
+OperationRun record, the enclosing service supplies the owner when reconstructing the
+operation; it is not duplicated inside the operation payload.
 
 ## Relations and validation
 
@@ -66,23 +74,29 @@ An empty graph is valid and does not assert that the environment has no services
 ## Build and query
 
 ```python
-from harness_common import Graph, Node, Relation, operation_node_id, service_node_id
-
-chat_service = service_node_id("chat-server")
-memory_service = service_node_id("memory-server")
-chat = operation_node_id("chat-server", "chat")
-retrieve = operation_node_id("memory-server", "retrieve")
-graph = Graph(
-    environment="qa", source="project:topology", version="revision-1",
-    nodes=(Node(chat_service, "service"), Node(memory_service, "service"),
-           Node(chat, "operation"), Node(retrieve, "operation")),
-    relations=(Relation(chat, chat_service, "belongs_to"),
-               Relation(retrieve, memory_service, "belongs_to"),
-               Relation(chat, retrieve, "calls")),
+from harness_common import (
+    Component, Environment, Forge, Graph, Node, NodeKind, Operation,
+    Relation, RelationKind, Repository, Service,
 )
-reachable = graph.reachable_from(chat, kind="calls")
+
+environment = Environment("qa")
+component = Component(Repository(Forge("github"), "example/product"), "backend")
+chat_service = Service("chat-server", component, environment)
+memory_service = Service("memory-server", component, environment)
+chat = Operation("chat", service_name=chat_service.name)
+retrieve = Operation("retrieve", service_name=memory_service.name)
+graph = Graph(
+    environment=environment.name, source="project:topology", version="revision-1",
+    nodes=(Node(chat_service.id(), NodeKind.SERVICE),
+           Node(memory_service.id(), NodeKind.SERVICE),
+           Node(chat.id(), NodeKind.OPERATION), Node(retrieve.id(), NodeKind.OPERATION)),
+    relations=(Relation(chat.id(), chat_service.id(), RelationKind.BELONGS_TO),
+               Relation(retrieve.id(), memory_service.id(), RelationKind.BELONGS_TO),
+               Relation(chat.id(), retrieve.id(), RelationKind.CALLS)),
+)
+reachable = graph.reachable_from(chat.id(), kind=RelationKind.CALLS)
 view = graph.subgraph(node.id for node in reachable)
-saved = graph.to_dict()  # serialize with json.dumps; no I/O occurs in common
+saved = graph.to_dict()
 restored = Graph.from_dict(saved)
 ```
 
@@ -103,11 +117,12 @@ nodes, without pulling in unrelated operations belonging to those services.
 The project owns topology declarations. Common owns the structure and deterministic
 queries, not discovery, live access, metrics, diagnosis or a graph database.
 Case describes test intent; it does not contain a topology. OperationRun is an actual
-invocation and can be associated with an operation node by its service/operation names.
+invocation and can be associated with an operation node through `operation.id()`.
 
 Metrics are collected independently and later joined by node or relation ID, environment
 and observation window. Missing metrics remain unobserved, not zero. Consumers save the
 Graph snapshot alongside run evidence so analysis can be reproduced offline. Declared
 relationships and trace-observed relationships need separately identified sources and
-coverage; neither a path nor correlated metrics alone proves causality. No Perf behavior
-or API is changed by this Common addition.
+coverage; neither a path nor correlated metrics alone proves causality. Domain consumers
+construct operations with the owning service name; Perf scheduling, metrics and evaluation
+behavior are outside this change.

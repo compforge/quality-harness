@@ -1,3 +1,4 @@
+import type { Identity } from "../identity.js";
 import type { Knowledge } from "./knowledge.js";
 import type { Component } from "./component.js";
 import type { Environment } from "./environment.js";
@@ -12,7 +13,7 @@ import type { Workload } from "./workload.js";
  * @see {@link component://docs/kernel.md}
  * Consumers extend this model with their own capabilities and execution policy.
  */
-export interface Service<E extends Environment = Environment> {
+export class Service<E extends Environment = Environment> implements Identity {
   readonly name: string;
   /** Structured offline knowledge; not part of identity or runtime evidence. */
   readonly knowledge?: Knowledge;
@@ -28,4 +29,21 @@ export interface Service<E extends Environment = Environment> {
   readonly environment: E;
   /** Zero or more runtime carriers; an empty array declares no workloads. */
   readonly workloads: readonly Workload[];
+
+  constructor(value: Omit<Service<E>, "id">) {
+    this.name = value.name;
+    this.component = value.component;
+    this.environment = value.environment;
+    this.workloads = value.workloads;
+    this.description = value.description;
+    this.knowledge = value.knowledge;
+    this.upstream = value.upstream;
+  }
+
+  /** Name-based identity scoped to one environment's service catalog. */
+  id(): string {
+    if (!this.name) throw new Error("service name must not be empty");
+    const name = encodeURIComponent(this.name).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+    return `service:${name}`;
+  }
 }

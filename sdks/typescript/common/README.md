@@ -56,10 +56,10 @@ capabilities, without duplicating these identities. For example:
 ```typescript
 import {
   repositoryId, conceptToMarkdown, knowledgeToMarkdown, stepToMarkdown, workflowToMarkdown,
-  type Service,
+  Service,
 } from "@compforge/harness-common";
 
-const service: Service = {
+const service = new Service({
   name: "chat",
   knowledge: {
     markdown() { return knowledgeToMarkdown(this); },
@@ -80,7 +80,7 @@ const service: Service = {
     name: "web", platform: "kubernetes",
     location: { kind: "resource", resource_kind: "Deployment", name: "api-server" },
   }],
-};
+});
 ```
 
 Repository extends Identity: `id()` returns `forge.name/path`, excluding `forkedFrom`.
@@ -236,3 +236,12 @@ approval or authorization. Toolbox owns URL projection, validation and network p
 Service/operation nodes connect through `belongs_to` and `calls`; other kinds remain extensible.
 Build validated snapshots, query dependencies and serialize them independently of metrics or tests.
 See [the Graph contract and example](../../../docs/graph.md).
+
+## Service and Operation identity
+
+`Service`, `Operation`, and `HttpOperation` are concrete classes implementing `Identity`.
+Use `new Service({ name, component, environment, workloads })` and
+`new Operation({ name, serviceName })`; derive graph node IDs with `.id()`.
+Restore declarations from JSON through these constructors. Service names are unique
+within an environment's catalog; operation IDs include the owning service name.
+The previous graph ID helpers are removed. See [Graph](../../../docs/graph.md).
