@@ -1,8 +1,7 @@
 {
   "run:one": {
     "r1": {
-      "error_kind": null,
-      "result": "success"
+      "code": "success"
     }
   }
 }

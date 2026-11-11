@@ -202,9 +202,8 @@ class RequestStats:
     dispatched: int = 0
     completed: int = 0
     succeeded: int = 0
-    failed: int = 0
-    rejected: int = 0
-    timed_out: int = 0
+    completed_by_code: dict[str, int] = field(default_factory=dict)
+    throughput_by_code: dict[str, float] = field(default_factory=dict)
     unjudged: int = 0
     interrupted: int = 0
     n_judged: int = 0
@@ -212,9 +211,6 @@ class RequestStats:
     arrival_rps: float = 0.0
     dispatch_rps: float = 0.0
     success_rps: float = 0.0
-    failure_rps: float = 0.0
-    rejection_rps: float = 0.0
-    timeout_rps: float = 0.0
     unjudged_rps: float = 0.0
     inflight_peak: int = 0
     inflight_end: int = 0

@@ -14,7 +14,7 @@ Diagnosis Harness 沉淀面向 Service 的可观测方法：服务声明自己�
 组织查询和汇总，业务表结构与配置解析保留在各自贡献中。
 
 Diagnosis 是独立领域 SDK，拟使用 Python 包名 `diagnosis_harness`。它复用
-[公共内核](kernel.md) 的 Service、Environment 和执行资源语义，直接采集现场时无需构造 Case。
+[系统模型](system-model.md) 的 Service、Environment 和执行资源语义，直接采集现场时无需构造 Case。
 首版聚焦证据采集；证据是否支持故障假设、是否达到验收标准，由消费方解释。
 
 ### 核心模型

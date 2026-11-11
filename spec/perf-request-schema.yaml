@@ -40,5 +40,5 @@ properties:
             not:
               anyOf:
                 - {required: [ok]}
-                - {required: [error_kind]}
+                - {required: [code]}
                 - {required: [dropped]}

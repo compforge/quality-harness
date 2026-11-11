@@ -9,7 +9,7 @@ type Forge struct {
 // A checkout directory is location information, not repository identity.
 //
 // +spec=`ForkedFrom is the direct parent path within the same Forge instance and does not participate in repository identity`
-// +link=component://docs/kernel.md
+// +link=component://docs/system-model.md
 type Repository struct {
 	Forge Forge  `json:"forge" yaml:"forge"`
 	Path  string `json:"path" yaml:"path"`
@@ -35,7 +35,7 @@ func (r Repository) SameIdentity(other Repository) bool {
 // owns its many-to-many relationship with Components.
 //
 // +spec=`Description, concepts and workflows are optional discovery metadata, not identity or runtime evidence`
-// +link=component://docs/kernel.md
+// +link=component://docs/system-model.md
 type Product struct {
 	Name string `json:"name" yaml:"name"`
 	// Description is an optional short introduction, not part of Product identity.

@@ -84,13 +84,13 @@ def reduce_requests(
         for r in records
         if r.state == "finished" and r.finished_at is not None and start <= r.finished_at < end
     ]
-    # Completion classes partition the same event window, not the dispatch cohort.
+    # Codes partition judged completion events; missing judgments are not codes.
     counts = Counter(
-        evaluation.result
-        if (evaluation := execution.evaluations.get(r.operation_run_id))
-        else "unjudged"
+        evaluation.code
         for r in completions
+        if (evaluation := execution.evaluations.get(r.operation_run_id)) is not None
     )
+    unjudged = len(completions) - sum(counts.values())
     n_judged = sum(e is not None for e in evaluations)
     interrupted_events = sum(
         r.state == "interrupted" and r.finished_at is not None and start <= r.finished_at < end
@@ -148,11 +148,7 @@ def reduce_requests(
         current += delta
         peak = max(peak, current)
     dt = max(end - start, 1e-9)
-    breakdown = Counter(
-        (e.error_kind or "unknown") if e else "unjudged"
-        for e in evaluations
-        if e is not None and not e.ok
-    )
+    breakdown = Counter(e.code for e in evaluations if e is not None and not e.ok)
     return RequestStats(
         n=n,
         n_ok=n_ok,
@@ -170,18 +166,14 @@ def reduce_requests(
         dispatched=len(cohort),
         completed=len(completions),
         succeeded=counts["success"],
-        failed=counts["failure"],
-        rejected=counts["rejected"],
-        timed_out=counts["timeout"],
-        unjudged=counts["unjudged"],
+        completed_by_code=dict(counts),
+        throughput_by_code={code: count / dt for code, count in counts.items()},
+        unjudged=unjudged,
         interrupted=interrupted_events,
         arrival_rps=len(arrived) / dt,
         dispatch_rps=len(cohort) / dt,
         success_rps=counts["success"] / dt,
-        failure_rps=counts["failure"] / dt,
-        rejection_rps=counts["rejected"] / dt,
-        timeout_rps=counts["timeout"] / dt,
-        unjudged_rps=counts["unjudged"] / dt,
+        unjudged_rps=unjudged / dt,
         inflight_peak=peak,
         inflight_end=current,
         metrics=metrics,

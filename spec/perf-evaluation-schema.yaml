@@ -6,15 +6,10 @@ additionalProperties:
   additionalProperties:
     type: object
     required:
-    - result
+    - code
     properties:
-      error_kind:
-        type:
-        - string
-        - 'null'
-      result:
-        enum:
-        - success
-        - failure
-        - rejected
-        - timeout
+      code:
+        type: string
+        pattern: \S
+        description: Judge-owned result code; success is the only successful value.
+    additionalProperties: false

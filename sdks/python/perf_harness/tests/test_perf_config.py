@@ -329,7 +329,7 @@ def test_named_judge_and_common_workload(tmp_path):
     from perf_harness import RequestEvaluation, register_judge
 
     def judge(outcome):
-        return RequestEvaluation("failure", "business")
+        return RequestEvaluation("business")
 
     register_judge("fixture-business", judge)
     path = _write(

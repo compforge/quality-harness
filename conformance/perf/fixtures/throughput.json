@@ -4,37 +4,37 @@
       "id": "old-success",
       "start": -2,
       "end": 1,
-      "result": "success"
+      "code": "success"
     },
     {
       "id": "failed",
       "start": 0,
       "end": 2,
-      "result": "failure"
+      "code": "model_unavailable"
     },
     {
       "id": "refused",
       "start": 1,
       "end": 3,
-      "result": "rejected"
+      "code": "rate_limited"
     },
     {
       "id": "timeout",
       "start": 2,
       "end": 4,
-      "result": "timeout"
+      "code": "timeout"
     },
     {
       "id": "unknown",
       "start": 3,
       "end": 5,
-      "result": null
+      "code": null
     },
     {
       "id": "late",
       "start": 4,
       "end": 12,
-      "result": "success"
+      "code": "success"
     },
     {
       "id": "cut",
@@ -55,11 +55,20 @@
       "counts": {
         "completed": 5,
         "succeeded": 1,
-        "failed": 1,
-        "rejected": 1,
-        "timed_out": 1,
         "unjudged": 1,
-        "interrupted": 1
+        "interrupted": 1,
+        "completed_by_code": {
+          "success": 1,
+          "model_unavailable": 1,
+          "rate_limited": 1,
+          "timeout": 1
+        },
+        "throughput_by_code": {
+          "success": 0.1,
+          "model_unavailable": 0.1,
+          "rate_limited": 0.1,
+          "timeout": 0.1
+        }
       }
     },
     {
@@ -68,11 +77,14 @@
       "counts": {
         "completed": 1,
         "succeeded": 1,
-        "failed": 0,
-        "rejected": 0,
-        "timed_out": 0,
         "unjudged": 0,
-        "interrupted": 0
+        "interrupted": 0,
+        "completed_by_code": {
+          "success": 1
+        },
+        "throughput_by_code": {
+          "success": 0.1
+        }
       }
     }
   ]

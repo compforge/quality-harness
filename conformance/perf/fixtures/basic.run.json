@@ -53,7 +53,7 @@
           "side": "request",
           "value_kind": "scalar",
           "source": "client",
-          "description": "judged failures \u00f7 sent requests (Judge)",
+          "description": "judged failures ÷ sent requests (Judge)",
           "labels": []
         },
         "request.throughput_rps": {
@@ -61,7 +61,7 @@
           "side": "request",
           "value_kind": "scalar",
           "source": "client",
-          "description": "completed requests \u00f7 steady window",
+          "description": "completed requests ÷ steady window",
           "labels": []
         },
         "request.drop_rate": {
@@ -69,7 +69,7 @@
           "side": "request",
           "value_kind": "scalar",
           "source": "client",
-          "description": "open-loop client_saturated drops \u00f7 offered (not latency samples)",
+          "description": "open-loop client_saturated drops ÷ offered (not latency samples)",
           "labels": []
         },
         "request.arrived": {
@@ -211,16 +211,12 @@
               "few_samples",
               "high_drop"
             ],
-            "failed": 0,
-            "rejected": 0,
-            "timed_out": 0,
             "unjudged": 0,
             "interrupted": 0,
             "n_judged": 1,
-            "failure_rps": 0,
-            "rejection_rps": 0,
-            "timeout_rps": 0,
-            "unjudged_rps": 0
+            "unjudged_rps": 0,
+            "completed_by_code": {},
+            "throughput_by_code": {}
           },
           "by_case": {
             "hello": {
@@ -264,16 +260,12 @@
                 "few_samples",
                 "high_drop"
               ],
-              "failed": 0,
-              "rejected": 0,
-              "timed_out": 0,
               "unjudged": 0,
               "interrupted": 0,
               "n_judged": 1,
-              "failure_rps": 0,
-              "rejection_rps": 0,
-              "timeout_rps": 0,
-              "unjudged_rps": 0
+              "unjudged_rps": 0,
+              "completed_by_code": {},
+              "throughput_by_code": {}
             }
           },
           "by_facet": {},
@@ -328,16 +320,12 @@
               "few_samples",
               "high_drop"
             ],
-            "failed": 0,
-            "rejected": 0,
-            "timed_out": 0,
             "unjudged": 0,
             "interrupted": 0,
             "n_judged": 1,
-            "failure_rps": 0,
-            "rejection_rps": 0,
-            "timeout_rps": 0,
-            "unjudged_rps": 0
+            "unjudged_rps": 0,
+            "completed_by_code": {},
+            "throughput_by_code": {}
           },
           "by_case": {
             "hello": {
@@ -381,16 +369,12 @@
                 "few_samples",
                 "high_drop"
               ],
-              "failed": 0,
-              "rejected": 0,
-              "timed_out": 0,
               "unjudged": 0,
               "interrupted": 0,
               "n_judged": 1,
-              "failure_rps": 0,
-              "rejection_rps": 0,
-              "timeout_rps": 0,
-              "unjudged_rps": 0
+              "unjudged_rps": 0,
+              "completed_by_code": {},
+              "throughput_by_code": {}
             }
           },
           "by_facet": {},
@@ -429,16 +413,16 @@
             "caveats": [
               "few_samples"
             ],
-            "failed": 0,
-            "rejected": 0,
-            "timed_out": 0,
             "unjudged": 0,
             "interrupted": 0,
             "n_judged": 0,
-            "failure_rps": 0,
-            "rejection_rps": 0,
-            "timeout_rps": 0,
-            "unjudged_rps": 0
+            "unjudged_rps": 0,
+            "completed_by_code": {
+              "success": 1
+            },
+            "throughput_by_code": {
+              "success": 0.9999999999989999
+            }
           },
           "by_case": {
             "hello": {
@@ -466,16 +450,16 @@
               "caveats": [
                 "few_samples"
               ],
-              "failed": 0,
-              "rejected": 0,
-              "timed_out": 0,
               "unjudged": 0,
               "interrupted": 0,
               "n_judged": 0,
-              "failure_rps": 0,
-              "rejection_rps": 0,
-              "timeout_rps": 0,
-              "unjudged_rps": 0
+              "unjudged_rps": 0,
+              "completed_by_code": {
+                "success": 1
+              },
+              "throughput_by_code": {
+                "success": 0.9999999999989999
+              }
             }
           },
           "by_facet": {},

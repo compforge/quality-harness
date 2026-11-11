@@ -56,7 +56,7 @@ REQUEST_DESCRIPTORS: list[MetricFamily] = [
         "request",
         "scalar",
         "client",
-        description="judged failures ÷ completed dispatch-cohort requests (Judge)",
+        description="non-success judgments ÷ judged dispatch-cohort completions",
     ),
     MetricFamily(
         "request.throughput_rps",
@@ -81,15 +81,9 @@ EVENT_FIELDS = (
     "dispatched",
     "completed",
     "succeeded",
-    "failed",
-    "rejected",
-    "timed_out",
     "unjudged",
     "interrupted",
     "n_judged",
-    "failure_rps",
-    "rejection_rps",
-    "timeout_rps",
     "unjudged_rps",
     "n_interrupted",
     "inflight_peak",
@@ -103,6 +97,23 @@ REQUEST_DESCRIPTORS.extend(
         f"request.{key}", "rps" if key.endswith("rps") else "count", "request", "scalar", "client"
     )
     for key in EVENT_FIELDS
+)
+
+CODE_FIELDS = {
+    "request.completed_by_code": "completed_by_code",
+    "request.throughput_by_code": "throughput_by_code",
+}
+REQUEST_DESCRIPTORS.extend(
+    MetricFamily(
+        name,
+        "rps" if field == "throughput_by_code" else "count",
+        "request",
+        "scalar",
+        "client",
+        labels=frozenset({"code"}),
+        description="judged completion events grouped by the exact Judge code",
+    )
+    for name, field in CODE_FIELDS.items()
 )
 
 # framework-recorded per-request metrics (stream_sse records first_byte_ms) — declared
@@ -184,9 +195,15 @@ class MetricStore:
             if value is not None:
                 return value
             return self._resource_missing(arm_run, name, labels)
+        code = labels.pop("code", None) if name in CODE_FIELDS else None
         request = self._request_slice(window, labels)
         if request is None:
             return Missing("no_slice")
+        if name in CODE_FIELDS:
+            if code is None or stat != "value":
+                return Missing("no_slice")
+            value = getattr(request, CODE_FIELDS[name]).get(code)
+            return float(value) if value is not None else Missing("no_data")
         if request.n == 0 and name in {"p50_ms", "p95_ms", "p99_ms", "mean_ms", "error_rate"}:
             return Missing("no_data")
         if name == "error_rate" and not request.n_judged:
@@ -207,7 +224,11 @@ class MetricStore:
         name, labels, _ = parse_ref(sid)
         if "service" in labels:
             return window.probe_metrics.get(series_id(name, labels))
+        code = labels.pop("code", None) if name in CODE_FIELDS else None
         request = self._request_slice(window, labels)
+        if request is not None and name in CODE_FIELDS:
+            value = getattr(request, CODE_FIELDS[name]).get(code)
+            return ScalarSummary(value) if value is not None else None
         return slice_summaries(request).get(name) if request is not None else None
 
     def pivot(
@@ -228,6 +249,8 @@ class MetricStore:
     def _request_slice(window: Window, labels: dict[str, str]) -> RequestStats | None:
         if not labels:
             return window.request
+        if len(labels) != 1:
+            return None
         ((key, value),) = labels.items()
         return window.by_facet.get(key, {}).get(value)
 

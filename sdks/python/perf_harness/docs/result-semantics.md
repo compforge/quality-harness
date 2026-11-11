@@ -5,10 +5,12 @@ Perf 执行指定负载并保存观测，不要求事先定义验收阈值。SLO
 ## 请求事实与分类
 
 Runner 保存原始 Outcome：状态码、耗时、流式事件、错误和关联 ID。独立 Judge 返回
-`RequestEvaluation(result, error_kind)`；result 为 `success`、`failure`、`rejected`、`timeout`。
-缺少 Judge 结果是 `unjudged`，不是服务失败。HTTP 200 不自动证明 SSE 业务完成；业务 Judge
-读取 Runner 保留的完成信号。默认 Judge 按传输与 HTTP 状态分类：429 为拒绝，408/504 或
-Timeout 异常为超时，其余非 2xx 为失败；503 本身不能证明拒绝。项目可替换该规则。
+`RequestEvaluation(code="success")`；code 是非空字符串，只有 `success` 表示成功，其余值都表示失败。
+code 由 Judge 定义，使用稳定名称（如 `model_unavailable`），不把动态错误文本或请求 ID 当作 code。
+原始 HTTP status、异常细节仍在 Outcome 中；缺少 Judge 结果单独计为 unjudged，不占用一个 code。
+HTTP 200 不自动证明 SSE 业务完成；业务 Judge 读取 Runner 保留的完成信号。
+默认 Judge 将 2xx 映射为 success，其余 HTTP 状态映射为 `http_<status>`；Timeout 异常为 timeout，
+其它异常为 transport_error，没有状态或异常信息为 unknown。项目可替换这些映射。
 
 ## 时间窗口与统计
 
@@ -19,15 +21,19 @@ Timeout 异常为超时，其余非 2xx 为失败；503 本身不能证明拒绝
 | --- | --- |
 | dispatch_rps | 窗口内实际发起数 / 窗口时长 |
 | throughput_rps | 窗口内完成数 / 窗口时长 |
-| success/failure/rejection/timeout/unjudged_rps | 对完成事件的五种互斥分类 / 窗口时长 |
+| completed_by_code / throughput_by_code | 按 Judge code 分组的完成数 / 完成速率 |
+| succeeded / success_rps | 从 code=success 的完成数和速率派生 |
+| unjudged / unjudged_rps | 没有 Judge 结果的完成数和速率，不属于任何 code |
 | n / n_ok / n_judged | dispatch cohort 中完成数、成功数、已判定数 |
 | error_rate | dispatch cohort 中已判定的非成功数 / n_judged |
 | interrupted | 窗口内实际中断事件数；不属于完成吞吐 |
 | n_interrupted | dispatch cohort 的中断数，用于关联该批请求的完整性 |
 | n_dropped | 未发出的丢弃数，不属于服务响应 |
 
-`completed = succeeded + failed + rejected + timed_out + unjudged`，五类速率之和等于
-throughput_rps。超时只计入 timeout，拒绝只计入 rejection，不重复计为 failure。
+`completed = sum(completed_by_code.values()) + unjudged`；各 code 速率之和加 unjudged_rps 等于
+throughput_rps。失败吞吐可由所有非 success 的 code 速率相加得到，不预设拒绝、超时等固定字段。
+error_breakdown 按 dispatch cohort 内的非 success code 统计，不能与完成事件的 by-code 数量混用。
+即使业务使用名为 `unjudged` 的 code，它也表示明确的失败判定，与没有 Judge 结果独立。
 没有已判定请求时 error_rate 的 MetricStore 读取为 Missing，报告显示缺失；原始计数仍保留。
 中断和丢弃不进入延迟分布。nearest-rank 百分位索引为 `ceil(q*n)-1`。
 
@@ -47,3 +53,11 @@ schema 7 保存运行状态、环境、请求时间线、独立判定与窗口�
 load_run 不连接目标；更换 Judge 后可用 reduce_requests 重算每个 Window、Case 和 facet 的请求统计。
 保存重算结果时保持 requests.jsonl 原样；report 只读取已保存的窗口结果，不隐式执行 Judge。
 下游 API 数据按 Service / Operation 和实际窗口独立保存，不需要 Graph，也不能仅由相关性证明瓶颈。
+
+
+## 按 code 查询与展示
+
+`request.completed_by_code{code="model_unavailable"}.value` 与
+`request.throughput_by_code{code="model_unavailable"}.value` 通过 MetricStore 读取指定窗口的数量和速率。
+可再加一个已声明 facet label 选择请求分组。code 是开放的结果维度，不要求预注册；没有观测到的
+code bucket 读取为 Missing。默认 Markdown、HTML 与 CSV 包含完整 code 映射，原始键值落在 run.json。

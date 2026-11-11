@@ -33,7 +33,12 @@ from perf_harness.drive.runner import MockRunner, Runner, build_runner
 from perf_harness.engine import Experiment
 from perf_harness.judge import build_judge
 from perf_harness.metric import MetricFamily, parse_ref, validate_ref
-from perf_harness.metric.store import PER_REQUEST_DESCRIPTORS, REQUEST_ALIASES, REQUEST_DESCRIPTORS
+from perf_harness.metric.store import (
+    CODE_FIELDS,
+    PER_REQUEST_DESCRIPTORS,
+    REQUEST_ALIASES,
+    REQUEST_DESCRIPTORS,
+)
 from perf_harness.model import (
     Deployment,
     ReportColumn,
@@ -652,7 +657,9 @@ def _validate_columns(
                 f"report.metric {a.metric!r}: a `service` label is only valid on a "
                 f"resource-side metric; {name!r} is request-side"
             )
-        slice_labels = non_service_labels
+        slice_labels = dict(non_service_labels)
+        if name in CODE_FIELDS and not slice_labels.pop("code", "").strip():
+            raise ValueError(f"report.metric {a.metric!r}: a nonempty code label is required")
         if len(slice_labels) > 1:
             raise ValueError(
                 f"report.metric {a.metric!r}: at most one facet slice label "

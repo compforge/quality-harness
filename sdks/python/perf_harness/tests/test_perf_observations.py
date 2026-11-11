@@ -65,8 +65,8 @@ def test_result_partition_uses_completion_windows_and_preserves_evidence(tmp_pat
                     Outcome(status=200, duration_ms=(item["end"] - item["start"]) * 1000),
                 )
             )
-        if item.get("result"):
-            arm.evaluations[item["id"]] = RequestEvaluation(item["result"])
+        if item.get("code"):
+            arm.evaluations[item["id"]] = RequestEvaluation(item["code"])
         arm.requests.append(record)
     for window in FIXTURE["windows"]:
         stat = reduce_requests(arm, window["start"], window["end"])
@@ -74,10 +74,7 @@ def test_result_partition_uses_completion_windows_and_preserves_evidence(tmp_pat
         assert stat.throughput_rps == pytest.approx(
             sum(
                 [
-                    stat.success_rps,
-                    stat.failure_rps,
-                    stat.rejection_rps,
-                    stat.timeout_rps,
+                    *stat.throughput_by_code.values(),
                     stat.unjudged_rps,
                 ]
             )
@@ -104,6 +101,11 @@ def test_result_partition_uses_completion_windows_and_preserves_evidence(tmp_pat
         environment="qa",
         executions=[arm],
     )
+    store = MetricStore(run.arm_runs)
+    ref = 'request.throughput_by_code{code="model_unavailable",kind="chat"}.value'
+    arm.measurement.by_facet = {"kind": {"chat": arm.measurement.request}}
+    assert store.query(arm, ref) == 0.1
+    assert store.summary(arm, 'request.completed_by_code{code="model_unavailable"}').value == 1
     write_run_data(run, tmp_path)
     raw = (tmp_path / "requests.jsonl").read_bytes()
     restored = load_run(tmp_path)
@@ -124,14 +126,14 @@ def test_result_partition_uses_completion_windows_and_preserves_evidence(tmp_pat
     "status,exc,result",
     [
         (200, None, "success"),
-        (429, None, "rejected"),
-        (503, None, "failure"),
-        (504, None, "timeout"),
+        (429, None, "http_429"),
+        (503, None, "http_503"),
+        (504, None, "http_504"),
         (None, "ReadTimeout", "timeout"),
     ],
 )
 def test_default_result_classification(status, exc, result):
-    assert default_judge(Outcome(status=status, duration_ms=1, meta={"exc": exc})).result == result
+    assert default_judge(Outcome(status=status, duration_ms=1, meta={"exc": exc})).code == result
 
 
 @pytest.mark.parametrize("key", ["slo", "strict_slo", "abort_on_fail"])
@@ -206,9 +208,41 @@ async def test_request_failures_do_not_fail_an_experiment():
         runner=MockRunner(base_ms=1),
         resources=[ResourceProfile()],
         loads=[LoadPlan(request_rate=100, max_inflight=2, hold_s=0.03, warmup=Warmup(0))],
-        judge=lambda o: RequestEvaluation("failure", "business"),
+        judge=lambda o: RequestEvaluation("business"),
     )
     run = await Engine(exp).run()
     assert run.status == "completed"
-    assert run.arm_runs[0].measurement.request.failure_rps > 0
+    assert run.arm_runs[0].measurement.request.throughput_by_code["business"] > 0
     assert build_verdict_doc(run)["status"] == "skipped"
+
+
+@pytest.mark.parametrize("code", ["", "   ", None, 0])
+def test_judge_code_requires_a_nonempty_string(code):
+    with pytest.raises(ValueError, match="nonempty string"):
+        RequestEvaluation(code)
+
+
+@pytest.mark.parametrize("code", ["model_unavailable", "__proto__", "unjudged"])
+async def test_open_codes_reach_report_and_offline_metrics(tmp_path, code):
+    path = tmp_path / "perf.yaml"
+    path.write_text(f"""name: code-report
+service: {{name: chat, base_url: http://chat}}
+runner: {{name: mock, base_ms: 1}}
+load: {{request_rate: 20, max_inflight: 2, warmup: {{step_s: 0}}, hold_s: 0.06}}
+report:
+  columns:
+  - title: code throughput
+    metric: 'request.throughput_by_code{{code="{code}"}}.value'
+""")
+    experiment, _ = load_experiment(str(path))
+    experiment.judge = lambda o: RequestEvaluation(code)
+    run = await Engine(experiment, run_id="open-code").run()
+    paths = write_run(run, str(tmp_path))
+    loaded = load_run(paths["run_dir"])
+    stats = loaded.arm_runs[0].measurement.request
+    assert stats.completed_by_code == {code: stats.completed}
+    assert stats.throughput_by_code == {code: stats.throughput_rps}
+    assert stats.unjudged == stats.succeeded == 0
+    assert stats.error_rate == 1
+    assert code in Path(paths["run_dir"], "evaluations.json").read_text()
+    assert "code throughput" in Path(paths["report"]).read_text()

@@ -29,7 +29,7 @@ src/
    spec、FactTransform、Measurer、Detector、Facet 和 `sessionViewExtractor`，不依赖模块导入副作用。
    Extractor 从完整 Node Tree 直接产出 Observation SessionView 集合；不接管递归和输出序列化。
 4. Python 与 TypeScript 的公开 IR 字段保持同名，便于 fixture 与产物交叉验证。
-5. Kernel 对齐：assemble 后的 Node 是 Observation，`trace_id + node_id` 是 node-grain Unit key；nodes / corpus 是可复评 Dataset，本次选择的 detector / gate 直接定义评估侧重点并由 EvaluationRun 记录，detect 输出 Finding。不同 Unit grain 使用不同 Worksheet；详见 `../../../docs/kernel.md#dataset-与反复评估`。
+5. 证据与复评：assemble 后的 Node 是 Observation，`trace_id + node_id` 是 node-grain Unit key；nodes / corpus 是可复评 Dataset，本次选择的 detector / gate 直接定义评估侧重点并由 EvaluationRun 记录，detect 输出 Finding。不同 Unit grain 使用不同 Worksheet；详见 `../../../docs/evaluation-data.md#dataset-与反复评估`。
 
 6. Session 统一管理 Source 生命周期和跨 Dataset 的读取预算；lease 释放后不能继续请求分析数据。
    持久化证据与运行内计算缓存生命周期不同。预加载只作用于当前 trace，不能改变分析或展示语义。

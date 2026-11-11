@@ -1,7 +1,7 @@
 # Batch 分析
 
 批量分析回答一批运行记录的共同模式、分布与差异；耗时只是一个应用场景。
-共享模型与业务扩展见 [kernel](kernel.md)，读取与资源控制见 [load](load.md)。
+共享模型与业务扩展见 [业务贡献](contributions.md)，读取与资源控制见 [load](load.md)。
 
 ## 选择与执行
 
@@ -45,7 +45,7 @@ async def inspect_dataset(dataset, context):
 
 ### 跨语言定义
 
-Node 与 Dataset 共用的定义见 [kernel](kernel.md#detector-定义与依赖)。
+Node 与 Dataset 共用的定义见 [kernel](contributions.md#detector-定义与依赖)。
 Detector 用定义对象表达稳定身份、依赖和执行逻辑。`id` 是显式业务标识，不依赖 Python
 `__name__`、TS 函数名或注册顺序；`requires` 引用本作用域中其他 batch detector 的 id；
 `detect(dataset, context)` 保持普通函数。没有依赖的 detector 使用空 `requires`。

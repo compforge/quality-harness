@@ -61,9 +61,12 @@ Python 指标采集可增加 observation Window，覆盖发压前基线至最终
 
 - arrived / arrival_rps 按源头实际接受的发起机会 scheduled_at 归窗；arrived_at 保留实际处理时刻。
 - dispatched / dispatch_rps 按实际 dispatched_at 归窗。
-- completed / throughput_rps 及成功、失败、拒绝、超时、未判定分类按实际 finished_at 归窗，只含 finished 请求。
-- 五类完成数分别为 succeeded / failed / rejected / timed_out / unjudged，互斥且总和等于 completed。
-- 对应速率 success_rps / failure_rps / rejection_rps / timeout_rps / unjudged_rps；interrupted 单列实际中断事件。
+- completed / throughput_rps 按实际 finished_at 归窗，只含 finished 请求。
+- completed_by_code / throughput_by_code 按开放的 Judge code 保存已判定的完成数和速率。
+- succeeded / success_rps 从 code=success 派生；其它 code 均表示失败，不固定失败类别。
+- 没有 Judge 结果的完成事件独立计入 unjudged / unjudged_rps，不伪造一个 code。
+- completed = sum(completed_by_code.values()) + unjudged；各 code 速率之和加 unjudged_rps 等于 throughput_rps。
+- interrupted 单列实际中断事件。
 - n / n_ok / n_judged / error_rate / latency 按 dispatch cohort 归窗，包含排空后完成的 Outcome。
 - error_rate 是已判定非成功数 / n_judged；未判定不计为失败，无判定时读取 Missing。
 - inflight_peak/end 由实际调用起止事件求得，包括前一个窗口带入的请求。
@@ -77,7 +80,9 @@ co_biased/high_drop/incomplete/few_samples 等可信度标记必须随 summary �
 
 Perf 不提供 SLO 或业务容量判定。Run.status=completed/stopped/error 只描述实验执行。
 phase_errors 优先为 error；没有执行、提前停止或中断为 stopped，其余 completed。
-业务 Judge 的 success/failure/rejected/timeout 独立保存在 evaluations.json，缺失判定为 unjudged。
+业务 Judge 返回非空字符串 code，只有 success 表示成功；其余 code 含义由 Judge 定义。
+code 独立保存在 evaluations.json，原始 HTTP status / 异常仍归 Outcome。缺失判定为 unjudged 计数，
+不占用 code 值。error_breakdown 以 dispatch cohort 的非 success code 分组。
 默认 Judge 只按传输与 HTTP 状态分类（429 拒绝，408/504/Timeout 超时，其他非 2xx 失败）；
 业务 SSE 完成规则由项目定义。CLI 退出码 completed=0、stopped=2、error=1。
 离线可更换 Judge 并重算统计；报告重渲染不重新发压或判定。当前 perf 请求判定表是领域投影，

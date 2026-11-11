@@ -32,7 +32,7 @@ sdks/go/
 
 - **case 贴着 handler**：marker grammar 与 plural `specs[]` / `binding.spec_id` 由 spec-case 持有；casegen 用 Go AST 纯静态扫描，不 import、不运行被测服务。
 - **执行身份**：测试以字面量 `caserun.Ref("<canonical-caseset>", "<case-id>")` 绑定资产。CaseSet 内 case id 唯一；variant 在同一 CaseRun 内展开，不重复声明 Ref。
-- **Kernel 对齐**：Runner `Outcome` 是 Observation，一次 CaseRun（Case + variant）是 Unit；`testrun.Run` 收集的可复判 Unit facts 对齐 Dataset，本次选择的 judge/assertion 直接定义评估侧重点，Verdict 和后续报告从对应 Worksheet 投影。Go 与 Python 共享这些语义，不要求公开 API 同形；详见 [`../../docs/kernel.md`](../../docs/kernel.md#dataset-与反复评估)。
+- **证据与复评**：Runner `Outcome` 是 Observation，一次 CaseRun（Case + variant）是 Unit；`testrun.Run` 收集的可复判 Unit facts 对齐 Dataset，本次选择的 judge/assertion 直接定义评估侧重点，Verdict 和后续报告从对应 Worksheet 投影。Go 与 Python 共享这些语义，不要求公开 API 同形；详见 [`../../docs/evaluation-data.md`](../../docs/evaluation-data.md#dataset-与反复评估)。
 - **coverage gate 不生成测试体**：`casegen check` 要求每个 marker 恰有一个 Ref，并拒绝 missing/orphan/duplicate/dynamic ref。测试过程代码归消费方，框架不维护 scaffold/meta 区域。
 - **生命周期失败语义**：judge mismatch 用 `caserun.Fail` → fail；请求、环境、timeout、cleanup 异常 → error；cleanup 独立 context 且总执行。
 - **Run 是运行出口**：消费仓用 `testrun.Run.Assert` 记录每个 CaseRun，并在 `TestMain` 调 `testrun.Run.Main`；统一写入 `runs/<scope>/<run-id>/verdict.json`，未执行任何 Case 时不制造空 run。`testrun` 只是 Go testing adapter，稳定模型仍是 CaseRun → Run → Verdict。

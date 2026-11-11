@@ -9,10 +9,32 @@ e2e-harness 的第四个 SDK：trace/span 分析框架。前三个 harness 把�
 （ingest→transform→measure→diagnose→render）咬合成一个可生长的系统，靠**持续新增规则**（detector，case as
 code）辅助分析、排查 trace 里的问题——排查中每定位一类新坏模式就沉成一条，框架越用越懂、越会自己说话。
 
-设计理念、流程、决策记录见 [`../../../docs/trace-harness.md`](../../../docs/trace-harness.md)，本文件只给代码地图与改动入口。
+设计理念、流程、决策记录见 [`../../../docs/trace-harness.md`](../../../docs/trace-harness.md)，本文件包含核心模型、主流程、代码地图与改动约束。
 
 与姐妹 harness 互不 import；`common`/`report_kit` 是唯一共享。域专属 kind（AS 的
 aigw/sandbox）不进本包，随域包留在消费方（如 trace-as skill），用 `spec.merge` 叠加。
+
+## 核心模型与主流程
+
+```text
+Source ── select ──▶ Dataset ── detect ──▶ Findings
+                        └─ 按需准备 tree、Fact、Measurement
+```
+
+| 概念 | 职责 |
+|---|---|
+| Source | 遥测后端适配，异步选择 trace、读取骨架及证据 |
+| Dataset | 固定 trace 成员、查询条件与可复用证据，不保存运行结论 |
+| Span | 带存储身份的物理观测，保留原始证据与关联 |
+| Node / tree | 一个逻辑事件对应一到多个 span；平 Node 集与只读关系索引 |
+| Fact | 业务映射与转换所得的命名事实 |
+| Measurement | 独立量化结果，包含适用性、状态、数值与证据 |
+| Finding | 带作用域和证据的观察；异常与结构信息均可表达 |
+| AnalysisContext | 当前 trace 的分析状态与逻辑数据访问入口 |
+
+`TraceHarness.open` 创建资源作用域，`select` 固定 Dataset，`tree` 取得有生命周期的分析上下文。
+`detect` 流式遍历成员，写出独立 Run。相同 Dataset 可以执行不同的分析，不复用先前运行的 findings。
+Measurement 不挂在 Node 上，通过 `context.measure(node, name)` 请求。
 
 ## 代码地图与核心模块
 
@@ -82,7 +104,7 @@ corpus parquet 走可选 extra `quality-harness[trace-corpus]`（pyarrow），�
 
 ## 关键约定
 
-- **Kernel 对齐**：raw span 经 normalize / assemble 得到的 `Node` 是 Observation，`trace_id + node_id` 定义 node-grain Unit；nodes / corpus 构成可复评 Dataset，本次选择的 detector 与 gate 直接定义评估侧重点，detect 输出 Finding。若使用 trace 或 cohort grain，应建立对应 Worksheet，不把多种 grain 混在同一行模型；详见 [`../../../docs/kernel.md`](../../../docs/kernel.md#dataset-与反复评估)。
+- **证据与复评**：raw span 经 normalize / assemble 得到的 `Node` 是 Observation，`trace_id + node_id` 定义 node-grain Unit；nodes / corpus 构成可复评 Dataset，本次选择的 detector 与 gate 直接定义评估侧重点，detect 输出 Finding。若使用 trace 或 cohort grain，应建立对应 Worksheet，不把多种 grain 混在同一行模型；详见 [`../../../docs/evaluation-data.md`](../../../docs/evaluation-data.md#dataset-与反复评估)。
 - **node 是分析本体，tree 是只读关系索引**：分析输入保持平 node 集，transform 和渲染按需
   复用 `ctx.tree()` 的关系索引，不另建或修改父子结构。
 - **输出责任独立**：transform 由消费方请求并写 facts，measure 写 Measurement，diagnose 写 Finding，
@@ -127,7 +149,7 @@ Python 与 TypeScript 的分析结果共同遵守仓库根目录 `conformance/tr
 
 - `runtime.py` / `dataset.py`：共享资源作用域、固定成员与 tree lease；`batch.py`：流式执行与落盘统计。
 - `loading/`：证据加载、依赖准备、SQLite 缓存；biz 通过逻辑依赖贡献，不操作 HTTP 或缓存。
-- 设计入口：[kernel](docs/kernel.md)、[load](docs/load.md)、[single](docs/single.md)、[batch](docs/batch.md)。
+- 设计入口：[业务贡献与 Detector](docs/contributions.md)、[load](docs/load.md)、[single](docs/single.md)、[batch](docs/batch.md)。
 
 ## Session observation
 

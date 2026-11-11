@@ -10,7 +10,7 @@ import type { Workload } from "./workload.js";
  * @rule Workload mappings may change without changing Service identity; declarations prove no live instances.
  * @spec Description and Knowledge are discovery metadata, independent of identity and runtime evidence.
  * @spec upstream names callers of this Service; omitted is undeclared and an empty list declares no callers.
- * @see {@link component://docs/kernel.md}
+ * @see {@link component://docs/system-model.md}
  * Consumers extend this model with their own capabilities and execution policy.
  */
 export class Service<E extends Environment = Environment> implements Identity {

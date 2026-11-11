@@ -1,7 +1,7 @@
 # 单 trace 分析与呈现
 
 单条分析用于理解一次请求：经过哪些逻辑事件、有哪些观测、证据在哪里。共享模型见
-[kernel](kernel.md)，数据准备与缓存见 [load](load.md)。
+[业务贡献](contributions.md)，数据准备与缓存见 [load](load.md)。
 
 ## 主流程
 
@@ -50,7 +50,7 @@ trace-as 的 show、tree、diagnose、render-md 与 render-html 复用同一加�
 
 ## Node detector 依赖
 
-Node 与 Dataset 共用 [Detector 定义与依赖](kernel.md#detector-定义与依赖)。
+Node 与 Dataset 共用 [Detector 定义与依赖](contributions.md#detector-定义与依赖)。
 `Detector(id="summary", requires=("detail",), detect=summarize)` 可以注册到
 `TraceContributions.detectors`；`context.result("detail")` 读取同一 node 的依赖执行结果。
 只选择 summary 会自动运行 detail。单条全量与指定规则共用执行器，前者额外运行 base/kind rules。

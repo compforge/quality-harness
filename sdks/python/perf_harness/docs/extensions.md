@@ -194,7 +194,7 @@ from perf_harness import RequestEvaluation, register_judge
 
 def chat_completed(outcome):
     ok = outcome.status == 200 and outcome.meta.get("saw_done") and not outcome.meta.get("exc")
-    return RequestEvaluation(bool(ok), None if ok else "incomplete_stream")
+    return RequestEvaluation("success" if ok else "incomplete_stream")
 
 
 register_judge("chat-completed", chat_completed)

@@ -51,8 +51,8 @@ export interface Outcome {
 }
 
 export interface RequestEvaluation {
-  result: "success" | "failure" | "rejected" | "timeout";
-  error_kind?: string;
+  /** Only "success" is reserved; all other nonempty codes denote failure. */
+  code: string;
 }
 
 export interface DistributionSummary {
@@ -80,15 +80,11 @@ export interface RequestStats {
   dispatched: number;
   completed: number;
   succeeded: number;
-  failed: number;
-  rejected: number;
-  timed_out: number;
+  completed_by_code: Record<string, number>;
+  throughput_by_code: Record<string, number>;
   unjudged: number;
   interrupted: number;
   n_judged: number;
-  failure_rps: number;
-  rejection_rps: number;
-  timeout_rps: number;
   unjudged_rps: number;
   n_interrupted: number;
   arrival_rps: number;

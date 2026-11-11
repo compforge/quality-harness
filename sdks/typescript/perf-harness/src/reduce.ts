@@ -30,10 +30,15 @@ export function requestStats(
   const completions = records.filter(
     (r) => r.state === "finished" && within(r.finished_at),
   );
-  const counts = { success: 0, failure: 0, rejected: 0, timeout: 0, unjudged: 0 };
-  for (const record of completions) counts[execution.evaluations[record.operation_run_id!]?.result ?? "unjudged"]++;
+  const counts = new Map<string, number>();
+  let unjudged = 0;
+  for (const record of completions) {
+    const evaluation = execution.evaluations[record.operation_run_id!];
+    if (evaluation === undefined) unjudged++;
+    else counts.set(evaluation.code, (counts.get(evaluation.code) ?? 0) + 1);
+  }
   const n = finished.length,
-    n_ok = evaluations.filter(e => e?.result === "success").length,
+    n_ok = evaluations.filter(e => e?.code === "success").length,
     n_judged = evaluations.filter(e => e !== undefined).length;
   const interrupted = records.filter(r => r.state === "interrupted" && within(r.finished_at)).length;
   const n_dropped = arrived.filter((r) => r.state === "dropped").length;
@@ -81,12 +86,10 @@ export function requestStats(
     current += delta;
     peak = Math.max(peak, current);
   }
-  const error_breakdown: Record<string, number> = {};
+  const errors = new Map<string, number>();
   for (const e of evaluations)
-    if (e && e.result !== "success") {
-      const key = e ? (e.error_kind ?? "unknown") : "unjudged";
-      error_breakdown[key] = (error_breakdown[key] ?? 0) + 1;
-    }
+    if (e && e.code !== "success") errors.set(e.code, (errors.get(e.code) ?? 0) + 1);
+  const error_breakdown = Object.fromEntries(errors);
   const dt = Math.max(end - start, 1e-9);
   return {
     n,
@@ -104,19 +107,15 @@ export function requestStats(
     arrived: arrived.length,
     dispatched: cohort.length,
     completed: completions.length,
-    succeeded: counts.success,
-    failed: counts.failure,
-    rejected: counts.rejected,
-    timed_out: counts.timeout,
-    unjudged: counts.unjudged,
+    succeeded: counts.get("success") ?? 0,
+    completed_by_code: Object.fromEntries(counts),
+    throughput_by_code: Object.fromEntries([...counts].map(([code, count]) => [code, count / dt])),
+    unjudged,
     interrupted,
     arrival_rps: arrived.length / dt,
     dispatch_rps: cohort.length / dt,
-    success_rps: counts.success / dt,
-    failure_rps: counts.failure / dt,
-    rejection_rps: counts.rejected / dt,
-    timeout_rps: counts.timeout / dt,
-    unjudged_rps: counts.unjudged / dt,
+    success_rps: (counts.get("success") ?? 0) / dt,
+    unjudged_rps: unjudged / dt,
     inflight_peak: peak,
     inflight_end: current,
     caveats,

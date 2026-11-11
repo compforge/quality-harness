@@ -173,7 +173,7 @@ test("artifact round trip and rejudge do not change raw evidence", async () => {
     const arm = loaded.executions[0]!,
       before = serializeRequests(loaded);
     for (const op of arm.operation_runs)
-      arm.evaluations[op.id] = { result: "failure", error_kind: "business" };
+      arm.evaluations[op.id] = { code: "business" };
     expect(requestStats(arm, 0, 0.04).error_rate).toBe(1);
     expect(serializeRequests(loaded)).toBe(before);
   } finally {

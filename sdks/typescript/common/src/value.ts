@@ -9,7 +9,7 @@ export interface Value {
 /**
  * @spec decode validates unknown JSON and restores equivalent data and behavior after encode
  * @rule Both operations are pure: no environment access or resource acquisition
- * @see ../../../../docs/kernel.md
+ * @see ../AGENTS.md
  */
 export interface ValueCodec<T extends Value> {
   encode(value: T): JsonInput;

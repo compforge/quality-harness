@@ -114,7 +114,7 @@ async def test_offline_rejudge_preserves_raw_evidence():
     arm = run.arm_runs[0]
     evidence = copy.deepcopy(arm.operation_runs)
     arm.evaluations = {
-        call.id: RequestEvaluation("failure", "business_failure") for call in arm.operation_runs
+        call.id: RequestEvaluation("business_failure") for call in arm.operation_runs
     }
     stats = reduce_requests(arm, 0, 0.04)
     assert stats.error_rate == 1 and arm.operation_runs == evidence

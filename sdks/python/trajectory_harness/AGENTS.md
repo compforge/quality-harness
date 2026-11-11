@@ -51,7 +51,7 @@ trajectory_harness/
   SessionView 可展开子轨迹；Dataset 仍按顶层文档定义分析单位，禁止因视图展开重复统计。
 - **Source 只负责选择和读取**：Source 返回轻量 `RecordingRef` 和原始 `Recording`，不解析为
   `Trajectory`，也不执行判定；领域标签作为 `TrajectoryAnnotation` 与 Dataset 组合，不塞进 Source 契约。
-- **Kernel 对齐**：Trajectory 是 Observation，`trajectory_id` 定义 Unit grain；`TrajectoryDataset` 固定 Case + Trajectory Unit 与 `TrajectoryAnnotation`。每次 `TrajectoryAnalysisRun` 记录实际选择的 Detector / Verifier / Measurer / Policy，并只填充自己的 Worksheet；同一 Dataset 可按成本或效果反复分析，详见 [`../../../docs/kernel.md`](../../../docs/kernel.md#dataset-与反复评估)。
+- **证据与复评**：Trajectory 是 Observation，`trajectory_id` 定义 Unit grain；`TrajectoryDataset` 固定 Case + Trajectory Unit 与 `TrajectoryAnnotation`。每次 `TrajectoryAnalysisRun` 记录实际选择的 Detector / Verifier / Measurer / Policy，并只填充自己的 Worksheet；同一 Dataset 可按成本或效果反复分析，详见 [`../../../docs/evaluation-data.md`](../../../docs/evaluation-data.md#dataset-与反复评估)。
 - **两个正交维度**：Detector 与 Verifier 的 `category` 只表达关注面 `cost / effect`，`rule_type` 只表达规则形态 `hard / soft`；两者不可互相推导。`target` 另行表达一行当前分析谁，如 CCR 的 Review 1 / Review 2。
 - **Loader 只做标准化适配**：`ATIFJsonLoader` 直接校验标准格式；session/OTLP Loader 把来源字段映射到
   ATIF 的 `agent / steps / tool_calls / observation / metrics`。无法无损映射的来源事实保留在 namespaced

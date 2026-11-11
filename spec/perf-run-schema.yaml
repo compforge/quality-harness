@@ -203,16 +203,12 @@ $defs:
     - arrival_rps
     - dispatch_rps
     - success_rps
-    - failed
-    - rejected
-    - timed_out
     - unjudged
     - interrupted
     - n_judged
-    - failure_rps
-    - rejection_rps
-    - timeout_rps
     - unjudged_rps
+    - completed_by_code
+    - throughput_by_code
     properties:
       n:
         type: integer
@@ -286,15 +282,6 @@ $defs:
       success_rps:
         type: number
         minimum: 0
-      failed:
-        type: integer
-        minimum: 0
-      rejected:
-        type: integer
-        minimum: 0
-      timed_out:
-        type: integer
-        minimum: 0
       unjudged:
         type: integer
         minimum: 0
@@ -304,18 +291,23 @@ $defs:
       n_judged:
         type: integer
         minimum: 0
-      failure_rps:
-        type: number
-        minimum: 0
-      rejection_rps:
-        type: number
-        minimum: 0
-      timeout_rps:
-        type: number
-        minimum: 0
       unjudged_rps:
         type: number
         minimum: 0
+      completed_by_code:
+        type: object
+        propertyNames:
+          pattern: \S
+        additionalProperties:
+          type: integer
+          minimum: 0
+      throughput_by_code:
+        type: object
+        propertyNames:
+          pattern: \S
+        additionalProperties:
+          type: number
+          minimum: 0
     additionalProperties: true
   window:
     type: object

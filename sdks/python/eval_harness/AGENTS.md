@@ -30,7 +30,7 @@ eval_harness/
 - **Experiment** = common 的具名验证意图 + `service`（Component + Environment + 基线 SUT 配置）+ `arms` + CaseSet 引用 + `metrics` + `weights`
 - **CaseSet 归 spec-case**：Eval 完整加载其 identity / sources / facets / cases，只解释
   `input` 与 `judge.eval`；Experiment 不得覆盖资产字段
-- **Kernel 对齐**：Solver 填入的 response / retrieval / citation 是 Observation，`arm_id × corpus × case_id` 是 Unit grain；已完成 solve cell 的 Unit facts 构成可复评 Dataset，本次选择的 scorer / metric / weight / judge model 直接定义评估侧重点。当前 Worksheet 同时 checkpoint Observation production 与评分结果，但 score cell 必须可在复用 solve cell 的前提下重新填充；详见 [`../../../docs/kernel.md`](../../../docs/kernel.md#dataset-与反复评估)。
+- **证据与复评**：Solver 填入的 response / retrieval / citation 是 Observation，`arm_id × corpus × case_id` 是 Unit grain；已完成 solve cell 的 Unit facts 构成可复评 Dataset，本次选择的 scorer / metric / weight / judge model 直接定义评估侧重点。当前 Worksheet 同时 checkpoint Observation production 与评分结果，但 score cell 必须可在复用 solve cell 的前提下重新填充；详见 [`../../../docs/evaluation-data.md`](../../../docs/evaluation-data.md#dataset-与反复评估)。
 - **Arm**（对照配置）= `service ⊕ overrides`，分 **heavy**（provisioned resource+sources，有 prepare/clean 和复用 key）+ **light**（model/params，按调用施加）；`Arm.key` 只 hash heavy 字段 → 只换模型的 Arm 共享同一份 provision
 - **Trial** = 某个 Arm 的一次真实执行，Worksheet 以显式 `arm_id` 记录并对齐其结果
 - **Worksheet**（大表）= common `ExperimentRun` 的 Eval 子类，也是一次 EvaluationRun 对 Dataset 的 rows = (arm_id × case) 填表结果；每 cell 带 PENDING/OK/FAILED，引擎唯一真相 + checkpoint

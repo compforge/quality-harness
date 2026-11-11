@@ -60,13 +60,12 @@ _KEY_COLS = ["resources", "peak_request_rate", "peak_max_inflight"]
 _THROUGHPUT_COLS = [
     "dispatch_rps",
     "success_rps",
-    "failure_rps",
-    "rejection_rps",
-    "timeout_rps",
     "unjudged_rps",
     "interrupted",
 ]
 _STAT_COLS = _THROUGHPUT_COLS + [
+    "completed_by_code",
+    "throughput_by_code",
     "n",
     "ok",
     "completion_rps",
@@ -81,6 +80,8 @@ _STAT_COLS = _THROUGHPUT_COLS + [
 # header hover tooltips for the built-in request-side stat columns (metric/probe
 # columns describe themselves from their MetricFamily — see _display_col_tips)
 _STAT_TIPS = {
+    "completed_by_code": "judged completions by code; missing judgments counted separately",
+    "throughput_by_code": "judged completion throughput by code (req/s)",
     "n": "completed requests in this dispatch cohort (excludes drops/interruption)",
     "ok": "requests judged OK (Judge)",
     "completion_rps": "throughput = completions in this time window ÷ window duration",
@@ -143,6 +144,8 @@ def _key_cells(r: ArmRun) -> list[str]:
 
 def _stat_cells(s: RequestStats) -> list[str]:
     return [f"{getattr(s, key):.2f}" for key in _THROUGHPUT_COLS] + [
+        json.dumps(s.completed_by_code, ensure_ascii=False, sort_keys=True),
+        json.dumps(s.throughput_by_code, ensure_ascii=False, sort_keys=True),
         str(s.n),
         str(s.n_ok),
         f"{s.throughput_rps:.2f}",
@@ -241,6 +244,8 @@ def _sorted_values(
 
 # request-side display columns: latency p50/p95/p99 merged into one `lat_ms` cell
 _DISPLAY_STAT_COLS = _THROUGHPUT_COLS + [
+    "completed_by_code",
+    "throughput_by_code",
     "n",
     "ok",
     "completion_rps",
@@ -254,6 +259,8 @@ _DISPLAY_STAT_TIPS = {**_STAT_TIPS, "lat_ms": "request latency — p50/p95/p99 (
 
 def _display_stat_cells(s: RequestStats) -> list[str]:
     return [f"{getattr(s, key):.2f}" for key in _THROUGHPUT_COLS] + [
+        json.dumps(s.completed_by_code, ensure_ascii=False, sort_keys=True),
+        json.dumps(s.throughput_by_code, ensure_ascii=False, sort_keys=True),
         str(s.n),
         str(s.n_ok),
         f"{s.throughput_rps:.2f}",
@@ -1087,7 +1094,7 @@ def _render_md(
             + _display_metric_cells(r.measurement.request, metric_keys)
             + _display_probe_cells(r, dprobe)
         )
-        lines.append("| " + " | ".join(cells) + " |")
+        lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
     lines.append("")
     if any(r.arm.load.saturated for r in results):
         lines.append(
@@ -1149,7 +1156,9 @@ def _render_md(
                 for val in _sorted_values(key, list(r.measurement.by_facet[key]), facet_order):
                     sl = r.measurement.by_facet[key][val]
                     cells = [val, *_display_stat_cells(sl), *_display_metric_cells(sl, metric_keys)]
-                    lines.append("| " + " | ".join(cells) + " |")
+                    lines.append(
+                        "| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |"
+                    )
                 lines.append("")
 
     # §2b observed Window breakdown
@@ -1179,7 +1188,7 @@ def _render_md(
                     *_display_stat_cells(window.request),
                     *_display_metric_cells(window.request, metric_keys),
                 ]
-                lines.append("| " + " | ".join(cells) + " |")
+                lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
             lines.append("")
 
     # §3/§4 are charts (markdown can't carry them) — point at the html + the data layer

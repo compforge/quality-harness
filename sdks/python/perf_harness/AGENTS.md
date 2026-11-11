@@ -58,7 +58,7 @@ perf_harness/
 ### 扩展点（业务接入只碰这两个）
 
 - **Case 资产归 spec-case**：实验用 `caseset: <path>` 引用 canonical CaseSet，`cases:` 只做 case 选择/排序与实验本地 `weight`；`input/facets/judge/binding` 不在 perf 配置里覆盖。无 `caseset` 的内联 cases 仍是轻量实验入口。
-- **Kernel 对齐**：request Outcome、Probe sample 及其 window-aligned 归约事实是 Observation；request、window、run 是不同 Unit grain，必须区分分析粒度，不能混成一张表。raw/model Run facts 构成可离线重算 Dataset，本次选择的 独立 Judge 和 analysis 组件直接定义评估侧重点；换 Judge 或分析透镜不得重新发压，详见 [`../../../docs/kernel.md`](../../../docs/kernel.md#dataset-与反复评估)。
+- **证据与复评**：request Outcome、Probe sample 及其 window-aligned 归约事实是 Observation；request、window、run 是不同 Unit grain，必须区分分析粒度，不能混成一张表。raw/model Run facts 构成可离线重算 Dataset，本次选择的 独立 Judge 和 analysis 组件直接定义评估侧重点；换 Judge 或分析透镜不得重新发压，详见 [`../../../docs/evaluation-data.md`](../../../docs/evaluation-data.md#dataset-与反复评估)。
 - **`Runner`**（协议适配）：`ArmContext` 是整个 ArmRun 共用的不可变输入，单次并发请求通过 `FireContext(arm_run, case)` 组合请求 Case；`fire` 只记原始观测，独立 `Judge(outcome)→RequestEvaluation` 才裁决（纯函数，可离线重判）。各服务在自己项目写、`register_runner` 注册；ArmRun 固定按 `setup → warmup → hold → cooldown → cleanup` 运行，其中业务 hook 只有 `setup/deactivate/cleanup`。
 - **`Probe`**（看什么）：`families` 单表声明元数据（FamilySpec：unit/value_kind/description，describe/summarize/Engine 共读），`sample()` 周期采样；Source 不绑 k8s，consumer 可通过 extension module + `register_probe` 扩展。Prometheus 来源由 toolbox 的 `PrometheusDataSource` 访问；`MetricProbe` 只将 PromQL 结果映射为声明的指标与 label 契约。采样周期由 perf 决定，单轮读取共享由 toolbox `DataLoader` 管理，连接和查询历史随 ArmRun 的 `ClientManager` 释放；先完成窗口查询，再清理资源。
 - **压后观测不污染容量口径**：`cooldown_s` 延长 raw series 以观察回收/缩容；默认汇总只读 measurement Window，`window: {kind: cooldown}` 显式读取 cooldown。
@@ -67,7 +67,7 @@ perf_harness/
 
 - 请求 Outcome 与独立 Judge 结果分开保存，RequestStats 归约事实，不提供 SLO 配置或业务验收。
 - Run.status 只表示 completed / stopped / error；错误率熔断、超时、取消、排空仍是执行保护。
-- 吞吐按完成事件分窗，success/failure/rejection/timeout/unjudged 互斥；中断与丢弃单列。
+- 吞吐按完成事件分窗，code 是开放的非空字符串，仅 success 为成功；未判定独立于 code；中断与丢弃单列。
 - 无已判定请求的错误率是 Missing；未判定不计为服务错误。缺失与 Probe 故障不能伪装为零。
 - 下游 API 指标通过 Probe.operation 绑定 Common Operation.id()，采集和报告不依赖 Graph。
 - 既有分析透镜与事实记录分层；本层不新增瓶颈、容量或“压不上去”的自动结论。

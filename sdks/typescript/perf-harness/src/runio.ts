@@ -1,3 +1,4 @@
+import { validateEvaluation } from "./judge";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Run, ArmRun } from "./model";
@@ -119,6 +120,8 @@ export function loadRun(directory: string): Run {
   const evaluations = JSON.parse(
     readFileSync(join(directory, "evaluations.json"), "utf8"),
   );
+  for (const values of Object.values(evaluations))
+    for (const value of Object.values(values as Record<string, unknown>)) validateEvaluation(value);
   const executions: ArmRun[] = data.executions.map((e: ArmRun) => ({
     ...e,
     arm: {
