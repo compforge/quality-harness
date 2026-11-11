@@ -382,7 +382,7 @@ _CHART_UNIT_NAME = {
     "millicores": "CPU",
     "MiB": "内存",
     "count": "计数",
-    "completion_rps": "吞吐",
+    "rps": "吞吐",
     "ms": "延迟",
     "s": "时长(s)",
 }
