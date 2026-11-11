@@ -4,8 +4,35 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from typing import Iterable
+from enum import StrEnum
+from typing import Iterable, Self
 from urllib.parse import quote
+
+
+class _OpenKind(StrEnum):
+    @classmethod
+    def _missing_(cls, value: object) -> Self | None:
+        # Unknown kinds are values, not global enum registrations.
+        if not isinstance(value, str) or not value:
+            return None
+        member = str.__new__(cls, value)
+        member._name_ = None
+        member._value_ = value
+        return member
+
+
+class NodeKind(_OpenKind):
+    """Built-in node kinds; nonempty custom strings remain valid enum values."""
+
+    SERVICE = "service"
+    OPERATION = "operation"
+
+
+class RelationKind(_OpenKind):
+    """Built-in relations; unknown values retain their string identity and roundtrip."""
+
+    BELONGS_TO = "belongs_to"
+    CALLS = "calls"
 
 
 def service_node_id(name: str) -> str:
@@ -25,7 +52,10 @@ def operation_node_id(service: str, operation: str) -> str:
 @dataclass(frozen=True, slots=True)
 class Node:
     id: str
-    kind: str
+    kind: NodeKind | str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "kind", NodeKind(self.kind))
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,10 +67,11 @@ class Relation:
 
     source: str
     target: str
-    kind: str
+    kind: RelationKind | str
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "kind", RelationKind(self.kind))
         if any(
             not isinstance(value, str) or not value
             for value in (self.source, self.target, self.kind)
@@ -104,13 +135,13 @@ class Graph:
             if relation.source not in nodes or relation.target not in nodes:
                 raise ValueError(f"unknown relation endpoint: {relation.id}")
             source, target = nodes[relation.source], nodes[relation.target]
-            if relation.kind == "calls" and (source.kind, target.kind) != (
-                "operation",
-                "operation",
+            if relation.kind == RelationKind.CALLS and (source.kind, target.kind) != (
+                NodeKind.OPERATION,
+                NodeKind.OPERATION,
             ):
                 raise ValueError(f"calls requires operation endpoints: {relation.id}")
-            if relation.kind == "belongs_to":
-                if (source.kind, target.kind) != ("operation", "service"):
+            if relation.kind == RelationKind.BELONGS_TO:
+                if (source.kind, target.kind) != (NodeKind.OPERATION, NodeKind.SERVICE):
                     raise ValueError(
                         f"belongs_to requires operation -> service: {relation.id}"
                     )
@@ -118,14 +149,14 @@ class Graph:
                     raise ValueError(f"operation has multiple services: {source.id}")
                 owners[source.id] = target.id
         for node in self.nodes:
-            if node.kind == "operation" and node.id not in owners:
+            if node.kind == NodeKind.OPERATION and node.id not in owners:
                 raise ValueError(f"operation has no service: {node.id}")
 
     def node(self, node_id: str) -> Node | None:
         return next((node for node in self.nodes if node.id == node_id), None)
 
     def relations_from(
-        self, node_id: str, *, kind: str | None = None
+        self, node_id: str, *, kind: RelationKind | str | None = None
     ) -> tuple[Relation, ...]:
         return tuple(
             r
@@ -134,7 +165,7 @@ class Graph:
         )
 
     def relations_to(
-        self, node_id: str, *, kind: str | None = None
+        self, node_id: str, *, kind: RelationKind | str | None = None
     ) -> tuple[Relation, ...]:
         return tuple(
             r
@@ -143,7 +174,7 @@ class Graph:
         )
 
     def reachable_from(
-        self, node_id: str, *, kind: str | None = None
+        self, node_id: str, *, kind: RelationKind | str | None = None
     ) -> tuple[Node, ...]:
         """Return reachable nodes including root, in declaration order; cycles terminate."""
         if self.node(node_id) is None:
@@ -170,7 +201,7 @@ class Graph:
         selected.update(
             r.target
             for r in self.relations
-            if r.kind == "belongs_to" and r.source in selected
+            if r.kind == RelationKind.BELONGS_TO and r.source in selected
         )
         return Graph(
             environment=self.environment,

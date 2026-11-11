@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_common import Graph, Node, Relation, operation_node_id, service_node_id
+from harness_common import Graph, Node, NodeKind, Relation, RelationKind, operation_node_id, service_node_id
 
 FIXTURE = json.loads(
     (Path(__file__).resolve().parents[5] / "conformance/common/graphs.json").read_text()
@@ -83,3 +83,27 @@ def test_snapshot_detaches_input_and_supports_open_kinds():
     assert Graph.from_dict(graph.to_dict()) == graph
     # JSON tuple encoding keeps IDs unambiguous even when names contain delimiters.
     assert Relation("a,b", "c", "uses").id != Relation("a", "b,c", "uses").id
+
+
+def test_open_enums_preserve_wire_values_and_builtin_validation():
+    """Known constants and custom kinds retain the original string wire contract."""
+    nodes = (Node("s", NodeKind.SERVICE), Node("o", NodeKind.OPERATION), Node("m", NodeKind("model")))
+    relations = (Relation("o", "s", RelationKind.BELONGS_TO),
+                 Relation("o", "o", RelationKind.CALLS), Relation("o", "m", RelationKind("uses")))
+    graph = Graph(environment="qa", nodes=nodes, relations=relations)
+    loaded = Graph.from_dict(json.loads(json.dumps(graph.to_dict())))
+    assert loaded == graph
+    assert loaded.node("s").kind is NodeKind.SERVICE
+    assert loaded.node("m").kind == "model"
+    assert loaded.relations_from("o", kind=RelationKind("uses")) == (relations[2],)
+    assert graph.reachable_from("o", kind=RelationKind.CALLS) == (nodes[1],)
+    assert str(NodeKind("model")) == "model"
+    assert Node("s", "service").kind is NodeKind.SERVICE
+    assert Relation("o", "o", RelationKind.CALLS).id == Relation("o", "o", "calls").id
+    assert list(NodeKind) == [NodeKind.SERVICE, NodeKind.OPERATION]
+    assert list(RelationKind) == [RelationKind.BELONGS_TO, RelationKind.CALLS]
+    for kind_type in (NodeKind, RelationKind):
+        with pytest.raises(ValueError):
+            kind_type("")
+    with pytest.raises(ValueError, match="calls requires"):
+        Graph(environment="qa", nodes=nodes, relations=relations + (Relation("s", "o", RelationKind.CALLS),))

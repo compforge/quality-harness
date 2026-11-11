@@ -5,6 +5,23 @@ Common describes offline topology with `Graph`, `Node(id, kind)` and
 contract and consume `conformance/common/graphs.json`. Kinds are nonempty strings;
 consumers can introduce additional kinds without introducing node subclasses.
 
+## Open kinds
+
+`NodeKind` and `RelationKind` expose built-in names while accepting custom nonempty
+strings. Python uses open `StrEnum` values: `NodeKind.SERVICE`, `NodeKind.OPERATION`,
+`RelationKind.BELONGS_TO`, `RelationKind.CALLS`; `NodeKind("model")` and
+`RelationKind("uses")` preserve unknown values without registering new members.
+Existing raw string arguments remain supported. Nodes and relations normalize their
+kind into the corresponding enum on construction and loading.
+
+TypeScript exports frozen constants `NodeKind.Service`, `NodeKind.Operation`,
+`RelationKind.BelongsTo`, `RelationKind.Calls` and same-named open string types.
+Their literal-plus-string unions retain editor completion while allowing custom kinds.
+
+Both languages serialize kinds as the same plain strings. Unknown kinds roundtrip
+unchanged, and known strings/constants follow identical validation rules. No enum
+registration or wire schema change is required to extend the vocabulary.
+
 ## Scope and identity
 
 A Graph is one immutable snapshot in a named environment. It has no fixed root.

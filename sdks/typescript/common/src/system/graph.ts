@@ -1,14 +1,21 @@
+/** Known names provide completion; arbitrary nonempty string kinds remain valid. */
+export const NodeKind = Object.freeze({ Service: "service", Operation: "operation" } as const);
+export type NodeKind = typeof NodeKind[keyof typeof NodeKind] | (string & {});
+
+export const RelationKind = Object.freeze({ BelongsTo: "belongs_to", Calls: "calls" } as const);
+export type RelationKind = typeof RelationKind[keyof typeof RelationKind] | (string & {});
+
 /** Offline topology. Collection, metrics and diagnosis remain consumer-owned. */
 export interface Node {
   readonly id: string;
-  readonly kind: string;
+  readonly kind: NodeKind;
 }
 
 export interface Relation {
   readonly id: string;
   readonly source: string;
   readonly target: string;
-  readonly kind: string;
+  readonly kind: RelationKind;
 }
 
 export interface GraphSnapshot {
@@ -34,7 +41,7 @@ export function operationNodeId(service: string, operation: string): string {
 }
 
 /** @spec Identity is source/kind/target; repeated calls share a static edge. */
-export function createRelation(source: string, target: string, kind: string): Relation {
+export function createRelation(source: string, target: string, kind: RelationKind): Relation {
   if ([source, target, kind].some(value => typeof value !== "string" || !value)) {
     throw new Error("relation endpoints and kind must be nonempty strings");
   }
@@ -80,31 +87,31 @@ export class Graph {
       ids.add(relation.id);
       const source = nodes.get(relation.source), target = nodes.get(relation.target);
       if (!source || !target) throw new Error(`unknown relation endpoint: ${relation.id}`);
-      if (relation.kind === "calls" && (source.kind !== "operation" || target.kind !== "operation")) throw new Error(`calls requires operation endpoints: ${relation.id}`);
-      if (relation.kind === "belongs_to") {
-        if (source.kind !== "operation" || target.kind !== "service") throw new Error(`belongs_to requires operation -> service: ${relation.id}`);
+      if (relation.kind === RelationKind.Calls && (source.kind !== NodeKind.Operation || target.kind !== NodeKind.Operation)) throw new Error(`calls requires operation endpoints: ${relation.id}`);
+      if (relation.kind === RelationKind.BelongsTo) {
+        if (source.kind !== NodeKind.Operation || target.kind !== NodeKind.Service) throw new Error(`belongs_to requires operation -> service: ${relation.id}`);
         if (owners.has(source.id)) throw new Error(`operation has multiple services: ${source.id}`);
         owners.add(source.id);
       }
     }
     for (const node of this.nodes) {
-      if (node.kind === "operation" && !owners.has(node.id)) throw new Error(`operation has no service: ${node.id}`);
+      if (node.kind === NodeKind.Operation && !owners.has(node.id)) throw new Error(`operation has no service: ${node.id}`);
     }
     Object.freeze(this);
   }
 
   node(id: string): Node | undefined { return this.nodes.find(node => node.id === id); }
 
-  relationsFrom(id: string, kind?: string): readonly Relation[] {
+  relationsFrom(id: string, kind?: RelationKind): readonly Relation[] {
     return this.relations.filter(r => r.source === id && (kind === undefined || r.kind === kind));
   }
 
-  relationsTo(id: string, kind?: string): readonly Relation[] {
+  relationsTo(id: string, kind?: RelationKind): readonly Relation[] {
     return this.relations.filter(r => r.target === id && (kind === undefined || r.kind === kind));
   }
 
   /** Reachable nodes include the root and retain declaration order. */
-  reachableFrom(id: string, kind?: string): readonly Node[] {
+  reachableFrom(id: string, kind?: RelationKind): readonly Node[] {
     if (!this.node(id)) throw new Error(`unknown root: ${id}`);
     const seen = new Set([id]), pending = [id];
     const adjacency = new Map<string, string[]>();
@@ -127,7 +134,7 @@ export class Graph {
     const selected = new Set(ids);
     for (const id of selected) if (!this.node(id)) throw new Error(`unknown node: ${id}`);
     for (const relation of this.relations) {
-      if (relation.kind === "belongs_to" && selected.has(relation.source)) selected.add(relation.target);
+      if (relation.kind === RelationKind.BelongsTo && selected.has(relation.source)) selected.add(relation.target);
     }
     return new Graph({ environment: this.environment, source: this.source, version: this.version,
       nodes: this.nodes.filter(n => selected.has(n.id)),
