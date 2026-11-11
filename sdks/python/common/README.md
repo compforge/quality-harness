@@ -53,3 +53,18 @@ tool and an optional declared version/constraint. `Depot.bins` groups `Bin` decl
 repository-relative paths and `dependencies`, `output` or `cache` kinds. Metadata does not change
 Component identity, prove physical existence or authorize deletion. Discovery, preparation,
 usage protection and reclamation belong to consumers. See [the shared contract](../../../docs/component-depot.md).
+
+## System Graph
+
+`Graph`, `Node` and `Relation` describe offline topology in one environment.
+Service/operation nodes connect through `belongs_to` and `calls`; other kinds remain extensible.
+Build validated snapshots, query dependencies and serialize them independently of metrics or tests.
+See [the Graph contract and example](../../../docs/graph.md).
+
+## Service and Operation identity
+
+`Service` and `Operation` implement `Identity.id()`. Operations require
+`service_name`: `Operation("ask", service_name=service.name)`. Use `service.id()` and
+`operation.id()` for graph nodes; graph ID helpers are removed. Python Node/Relation
+constructors require `NodeKind`/`RelationKind`, including explicit custom enum values.
+See [Graph](../../../docs/graph.md) for scope and JSON loading.

@@ -64,7 +64,7 @@ async def drive(
         record.state = "dispatched"
         record.operation_run_id = record.id
         controller.advance(record.dispatched_at, ctx.stats.inflight)
-        operation = Operation(name=runner.name)
+        operation = Operation(name=runner.name, service_name=context.service.name)
         try:
             operation = runner.operation(FireContext(context, case))
             outcome = await runner.fire(FireContext(context, case))

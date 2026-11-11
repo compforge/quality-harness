@@ -84,3 +84,9 @@ from harness_common.system.resource import ResourceInstance as ResourceInstance
 from harness_common.system.resource import ResourceMeasurement as ResourceMeasurement
 from harness_common.system.resource import ResourceCoverage as ResourceCoverage
 from harness_common.system.resource import ResourceSnapshot as ResourceSnapshot
+
+from harness_common.system.graph import Graph as Graph
+from harness_common.system.graph import Node as Node
+from harness_common.system.graph import NodeKind as NodeKind
+from harness_common.system.graph import Relation as Relation
+from harness_common.system.graph import RelationKind as RelationKind

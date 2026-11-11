@@ -97,6 +97,7 @@ def _execute_case(
                 service=service,
                 operation=HttpOperation(
                     name=f"{method} {request.path}",
+                    service_name=service.name,
                     method=method,
                     path=request.path,
                 ),

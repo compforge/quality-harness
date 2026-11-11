@@ -289,7 +289,8 @@ def _operation_json(call: OperationRun) -> dict:
             "environment": {"name": service.environment.name},
             "workloads": [asdict(w) for w in service.workloads],
         },
-        "operation": asdict(call.operation),
+        # The enclosing service is the canonical owner in this record.
+        "operation": {k: v for k, v in asdict(call.operation).items() if k != "service_name"},
         "outcome": asdict(call.outcome),
     }
 
@@ -311,9 +312,9 @@ def _operation_from(d: dict) -> OperationRun:
         ),
     )
     operation = (
-        HttpOperation(**d["operation"])
+        HttpOperation(service_name=service.name, **d["operation"])
         if "method" in d["operation"]
-        else Operation(**d["operation"])
+        else Operation(service_name=service.name, **d["operation"])
     )
     return OperationRun(
         id=d["id"], service=service, operation=operation, outcome=_record(Outcome, d["outcome"])

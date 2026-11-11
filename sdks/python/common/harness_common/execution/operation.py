@@ -2,18 +2,33 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Generic, TypeVar
+from urllib.parse import quote
+
+from harness_common.identity import Identity
 
 from harness_common.execution.outcome import Outcome
 from harness_common.system.service import Service
 
 
 @dataclass(frozen=True, slots=True)
-class Operation:
+class Operation(Identity):
     """A named capability exposed by a Service."""
 
     name: str
+    service_name: str = field(kw_only=True)
+
+    def id(self) -> str:
+        """Service-qualified capability identity, independent of transport details."""
+        if not self.service_name or not self.name:
+            raise ValueError("service and operation names must not be empty")
+        return (
+            "operation:"
+            + quote(self.service_name, safe="")
+            + "/"
+            + quote(self.name, safe="")
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,3 +50,7 @@ class OperationRun(Generic[OutcomeT]):
     service: Service
     operation: Operation
     outcome: OutcomeT
+
+    def __post_init__(self) -> None:
+        if self.operation.service_name != self.service.name:
+            raise ValueError("operation owner does not match the execution service")

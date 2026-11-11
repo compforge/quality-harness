@@ -136,7 +136,12 @@ def test_product_is_an_independent_business_identity() -> None:
 
 
 def test_http_operation_extends_operation_with_http_contract() -> None:
-    operation = HttpOperation(name="create_widget", method="POST", path="/v1/widgets")
+    operation = HttpOperation(
+        name="create_widget",
+        service_name="widget-server",
+        method="POST",
+        path="/v1/widgets",
+    )
 
     assert isinstance(operation, Operation)
     assert operation.name == "create_widget"
@@ -198,7 +203,9 @@ def test_experiment_run_retains_execution_operation_and_outcome_hierarchy() -> N
     operation_run = OperationRun(
         id="case-1:0",
         service=service,
-        operation=HttpOperation(name="create", method="POST", path="/widgets"),
+        operation=HttpOperation(
+            name="create", service_name=service.name, method="POST", path="/widgets"
+        ),
         outcome=outcome,
     )
     execution = Execution(id="case-1", operation_runs=[operation_run])
@@ -211,3 +218,27 @@ def test_experiment_run_retains_execution_operation_and_outcome_hierarchy() -> N
 
     assert list(run.operation_runs()) == [operation_run]
     assert list(run.outcomes()) == [outcome]
+
+
+def test_operation_identity_uses_owner_and_name_not_http_contract() -> None:
+    operation = HttpOperation(
+        name="lookup", service_name="memory", method="GET", path="/v1/items"
+    )
+    assert operation.id() == "operation:memory/lookup"
+    assert replace(operation, path="/v2/items", method="POST").id() == operation.id()
+    assert replace(operation, service_name="control").id() != operation.id()
+    service = Service(
+        name="memory",
+        component=Component(Repository(Forge("github"), "org/repo"), "api"),
+        environment=Environment("qa"),
+    )
+    assert replace(service, description="other", workloads=()).id() == service.id()
+    import pytest
+
+    with pytest.raises(ValueError, match="owner"):
+        OperationRun(
+            id="one",
+            service=replace(service, name="control"),
+            operation=operation,
+            outcome=Outcome(),
+        )
