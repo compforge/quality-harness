@@ -27,9 +27,16 @@ request_transport:
 """
 
 
-def test_relay_config_is_pure_and_keeps_logical_service_url(tmp_path):
+@pytest.mark.parametrize("host_transport", [None, "", "local"])
+def test_relay_config_is_pure_and_keeps_logical_service_url(tmp_path, host_transport):
     path = tmp_path / "config.yaml"
-    path.write_text(_CONFIG)
+    config = _CONFIG
+    if host_transport is not None:
+        config = config.replace(
+            "kubeconfig: /tmp/config",
+            f'kubeconfig: /tmp/config, host: {{name: generator, transport: "{host_transport}"}}',
+        )
+    path.write_text(config)
     exp, _ = load_experiment(str(path))
     assert isinstance(exp.request_transport, PodRelayTransport)
     assert exp.request_transport.environment is exp.service.environment
