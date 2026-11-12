@@ -146,3 +146,17 @@ if run.graph is not None:
 
 Graph 是组织证据的静态上下文。HTTP/SSE 业务结果、实际调用次数与因果仍需请求、metric 或 trace
 证明；报告不自动沿图累加延迟、推断瓶颈或把整服务资源消耗归属于某个 Operation。
+
+
+### Workload metrics without a VPN
+
+A `metric` Probe may set `transport: port-forward` when its Service declares
+Kubernetes workloads. The default remains `direct`. Set `prepare_timeout_ms`
+(default 30000) for Workload resolution and tunnel preparation; `timeout_ms`
+bounds the subsequent fleet scrape. Tunnels are shared and closed by the ArmRun's
+ClientManager. Each physical Pod retains its UID identity and its own HTTP pool.
+No business request is sent by preparing or reading a metrics Probe.
+
+Toolbox direct metrics use `harness_toolbox.metric.MetricDataSource`; the separate
+`harness_toolbox.prometheus.PrometheusDataSource` queries a Prometheus-compatible
+HTTP API. Local Prombed history remains owned by the direct metrics client.

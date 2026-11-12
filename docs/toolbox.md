@@ -213,12 +213,12 @@ stderr 有界收集。取消、超时或协议断流会退役当前 worker，后
 单个等待者取消不影响其它等待者；范围退出会取消并等待未完成读取，再释放结果。
 范围应嵌套在 ClientManager 内；消费方不能修改共享结果。DataLoader 只做单轮缓存和去重，
 不自动 batch，也不保证 Kubernetes 与 Prometheus 等不同来源处于同一原子快照。
-`ResourceListClient.list(..., scope=scope)` 和 `PrometheusClient.read(..., scope=scope)`
+`ResourceListClient.list(..., scope=scope)` 和 `MetricClient.read(..., scope=scope)`
 都支持这个可选参数，不传时每次重新访问。
 TypeScript DataLoader 显式声明条目数与序列化结果字节预算；超出容量的读取正常执行但不保留。
 关闭时向 operation 发出 AbortSignal 并等待退出；operation 必须响应信号才能及时取消。
 
-Python `harness-toolbox[prometheus]` 提供 `PrometheusDataSource`，描述 `/metrics` 地址、
+Python `harness-toolbox[prometheus]` 提供 `MetricDataSource`，描述 `/metrics` 地址、
 显式请求头、HTTP 连接池、总抓取超时、响应体及历史容量。客户端通过独立 HTTP 池抓取，
 用内嵌 Prombed 保存短期样本并执行 PromQL；它不是远端 Prometheus HTTP 查询 API 的客户端。
 相同配置在 ClientManager 内复用抓取客户端和历史；同一 DataLoader 内只抓取一次，
@@ -228,13 +228,16 @@ Python `harness-toolbox[prometheus]` 提供 `PrometheusDataSource`，描述 `/me
 perf 每个 ArmRun 持有 ClientManager、每轮观测创建 DataLoader，再把查询结果映射为指标。
 这样下一轮可见新数据，内嵌 Prombed 的新 ArmRun 不会读到上一轮试验的历史。
 
-直接抓取也可声明多个实例目标，或通过 `KubernetesScrapeDiscovery` 复用 Workload 解析发现 Pod。
+直接抓取声明显式 targets，或通过 environment + workloads + port 复用 Workload 解析。
+MetricDataSource 的 transport 选择 direct 或 port-forward；后者复用根执行拥有的 Toolbox 通道。
+准备预算与整轮 HTTP 采集预算分开；diagnostics 保留每个实例的传输方式、阶段、字节数和耗时。
+失败实例不会被视为零；健康实例样本保留，但覆盖不完整时窗口查询拒绝产生全服务结果。
 实例 UID 进入 Prometheus instance 标签，替代 Pod 不与旧计数器拼接；消失实例记录 stale。
 抓取并发、超时与响应预算归同一个客户端，任一实例失败不能表现为成功的服务级聚合。
 `query_window` 只查询已保留的本地历史，历史缺失或采集不完整时显式失败；采集调度和业务 PromQL
-仍归消费方。Pod 指标地址须从执行机可达，Kubernetes API 的 Host 路径不隐式代理 HTTP 抓取。
+仍归消费方。direct 要求 Pod 地址从执行机可达；port-forward 显式复用 Kubernetes 通道，Host 配置不隐式切换 HTTP 路径。
 
-远端 Prometheus 使用 Python `PrometheusQueryDataSource`，通过现有 HTTPClientProvider
+远端 Prometheus 使用 Python `PrometheusDataSource`，通过现有 HTTPClientProvider
 借用独立连接池，复用相同 ClientManager 生命周期。`read(expressions, timestamp=..., scope=...)`
 调用 `/api/v1/query`；单轮 DataLoader 共享求值时间与相同表达式的结果或错误。端点、显式认证、
 超时、响应字节数与序列上限属于 DataSource；超限失败，不请求服务端截断结果。

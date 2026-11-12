@@ -151,7 +151,7 @@ SSH 使用共享资源 worker 的只读视图，Kubernetes 客户端在 Host 上
 并通过 `report.columns` 选择报告列；多副本使用实例目标或 Service.workloads。
 采样、基线、收尾与完整性口径见 [服务指标采集与报告](service-metrics.md)。
 
-`PrometheusQueryProbe` 使用 toolbox `PrometheusQueryDataSource` 查询远端 Prometheus 的
+`PrometheusQueryProbe` 使用 toolbox `PrometheusDataSource` 查询远端 Prometheus 的
 `/api/v1/query`。它适合跨 Pod 聚合，显式设置服务器地址与该服务器的认证，不继承发压请求头。
 求值时间使用本轮观测开始的 Unix 时间，与时序落盘的采样周期对齐，不随前序探针耗时漂移。
 例如在实验中声明服务端滚动平均耗时，并同时保留 perf 自己判定的错误率：

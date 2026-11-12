@@ -2,7 +2,7 @@
 
 from harness_common import Operation
 from harness_toolbox.errors import ErrorKind, PrometheusQueryError
-from harness_toolbox.prometheus_query import PrometheusQueryDataSource, PrometheusQueryOptions
+from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
 
 from perf_harness.observe.base import ProbeContext
 from perf_harness.observe.prometheus import PrometheusQuery, _PrometheusResultProbe
@@ -34,10 +34,10 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
     ) -> None:
         super().__init__(queries=queries, service=service, operation=operation)
         # Explicit remote credentials never inherit the load target's headers.
-        self.data_source = PrometheusQueryDataSource(
+        self.data_source = PrometheusDataSource(
             url=url,
             headers={**(headers or {}), "User-Agent": "quality-harness/perf"},
-            options=PrometheusQueryOptions(
+            options=PrometheusOptions(
                 timeout_ms=timeout_ms,
                 max_response_bytes=max_response_bytes,
                 max_series=max_series,

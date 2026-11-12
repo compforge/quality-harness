@@ -7,8 +7,7 @@ from prombed import PrombedError
 
 from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.kube.environment_resources import KubernetesResourcesClient
-from harness_toolbox.prometheus import PrometheusClient, PrometheusDataSource, PrometheusOptions
-from harness_toolbox.prometheus_discovery import KubernetesScrapeDiscovery
+from harness_toolbox.metric import MetricClient, MetricDataSource, MetricOptions
 
 
 async def test_discovery_reuses_access_tracks_replacement_uid_and_retires_old_gauge(monkeypatch):
@@ -38,9 +37,9 @@ async def test_discovery_reuses_access_tracks_replacement_uid_and_retires_old_ga
         KubernetesEnvironment, "create_client", lambda source, clients: Resources(source, clients)
     )
     monkeypatch.setattr(
-        PrometheusDataSource,
+        MetricDataSource,
         "create_client",
-        lambda source, clients: PrometheusClient(
+        lambda source, clients: MetricClient(
             source,
             clients=clients,
             transport=httpx.MockTransport(
@@ -50,9 +49,7 @@ async def test_discovery_reuses_access_tracks_replacement_uid_and_retires_old_ga
     )
     environment = KubernetesEnvironment("dfx", "/config")
     workload = KubernetesWorkload("chat", {"kind": "labels", "labels": {"app": "chat"}}, "ns")
-    source = PrometheusDataSource(
-        discovery=KubernetesScrapeDiscovery(environment, (workload,), 8080)
-    )
+    source = MetricDataSource(environment=environment, workloads=(workload,), port=8080)
     async with ClientManager() as clients:
         client = await clients.get(source)
         first = (await client.read(["active"]))["active"]["result"]
@@ -80,19 +77,101 @@ async def test_whole_fleet_timeout_joins_inflight_fetches(monkeypatch):
             active -= 1
 
     monkeypatch.setattr(
-        PrometheusDataSource,
+        MetricDataSource,
         "create_client",
-        lambda source, clients: PrometheusClient(
+        lambda source, clients: MetricClient(
             source, clients=clients, transport=httpx.MockTransport(handle)
         ),
     )
     async with ClientManager() as clients:
         client = await clients.get(
-            PrometheusDataSource(
+            MetricDataSource(
                 targets=(ScrapeTarget("http://one"), ScrapeTarget("http://two")),
-                options=PrometheusOptions(timeout_ms=20, connection_pool_maxsize=1),
+                options=MetricOptions(timeout_ms=20, connection_pool_maxsize=1),
             )
         )
         with pytest.raises(PrombedError, match="timeout"):
             await client.read([])
         assert active == 0
+
+
+async def test_workload_port_forward_reuses_uid_route_and_root_closes_it(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from harness_toolbox.http import HTTPClient, HTTPClientProvider
+    from harness_toolbox.kube_portforward import KubernetesPortForwardTransport
+    from harness_toolbox.transport import Endpoint
+
+    events = []
+    generation = 1
+    now = 1_000_000
+    monkeypatch.setattr("prombed.prombed._now_ms", lambda: now)
+
+    class Resources(KubernetesResourcesClient):
+        async def initialize(self):
+            pass
+
+        async def list(self, api_version, kind, *, label_selector=""):
+            return {
+                "items": [
+                    {
+                        "metadata": {"name": "chat", "namespace": "ns", "uid": f"uid-{generation}"},
+                        "status": {"phase": "Running", "podIP": "10.0.0.1"},
+                    }
+                ]
+            }
+
+        async def get(self, api_version, kind, name):
+            return (await self.list(api_version, kind))["items"][0]
+
+    class Route(KubernetesPortForwardTransport):
+        def create_client(self, clients):
+            return self
+
+        async def initialize(self):
+            events.append("route-open")
+
+        async def dispose(self):
+            events.append("route-close")
+
+        async def pod_endpoint(self, name, uid, port):
+            events.append(uid)
+            return Endpoint("10.0.0.1", port)
+
+        @asynccontextmanager
+        async def connect(self, target):
+            yield target
+
+    pools = []
+
+    def pool(provider, clients):
+        pools.append(provider.pool)
+        return HTTPClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, text="active 1\n"))
+        )
+
+    monkeypatch.setattr(
+        KubernetesEnvironment, "create_client", lambda source, clients: Resources(source, clients)
+    )
+    monkeypatch.setattr("harness_toolbox.metric.KubernetesPortForwardTransport", Route)
+    monkeypatch.setattr(HTTPClientProvider, "create_client", pool)
+    source = MetricDataSource(
+        environment=KubernetesEnvironment("qa", "/config"),
+        workloads=(
+            KubernetesWorkload("chat", {"kind": "labels", "labels": {"app": "chat"}}, "ns"),
+        ),
+        port=8001,
+        transport="port-forward",
+    )
+    async with ClientManager() as owner:
+        client = await owner.get(source)
+        await client.read(["active"])
+        now += 1000
+        await client.read(["active"])
+        generation = 2
+        now += 1000
+        await client.read(["active"])
+        assert len(pools) == 2 and pools[0] != pools[1]
+        assert events.count("route-open") == 1
+        assert list(client.diagnostics.values())[0]["transport"] == "port-forward"
+    assert events[-1] == "route-close"

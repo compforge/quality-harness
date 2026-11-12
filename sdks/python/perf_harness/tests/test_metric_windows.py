@@ -7,7 +7,7 @@ import httpx
 import pytest
 import yaml
 from harness_common import ClientManager
-from harness_toolbox.prometheus import PrometheusClient, PrometheusDataSource
+from harness_toolbox.metric import MetricClient, MetricDataSource
 
 from perf_harness import (
     Engine,
@@ -56,11 +56,11 @@ async def test_baseline_precedes_load_final_scrape_includes_cooldown_and_report_
         )
 
     def create(source, owner):
-        client = PrometheusClient(source, clients=owner, transport=httpx.MockTransport(handle))
+        client = MetricClient(source, clients=owner, transport=httpx.MockTransport(handle))
         clients.append(client)
         return client
 
-    monkeypatch.setattr(PrometheusDataSource, "create_client", create)
+    monkeypatch.setattr(MetricDataSource, "create_client", create)
 
     class Slow(Runner):
         async def fire(self, ctx):
@@ -143,7 +143,7 @@ async def test_baseline_precedes_load_final_scrape_includes_cooldown_and_report_
     def no_remote_reads(*args, **kwargs):
         raise AssertionError("offline report accessed a client")
 
-    monkeypatch.setattr(PrometheusDataSource, "create_client", no_remote_reads)
+    monkeypatch.setattr(MetricDataSource, "create_client", no_remote_reads)
     offline = write_report(
         restored.arm_runs, str(tmp_path / "offline"), columns=restored.report_columns
     )
@@ -159,9 +159,9 @@ async def test_window_summary_preserves_missing_on_zero_denominator(monkeypatch)
     now = 1000000
     monkeypatch.setattr("prombed.prombed._now_ms", lambda: now)
     monkeypatch.setattr(
-        PrometheusDataSource,
+        MetricDataSource,
         "create_client",
-        lambda source, owner: PrometheusClient(
+        lambda source, owner: MetricClient(
             source,
             clients=owner,
             transport=httpx.MockTransport(
@@ -247,9 +247,9 @@ async def test_cancel_during_baseline_cancels_scrape_and_runs_cleanup(monkeypatc
             closed.set()
 
     monkeypatch.setattr(
-        PrometheusDataSource,
+        MetricDataSource,
         "create_client",
-        lambda source, clients: PrometheusClient(
+        lambda source, clients: MetricClient(
             source, clients=clients, transport=httpx.MockTransport(handler)
         ),
     )

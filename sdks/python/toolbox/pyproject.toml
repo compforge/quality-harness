@@ -1,6 +1,6 @@
 [project]
 name = "harness-toolbox"
-version = "0.6.2"
+version = "0.7.0"
 description = "Async infrastructure clients and execution-scoped resource sharing"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -8,8 +8,8 @@ dependencies = ["harness-common>=0.7.0,<0.8"]
 
 [project.optional-dependencies]
 llm = ["httpx>=0.27,<1"]
-http = ["httpx>=0.27,<1"]
-prometheus = ["httpx>=0.27,<1", "prombed>=0.1.0"]
+http = ["httpx[socks]>=0.27,<1"]
+prometheus = ["httpx[socks]>=0.27,<1", "prombed>=0.1.0"]
 kube = ["kubernetes-asyncio>=36.1,<37"]
 opensearch = ["httpx>=0.27,<1"]
 mysql = ["sqlalchemy[asyncio]>=2.0,<3", "asyncmy>=0.2.9,<1"]
