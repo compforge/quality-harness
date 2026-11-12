@@ -58,7 +58,7 @@ setup → warmup → hold → cooldown → cleanup
 
 ## 自定义 Probe
 
-框架内置通用的 `prometheus/top/rss/restart/limits/pods`。Prometheus 指标直接在内置
+框架内置通用的 `prometheus_query/top/rss/restart/limits/pods`。Prometheus 指标直接在内置
 probe 上声明 PromQL；其它业务专用来源才需要注册 Probe factory：
 
 ```python
@@ -150,44 +150,10 @@ SSH 使用共享资源 worker 的只读视图，Kubernetes 客户端在 Host 上
 
 ### Prometheus 观测
 
-`MetricProbe` 默认直接抓被测服务的 `/metrics`。配置 `queries` 观察趋势、`summaries` 计算窗口值，
-并通过 `report.columns` 选择报告列；多副本使用实例目标或 Service.workloads。
-采样、基线、收尾与完整性口径见 [服务指标采集与报告](service-metrics.md)。
-
-`PrometheusQueryProbe` 使用 toolbox `PrometheusDataSource` 查询远端 Prometheus 的
-`/api/v1/query`。它适合跨 Pod 聚合，显式设置服务器地址与该服务器的认证，不继承发压请求头。
-求值时间使用本轮观测开始的 Unix 时间，与时序落盘的采样周期对齐，不随前序探针耗时漂移。
-例如在实验中声明服务端滚动平均耗时，并同时保留 perf 自己判定的错误率：
-
-```yaml
-observe:
-  - name: api
-    probes:
-      - name: prometheus_query
-        url: https://prometheus.example/prometheus
-        timeout_ms: 5000
-        connection_pool_maxsize: 4
-        queries:
-          - name: duration_mean_s
-            promql: >-
-              sum(rate(http_request_duration_seconds_sum{job="api"}[1m]))
-              / sum(rate(http_request_duration_seconds_count{job="api"}[1m]))
-            unit: s
-            description: Server duration, rolling 1m mean across api instances
-observe_interval_s: 5
-```
-
-`queries` 复用 scrape Probe 的 `name/promql/kind/unit/description/labels` 契约，支持 scalar 与
-vector 浮点样本。远端结果的 `instance` 是真实维度，保留并要求在 `labels` 中声明；
-仅移除 Prometheus 的 `__name__`。空向量保持缺失，warnings、非有限值、超时及超限进入
-probe error 与 `up=0`，不伪造零值。缺失与采集错误保留为事实，不产生业务验收结论。
-
-采样值沿用时序落盘、阶段统计、HTML 报告与离线重载，不需要修改 Case。数据源不携带压测
-run ID，租户/环境/实例过滤必须写入 PromQL；多 case 混合加压时不能把同一服务聚合值
-当成每个 case 的独立耗时。图表中的滚动均值及其阶段均值也不等于整阶段请求加权均值。
-需要整段平均耗时时，应在对应结束时点用该时间范围的 sum/count 增量比查询。
-Grafana 的 `$__rate_interval` 等变量需替换为实验明确选定的窗口。远端历史可能覆盖其它运行，
-新建 ArmRun 不会清空 Prometheus 的历史。
+服务指标统一通过 `PrometheusQueryProbe` 在压测后查询外部 Prometheus；实验顶层 `prometheus.url`
+配置地址，`headers_env` 引用鉴权环境变量。`queries` 获取历史趋势，`summaries` 计算实际窗口单值。
+自定义 Probe 工厂从 `ProbeConfig.prometheus` 与 `step_s` 复用配置，业务 PromQL 留在项目侧。
+Perf 不自行抓取 `/metrics`；完整配置、取舍理由、补采与证据口径见 [服务指标查询与报告](service-metrics.md)。
 
 ## 独立 Judge
 

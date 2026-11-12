@@ -37,6 +37,8 @@ uv run python -m perf_harness.cli run perf_harness/examples/mock.yaml --out /tmp
 python -m perf_harness.cli run my-exp.yaml
 python -m perf_harness.cli analyze <run_dir>
 python -m perf_harness.cli report <run_dir>
+# 独立补采外部 Prometheus 指标，不发压
+python -m perf_harness.cli collect-metrics <run_dir> --config my-exp.yaml
 ```
 
 每次运行写入 `runs/<experiment>/<run_id>/`：
@@ -53,10 +55,11 @@ python -m perf_harness.cli report <run_dir>
 CLI 打印 HTML 路径，不自动打开。`load_run` 可离线加载事实；更换 Judge 后可用 `reduce_requests`
 重算窗口、Case 与 facet 的请求统计，不会发出新请求。单纯重渲染报告不重判。
 
-资源观测通过 `observe` 配置 Prometheus、Kubernetes 或项目 Probe。停用后观察可设 `cooldown_s`。
+资源观测通过 `observe` 配置 Kubernetes 或项目 Probe。外部 Prometheus 地址由 YAML 顶层
+`prometheus.url` 配置，服务指标在压测后查询，Perf 不自行抓取 `/metrics`。停用后观察可设 `cooldown_s`。
 详细配置与边界见 [负载模型](docs/load-model-redesign.md)、[扩展](docs/extensions.md)、
 [指标模型](docs/metric-model.md)、[结果语义](docs/result-semantics.md)。
 
 Run.status 只描述 completed / stopped / error；请求失败不会直接判定实验失败。
 吞吐按实际完成时间分窗，成功、失败、拒绝、超时和未判定互斥计数。
-下游 API 指标绑定及示例见 [服务指标](docs/service-metrics.md#下游-api-绑定)。
+下游 API 指标绑定及示例见 [服务指标](docs/service-metrics.md#operation-与-graph)。

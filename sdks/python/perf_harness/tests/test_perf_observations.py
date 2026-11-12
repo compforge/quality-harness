@@ -2,9 +2,13 @@
 
 import json
 from pathlib import Path
+from urllib.parse import parse_qs
 
+import httpx
 import pytest
 from harness_common import Operation, OperationRun
+from harness_toolbox.http import HTTPClient, HTTPClientProvider
+from harness_toolbox.prometheus import PrometheusDataSource
 
 from perf_harness import (
     Arm,
@@ -27,7 +31,7 @@ from perf_harness.judge import default_judge
 from perf_harness.metric import Missing
 from perf_harness.metric.reduce import reduce_requests
 from perf_harness.metric.store import MetricStore
-from perf_harness.observe import MetricProbe, PrometheusQuery
+from perf_harness.observe import PrometheusQuery, PrometheusQueryProbe
 from perf_harness.records import RequestRecord
 from perf_harness.report import write_run
 from perf_harness.runio import load_run, write_run_data
@@ -150,6 +154,7 @@ def test_removed_acceptance_configuration_is_rejected(tmp_path, key):
 async def test_downstream_operations_remain_distinct_offline_without_graph(tmp_path, monkeypatch):
     path = tmp_path / "perf.yaml"
     path.write_text("""name: api-observations
+prometheus: {url: http://prom, step_s: 0.01}
 service: {name: chat, base_url: http://chat, environment: {name: qa}}
 runner: {name: mock, base_ms: 1}
 load: {request_rate: 20, max_inflight: 2, warmup: {step_s: 0}, hold_s: 0.06}
@@ -158,18 +163,33 @@ observe:
 - name: search
   base_url: http://search
   probes:
-  - name: metric
+  - name: prometheus_query
     operation: search
     queries: [{name: latency_ms, promql: search_latency, unit: ms}]
-  - name: metric
+  - name: prometheus_query
     operation: index
     queries: [{name: latency_ms, promql: index_latency, unit: ms}]
 """)
 
-    async def sample(self, ctx):
-        return {"latency_ms": 10 if self.operation.name == "search" else 20}
+    def handler(request):
+        form = parse_qs(request.content.decode())
+        value = "10" if form["query"] == ["search_latency"] else "20"
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "resultType": "matrix",
+                    "result": [{"metric": {}, "values": [[float(form["start"][0]), value]]}],
+                },
+            },
+        )
 
-    monkeypatch.setattr(MetricProbe, "sample", sample)
+    monkeypatch.setattr(
+        HTTPClientProvider,
+        "create_client",
+        lambda provider, _: HTTPClient(transport=httpx.MockTransport(handler)),
+    )
     exp, _ = load_experiment(str(path))
     run = await Engine(exp, run_id="facts").run()
     write_run(run, str(tmp_path))
@@ -179,7 +199,7 @@ observe:
     store = MetricStore(restored.arm_runs)
     for name, expected in [("search", 10), ("index", 20)]:
         op = Operation(name, service_name="search")
-        ref = f'metric.latency_ms{{service="search",operation="{op.id()}"}}.mean'
+        ref = f'prometheus_query.latency_ms{{service="search",operation="{op.id()}"}}.mean'
         assert store.query(arm, ref) == expected
         assert op.id() in (directory / "timeseries.csv").read_text()
         assert op.id() in (directory / "report.md").read_text()
@@ -189,13 +209,15 @@ observe:
 
 def test_operation_binding_rejects_wrong_owner_and_query_override():
     with pytest.raises(ValueError, match="owner"):
-        MetricProbe(
+        PrometheusQueryProbe(
+            data_source=PrometheusDataSource("http://prom"),
             service="a",
             operation=Operation("ask", service_name="b"),
             queries=[PrometheusQuery("latency", "x")],
         )
     with pytest.raises(ValueError, match="override"):
-        MetricProbe(
+        PrometheusQueryProbe(
+            data_source=PrometheusDataSource("http://prom"),
             service="a",
             operation=Operation("ask", service_name="a"),
             queries=[PrometheusQuery("latency", "x", labels=("operation",))],

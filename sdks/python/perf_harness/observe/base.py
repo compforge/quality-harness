@@ -5,7 +5,7 @@ Metrics; each Metric becomes a time-series within the ArmRun, and the Probe also
 says how to collapse its own series into the summary row (``summarize``).
 
 "Source" is just *which handle on the ProbeContext a Probe reads*: the http
-client (scrape any /metrics), the client-side ClientStats (load generator's own
+client (query external observations), the client-side ClientStats (load generator's own
 view), or the Service's K8s coordinates (see ``k8s.py``). Decoupling the
 Source from the Service is what lets one run mix client-side + server-side +
 downstream probes and so attribute a slowdown rather than guess.
@@ -123,6 +123,7 @@ class Probe(ABC):
     #: ``summarize`` (which reducers to emit) and the Engine (series units) — a
     #: single table, so the vocabularies can't drift apart.
     families: dict[str, FamilySpec] = {}
+    periodic: bool = True
     needs_observation_window: bool = False
 
     def describe(self) -> list[MetricFamily]:
@@ -214,7 +215,7 @@ async def observe_loop(
     """Sample every probe each ``interval`` until stopped. A failing probe never stops
     observation, but the failure is RECORDED, not swallowed — returns the per-probe
     error census (failures / total ticks / last error) so ``_aggregate`` can flag the
-    affected summaries and the arm_run. A broken /metrics must not render as calm data."""
+    affected summaries and the arm_run. A failed observation must not render as calm data."""
     failures: dict[str, list[str]] = {}
     ticks = 0
     while True:
@@ -225,6 +226,8 @@ async def observe_loop(
             ctx.reads = reads
             try:
                 for probe in probes:
+                    if not probe.periodic:
+                        continue
                     try:
                         reading = await probe.sample(ctx)
                     except Exception as exc:  # noqa: BLE001 — one bad probe must not stop observation

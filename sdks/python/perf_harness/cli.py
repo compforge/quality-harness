@@ -1,4 +1,4 @@
-"""CLI — ``python -m perf_harness.cli run <config.yaml>`` / ``analyze`` / ``report``.
+"""CLI — run, analyze, report and collect-metrics for performance experiments.
 
 ``run``: each run lands under ``<runs_dir>/<run_id>/`` (report + csvs + the model
 layer run.json/requests.jsonl); repeated runs accumulate instead of clobbering.
@@ -34,7 +34,26 @@ def main(argv: list[str] | None = None) -> int:
     an.add_argument("run_dir", help="runs/<experiment>/<run_id>/ (needs run.json)")
     rep = sub.add_parser("report", help="re-render report artifacts from a run dir")
     rep.add_argument("run_dir", help="runs/<experiment>/<run_id>/ (needs run.json)")
+    collect = sub.add_parser(
+        "collect-metrics", help="re-query saved Prometheus windows without sending load"
+    )
+    collect.add_argument("run_dir")
+    collect.add_argument(
+        "--config", help="YAML containing prometheus access; defaults to the run config snapshot"
+    )
     args = ap.parse_args(argv)
+
+    if args.cmd == "collect-metrics":
+        from perf_harness.observe.history import recollect_metrics
+        from perf_harness.report import write_report
+
+        result = asyncio.run(recollect_metrics(args.run_dir, args.config))
+        paths = write_report(result.arm_runs, args.run_dir, columns=result.report_columns)
+        errors = sum(
+            q.error is not None for arm in result.arm_runs for q in arm.prometheus_observations
+        )
+        print(f"metric collection: {errors} failed queries; report: {paths['report']}")
+        return 1 if errors else 0
 
     if args.cmd == "analyze":
         from perf_harness.analysis import analyze_run, render_text
@@ -74,13 +93,33 @@ def main(argv: list[str] | None = None) -> int:
     runs_dir = args.out or runs_dir
 
     engine = Engine(experiment, run_id=args.run_id)
-    run_result = asyncio.run(engine.run())
+    run_result = asyncio.run(engine.run(collect=False))
     paths = write_run(
         run_result,
         runs_dir,
         facet_order=experiment.facet_order,
         config_path=args.config,
     )
+
+    if any(arm.prometheus_observations for arm in run_result.arm_runs):
+        from pathlib import Path
+
+        from perf_harness.observe.history import archive_collection
+        from perf_harness.report import write_report
+        from perf_harness.runio import write_metric_data
+
+        # Query plans and request evidence already exist if collection is interrupted.
+        asyncio.run(engine.collect_metrics(run_result))
+        archive_collection(run_result, Path(paths["run_dir"]))
+        write_metric_data(run_result, paths["run_dir"])
+        paths.update(
+            write_report(
+                run_result.arm_runs,
+                paths["run_dir"],
+                facet_order=experiment.facet_order,
+                columns=run_result.report_columns,
+            )
+        )
 
     print(
         f"experiment {run_result.experiment} · run {run_result.run_id} "

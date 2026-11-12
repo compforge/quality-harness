@@ -350,6 +350,27 @@ class ProbeWindowObservation:
 
 
 @dataclass
+class PrometheusObservation:
+    """One replayable query and its latest result; no connection credentials."""
+
+    probe: str
+    metric: str
+    expression: str
+    source_url: str
+    start_s: float
+    end_s: float
+    step_s: float | None
+    labels: dict[str, str]
+    result_labels: tuple[str, ...] = ()
+    window_id: str | None = None
+    data: dict | None = None
+    warnings: tuple[str, ...] = ()
+    infos: tuple[str, ...] = ()
+    error: str | None = None
+    collected_at_s: float | None = None
+
+
+@dataclass
 class ArmRun(Execution[Outcome]):
     """The recorded execution of one Arm, reduced into addressable Windows."""
 
@@ -373,12 +394,14 @@ class ArmRun(Execution[Outcome]):
     serve those reads."""
     requests: list[RequestRecord] = field(default_factory=list)
     evaluations: dict[str, RequestEvaluation] = field(default_factory=dict)
+    started_at_s: float | None = None
+    prometheus_observations: list[PrometheusObservation] = field(default_factory=list)
     window_observations: list[ProbeWindowObservation] = field(default_factory=list)
     probe_errors: dict[str, ProbeErrors] = field(default_factory=dict)
     """Probes that FAILED at least one sampling tick this arm_run (key = unique probe
     name, e.g. ``metrics.chat``). Their summaries carry the ``probe_error`` caveat,
     absent reads resolve to ``Missing("probe_error")`` (≠ "slice没数据"), and the
-    validity lens flags them — so a broken /metrics never renders as a calm line."""
+    validity lens flags them — so a failed observation never renders as a calm line."""
     phase_errors: list[PhaseError] = field(default_factory=list)
     """Exceptions from ArmRun lifecycle hooks or orchestration, in occurrence order.
 

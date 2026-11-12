@@ -197,3 +197,60 @@ def test_query_source_is_offline_and_validates_endpoint_and_limits():
             PrometheusDataSource(url)
     with pytest.raises(ValueError):
         PrometheusDataSource("http://prom", options=PrometheusOptions(timeout_ms=0))
+
+
+async def test_range_queries_preserve_matrix_annotations_and_share_only_identical_grids(
+    monkeypatch,
+):
+    calls = []
+    payload = {
+        "status": "success",
+        "data": {
+            "resultType": "matrix",
+            "result": [
+                {"metric": {"instance": "a"}, "values": [[10, "1"], [20, "2"]]},
+            ],
+        },
+        "warnings": ["partial"],
+        "infos": ["annotation"],
+    }
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=payload)
+
+    pools = with_transport(monkeypatch, handler)
+    async with ClientManager() as clients, DataLoader() as scope:
+        client = await clients.get(PrometheusDataSource("http://prom/prefix"))
+        first = await client.read_range(["up"], start=10, end=20, step=10, scope=scope)
+        second = await client.read_range(["up"], start=10, end=20, step=10, scope=scope)
+        assert first["up"] is second["up"]
+        await client.read_range(["up"], start=10, end=20, step=5, scope=scope)
+        assert len(calls) == 2
+        assert first["up"].data == payload["data"]
+        assert first["up"].warnings == ("partial",)
+        assert first["up"].infos == ("annotation",)
+        assert calls[0].url.path == "/prefix/api/v1/query_range"
+        form = parse_qs(calls[0].content.decode())
+        assert form["start"] == ["10"] and form["end"] == ["20"] and form["step"] == ["10"]
+        assert "limit" not in form
+    assert pools[0][1].is_closed
+
+
+@pytest.mark.parametrize(
+    "start,end,step", [(2, 1, 1), (1, 2, 0), (float("nan"), 2, 1), (1, float("inf"), 1)]
+)
+async def test_invalid_range_does_not_send_requests(monkeypatch, start, end, step):
+    with_transport(monkeypatch, lambda _: pytest.fail("invalid range sent a request"))
+    async with ClientManager() as clients:
+        client = await clients.get(PrometheusDataSource("http://prom"))
+        with pytest.raises(ValueError, match="range"):
+            await client.read_range(["up"], start=start, end=end, step=step)
+
+
+async def test_range_response_limits_and_protocol_type(monkeypatch):
+    with_transport(monkeypatch, lambda _: httpx.Response(200, json=success()))
+    async with ClientManager() as clients:
+        client = await clients.get(PrometheusDataSource("http://prom"))
+        with pytest.raises(PrometheusQueryError, match="matrix"):
+            await client.read_range(["up"], start=1, end=2, step=1)

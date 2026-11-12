@@ -57,6 +57,7 @@ from perf_harness.observe import (
     Probe,
     ProbeContext,
     ProbeStore,
+    PrometheusQueryProbe,
     observe_loop,
 )
 
@@ -133,6 +134,13 @@ class Experiment(BaseExperiment):
         @rule A partial graph does not imply that unobserved operations have zero traffic.
         @link component://sdks/python/perf_harness/docs/service-metrics.md
         """
+        sources = {}
+        for probe in self.probes:
+            if isinstance(probe, PrometheusQueryProbe):
+                source = probe.data_source
+                if source.url in sources and sources[source.url] != source.client_key:
+                    raise ValueError("Prometheus probes sharing a URL must share access options")
+                sources[source.url] = source.client_key
         if self.graph is None:
             return
         if self.graph.environment != self.service.environment.name:
@@ -189,7 +197,8 @@ class Engine:
         _mix = experiment.mix.resolve((c.id for c in self._cases), default_of=lambda _: 1.0)
         self._weights = [max(_mix[c.id], 0.0) for c in self._cases]
 
-    async def run(self) -> Run:
+    async def run(self, *, collect: bool = True) -> Run:
+        """Execute load; CLI defers collection until request facts are safely persisted."""
         exp = self.experiment
         started = time.strftime("%Y-%m-%dT%H:%M:%S")
         arm_runs: list[ArmRun] = []
@@ -222,7 +231,7 @@ class Engine:
         finally:
             if exp.teardown and exp.deployer is not None:
                 await exp.deployer.teardown()
-        return Run(
+        run = Run(
             run_id=self.run_id,
             experiment=exp.name,
             created_at=started,
@@ -232,6 +241,20 @@ class Engine:
             report_columns=list(exp.report_columns),
             graph=exp.graph,
         )
+
+        if collect:
+            await self.collect_metrics(run)
+        return run
+
+    async def collect_metrics(self, run: Run) -> None:
+        from perf_harness.observe.history import collect_metrics
+
+        sources = {
+            p.data_source.url: p.data_source
+            for p in self.experiment.probes
+            if isinstance(p, PrometheusQueryProbe)
+        }
+        await collect_metrics(run, sources)
 
     async def _run_arm_run(self, service: Service, arm: Arm) -> ArmRun:
         exp = self.experiment
@@ -315,6 +338,7 @@ class Engine:
                 for key, samples in store.items():
                     store[key] = [Sample(sample.t - offset, sample.value) for sample in samples]
                 ctx.t0 = now
+                result.started_at_s = ctx.wall_origin_s + now
                 start_observation.set()
                 await drive(
                     exp.runner,
@@ -397,6 +421,9 @@ class Engine:
     async def _finish_probes(self, ctx: ProbeContext, result: ArmRun) -> None:
         windows = {window.id: window for window in result.windows}
         for probe in self.experiment.probes:
+            if isinstance(probe, PrometheusQueryProbe):
+                result.prometheus_observations.extend(probe.plan(result))
+                continue
             try:
                 observations = await probe.finish(ctx, result.windows)
             except Exception as exc:

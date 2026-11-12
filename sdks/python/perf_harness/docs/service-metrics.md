@@ -1,162 +1,111 @@
-# 服务指标采集与报告
+# 服务指标查询与报告
 
-压测请求结果与服务指标是两种证据。请求错误率来自 perf 的 Judge；服务端耗时来自服务暴露的
-指标。配置 `observe` 后，`MetricProbe` 默认直接抓服务的 `/metrics`，本地 Prombed 保存样本并执行
-PromQL。未配置该 Probe 的实验不访问指标端点；已有远端 Prometheus 时可显式使用
-`prometheus_query`，见 [扩展指南](extensions.md)。
+Perf 记录请求结果，并在压测结束后查询外部 Prometheus 的服务指标。请求错误率来自独立 Judge；
+服务端指标用于解释同一时间窗口内的行为，二者分别保留。
 
-## 配置与读取目标
+Perf 不自行抓取服务 `/metrics`：响应可能较大，周期性全量抓取会增加传输和解析开销，影响
+观测时效与完整性。复用已有 Prometheus 的持续采集和历史存储，让 Perf 只读取所需查询结果。
+Toolbox 的通用 MetricDataSource 仍供其它采集场景使用，不由 Perf 自动启用或作为失败回退。
 
-以下指标名为示例，接入项目应替换为实际指标并补齐业务标签条件。首 token 指标必须真的对应
-首个 token，不能把 start/heartbeat/首 chunk 的耗时当作 TTFT。
+## 实验 YAML
+
+Prometheus 地址配置在实验顶层，所有内置和项目注册的指标 Probe 共用。地址是服务器 base URL，
+可包含反向代理前缀。鉴权只引用环境变量名，不继承压测请求头，也不将凭据写入 Run。
 
 ```yaml
-service:
-  name: api
-  base_url: http://127.0.0.1:8080
-runner: {name: http, method: POST, path: /chat}
-load: {request_rate: 8, max_inflight: 80, hold_s: 60, cooldown_timeout_s: 600}
-observe_interval_s: 5
+service: {name: api, base_url: 'http://api:8080'}
+runner: {name: http, method: POST, path: /generate}
+load: {request_rate: 8, max_inflight: 100, hold_s: 60, cooldown_timeout_s: 600}
+prometheus:
+  url: https://prometheus.example/prometheus
+  # 可选；变量的值是完整请求头值，例如 Bearer <token>。
+  headers_env:
+    Authorization: PERF_PROMETHEUS_AUTHORIZATION
+  timeout_ms: 10000
+  step_s: 15
 observe:
   - name: api
     probes:
-      - name: metric
-        path: /metrics
+      - name: prometheus_query
+        operation: generate
         queries:
-          - name: duration_rolling_s
-            promql: sum(rate(request_duration_seconds_sum[1m])) / sum(rate(request_duration_seconds_count[1m]))
-            unit: s
+          - name: requests_rps
+            promql: sum by (status_code) (rate(api_requests_total{job="api"}[1m]))
+            labels: [status_code]
+            unit: rps
         summaries:
           - name: duration_mean_s
-            promql: sum(increase(request_duration_seconds_sum[$window])) / sum(increase(request_duration_seconds_count[$window]))
-            unit: s
-          - name: ttft_mean_s
-            promql: sum(increase(time_to_first_token_seconds_sum[$window])) / sum(increase(time_to_first_token_seconds_count[$window]))
+            promql: sum(increase(api_duration_seconds_sum{job="api"}[$window])) / (sum(increase(api_duration_seconds_count{job="api"}[$window])) > 0)
             unit: s
 report:
   columns:
-    - {title: 错误率, metric: request.error_rate.value}
+    - {title: 请求错误率, metric: request.error_rate.value}
     - title: 服务端平均耗时（秒）
-      metric: 'metric.duration_mean_s{service="api"}.value'
-      window: {kind: observation}
-    - title: 服务端首 token 平均耗时（秒）
-      metric: 'metric.ttft_mean_s{service="api"}.value'
+      metric: 'prometheus_query.duration_mean_s{service="api",operation="operation:api/generate"}.value'
       window: {kind: observation}
 ```
 
-`queries` 是趋势采样，`summaries` 是收尾时计算的窗口单值；二者名称不得重复。
-每个 summary 的 `window` 默认 `{kind: observation}`，也可选择 measurement、hold 或 cooldown；
-`$window` 仅替换为实际窗口长度，不解析或修改 PromQL 的业务选择条件。结果使用 `.value` 寻址。
-均值应使用先按实例 `increase`、再 `sum` 的比值，不把实例均值或滚动均值再次平均。
-PromQL 的 increase 含边界外推，服务指标是抓取样本上的估计，不等于逐请求原始记录。
+不需要认证时省略 `headers_env`。`timeout_ms` 默认 5000，限制单次查询的连接等待、响应头与
+响应体读取总时长；`max_response_bytes` 默认 16 MiB，`max_series` 默认 20000，
+`connection_pool_maxsize` 默认 8。超限报错，不截断结果。`step_s` 默认 15 秒，是历史查询的
+求值步长，不改变 Prometheus 的抓取间隔；设置更小的 step 不会产生更高分辨率的原始样本。
 
-- 单实例默认使用 `service.base_url + path`；`url` 可指定独立指标地址。
-- 多个固定实例使用 `targets: [{url: ..., instance: ...}, ...]`；instance 是稳定的物理身份。
-- Kubernetes 服务声明 `workloads` 时，默认经 toolbox 的既有 Workload 解析发现 Pod，并逐实例抓取。
-  指标端口取 `service.metrics_port`，Pod UID 区分同 IP 的替代实例；标签 `instance` 保留在历史中。
-  输出实例级序列时需在 query 的 `labels` 声明 instance；服务级结果用 PromQL 显式聚合。
-- Workload 的 Kubernetes API 访问复用 Environment 客户端，包括已有 Host 后端；HTTP 抓取从 perf
-  执行机发出，Pod 地址必须可达。配置完整 `url` 或 `targets` 时使用这些明确目标，不进行发现。
-  不把负载均衡地址后交替出现的实例计数器拼成同一条时序。
-- 隐式服务端点沿用该服务 headers；显式 URL/targets 的认证通过 Probe headers 单独配置，
-  不继承压测请求凭据。采集使用独立连接池，容量由 `connection_pool_maxsize` 约束。
-- `metric_names: [api_requests_total, api_duration_seconds]` 可限制保留的指标族；复用 Prombed 的
-  family 过滤（histogram 名同时包含 `_bucket/_sum/_count`）。默认空列表保留全部。过滤仍下载并
-  解析完整 exposition，字节/时间限制继续生效；它降低历史存储开销，不减少服务端导出成本。
-  同一服务的多个 Operation 应声明同一过滤集合，以共享逐实例采集和历史。
+`queries` 通过 `/api/v1/query_range` 获取趋势，`summaries` 通过 `/api/v1/query` 获取窗口单值。
+summary 的 `window` 默认 observation，也可选 measurement、hold、warmup、ramp 或 cooldown；
+`$window` 替换为实际窗口长度，结果使用 `.value` 寻址。滚动均值的采样平均不等于整窗请求加权均值；
+整窗均值应使用各实例 sum/count 的 increase 聚合比值。指标、路由和环境过滤条件由项目声明。
 
-## 时间与完整性
+旧 `name: metric` 配置已移除并在加载时明确报错。删除 path、targets、metric_names、retention_ms、
+transport 等自抓配置，改用顶层 prometheus 和 `name: prometheus_query`；指标引用前缀也改为
+`prometheus_query`。Python 接入使用 `PrometheusQueryProbe(data_source=..., queries=..., summaries=...)`。
+自定义工厂从 `ProbeConfig.prometheus` 和 `ProbeConfig.step_s` 取得实验配置。
 
-setup 完成后先抓取基线，之后才开始发压计时；warmup/hold/cooldown 持续采集，收尾补最终抓取。
-基线开销不占用计划的 hold 时间。窗口查询在释放本地样本前完成，Runner cleanup 仍负责业务资源。
+## 时间窗口与证据边界
 
-`observation` 是从基线到最终抓取的观测窗口，覆盖 SSE 在 cooldown 中完成的请求；它不是新的负载阶段，
-不改变 measurement/hold 的容量与请求归组语义。相对发压时钟的基线时间可以为负。
-窗口查询保存实际 Unix 毫秒边界、展开后的表达式、来源 key、结果和失败原因，便于解释报告口径。
+每个 ArmRun 保存发压时钟对应的 Unix 时间；请求的相对时钟和 warmup/hold/cooldown 划分保持不变。
+指标查询在所有 Arm 的请求排空和 Runner cleanup 后执行，不占用 hold 时长。observation 窗口
+覆盖实际资源基线至观测结束，包括请求 drain 和额外 cooldown；它不是新的负载阶段。
 
-默认历史保留时间至少覆盖声明的负载时长、请求 cooldown 和额外观测时间；显式设置 `retention_ms`
-则以该配置为准。`max_series`、`max_samples_per_series` 与字节/时间预算仍然生效；历史不足、目标
-抓取失败、非有限结果等保留为缺失/错误，不产生伪造的零值或看似完整的窗口平均值。
-没有请求时 `_count` 没有增量，平均耗时缺失是合法事实。Probe 故障不会默认改变业务判定；采集状态与请求结果独立记录。
+查询开始边界向上取整到毫秒，结束边界取窗口结束之前最后一个毫秒。Prometheus 的 range query
+端点包含两端，PromQL range selector 仍遵守 Prometheus 自身语义。rate/increase 的滚动区间可能
+读取压测开始之前的样本，increase 也有边界外推；结果是服务时间窗口估计，不能当作逐请求精确计数。
 
-共享服务的指标可能包含其它流量；没有 run/case 标签时不能声称只归属本次压测。混合多个 case
-的实验在汇总表中列出 case 集合，服务指标仍属于同一个服务时间窗口。
+压测前应确认 Prometheus 已持续采集目标指标、label 选择正确且历史保留时间足够。配置地址不会
+补回过去未采集的数据。查询结束时数据可能尚未入库，可在稍后独立补采；Perf 不通过重复发压弥补缺口。
+成功的 HTTP 查询并不证明抓取覆盖完整，需要结合 `up`、样本时间和实例维度解释。共享服务可能混有
+其它流量，没有请求归属标签时，不能声称指标全部来自本轮压测。
 
-## 报告与离线重载
+空结果、warnings、非有限值、超时与响应超限保存为查询错误和缺失，不伪造零值。原始结果与
+warnings/infos 留在证据中，服务端 annotations 不丢弃。指标采集错误与请求结果、执行终态独立。
 
-`report.columns` 选择汇总表中的指标列；请求速率、在途上限与 case 信息保留。每列通过统一
-MetricStore 读取其 Window，HTML、Markdown 与 summary.csv 使用同样的列与结果。
-选择器匹配多个同名阶段时，各窗口分别标注 ID，不隐式平均；没有值时显示 missing。
+## 补采和离线报告
 
-窗口结果和列配置保存在 run.json。`perf report` 从已有事实重渲染，不访问服务或 Prometheus，
-不重新发压。趋势图继续使用周期样本，表格单值使用窗口结果，两者各自保留时间口径。
+CLI 在查询前先保存请求事实和查询计划，查询被中断也可独立补采。Python 调用方可通过
+`Engine.run(collect=False)` 先落盘，再调用 `Engine.collect_metrics(run)`；默认仍自动查询。
 
-## 下游 API 绑定
+Run 保存每条查询的表达式、来源地址、Unix 起止时间、step、Operation 绑定、原始返回结果、
+采集时间和错误。历史查询是 schema 7 的附加字段 `executions[].prometheus_observations`，
+发压 Unix 起点为 `started_at_s`。趋势落入 timeseries.csv，汇总进入既有 MetricStore。
 
-一个 metric / prometheus_query Probe 可用 `operation` 声明它观察的 API。
-Service 名来自 observe 条目；Common Operation 负责生成 service-qualified ID，随后作为
-`operation` label 进入 series、窗口统计与报告。配置无须声明拓扑。
-
-```yaml
-observe:
-  - name: search
-    base_url: http://search:9200
-    probes:
-      - name: metric
-        operation: search
-        queries:
-          - name: latency_s
-            promql: sum(rate(api_duration_sum{operation="search"}[1m])) / sum(rate(api_duration_count{operation="search"}[1m]))
-            unit: s
-          - name: requests_rps
-            promql: sum(rate(api_requests_total{operation="search"}[1m]))
-            unit: rps
-report:
-  columns:
-    - title: Search latency
-      metric: 'metric.latency_s{service="search",operation="operation:search/search"}.mean'
+```bash
+python -m perf_harness.cli collect-metrics runs/api/one-run --config experiment.yaml
+python -m perf_harness.cli report runs/api/one-run
 ```
 
-此处 latency_s 是滚动平均延迟的采样值，不能当作客户端端到端延迟或整窗请求加权平均。
-Operation 绑定只提供归属，不自动修改 PromQL 过滤条件，也不证明这些请求全部来自本次压测。
-不同 API 可共享采集源与查询客户端，但各自保存 series；查询结果不得覆盖绑定的 service/operation 标签。
-动态多 API 查询可继续通过 `labels: [operation]` 保留上游标签，此时由项目负责其命名与映射。
+`collect-metrics` 只读取配置的 prometheus 段和 Run 保存的查询，不导入项目 Runner，不发压，不执行
+部署或业务清理。省略 `--config` 时使用 Run 的 config.yaml 快照；鉴权环境变量仍需存在。
+补采必须使用与原查询相同的来源 URL；查询语句和时间窗口以 Run 为准，不被新配置覆盖。
 
+每次补采前后均向 `metric-collections/` 追加不可变查询记录，保留此前的失败证据。新的结果替换
+Run 的指标投影，不能在本次查询失败时继续展示上次成功值。请求记录、Judge 结果和执行错误保持不变。
+`report` 与 `analyze` 只读已保存事实，无远端 I/O；补采失败返回非零退出码，可稍后再次执行。
 
-## 可选的 Operation Graph
+## Operation 与 Graph
 
-实验可声明 `graph: product.graph.json`，路径相对配置文件解析。它使用 Common Graph，环境必须
-与主服务和观测服务一致，主服务必须在图中；带 operation 绑定的 Probe 必须引用图中存在且
-属于对应服务的 Operation。未配置 graph 时，原有独立采集行为保持不变。
+Probe 的 `operation` 引用 Service 内的 Operation 名，由 Common 生成 qualified ID；指标通过
+service/operation labels 与可选 `graph: product.graph.json` 关联。Graph 快照保存在 Run 中，
+离线重载不再依赖项目文件。绑定仅描述归属，不自动注入 PromQL 过滤条件或证明某次实际调用。
 
-Engine 把这个不可变快照带入 Run；`run.json.graph` 保存完整内容，`load_run` 从产物恢复，
-不再读取工作区 graph 文件。Operation 指标的原有 label 与 Graph node ID 相同；例如：
-
-```python
-from harness_common import RelationKind
-from perf_harness import load_run
-from perf_harness.metric.store import MetricStore
-
-run = load_run("runs/chat/one-run")
-store = MetricStore(run.arm_runs)
-if run.graph is not None:
-    nodes = run.graph.reachable_from("operation:chat-server/chat", kind=RelationKind.CALLS)
-    # 按 node.id 选择同一 Window 的 operation label；无系列保持 missing。
-```
-
-Graph 是组织证据的静态上下文。HTTP/SSE 业务结果、实际调用次数与因果仍需请求、metric 或 trace
-证明；报告不自动沿图累加延迟、推断瓶颈或把整服务资源消耗归属于某个 Operation。
-
-
-### Workload metrics without a VPN
-
-A `metric` Probe may set `transport: port-forward` when its Service declares
-Kubernetes workloads. The default remains `direct`. Set `prepare_timeout_ms`
-(default 30000) for Workload resolution and tunnel preparation; `timeout_ms`
-bounds the subsequent fleet scrape. Tunnels are shared and closed by the ArmRun's
-ClientManager. Each physical Pod retains its UID identity and its own HTTP pool.
-No business request is sent by preparing or reading a metrics Probe.
-
-Toolbox direct metrics use `harness_toolbox.metric.MetricDataSource`; the separate
-`harness_toolbox.prometheus.PrometheusDataSource` queries a Prometheus-compatible
-HTTP API. Local Prombed history remains owned by the direct metrics client.
+Query 的 `labels` 必须明确声明返回维度，不能覆盖已绑定的 service/operation。按实例查询时保留
+instance 或 pod，服务级查询由 PromQL 显式聚合。Graph 中没有指标的节点仍是未知，不是零流量；
+报告不沿静态 calls 关系自动累加延迟或断言瓶颈。
