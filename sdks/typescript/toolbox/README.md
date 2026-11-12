@@ -469,3 +469,35 @@ IP literals and Kubernetes `service.namespace` names use the same API. There is 
 implicit execution on the caller host or ICMP requirement. Network failure returns
 evidence; missing Python, execution failure and incomplete output throw. TLS success
 does not establish HTTP authorization, object access or application download policy.
+
+
+## Kubernetes environment and AppArmor admission
+
+`@compforge/harness-toolbox/kubernetes/environment-inspection` exports
+`inspectKubernetesEnvironment(access, instance, {timeoutMs, signal?})`. Pass an existing Common
+`WorkloadInstance`; the caller discovers and selects it (for example with `KubernetesClient.resolveWorkload`).
+The function reads that Pod, verifies its UID, reads `ip_forward` in the selected running container,
+and gets only its associated Node's `operatingSystem`, `osImage`, `kernelVersion` and `architecture`.
+It does not enumerate Nodes, select workloads or infer a host forwarding setting from the Pod namespace.
+
+```ts
+const result = await inspectKubernetesEnvironment({
+  resources: client.clusterResources(),
+  exec: client.exec.bind(client),
+}, selectedInstance, { timeoutMs: 5_000, signal });
+```
+
+Use a cluster-scoped resource view: Pod GET supplies its namespace explicitly; Node GET has none.
+The positive timeout is a shared request budget. Resource/exec adapters must honor the supplied timeout
+and cancellation signal. Node and forwarding reads retain independent successes and sanitized issues;
+`complete`, `partial` and `unavailable` describe coverage, not Service health. Cancellation throws.
+A missing or changed Pod UID prevents exec and Node attribution. A same-name replacement during the later
+name-addressed exec cannot be excluded atomically by Kubernetes; results describe a best-effort sample.
+
+`@compforge/harness-toolbox/kubernetes/apparmor` exports
+`probeAppArmorUnconfinedAdmission(executor, {namespace, serviceAccountName, image}, {timeoutMs, signal?})`.
+The caller supplies an authorized `Executor.run` channel. The function uses an explicit namespace and
+ServiceAccount impersonation with `create --dry-run=server`; it never persists a Pod. Results are
+`allowed`, `denied` (explicit AppArmor Unconfined admission rejection), or `unknown` (including generic
+RBAC, impersonation, timeout and transport failures). Acceptance does not verify Node runtime support.
+The caller owns permissions, Service semantics, scheduling and borrowed client/executor cleanup.
