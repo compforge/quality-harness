@@ -13,37 +13,15 @@ separately launched scripts. Synchronous CLIs call `asyncio.run` at their outer 
 operations remain async and receive the borrower explicitly.
 
 A ClientProvider client_key must cover everything that changes reuse: target, protocol, credentials, configuration,
-and capacity. ConnectionSource accepts a caller-supplied stable key because environment resolution is
-external. Use `client_key` to hash those inputs. Do not key only by a friendly service name when
+and capacity. Use `client_key` to hash those inputs. Do not key only by a friendly service name when
 multiple clusters or credentials can coexist. Configuration and credentials remain fixed for a root
 execution; key new configurations separately.
 
-## Database and HTTP paths
+## Protocol clients
 
-```python
-from dataclasses import asdict
-from harness_toolbox import ClientManager, client_key
-from harness_toolbox.mysql import MySQLDataSource, MySQLTarget
-from harness_toolbox.transport import ConnectionSource, DirectTransport
-
-async def query(clients, settings):
-    target = MySQLTarget(**settings)
-    async def resolve():
-        return target
-    source = MySQLDataSource(ConnectionSource(
-        client_key("db-config", asdict(target)), resolve, (DirectTransport(),)
-    ))
-    database = await clients.get(source)
-    return await database.query("SELECT id FROM message WHERE id = %(id)s", {"id": "example"})
-```
-
-MySQL uses SQLAlchemy with asyncmy for direct and forwarded access. It selects a route while establishing
-a connection, before user SQL. Authentication errors may advance to another declared address, but
-do not retry the same address through another transport. Statement failures never cause replay. PodPythonTransport sends explicit connection settings and query parameters over stdin and uses
-PyMySQL in the Pod; it shares the resolved route/client, but opens a remote DB connection per exec.
-Statements use DBAPI `%(name)s` parameters on both paths. Queries are bounded by concurrency, timeout,
-and row limit. A statement timeout does not prove the server rolled back; callers decide transaction
-and retry semantics.
+Connection construction, address selection and Transport examples live in
+[Connection transports](transport.md). Protocol clients own queries, response decoding and
+operation budgets; their statements and user requests are never automatically replayed.
 
 With `params=None`, SQL is passed literally, so `DATE_FORMAT(ts, '%Y-%m-%d')` needs no escaping.
 Supplying a parameter mapping, including `{}`, enables DBAPI interpolation: bind values with
@@ -166,42 +144,3 @@ The required environment ID comes from the caller's target registry, not the acc
 display name. It remains unchanged when kubeconfig, credentials or access Host change for the same
 target. The registry owns the binding between that ID and the selected access configuration.
 clients.get(environment) selects the native/Host resource backend with the same ClientManager ownership.
-
-PodPythonTransport accepts an explicit `container` for multi-container Pods. It is part of the
-transport identity so clients using different containers cannot share a route. Credentials and
-query parameters continue to travel over stdin.
-
-## Environment-scoped address selection
-
-Generic client ownership and service associations live in `harness_common`; toolbox
-re-exports the lifecycle names. `harness_toolbox.environment.KubernetesEnvironment`
-is the concrete environment provider. The independent packages depend in one direction:
-`quality-harness` → `harness-toolbox` → `harness-common`.
-
-```python
-from harness_toolbox.environment import KubernetesEnvironment
-from harness_toolbox.address import AddressPolicy
-
-addresses = AddressPolicy(
-    environment=KubernetesEnvironment("smoke", "/configs/smoke", "smoke-context"),
-    namespace="runtime",
-    fallback_hosts=("mysql-replica.storage.svc",),
-    timeout_s=10,
-    connection_pool_maxsize=8,
-)
-# Pass addresses=addresses to ConnectionSource for MySQL or OpenSearch.
-```
-
-Resolution is lazy and shares Kubernetes clients through the root ClientManager.
-A Service lookup uses this environment's kubeconfig/context (empty kubeconfig means
-in-cluster identity, never ambient local kubeconfig). A confirmed Service never falls
-back to local short-name DNS. Cross-namespace names use `service.namespace.svc`;
-ordinary domains retain DNS semantics. ClusterIP, ready headless addresses, external
-DNS addresses and explicit alternatives are attempted sequentially and deduplicated.
-
-Only initialization can switch addresses: authentication/database failures advance to
-the next address, network failures may also advance to the next transport for the same
-address. Queries are never replayed. The first successful client is reused; failed
-attempt resources are closed. HTTPS keeps the configured SNI and HTTP Host even when
-connecting by IP. Diagnostics distinguish configured target, candidate origin, mapped
-endpoint and selected transport, without credentials or query data.

@@ -47,8 +47,8 @@ The package does not read product-specific environment variables or registries. 
 `kubernetes-asyncio`; exec, port-forward and log streams require `kubectl` on the host and use the same
 kubeconfig/context. Pod Python access additionally requires Python and the protocol driver in the target Pod.
 
-See [lifecycle and connection examples](docs/lifecycle.md) for shared clients, database routes, TLS,
-log budgets, and cancellation behavior.
+See [client lifecycle](docs/lifecycle.md) for shared clients, log budgets and cancellation, and
+[connection transports](docs/transport.md) for address selection, database routes, HTTP and TLS.
 
 `resolve_workload` resolves explicit Kubernetes workloads by resource, Service selector or labels;
 the caller supplies the stable environment ID for evidence.
@@ -93,47 +93,9 @@ export via `/api/v1/query_range` is not part of this interface.
 
 ## Run-owned connections without a VPN
 
-`KubernetesPortForwardTransport` resolves a selected Service and dynamic Pod IPs
-within one explicit namespace, reusing `PortForwardTransport` to own local tunnels.
-`SocksProxy` exposes any Python `Transport` to an external HTTP client through a
-loopback-only SOCKS5 endpoint. It preserves request URLs, Host/SNI, credentials and
-keep-alive bytes, and never retries business requests or falls back to direct routing.
-
-```python
-from harness_toolbox.kube_portforward import KubernetesPortForwardTransport
-from harness_toolbox.socks import SocksProxy
-from harness_toolbox.transport import KubernetesAccess
-
-async with KubernetesPortForwardTransport(
-    KubernetesAccess("/path/to/kubeconfig", "quality")
-) as transport:
-    target = await transport.service_endpoint("api", 8080)
-    async with SocksProxy(transport) as proxy:
-        child_env_overrides = proxy.environment()
-        # Run a prepared client against target.host:target.port with these overrides.
-        # Await/stop the client before leaving the proxy scope.
-```
-
-Requires `kubectl`, permissions to get/list the selected resources and open their
-port-forwards, and a client that honors SOCKS proxy configuration. Only explicitly
-registered Service endpoints or live non-host-network Pod IPs in the chosen namespace
-are accepted; arbitrary external destinations are rejected. This is not a reverse
-tunnel for workload-to-runner fixture servers or a test of ingress/DNS reachability.
-Tunnel identity includes resource UID; startup verifies that the target was not
-replaced. Port-forward is not a Kubernetes API with atomic UID preconditions.
-
-The default proxy limit is 128 active connections with a 30-second setup deadline;
-client/workload timeouts bound established operations. No product registry, business
-credential source or health endpoint is built in. For a project-owned E2E command,
-`e2e_harness.command.run_command` owns the connection/proxy/process scope and returns
-the command's native exit code; project readiness and fixture cleanup remain separate.
-
-
-### Service traffic through a Pod relay
-
-Use [`PodRelayTransport`](docs/pod-relay.md) to reach a logical Service from an explicitly selected
-existing Workload. It preserves Service backend selection and supports pooled HTTP/SSE through
-`HTTPClientProvider(transport=...)`, without a VPN or changes to the target server.
+Choose [`Transport`](docs/transport.md) for direct access, UID-bound port-forward or a Workload-backed
+Pod relay. `SocksProxy` and `HTTPClientProvider(transport=...)` connect HTTP clients to these paths
+while preserving logical URLs, Host/TLS identity, pooling and streaming.
 
 ### Direct metrics through Workloads and port-forward
 

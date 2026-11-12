@@ -47,4 +47,5 @@ harness_toolbox/
 
 - [使用指南](../README.md)
 - [生命周期与访问边界](../docs/lifecycle.md)
-- [跨语言工具箱](../../../../../docs/toolbox.md)
+- [连接路径与 Transport](../docs/transport.md)
+- [跨语言工具箱](../../../../docs/toolbox.md)

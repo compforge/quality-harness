@@ -49,4 +49,4 @@ Runner 的 setup/fire/deactivate/cleanup 共用所选 client 和通道，直到�
 relay 的资源消耗、Kubernetes API/port-forward 通道和压力机本身都可能影响吞吐；本机测试
 只能证明转发与生命周期正确，实际容量需在声明的 QA 环境验证。
 
-通道机制、默认预算与故障后的租约边界见 [Toolbox Pod relay](../../toolbox/docs/pod-relay.md)。
+通道机制、默认预算与故障后的租约边界见 [Toolbox Pod relay](../../toolbox/docs/transport.md#pod-relay)。

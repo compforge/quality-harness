@@ -29,7 +29,7 @@ class PodRelayTransport:
     requests to one of its Pods. HTTP Host/TLS identity stay with the HTTP client.
     @rule No direct fallback or business replay. A lost control session fails the
     client; create a new execution scope to select another relay Pod.
-    @link component://sdks/python/toolbox/docs/pod-relay.md
+    @link component://sdks/python/toolbox/docs/transport.md#pod-relay
     """
 
     environment: KubernetesEnvironment
