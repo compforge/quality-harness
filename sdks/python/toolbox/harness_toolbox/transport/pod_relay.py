@@ -45,7 +45,11 @@ class PodRelayTransport:
     lease_s: float = 30
 
     def __post_init__(self) -> None:
-        if self.environment.host is not None and self.environment.host.transport != "local":
+        """@rule Empty and explicit local transports follow the common Host contract."""
+        if self.environment.host is not None and self.environment.host.transport not in {
+            "",
+            "local",
+        }:
             raise ValueError("pod-relay requires local Kubernetes access")
         if not self.environment.name.strip():
             raise ValueError("pod-relay requires an environment identity")

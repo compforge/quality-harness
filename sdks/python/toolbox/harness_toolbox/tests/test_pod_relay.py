@@ -7,9 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from harness_common import ClientManager, KubernetesWorkload, KubernetesWorkloadInstance
+from harness_common import ClientManager, Host, KubernetesWorkload, KubernetesWorkloadInstance
 
-from harness_toolbox.environment import KubernetesEnvironment
+from harness_toolbox.environment import KubernetesEnvironment, parse_environment
 from harness_toolbox.http import HTTPClientProvider
 from harness_toolbox.process import process_scope
 from harness_toolbox.transport import Endpoint, pod_relay
@@ -132,6 +132,37 @@ async def sse_backend():
         for task in list(tasks):
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+
+
+@pytest.mark.parametrize("host_transport", ["", "local"])
+async def test_relay_accepts_declared_local_host(relay_platform, host_transport):
+    """@case Both local Host spellings can establish a relay and release its resources."""
+    state = relay_platform
+    environment = parse_environment(
+        {
+            "name": "qa",
+            "kind": "kubernetes",
+            "kubeconfig": "/unused/config",
+            "host": {"name": "generator", "transport": host_transport},
+        }
+    )
+    source = replace(state.source, environment=environment)
+    async with sse_backend() as (port, _), ClientManager() as clients:
+        relay = await clients.get(source)
+        http = await clients.get(HTTPClientProvider(1, 5, transport=source))
+        response = await http.get(f"http://localhost:{port}/stream")
+        assert response.status_code == 200
+        assert response.text == "data: start\n\ndata: end\n\n"
+        assert relay.diagnostics["failure"] is None
+    assert state.opened == 1 and state.processes[0].returncode is not None
+    assert all(not tunnel.alive for tunnel in state.forwards)
+
+
+def test_relay_rejects_ssh_host_before_io(relay_platform):
+    environment = replace(relay_platform.source.environment, host=Host("remote", "ssh", "devbox"))
+    with pytest.raises(ValueError, match="requires local Kubernetes access"):
+        replace(relay_platform.source, environment=environment)
+    assert relay_platform.processes == []
 
 
 async def test_relay_streams_concurrent_http_reuses_target_and_records_identity(relay_platform):
