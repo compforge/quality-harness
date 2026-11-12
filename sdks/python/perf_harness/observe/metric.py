@@ -50,6 +50,7 @@ class MetricProbe(_PrometheusResultProbe):
         max_series: int = 20_000,
         max_samples_per_series: int = 10_000,
         connection_pool_maxsize: int = 8,
+        metric_names: tuple[str, ...] = (),
     ) -> None:
         super().__init__(queries=queries or [], service=service, operation=operation)
         self.summaries = list(summaries or [])
@@ -72,6 +73,7 @@ class MetricProbe(_PrometheusResultProbe):
         self._url, self._path, self._targets = url, path, targets
         self._retention_ms = retention_ms
         self._headers = dict(headers or {})
+        self._metric_names = metric_names
         self._options = PrometheusOptions(
             timeout_ms,
             max_scrape_bytes,
@@ -110,6 +112,7 @@ class MetricProbe(_PrometheusResultProbe):
             return PrometheusDataSource(
                 headers=headers,
                 options=options,
+                metric_names=self._metric_names,
                 discovery=KubernetesScrapeDiscovery(
                     service.environment,
                     tuple(service.workloads),
@@ -119,7 +122,13 @@ class MetricProbe(_PrometheusResultProbe):
                 ),
             )
         url = self._url or (service.base_url.rstrip("/") + self._path if not self._targets else "")
-        return PrometheusDataSource(url, headers=headers, options=options, targets=self._targets)
+        return PrometheusDataSource(
+            url,
+            headers=headers,
+            options=options,
+            targets=self._targets,
+            metric_names=self._metric_names,
+        )
 
     @staticmethod
     def _labels(metric: dict[str, str]) -> dict[str, str]:

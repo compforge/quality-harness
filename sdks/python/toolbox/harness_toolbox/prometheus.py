@@ -40,6 +40,13 @@ class PrometheusDataSource(DataSource["PrometheusClient"]):
 
     targets: tuple[ScrapeTarget, ...] = field(default=(), repr=False)
     discovery: KubernetesScrapeDiscovery | None = None
+    metric_names: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.metric_names, tuple) or any(
+            not isinstance(name, str) or not name for name in self.metric_names
+        ):
+            raise ValueError("metric_names must be a tuple of nonempty metric names")
 
     @property
     def client_key(self) -> str:
@@ -145,6 +152,7 @@ class PrometheusClient:
                 headers={**source.headers, **target.headers},
                 timeout_ms=source.options.timeout_ms,
                 max_body_bytes=source.options.max_scrape_bytes,
+                metric_names=source.metric_names or target.metric_names,
             )
             for target in targets
         ]

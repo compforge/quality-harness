@@ -66,6 +66,11 @@ def parse_metric_probe(name: str, options: dict, service: Service):
                 parse_window(item.get("window"), default="observation"),
             )
         )
+    metric_names = options.pop("metric_names", [])
+    if not isinstance(metric_names, list) or any(
+        not isinstance(name, str) or not name for name in metric_names
+    ):
+        raise ValueError("metric_names must be a list of nonempty metric names")
     targets = options.pop("targets", [])
     parsed_targets = []
     for target in targets:
@@ -101,6 +106,7 @@ def parse_metric_probe(name: str, options: dict, service: Service):
         queries=queries,
         summaries=summaries,
         targets=tuple(parsed_targets),
+        metric_names=tuple(metric_names),
         **options,
     )
 

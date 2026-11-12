@@ -60,6 +60,10 @@ PromQL 的 increase 含边界外推，服务指标是抓取样本上的估计，
   不把负载均衡地址后交替出现的实例计数器拼成同一条时序。
 - 隐式服务端点沿用该服务 headers；显式 URL/targets 的认证通过 Probe headers 单独配置，
   不继承压测请求凭据。采集使用独立连接池，容量由 `connection_pool_maxsize` 约束。
+- `metric_names: [api_requests_total, api_duration_seconds]` 可限制保留的指标族；复用 Prombed 的
+  family 过滤（histogram 名同时包含 `_bucket/_sum/_count`）。默认空列表保留全部。过滤仍下载并
+  解析完整 exposition，字节/时间限制继续生效；它降低历史存储开销，不减少服务端导出成本。
+  同一服务的多个 Operation 应声明同一过滤集合，以共享逐实例采集和历史。
 
 ## 时间与完整性
 
@@ -117,3 +121,28 @@ report:
 Operation 绑定只提供归属，不自动修改 PromQL 过滤条件，也不证明这些请求全部来自本次压测。
 不同 API 可共享采集源与查询客户端，但各自保存 series；查询结果不得覆盖绑定的 service/operation 标签。
 动态多 API 查询可继续通过 `labels: [operation]` 保留上游标签，此时由项目负责其命名与映射。
+
+
+## 可选的 Operation Graph
+
+实验可声明 `graph: product.graph.json`，路径相对配置文件解析。它使用 Common Graph，环境必须
+与主服务和观测服务一致，主服务必须在图中；带 operation 绑定的 Probe 必须引用图中存在且
+属于对应服务的 Operation。未配置 graph 时，原有独立采集行为保持不变。
+
+Engine 把这个不可变快照带入 Run；`run.json.graph` 保存完整内容，`load_run` 从产物恢复，
+不再读取工作区 graph 文件。Operation 指标的原有 label 与 Graph node ID 相同；例如：
+
+```python
+from harness_common import RelationKind
+from perf_harness import load_run
+from perf_harness.metric.store import MetricStore
+
+run = load_run("runs/chat/one-run")
+store = MetricStore(run.arm_runs)
+if run.graph is not None:
+    nodes = run.graph.reachable_from("operation:chat-server/chat", kind=RelationKind.CALLS)
+    # 按 node.id 选择同一 Window 的 operation label；无系列保持 missing。
+```
+
+Graph 是组织证据的静态上下文。HTTP/SSE 业务结果、实际调用次数与因果仍需请求、metric 或 trace
+证明；报告不自动沿图累加延迟、推断瓶颈或把整服务资源消耗归属于某个 Operation。
