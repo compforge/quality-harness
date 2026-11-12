@@ -22,6 +22,7 @@ harness_toolbox/
 ├── metric.py       # MetricDataSource、Workload 目标抓取与本地窗口查询
 ├── prometheus.py   # PrometheusDataSource：远端查询 API、单轮去重与响应预算
 ├── kube_portforward.py # 执行期 Service/Pod IP 隧道复用与资源身份校验
+├── pod_relay.py    # Workload 中的租约 TCP relay，保留逻辑 Service 目标与连接级分流
 ├── socks.py        # 外部客户端接入 Transport 的 loopback SOCKS5 适配
 ├── process.py      # 有界子进程 I/O、退出结果与取消清理
 ├── kube/           # 本地/Host 原生资源后端、worker 通道、状态等待、Event、exec 与隧道

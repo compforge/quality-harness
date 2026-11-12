@@ -2,7 +2,7 @@
 
 ## 项目定位与边界
 
-不测对错（`e2e_harness`）、不测质量（`eval_harness`），测**容量与资源画像**：把服务放到某个资源档下、施加压力、观察它随时间的表现，回答"在 xx 资源 + xx qps 下扛得住多少、cpu/内存/错误率如何"。**自给自足**，不 import 另两个 SDK；k8s 只活在 `deploy.py`（HelmDeployer）+ `observe/k8s.py` 两处。
+不测对错（`e2e_harness`）、不测质量（`eval_harness`），测**容量与资源画像**：把服务放到某个资源档下、施加压力、观察它随时间的表现，回答"在 xx 资源 + xx qps 下扛得住多少、cpu/内存/错误率如何"。**自给自足**，不 import 另两个 SDK；Kubernetes I/O 由 toolbox 承担，部署、观测和请求通道在对应适配层装配。
 
 本目录是 Perf Harness 跨语言契约的 Python 实现，不是其它语言实现的 canonical source。共享名词、
 调度语义、对齐键和落盘字段以 `../../../spec/perf-contract.md` 及对应 schema 为准。
@@ -26,6 +26,7 @@ perf_harness/
 ├── deploy.py       # 可选部署执行器；HelmDeployer 是唯一碰 helm 处
 ├── engine.py       # 纯编排：扫网格，每格 apply → drive → observe → reduce
 ├── drive/          # 怎么压（扩展点①）
+│   ├── connection.py # 显式请求 Transport 配置；Engine 仅借用 HTTP client
 │   ├── load.py     #   LoadPlan：request_rate × max_inflight + 显式 Stage
 │   ├── runner.py #   ArmContext/FireContext + fire 协议适配与注册；judge.py 独立判定
 │   └── scheduler.py#   驱动循环：节奏与在途反馈 + 熔断 + cooldown/cancel → ArmStop
@@ -71,6 +72,8 @@ perf_harness/
 - 无已判定请求的错误率是 Missing；未判定不计为服务错误。缺失与 Probe 故障不能伪装为零。
 - 下游 API 指标通过 Probe.operation 绑定 Common Operation.id()，采集和报告不依赖 Graph。
 - 既有分析透镜与事实记录分层；本层不新增瓶颈、容量或“压不上去”的自动结论。
+
+- 请求通道通过 `Experiment.request_transport` 显式注入加压 HTTP pool，Runner 的 setup/fire/deactivate/cleanup 共用；观测客户端独立。通道初始化失败记录为 setup phase error，不发出业务请求。细节见 [请求通道](docs/request-transport.md)。
 
 ### 产物与运行
 

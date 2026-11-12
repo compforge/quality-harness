@@ -30,6 +30,7 @@ from spec_case.facets import FacetSchema
 from spec_case.model import Case, CaseSet, load_caseset, validate
 
 from perf_harness.deploy import HelmDeployer
+from perf_harness.drive.connection import parse_request_transport
 from perf_harness.drive.load import LoadPlan, Stage, Warmup
 from perf_harness.drive.runner import MockRunner, Runner, build_runner
 from perf_harness.engine import Experiment
@@ -182,6 +183,11 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     experiment = Experiment(
         service=service,
         graph=graph,
+        request_transport=parse_request_transport(
+            raw.get("request_transport"),
+            service,
+            max_inflight=max(ld.peak_inflight for ld in loads),
+        ),
         deployer=deployer,
         runner=runner,
         judge=build_judge(raw.get("judge", "default")),

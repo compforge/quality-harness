@@ -18,10 +18,10 @@ import time
 from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
 
-from harness_common import ClientManager, Deployer, Graph, NodeKind, RelationKind
+from harness_common import ClientManager, ClientProvider, Deployer, Graph, NodeKind, RelationKind
 from harness_common import Experiment as BaseExperiment
 from harness_common.execution.overlay import Overlay
-from harness_toolbox.http import HTTPClientProvider
+from harness_toolbox.http import HTTPClientProvider, HTTPRoute
 from spec_case.model import Case
 
 from perf_harness.drive.load import LoadPlan
@@ -124,6 +124,7 @@ class Experiment(BaseExperiment):
     teardown: bool = False
     report_columns: list[ReportColumn] = field(default_factory=list)
     graph: Graph | None = None
+    request_transport: ClientProvider[HTTPRoute] | None = None
 
     def __post_init__(self) -> None:
         """Validate optional topology without making it a prerequisite for metrics.
@@ -244,13 +245,25 @@ class Engine:
         probe_errors: dict[str, ProbeErrors] = {}
         cooldown_start_s: float | None = None
         cooldown_end_s: float | None = None
-        # trust_env=False: the load generator connects DIRECTLY to the Service's
-        # base_url — never via an ambient HTTP(S)_PROXY/ALL_PROXY from the shell (a
-        # stray proxy env would silently reroute or, if malformed, crash client
-        # creation). A real proxy, if ever needed, should be explicit Service access config.
+        # Ambient proxy settings must not silently change the measurement path.
+        # Only the load pool borrows the explicit request transport; observers own theirs.
         async with ClientManager() as clients:
-            client = await clients.get(HTTPClientProvider(cap, 120, pool="load"))
-            obs_client = await clients.get(HTTPClientProvider(8, 10, pool="observe"))
+            try:
+                client = await clients.get(
+                    HTTPClientProvider(cap, 120, pool="load", transport=exp.request_transport)
+                )
+                obs_client = await clients.get(HTTPClientProvider(8, 10, pool="observe"))
+            except Exception as exc:
+                result = self._aggregate(
+                    arm, result, store, measurement_end_s=0.0, drive_state=DriveState()
+                )
+                result.phase_errors = [_phase_error("setup", exc)]
+                logger.error(
+                    "perf connection setup failed: run=%s error_type=%s",
+                    self.run_id,
+                    type(exc).__name__,
+                )
+                return result
             execution = _ArmExecution(
                 context=ArmContext(
                     service=service,

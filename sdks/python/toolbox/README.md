@@ -129,6 +129,12 @@ credential source or health endpoint is built in. For a project-owned E2E comman
 the command's native exit code; project readiness and fixture cleanup remain separate.
 
 
+### Service traffic through a Pod relay
+
+Use [`PodRelayTransport`](docs/pod-relay.md) to reach a logical Service from an explicitly selected
+existing Workload. It preserves Service backend selection and supports pooled HTTP/SSE through
+`HTTPClientProvider(transport=...)`, without a VPN or changes to the target server.
+
 ### Direct metrics through Workloads and port-forward
 
 ```python
