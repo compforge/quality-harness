@@ -25,6 +25,18 @@ test("published lifecycle and transport entries run in Node without protocol dri
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const result = spawnSync("node", ["--input-type=module", "-e", `
       import assert from 'node:assert/strict';
+      import { inspectKubernetesEnvironment } from '@compforge/harness-toolbox/kubernetes/environment-inspection';
+      import { probeAppArmorUnconfinedAdmission } from '@compforge/harness-toolbox/kubernetes/apparmor';
+      const instance = {platform:'kubernetes',environment:'test',workload:'main',namespace:'demo',pod:'one',uid:'one',container:'main'};
+      const env = await inspectKubernetesEnvironment({resources:{get:async(ref)=>ref.resource === 'pods'
+        ? {metadata:{name:'one',namespace:'demo',uid:'one'},spec:{nodeName:'worker',containers:[{name:'main'}]},
+          status:{phase:'Running',containerStatuses:[{name:'main',state:{running:{}}}]}}
+        : {metadata:{name:'worker'},status:{nodeInfo:{operatingSystem:'linux',osImage:'Test OS',kernelVersion:'6.1',architecture:'arm64'}}}},
+        exec:async()=>({ok:true,stdout:'0\\n'})}, instance, {timeoutMs:1000});
+      assert.equal(env.status,'complete'); assert.equal(env.podIpForward,0); assert.equal(env.nodeInfo.architecture,'arm64');
+      const admission = await probeAppArmorUnconfinedAdmission({run:async()=>({ok:true})},
+        {namespace:'demo',serviceAccountName:'default',image:'runtime:v1'}, {timeoutMs:1000});
+      assert.equal(admission.status,'allowed');
       import { probeConnectivity } from '@compforge/harness-toolbox/network';
       assert.equal(typeof probeConnectivity, 'function');
       import { endpointFromUrl, validateEndpoint } from '@compforge/harness-toolbox/endpoint';
