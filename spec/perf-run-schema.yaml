@@ -26,6 +26,15 @@ properties:
   service:
     type: string
     minLength: 1
+  graph:
+    type: object
+    description: Optional Common Graph snapshot in the run environment; static topology, not observed calls.
+    required: [schema_version, environment, nodes, relations]
+    properties:
+      schema_version: {const: 1}
+      environment: {type: string, minLength: 1}
+      nodes: {type: array}
+      relations: {type: array}
   report_columns:
     type: array
     items:

@@ -8,6 +8,7 @@ filled-in file.
 from __future__ import annotations
 
 import importlib
+import json
 import os
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -18,6 +19,7 @@ from harness_common import (
     Deployer,
     Environment,
     Forge,
+    Graph,
     KubernetesWorkload,
     Repository,
     Workload,
@@ -92,6 +94,12 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     if "base_url" not in subj:
         raise ValueError("service needs a `base_url` (how to reach the service)")
     service = _parse_service(subj)
+    graph = _load_graph(raw.get("graph"), config_path.parent)
+    if graph is not None:
+        for item in raw.get("observe") or []:
+            observed = _parse_service(item, service.environment)
+            if observed.environment.name != graph.environment:
+                raise ValueError("graph and observed services must use the same environment")
     deployer = _parse_deployer(raw.get("deployer"), service)
 
     wl_cfg = raw["runner"]
@@ -173,6 +181,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
                     raise ValueError(f"Metric {name!r} is not produced for window {selected!r}")
     experiment = Experiment(
         service=service,
+        graph=graph,
         deployer=deployer,
         runner=runner,
         judge=build_judge(raw.get("judge", "default")),
@@ -191,6 +200,18 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     )
     # `runs_dir` is the parent holding one dir per experiment (output_dir = legacy alias)
     return experiment, raw.get("runs_dir") or raw.get("output_dir") or "./runs"
+
+
+def _load_graph(value: object, config_dir: Path) -> Graph | None:
+    """Resolve project topology beside the config, before any target access."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError("graph must be a non-empty path string")
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = config_dir / path
+    return Graph.from_dict(json.loads(path.read_text()))
 
 
 def _slug(s: str) -> str:

@@ -18,7 +18,7 @@ import time
 from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
 
-from harness_common import ClientManager, Deployer
+from harness_common import ClientManager, Deployer, Graph, NodeKind, RelationKind
 from harness_common import Experiment as BaseExperiment
 from harness_common.execution.overlay import Overlay
 from harness_toolbox.http import HTTPClientProvider
@@ -123,6 +123,33 @@ class Experiment(BaseExperiment):
     cooldown_s: float = 0.0  # keep probes running after deactivation for scale-down curves
     teardown: bool = False
     report_columns: list[ReportColumn] = field(default_factory=list)
+    graph: Graph | None = None
+
+    def __post_init__(self) -> None:
+        """Validate optional topology without making it a prerequisite for metrics.
+
+        @spec Bound observations reference operation nodes and their declared service owner.
+        @rule A partial graph does not imply that unobserved operations have zero traffic.
+        @link component://sdks/python/perf_harness/docs/service-metrics.md
+        """
+        if self.graph is None:
+            return
+        if self.graph.environment != self.service.environment.name:
+            raise ValueError("graph environment must match the experiment service")
+        root = self.graph.node(self.service.id())
+        if root is None or root.kind != NodeKind.SERVICE:
+            raise ValueError("experiment service is missing from graph")
+        for probe in self.probes:
+            operation = probe.labels.get("operation")
+            if operation is None:
+                continue
+            node = self.graph.node(operation)
+            if node is None or node.kind != NodeKind.OPERATION:
+                raise ValueError(f"observed operation is missing from graph: {operation}")
+            owners = self.graph.relations_from(operation, kind=RelationKind.BELONGS_TO)
+            service = probe.labels.get("service")
+            if not service or owners[0].target != Service(service).id():
+                raise ValueError(f"observed operation owner differs from graph: {operation}")
 
     def resolved_arms(self) -> list[Arm]:
         """Expand the configured resource × load axes into named comparison Arms."""
@@ -202,6 +229,7 @@ class Engine:
             service=exp.service.name,
             environment=exp.service.environment.name,
             report_columns=list(exp.report_columns),
+            graph=exp.graph,
         )
 
     async def _run_arm_run(self, service: Service, arm: Arm) -> ArmRun:

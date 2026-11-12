@@ -219,3 +219,25 @@ async def test_failed_replica_invalidates_window_not_silent_partial_sum(monkeypa
             await client.read(["sum(x)"])
         with pytest.raises(ValueError):
             client.query_window(["sum(x)"], start_ms=0, end_ms=1)
+
+
+async def test_metric_family_filter_bounds_storage_and_keeps_histogram_children(monkeypatch):
+    noise = "".join(f'noise{{id="{n}"}} {n}\n' for n in range(100))
+    text = noise + 'api_total 7\nlatency_sum 4\nlatency_count 2\nlatency_bucket{le="+Inf"} 2\n'
+    with_transport(monkeypatch, lambda request: httpx.Response(200, text=text))
+    source = PrometheusDataSource(
+        "http://metrics",
+        options=PrometheusOptions(max_series=20),
+        metric_names=("api_total", "latency"),
+    )
+    async with ClientManager() as clients:
+        client = await clients.get(source)
+        result = await client.read(["sum(api_total)", "sum(latency_count)", "noise"])
+        assert float(result["sum(api_total)"]["result"][0]["value"][1]) == 7
+        assert float(result["sum(latency_count)"]["result"][0]["value"][1]) == 2
+        assert result["noise"]["result"] == []
+        assert client is not await clients.get(replace(source, metric_names=("api_total",)))
+        # Filtering happens after bounded download; it cannot bypass the byte budget.
+        limited = await clients.get(replace(source, options=PrometheusOptions(max_scrape_bytes=8)))
+        with pytest.raises(PrombedError):
+            await limited.read(["api_total"])

@@ -30,6 +30,7 @@ from harness_common import (
     Component,
     Environment,
     Forge,
+    Graph,
     HttpOperation,
     KubernetesWorkload,
     Operation,
@@ -429,6 +430,8 @@ def write_run_data(run: Run, run_dir: str | Path) -> dict[str, str]:
         "report_columns": [asdict(column) for column in run.report_columns],
         "executions": [_arm_run_json(r) for r in run.arm_runs],
     }
+    if run.graph is not None:
+        doc["graph"] = run.graph.to_dict()
     run_json = out / "run.json"
     run_json.write_text(json.dumps(doc, ensure_ascii=False, indent=2))
 
@@ -518,6 +521,7 @@ def load_run(run_dir: str | Path, *, with_series: bool = True) -> Run:
         executions=arm_runs,
         service=service,
         environment=doc["environment"],
+        graph=Graph.from_dict(doc["graph"]) if "graph" in doc else None,
         report_columns=[
             ReportColumn(item["title"], item["metric"], WindowSelector(**item.get("window", {})))
             for item in doc.get("report_columns", [])

@@ -26,6 +26,7 @@ from harness_common import (
     Execution,
     ExperimentRun,
     Forge,
+    Graph,
     Repository,
 )
 from harness_common import Deployment as BaseDeployment
@@ -437,6 +438,11 @@ class Run(ExperimentRun):
     service: str
     environment: str = ""
     report_columns: list[ReportColumn] = field(default_factory=list)
+    graph: Graph | None = None
+
+    def __post_init__(self) -> None:
+        if self.graph is not None and self.graph.environment != self.environment:
+            raise ValueError("graph environment must match the recorded run")
 
     @property
     def status(self) -> Literal["completed", "stopped", "error"]:
