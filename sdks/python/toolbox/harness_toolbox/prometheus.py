@@ -1,267 +1,236 @@
-"""Bounded Prometheus scraping and PromQL reads through an embedded Prombed."""
+"""Bounded reads from the Prometheus HTTP query API.
+
+The caller owns expressions and observation cadence. This client owns HTTP access,
+response validation and one evaluation timestamp per DataLoader scope.
+"""
 
 from __future__ import annotations
 
 import asyncio
-from collections import deque
+import json
+import math
+import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 import httpx
-from harness_common import DataSource
+from harness_common import ClientProvider, DataSource
 from harness_common.access.client import _ClientBorrower, client_key
-from prombed import Prombed, PrombedError, ScrapeTarget
-from prombed.types import LabelMatcher, Sample
 
 from harness_toolbox.data_loader import DataLoader
-
-if TYPE_CHECKING:
-    from harness_toolbox.prometheus_discovery import KubernetesScrapeDiscovery
+from harness_toolbox.errors import ErrorKind, PrometheusQueryError
+from harness_toolbox.http import HTTPClient, HTTPClientProvider, HTTPRoute
 
 
 @dataclass(frozen=True)
 class PrometheusOptions:
     timeout_ms: int = 5_000
-    max_scrape_bytes: int = 16 * 1024 * 1024
-    retention_ms: int = 10 * 60_000
+    max_response_bytes: int = 16 * 1024 * 1024
     max_series: int = 20_000
-    max_samples_per_series: int = 10_000
     connection_pool_maxsize: int = 8
 
 
 @dataclass(frozen=True)
 class PrometheusDataSource(DataSource["PrometheusClient"]):
-    """Endpoint, explicit credentials and capacity; logical service names stay outside."""
+    """Prometheus server base URL (including any proxy prefix), auth and limits."""
 
-    url: str = ""
+    url: str
     headers: dict[str, str] = field(default_factory=dict, repr=False)
     options: PrometheusOptions = field(default_factory=PrometheusOptions)
-
-    targets: tuple[ScrapeTarget, ...] = field(default=(), repr=False)
-    discovery: KubernetesScrapeDiscovery | None = None
-    metric_names: tuple[str, ...] = ()
+    transport: ClientProvider[HTTPRoute] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.metric_names, tuple) or any(
-            not isinstance(name, str) or not name for name in self.metric_names
+        parts = urlsplit(self.url)
+        if (
+            parts.scheme not in {"http", "https"}
+            or not parts.hostname
+            or parts.username is not None
+            or parts.query
+            or parts.fragment
         ):
-            raise ValueError("metric_names must be a tuple of nonempty metric names")
+            raise ValueError(
+                "Prometheus query URL must be an HTTP(S) base URL; use headers for auth"
+            )
+        if min(asdict(self.options).values()) <= 0:
+            raise ValueError("Prometheus query capacity and timeout limits must be positive")
 
     @property
     def client_key(self) -> str:
-        return client_key("prometheus", asdict(self))
+        return client_key(
+            "prometheus_query",
+            {
+                "url": self.url,
+                "headers": self.headers,
+                "options": asdict(self.options),
+                "transport": self.transport.client_key if self.transport else "direct",
+            },
+        )
 
     def create_client(self, clients: _ClientBorrower) -> PrometheusClient:
-        return PrometheusClient(self, clients=clients)
+        return PrometheusClient(self, clients)
+
+
+@dataclass(frozen=True)
+class PrometheusQueryResult:
+    """Native data plus server annotations; consumers decide whether warnings are acceptable."""
+
+    data: dict
+    warnings: tuple[str, ...] = ()
+    infos: tuple[str, ...] = ()
 
 
 class PrometheusClient:
-    """ClientManager owns the HTTP pool and the lifetime of retained observations.
-
-    Each read scrapes once, then evaluates all expressions at that scrape's time.
-    A DataLoader shares that scrape across readers of the same source. Query
-    responses retain Prometheus labels/types; interpretation belongs to consumers.
-    """
-
-    def __init__(
-        self,
-        source: PrometheusDataSource,
-        *,
-        transport: httpx.AsyncBaseTransport | None = None,
-        clients: _ClientBorrower | None = None,
-    ) -> None:
+    def __init__(self, source: PrometheusDataSource, clients: _ClientBorrower) -> None:
         self._source = source
         self._clients = clients
-        self._slots = asyncio.Semaphore(source.options.connection_pool_maxsize)
-        self._scrapes: deque[int] = deque(maxlen=source.options.max_samples_per_series)
-        self._first_scrape: int | None = None
-        self._instances: set[str] = set()
-        self._failed = False
-        self._transport = transport
-        self._http: httpx.AsyncClient | None = None
-        self._runtime: Prombed | None = None
-        self._lock = asyncio.Lock()
-        self._closed = False
+        self._http: HTTPClient | None = None
 
     async def initialize(self) -> None:
         options = self._source.options
-        if min(asdict(options).values()) <= 0:
-            raise ValueError("Prometheus capacity and timeout limits must be positive")
-        self._http = httpx.AsyncClient(
-            limits=httpx.Limits(
+        self._http = await self._clients.get(
+            HTTPClientProvider(
                 max_connections=options.connection_pool_maxsize,
-                max_keepalive_connections=options.connection_pool_maxsize,
-            ),
-            trust_env=False,
-            transport=self._transport,
-        )
-        self._runtime = Prombed(
-            retention_ms=options.retention_ms,
-            max_series=options.max_series,
-            max_samples_per_series=options.max_samples_per_series,
-            scrape_timeout_ms=options.timeout_ms,
-            max_scrape_bytes=options.max_scrape_bytes,
-            fetch=self._fetch,
-        )
-
-    async def _fetch_body(
-        self, url: str, headers: dict[str, str], timeout: float, max_bytes: int
-    ) -> bytes:
-        if self._http is None or self._closed:
-            raise RuntimeError("Prometheus client is closed")
-        body = bytearray()
-        # HTTPX read timeouts reset per chunk; also bound the whole scrape.
-        async with (
-            asyncio.timeout(timeout),
-            self._http.stream("GET", url, headers=headers, timeout=timeout) as response,
-        ):
-            response.raise_for_status()
-            async for chunk in response.aiter_bytes():
-                body.extend(chunk)
-                if len(body) > max_bytes:
-                    raise ValueError(
-                        f"Prometheus response exceeds configured limit of {max_bytes} bytes"
-                    )
-        return bytes(body)
-
-    async def _fetch(
-        self, url: str, headers: dict[str, str], timeout: float, max_bytes: int
-    ) -> bytes:
-        # The deadline includes waiting for the shared scrape pool.
-        async with asyncio.timeout(timeout), self._slots:
-            return await self._fetch_body(url, headers, timeout, max_bytes)
-
-    async def _targets(self) -> list[ScrapeTarget]:
-        source = self._source
-        modes = bool(source.url) + bool(source.targets) + (source.discovery is not None)
-        if modes != 1:
-            raise ValueError("Configure exactly one metrics URL, target list or workload discovery")
-        if source.discovery is not None:
-            if self._clients is None:
-                raise RuntimeError("Workload discovery requires a ClientManager")
-            targets = await source.discovery.resolve(self._clients)
-        else:
-            targets = list(source.targets) if source.targets else [ScrapeTarget(source.url)]
-        if not targets:
-            raise ValueError("Metrics discovery returned no running targets")
-        return [
-            ScrapeTarget(
-                target.url,
-                labels={"instance": target.url, **target.labels},
-                headers={**source.headers, **target.headers},
-                timeout_ms=source.options.timeout_ms,
-                max_body_bytes=source.options.max_scrape_bytes,
-                metric_names=source.metric_names or target.metric_names,
+                timeout_s=options.timeout_ms / 1000,
+                pool=self._source.client_key,
+                transport=self._source.transport,
             )
-            for target in targets
-        ]
-
-    async def _scrape(self) -> int:
-        try:
-            async with asyncio.timeout(self._source.options.timeout_ms / 1000):
-                return await self._collect()
-        except TimeoutError as exc:
-            self._failed = True
-            raise PrombedError("scrape_failed", "Metric scrape exceeded total timeout") from exc
-        except BaseException:
-            self._failed = True
-            raise
-
-    async def _collect(self) -> int:
-        async with self._lock:
-            if self._runtime is None or self._closed:
-                raise RuntimeError("Prometheus client is closed")
-            tasks: list[asyncio.Task] = []
-            try:
-                targets = await self._targets()
-                instances = {target.labels["instance"] for target in targets}
-                if len(instances) != len(targets):
-                    raise ValueError("Metric targets must have unique instance identities")
-                # Wait for every target, including failed ones. A partial fleet is
-                # not a successful scrape and cancellation cannot leave sibling I/O.
-                tasks = [
-                    asyncio.create_task(self._runtime.scrape_once(target)) for target in targets
-                ]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                failures = [result for result in results if isinstance(result, BaseException)]
-                if failures:
-                    raise failures[0]
-                timestamp = max(result[0].scraped_at for result in results)
-                removed = self._instances - instances
-                if removed:
-                    appender = self._runtime.storage.appender(timestamp)
-                    try:
-                        for instance in removed:
-                            for series in self._runtime.storage.select(
-                                [LabelMatcher("instance", "=", instance)]
-                            ):
-                                appender.append(series.labels, Sample(timestamp, 0.0, stale=True))
-                        appender.commit()
-                    except BaseException:
-                        appender.rollback()
-                        raise
-                self._instances = instances
-                if self._first_scrape is None:
-                    self._first_scrape = min(result[0].scraped_at for result in results)
-                self._scrapes.append(timestamp)
-                return timestamp
-            finally:
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-                if tasks:
-                    await asyncio.gather(*tasks, return_exceptions=True)
-
-    @property
-    def history_bounds(self) -> tuple[int, int]:
-        if self._first_scrape is None or not self._scrapes:
-            raise ValueError("No successful metric scrapes")
-        return self._first_scrape, self._scrapes[-1]
-
-    def query_window(
-        self, expressions: Sequence[str], *, start_ms: int, end_ms: int
-    ) -> dict[str, dict]:
-        """Query retained samples only; never scrape or access the service.
-
-        Reject lost history or incomplete target coverage rather than reporting a
-        seemingly complete window. PromQL owns reset correction and aggregation.
-        """
-        if self._runtime is None or self._closed:
-            raise RuntimeError("Prometheus client is closed")
-        first, last = self.history_bounds
-        options = self._source.options
-        retained = max(first, last - options.retention_ms)
-        if len(self._scrapes) == options.max_samples_per_series:
-            retained = max(retained, self._scrapes[-options.max_samples_per_series])
-        if self._failed:
-            raise ValueError("Window metrics unavailable: one or more target scrapes failed")
-        if start_ms < retained or end_ms > last or start_ms >= end_ms:
-            raise ValueError("Window metrics unavailable: requested history is not retained")
-        return {
-            expression: self._runtime.query(expression, end_ms)["data"]
-            for expression in expressions
-        }
-
-    async def read(
-        self, expressions: Sequence[str], *, scope: DataLoader | None = None
-    ) -> dict[str, dict]:
-        if self._runtime is None or self._closed:
-            raise RuntimeError("Prometheus client is closed")
-        timestamp = (
-            await scope.read((self._source.client_key, "scrape"), self._scrape)
-            if scope is not None
-            else await self._scrape()
         )
-        if self._runtime is None or self._closed:
-            raise RuntimeError("Prometheus client is closed")
-        return {
-            expression: self._runtime.query(expression, timestamp)["data"]
-            for expression in expressions
-        }
 
     async def dispose(self) -> None:
-        self._closed = True
-        if self._http is not None:
-            await self._http.aclose()
-        self._runtime = None
+        # The root ClientManager owns this borrowed pool and closes it after us.
+        self._http = None
+
+    async def read(
+        self,
+        expressions: Sequence[str],
+        *,
+        timestamp: float | None = None,
+        scope: DataLoader | None = None,
+    ) -> dict[str, PrometheusQueryResult]:
+        """Evaluate expressions at one Unix timestamp; share identical reads within a scope.
+
+        No selector or time window is injected into PromQL. A server-side rate
+        window may include observations from before this execution started.
+        """
+        if self._http is None:
+            raise RuntimeError("Prometheus query client is closed")
+        if timestamp is None:
+
+            async def now() -> float:
+                return time.time()
+
+            timestamp = (
+                await scope.read((self._source.client_key, "evaluation_time"), now)
+                if scope is not None
+                else await now()
+            )
+        if not math.isfinite(timestamp):
+            raise ValueError("Prometheus evaluation timestamp must be finite")
+
+        async def query(expression: str) -> PrometheusQueryResult:
+            async def request() -> PrometheusQueryResult:
+                return await self._query(expression, timestamp)
+
+            return (
+                await scope.read((self._source.client_key, "query", expression, timestamp), request)
+                if scope is not None
+                else await request()
+            )
+
+        tasks = {
+            expression: asyncio.create_task(query(expression))
+            for expression in dict.fromkeys(expressions)
+        }
+        try:
+            await asyncio.gather(*tasks.values())
+            return {expression: task.result() for expression, task in tasks.items()}
+        finally:
+            # Preserve the original toolbox error while joining cancelled siblings.
+            for task in tasks.values():
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+    async def _query(self, expression: str, timestamp: float) -> PrometheusQueryResult:
+        if self._http is None:
+            raise RuntimeError("Prometheus query client is closed")
+        options = self._source.options
+        timeout = options.timeout_ms / 1000
+        body = bytearray()
+        try:
+            # POST keeps query text out of URLs. The total deadline includes pool
+            # acquisition and slow streaming; HTTPX's read timeout alone resets per chunk.
+            async with (
+                asyncio.timeout(timeout),
+                self._http.stream(
+                    "POST",
+                    self._source.url.rstrip("/") + "/api/v1/query",
+                    headers=self._source.headers,
+                    data={
+                        "query": expression,
+                        "time": str(timestamp),
+                        "timeout": f"{options.timeout_ms}ms",
+                    },
+                    timeout=timeout,
+                ) as response,
+            ):
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes():
+                    body.extend(chunk)
+                    if len(body) > options.max_response_bytes:
+                        raise PrometheusQueryError(
+                            "Prometheus response exceeds byte limit", kind=ErrorKind.LIMIT_EXCEEDED
+                        )
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            kind = {401: ErrorKind.AUTHENTICATION_FAILED, 403: ErrorKind.PERMISSION_DENIED}.get(
+                status, ErrorKind.OPERATION_FAILED
+            )
+            raise PrometheusQueryError(
+                f"Prometheus query HTTP request failed ({status})", kind=kind, code=status
+            ) from exc
+        except (TimeoutError, httpx.TimeoutException) as exc:
+            raise PrometheusQueryError(
+                "Prometheus query timed out", kind=ErrorKind.TIMEOUT
+            ) from exc
+        except httpx.RequestError as exc:
+            raise PrometheusQueryError(
+                "Prometheus query transport failed", kind=ErrorKind.CONNECTION_FAILED
+            ) from exc
+        try:
+            envelope = json.loads(body)
+            if not isinstance(envelope, dict):
+                raise ValueError
+            if envelope.get("status") == "error":
+                # Server errors can echo query contents or credentials. Expose only
+                # a safe protocol category; never the remote error text.
+                raise PrometheusQueryError(
+                    "Prometheus rejected the query", kind=ErrorKind.OPERATION_FAILED
+                )
+            data = envelope["data"]
+            if (
+                envelope.get("status") != "success"
+                or not isinstance(data, dict)
+                or data.get("resultType") not in {"scalar", "vector", "matrix", "string"}
+                or not isinstance(data.get("result"), list)
+            ):
+                raise ValueError
+            annotations = []
+            for key in ("warnings", "infos"):
+                values = envelope.get(key, [])
+                if not isinstance(values, list) or not all(
+                    isinstance(value, str) for value in values
+                ):
+                    raise ValueError
+                annotations.append(tuple(values))
+        except (ValueError, KeyError, TypeError) as exc:
+            raise PrometheusQueryError(
+                "Invalid Prometheus query response", kind=ErrorKind.INVALID_RESPONSE
+            ) from exc
+        # Do not send API `limit`: truncation would look like a complete observation.
+        if data["resultType"] in {"vector", "matrix"} and len(data["result"]) > options.max_series:
+            raise PrometheusQueryError(
+                "Prometheus response exceeds series limit", kind=ErrorKind.LIMIT_EXCEEDED
+            )
+        return PrometheusQueryResult(data, *annotations)

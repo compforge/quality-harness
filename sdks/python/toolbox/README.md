@@ -53,27 +53,28 @@ log budgets, and cancellation behavior.
 `resolve_workload` resolves explicit Kubernetes workloads by resource, Service selector or labels;
 the caller supplies the stable environment ID for evidence.
 
-Prometheus observations use `PrometheusDataSource` from `harness_toolbox.prometheus`
+Prometheus observations use `MetricDataSource` from `harness_toolbox.metric`
 (extra `prometheus`). Its client scrapes a `/metrics` endpoint and evaluates PromQL locally
 with Prombed; it does not query a remote Prometheus server. `ClientManager` owns the HTTP
 pool and bounded history. Pass a `DataLoader` from `harness_toolbox.data_loader` to
 `client.read(expressions, scope=scope)` to share one scrape across callers in that scope.
 A new scope reads again; query results retain their Prometheus types and labels.
-Declare `targets` for multiple instances or use `KubernetesScrapeDiscovery` with declared workloads.
+Declare `targets` for explicit endpoints, or `environment` + `workloads` + `port` for live instances.
+Set `transport="port-forward"` to reuse UID-bound Toolbox tunnels without a VPN.
 Pod UID keeps replacement counters separate; HTTP targets must be reachable from the scraper.
 `query_window(expressions, start_ms=..., end_ms=...)` queries retained local history without I/O,
 rejecting incomplete scrapes or evicted history.
 
-For a Prometheus server, use `PrometheusQueryDataSource` from
-`harness_toolbox.prometheus_query` (extra `http`). It queries the HTTP API without
+For a Prometheus server, use `PrometheusDataSource` from
+`harness_toolbox.prometheus` (extra `http`). It queries the HTTP API without
 running a scraper or a local TSDB:
 
 ```python
 from harness_common import ClientManager
-from harness_toolbox.prometheus_query import PrometheusQueryDataSource
+from harness_toolbox.prometheus import PrometheusDataSource
 
 async with ClientManager() as clients:
-    source = PrometheusQueryDataSource("https://prometheus.example/prometheus")
+    source = PrometheusDataSource("https://prometheus.example/prometheus")
     client = await clients.get(source)
     results = await client.read(['sum(rate(http_requests_total{job="api"}[1m]))'])
     result = results['sum(rate(http_requests_total{job="api"}[1m]))']
@@ -82,7 +83,7 @@ async with ClientManager() as clients:
 ```
 
 The URL is the server base URL, including any reverse-proxy prefix. Authentication
-uses explicit `headers`. `PrometheusQueryOptions` bounds total query time, response
+uses explicit `headers`. `PrometheusOptions` bounds total query time, response
 bytes, series count and pool size. Queries use one evaluation timestamp per call;
 passing a `DataLoader` shares that timestamp and identical queries across readers
 in one observation cycle. `timestamp=` selects an explicit Unix time in seconds.
@@ -126,3 +127,44 @@ client/workload timeouts bound established operations. No product registry, busi
 credential source or health endpoint is built in. For a project-owned E2E command,
 `e2e_harness.command.run_command` owns the connection/proxy/process scope and returns
 the command's native exit code; project readiness and fixture cleanup remain separate.
+
+
+### Direct metrics through Workloads and port-forward
+
+```python
+from harness_common import ClientManager, KubernetesWorkload
+from harness_toolbox.environment import KubernetesEnvironment
+from harness_toolbox.metric import MetricDataSource, MetricOptions
+
+source = MetricDataSource(
+    environment=KubernetesEnvironment("qa", "/path/to/kubeconfig", context="qa-context"),
+    workloads=(KubernetesWorkload("api", {"kind": "service", "name": "api"}, "quality"),),
+    port=8001,
+    transport="port-forward",
+    metric_names=("api_requests_total", "api_request_duration_seconds"),
+    options=MetricOptions(timeout_ms=15000, prepare_timeout_ms=30000),
+)
+async with ClientManager() as clients:
+    metrics = await clients.get(source)
+    result = await metrics.read(["sum(api_requests_total)"])
+    evidence = metrics.diagnostics
+```
+
+Workload resolution is refreshed each cycle and shared within a DataLoader scope.
+Targets retain Pod UID, independently of IP or forwarded local port. Tunnels are
+prepared before the bounded scrape and reused by UID. HTTP pools keep their original
+Host/TLS identity through the existing SOCKS adapter; neither proxy environment
+variables nor kubevpn are required. Port-forward currently runs on the local
+Kubernetes access host. It does not compress the payload.
+
+`diagnostics` is a detached last-cycle snapshot with instance, transport, stage,
+status, preparation/request/processing time and decoded/wire byte counts when known.
+Failed instances retain their actual stage. Healthy samples remain stored after a
+partial scrape, but reads/window queries reject incomplete fleet coverage.
+Preparation and scrape deadlines are separate; request deadlines include queueing
+and complete response consumption. The caller owns persistence of diagnostics.
+
+API migration: direct scrapes use `MetricDataSource`, `MetricClient`, `MetricOptions`
+from `harness_toolbox.metric`; Prometheus-compatible query APIs use
+`PrometheusDataSource`, `PrometheusClient`, `PrometheusOptions` from
+`harness_toolbox.prometheus`. No old-name aliases are provided.

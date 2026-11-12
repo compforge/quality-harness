@@ -36,7 +36,21 @@ class KubernetesPortForwardTransport:
 
     @property
     def key(self) -> str:
-        return f"kubernetes-port-forward:{self.access!r}"
+        return f"kubernetes-port-forward:{self.access!r}:{self.timeout_s}"
+
+    @property
+    def client_key(self) -> str:
+        return self.key
+
+    def create_client(self, clients) -> KubernetesPortForwardTransport:
+        return KubernetesPortForwardTransport(self.access, timeout_s=self.timeout_s)
+
+    async def initialize(self) -> None:
+        await self.__aenter__()
+
+    async def dispose(self) -> None:
+        if self._active:
+            await self.__aexit__(None, None, None)
 
     async def __aenter__(self) -> KubernetesPortForwardTransport:
         if self._active or self._closed:
@@ -73,6 +87,20 @@ class KubernetesPortForwardTransport:
             raise ValueError("port is not declared by the selected Service")
         self._services[(host, port)] = (resource, service["metadata"]["uid"])
         return Endpoint(host, port)
+
+    async def pod_endpoint(self, name: str, uid: str, port: int) -> Endpoint:
+        """Bind an already resolved WorkloadInstance to its physical Pod incarnation."""
+        if not self._active:
+            raise RuntimeError("transport scope is not active")
+        resource = f"pod/{name}"
+        pod = await self._get(resource)
+        if pod["metadata"]["uid"] != uid or pod["metadata"].get("deletionTimestamp"):
+            raise ConnectionError("selected Pod was replaced or is terminating")
+        address = pod.get("status", {}).get("podIP")
+        if not address or pod["status"].get("phase") != "Running":
+            raise ConnectionError("selected Pod is not running with an address")
+        self._services[(address, port)] = (resource, uid)
+        return Endpoint(address, port)
 
     async def _resource(self, target: Endpoint) -> tuple[str, str]:
         service = self._services.get((target.host, target.port))

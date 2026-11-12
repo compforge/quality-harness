@@ -60,7 +60,7 @@ perf_harness/
 - **Case 资产归 spec-case**：实验用 `caseset: <path>` 引用 canonical CaseSet，`cases:` 只做 case 选择/排序与实验本地 `weight`；`input/facets/judge/binding` 不在 perf 配置里覆盖。无 `caseset` 的内联 cases 仍是轻量实验入口。
 - **证据与复评**：request Outcome、Probe sample 及其 window-aligned 归约事实是 Observation；request、window、run 是不同 Unit grain，必须区分分析粒度，不能混成一张表。raw/model Run facts 构成可离线重算 Dataset，本次选择的 独立 Judge 和 analysis 组件直接定义评估侧重点；换 Judge 或分析透镜不得重新发压，详见 [`../../../docs/evaluation-data.md`](../../../docs/evaluation-data.md#dataset-与反复评估)。
 - **`Runner`**（协议适配）：`ArmContext` 是整个 ArmRun 共用的不可变输入，单次并发请求通过 `FireContext(arm_run, case)` 组合请求 Case；`fire` 只记原始观测，独立 `Judge(outcome)→RequestEvaluation` 才裁决（纯函数，可离线重判）。各服务在自己项目写、`register_runner` 注册；ArmRun 固定按 `setup → warmup → hold → cooldown → cleanup` 运行，其中业务 hook 只有 `setup/deactivate/cleanup`。
-- **`Probe`**（看什么）：`families` 单表声明元数据（FamilySpec：unit/value_kind/description，describe/summarize/Engine 共读），`sample()` 周期采样；Source 不绑 k8s，consumer 可通过 extension module + `register_probe` 扩展。Prometheus 来源由 toolbox 的 `PrometheusDataSource` 访问；`MetricProbe` 只将 PromQL 结果映射为声明的指标与 label 契约。采样周期由 perf 决定，单轮读取共享由 toolbox `DataLoader` 管理，连接和查询历史随 ArmRun 的 `ClientManager` 释放；先完成窗口查询，再清理资源。
+- **`Probe`**（看什么）：`families` 单表声明元数据（FamilySpec：unit/value_kind/description，describe/summarize/Engine 共读），`sample()` 周期采样；Source 不绑 k8s，consumer 可通过 extension module + `register_probe` 扩展。Prometheus 来源由 toolbox 的 `MetricDataSource` 访问；`MetricProbe` 只将 PromQL 结果映射为声明的指标与 label 契约。采样周期由 perf 决定，单轮读取共享由 toolbox `DataLoader` 管理，连接和查询历史随 ArmRun 的 `ClientManager` 释放；先完成窗口查询，再清理资源。
 - **压后观测不污染容量口径**：`cooldown_s` 延长 raw series 以观察回收/缩容；默认汇总只读 measurement Window，`window: {kind: cooldown}` 显式读取 cooldown。
 
 ### 判定与可信度语义（细节见 docs/result-semantics.md + metric-model.md §3.6-3.8）

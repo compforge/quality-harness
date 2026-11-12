@@ -96,6 +96,8 @@ def parse_metric_probe(name: str, options: dict, service: Service):
         "max_series",
         "max_samples_per_series",
         "connection_pool_maxsize",
+        "transport",
+        "prepare_timeout_ms",
     }
     if set(options) - allowed:
         raise ValueError(f"Unknown metric options: {sorted(set(options) - allowed)}")

@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 from harness_common import KubernetesWorkload, Operation
 from harness_toolbox.environment import KubernetesEnvironment
-from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
+from harness_toolbox.metric import MetricDataSource, MetricOptions
 from prombed import ScrapeTarget
 
 from perf_harness.model import ProbeWindowObservation, Service, Window, WindowSelector
@@ -51,6 +51,8 @@ class MetricProbe(_PrometheusResultProbe):
         max_samples_per_series: int = 10_000,
         connection_pool_maxsize: int = 8,
         metric_names: tuple[str, ...] = (),
+        transport: str = "direct",
+        prepare_timeout_ms: int = 30_000,
     ) -> None:
         super().__init__(queries=queries or [], service=service, operation=operation)
         self.summaries = list(summaries or [])
@@ -74,16 +76,20 @@ class MetricProbe(_PrometheusResultProbe):
         self._retention_ms = retention_ms
         self._headers = dict(headers or {})
         self._metric_names = metric_names
-        self._options = PrometheusOptions(
+        if transport not in {"direct", "port-forward"}:
+            raise ValueError("Unknown metric transport")
+        self._transport = transport
+        self._options = MetricOptions(
             timeout_ms,
             max_scrape_bytes,
             10 * 60_000 if retention_ms is None else retention_ms,
             max_series,
             max_samples_per_series,
             connection_pool_maxsize,
+            prepare_timeout_ms,
         )
 
-    def _source(self, ctx: ProbeContext) -> PrometheusDataSource:
+    def _source(self, ctx: ProbeContext) -> MetricDataSource:
         service = self._target_service or ctx.service
         implicit = not self._url and not self._targets
         options = self._options
@@ -99,8 +105,6 @@ class MetricProbe(_PrometheusResultProbe):
         headers = {**(service.headers if implicit else {}), **self._headers}
         headers["User-Agent"] = "quality-harness/perf"
         if implicit and service.workloads:
-            from harness_toolbox.prometheus_discovery import KubernetesScrapeDiscovery
-
             if not isinstance(service.environment, KubernetesEnvironment) or any(
                 not isinstance(workload, KubernetesWorkload) for workload in service.workloads
             ):
@@ -109,25 +113,25 @@ class MetricProbe(_PrometheusResultProbe):
                 )
             address = urlsplit(service.base_url)
             port = service.metrics_port
-            return PrometheusDataSource(
+            return MetricDataSource(
                 headers=headers,
                 options=options,
                 metric_names=self._metric_names,
-                discovery=KubernetesScrapeDiscovery(
-                    service.environment,
-                    tuple(service.workloads),
-                    port,
-                    self._path,
-                    address.scheme or "http",
-                ),
+                environment=service.environment,
+                workloads=tuple(service.workloads),
+                port=port,
+                path=self._path,
+                scheme=address.scheme or "http",
+                transport=self._transport,
             )
         url = self._url or (service.base_url.rstrip("/") + self._path if not self._targets else "")
-        return PrometheusDataSource(
+        return MetricDataSource(
             url,
             headers=headers,
             options=options,
             targets=self._targets,
             metric_names=self._metric_names,
+            transport=self._transport,
         )
 
     @staticmethod

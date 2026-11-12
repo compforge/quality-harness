@@ -7,7 +7,7 @@ import httpx
 import pytest
 import yaml
 from harness_common import Graph, Node, NodeKind, Relation, RelationKind
-from harness_toolbox.prometheus import PrometheusClient, PrometheusDataSource
+from harness_toolbox.metric import MetricClient, MetricDataSource
 
 from perf_harness import Engine, load_experiment, load_run, write_run
 from perf_harness.metric.store import MetricStore
@@ -73,9 +73,9 @@ async def test_graph_and_operation_metrics_survive_offline_reload(monkeypatch, t
     experiment = load(tmp_path, raw)
     (tmp_path / "product.graph.json").unlink()
     monkeypatch.setattr(
-        PrometheusDataSource,
+        MetricDataSource,
         "create_client",
-        lambda source, clients: PrometheusClient(
+        lambda source, clients: MetricClient(
             source,
             clients=clients,
             transport=httpx.MockTransport(lambda request: httpx.Response(200, text="active 3\n")),
@@ -100,7 +100,7 @@ async def test_graph_and_operation_metrics_survive_offline_reload(monkeypatch, t
     def offline(*args, **kwargs):
         raise AssertionError("report must not collect")
 
-    monkeypatch.setattr(PrometheusDataSource, "create_client", offline)
+    monkeypatch.setattr(MetricDataSource, "create_client", offline)
     write_report(restored.arm_runs, str(tmp_path / "report"))
 
 

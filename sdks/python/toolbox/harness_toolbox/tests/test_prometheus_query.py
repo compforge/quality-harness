@@ -9,7 +9,7 @@ from harness_common.access.client import ClientManager
 from harness_toolbox.data_loader import DataLoader
 from harness_toolbox.errors import ErrorKind, PrometheusQueryError
 from harness_toolbox.http import HTTPClient, HTTPClientProvider
-from harness_toolbox.prometheus_query import PrometheusQueryDataSource, PrometheusQueryOptions
+from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
 
 
 def success(value="3", **annotations):
@@ -45,10 +45,10 @@ async def test_scoped_queries_share_timestamp_requests_and_owned_pool(monkeypatc
         return httpx.Response(200, json=success(infos=["annotation"]))
 
     pools = with_transport(monkeypatch, handler)
-    source = PrometheusQueryDataSource(
+    source = PrometheusDataSource(
         "https://prom.example/proxy/",
         headers={"Authorization": "secret"},
-        options=PrometheusQueryOptions(connection_pool_maxsize=3),
+        options=PrometheusOptions(connection_pool_maxsize=3),
     )
     assert "secret" not in repr(source)
     async with ClientManager() as clients:
@@ -105,7 +105,7 @@ async def test_errors_are_typed_safe_and_shared_within_scope(monkeypatch, respon
 
     with_transport(monkeypatch, handler)
     async with ClientManager() as clients:
-        client = await clients.get(PrometheusQueryDataSource("http://prom"))
+        client = await clients.get(PrometheusDataSource("http://prom"))
         async with DataLoader() as scope:
             for _ in range(2):
                 with pytest.raises(PrometheusQueryError) as error:
@@ -118,9 +118,9 @@ async def test_errors_are_typed_safe_and_shared_within_scope(monkeypatch, respon
 @pytest.mark.parametrize(
     "options,payload",
     [
-        (PrometheusQueryOptions(max_response_bytes=5), success()),
+        (PrometheusOptions(max_response_bytes=5), success()),
         (
-            PrometheusQueryOptions(max_series=1),
+            PrometheusOptions(max_series=1),
             {
                 "status": "success",
                 "data": {
@@ -136,7 +136,7 @@ async def test_errors_are_typed_safe_and_shared_within_scope(monkeypatch, respon
 async def test_response_limits_fail_instead_of_truncating(monkeypatch, options, payload):
     with_transport(monkeypatch, lambda _: httpx.Response(200, json=payload))
     async with ClientManager() as clients:
-        client = await clients.get(PrometheusQueryDataSource("http://prom", options=options))
+        client = await clients.get(PrometheusDataSource("http://prom", options=options))
         with pytest.raises(PrometheusQueryError) as error:
             await client.read(["up"])
         assert error.value.kind == ErrorKind.LIMIT_EXCEEDED
@@ -151,7 +151,7 @@ async def test_empty_vectors_and_annotations_are_preserved(monkeypatch):
     }
     with_transport(monkeypatch, lambda _: httpx.Response(200, json=payload))
     async with ClientManager() as clients:
-        client = await clients.get(PrometheusQueryDataSource("http://prom"))
+        client = await clients.get(PrometheusDataSource("http://prom"))
         result = (await client.read(["up"]))["up"]
         assert result.data["result"] == []
         assert result.warnings == ("partial response",) and result.infos == ("advisory",)
@@ -173,8 +173,8 @@ async def test_deadline_and_scope_cancellation_close_streams(monkeypatch, cancel
     pools = with_transport(monkeypatch, lambda _: httpx.Response(200, stream=SlowStream()))
     async with ClientManager() as clients:
         client = await clients.get(
-            PrometheusQueryDataSource(
-                "http://prom", options=PrometheusQueryOptions(timeout_ms=5000 if cancel else 20)
+            PrometheusDataSource(
+                "http://prom", options=PrometheusOptions(timeout_ms=5000 if cancel else 20)
             )
         )
         if cancel:
@@ -194,6 +194,6 @@ async def test_deadline_and_scope_cancellation_close_streams(monkeypatch, cancel
 def test_query_source_is_offline_and_validates_endpoint_and_limits():
     for url in ("", "ftp://prom", "http://user:secret@prom", "http://prom?query=x"):
         with pytest.raises(ValueError):
-            PrometheusQueryDataSource(url)
+            PrometheusDataSource(url)
     with pytest.raises(ValueError):
-        PrometheusQueryDataSource("http://prom", options=PrometheusQueryOptions(timeout_ms=0))
+        PrometheusDataSource("http://prom", options=PrometheusOptions(timeout_ms=0))

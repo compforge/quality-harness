@@ -11,7 +11,7 @@ import httpx
 import pytest
 from harness_common.access.client import ClientManager
 from harness_toolbox.environment import KubernetesEnvironment
-from harness_toolbox.prometheus import PrometheusClient, PrometheusDataSource
+from harness_toolbox.metric import MetricClient, MetricDataSource
 
 from perf_harness.config import load_experiment
 from perf_harness.drive.load import LoadPlan, Warmup
@@ -39,9 +39,9 @@ from perf_harness.observe import (
 @asynccontextmanager
 async def _prometheus_context(monkeypatch, handler, service):
     monkeypatch.setattr(
-        PrometheusDataSource,
+        MetricDataSource,
         "create_client",
-        lambda source, _: PrometheusClient(source, transport=httpx.MockTransport(handler)),
+        lambda source, _: MetricClient(source, transport=httpx.MockTransport(handler)),
     )
     async with ClientManager() as clients:
         yield ProbeContext(service=service, client=None, t0=1.0, clients=clients)
