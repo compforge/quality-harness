@@ -1,13 +1,13 @@
 """Topology is validated context; persisted observations stay usable without its source file."""
 
 import json
-from itertools import count
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
 import yaml
 from harness_common import Graph, Node, NodeKind, Relation, RelationKind
-from harness_toolbox.metric import MetricClient, MetricDataSource
+from harness_toolbox.http import HTTPClient, HTTPClientProvider
 
 from perf_harness import Engine, load_experiment, load_run, write_run
 from perf_harness.metric.store import MetricStore
@@ -36,6 +36,7 @@ def graph():
 def config(tmp_path):
     (tmp_path / "product.graph.json").write_text(json.dumps(graph().to_dict()))
     return {
+        "prometheus": {"url": "http://prom", "step_s": 0.001},
         "graph": "product.graph.json",
         "service": {"name": "chat", "base_url": "http://chat", "environment": {"name": "qa"}},
         "runner": {"name": "mock"},
@@ -47,7 +48,7 @@ def config(tmp_path):
                 "base_url": "http://search",
                 "probes": [
                     {
-                        "name": "metric",
+                        "name": "prometheus_query",
                         "operation": "retrieve",
                         "queries": [
                             {"name": "inflight", "promql": "sum(active)"},
@@ -66,20 +67,28 @@ def load(tmp_path, raw):
 
 
 async def test_graph_and_operation_metrics_survive_offline_reload(monkeypatch, tmp_path):
-    clock = count(1_000_000, 10)
-    monkeypatch.setattr("prombed.prombed._now_ms", lambda: next(clock))
     raw = config(tmp_path)
     monkeypatch.chdir(tmp_path.parent)  # graph path belongs to config, not cwd
     experiment = load(tmp_path, raw)
     (tmp_path / "product.graph.json").unlink()
+
+    def handler(request):
+        start = float(parse_qs(request.content.decode())["start"][0])
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "resultType": "matrix",
+                    "result": [{"metric": {}, "values": [[start, "3"]]}],
+                },
+            },
+        )
+
     monkeypatch.setattr(
-        MetricDataSource,
+        HTTPClientProvider,
         "create_client",
-        lambda source, clients: MetricClient(
-            source,
-            clients=clients,
-            transport=httpx.MockTransport(lambda request: httpx.Response(200, text="active 3\n")),
-        ),
+        lambda provider, _: HTTPClient(transport=httpx.MockTransport(handler)),
     )
     run = await Engine(experiment, run_id="graph-test").run()
     assert run.status == "completed"
@@ -90,7 +99,7 @@ async def test_graph_and_operation_metrics_survive_offline_reload(monkeypatch, t
         restored.graph.reachable_from("operation:chat/chat", kind=RelationKind.CALLS)[-1].id
         == "operation:search/retrieve"
     )
-    key = 'metric.inflight{service="search",operation="operation:search/retrieve"}.mean'
+    key = 'prometheus_query.inflight{service="search",operation="operation:search/retrieve"}.mean'
     arm = restored.arm_runs[0]
     assert MetricStore(restored.arm_runs).query(arm, key) == 3
     assert {key: value.samples for key, value in restored.arm_runs[0].series.items()} == {
@@ -100,7 +109,7 @@ async def test_graph_and_operation_metrics_survive_offline_reload(monkeypatch, t
     def offline(*args, **kwargs):
         raise AssertionError("report must not collect")
 
-    monkeypatch.setattr(MetricDataSource, "create_client", offline)
+    monkeypatch.setattr(HTTPClientProvider, "create_client", offline)
     write_report(restored.arm_runs, str(tmp_path / "report"))
 
 

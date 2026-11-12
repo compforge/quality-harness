@@ -1,11 +1,12 @@
 """PromQL query descriptors and numeric/label projection shared by metric probes."""
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from harness_common import Operation
 
 from perf_harness.metric import MetricValueKind, series_id
+from perf_harness.model import WindowSelector
 from perf_harness.observe.base import FamilySpec, Probe
 
 
@@ -13,8 +14,8 @@ from perf_harness.observe.base import FamilySpec, Probe
 class PrometheusQuery:
     """One bounded PromQL result exported into perf's resource metric table.
 
-    ``labels`` is the declared output contract and cardinality boundary. Prombed may
-    evaluate arbitrary supported PromQL, but every returned vector must carry exactly
+    ``labels`` is the declared output contract and cardinality boundary. Prometheus may
+    evaluate PromQL, but every returned vector must carry exactly
     these labels after target-owned labels are removed.
     """
 
@@ -24,6 +25,18 @@ class PrometheusQuery:
     unit: str = ""
     description: str = ""
     labels: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class WindowQuery:
+    """Instant query at a window end; $window expands to its millisecond duration."""
+
+    name: str
+    promql: str
+    unit: str = ""
+    description: str = ""
+    labels: tuple[str, ...] = ()
+    window: WindowSelector = field(default_factory=lambda: WindowSelector(kind="observation"))
 
 
 class _PrometheusResultProbe(Probe):
@@ -71,56 +84,43 @@ class _PrometheusResultProbe(Probe):
             labels["operation"] = self.operation.id()
         return labels
 
-    @staticmethod
-    def _labels(metric: dict[str, str]) -> dict[str, str]:
-        return {key: value for key, value in metric.items() if key != "__name__"}
-
-    @staticmethod
-    def _number(value: object) -> float:
-        try:
-            number = float(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Prometheus query returned an invalid numeric sample") from exc
-        if not math.isfinite(number):
-            raise ValueError("Prometheus query returned a non-finite sample")
-        return number
-
-    def _record_vector(
-        self,
-        out: dict[str, float],
-        query: PrometheusQuery,
-        rows: list[dict],
-    ) -> None:
-        expected = set(query.labels)
-        for row in rows:
-            labels = self._labels(row["metric"])
-            if set(labels) != expected:
-                raise ValueError(
-                    f"Prometheus query {query.name!r} declared labels {sorted(expected)!r} "
-                    f"but returned {sorted(labels)!r}"
-                )
-            key = series_id(query.name, labels)
-            if key in out:
-                raise ValueError(f"Prometheus query {query.name!r} returned duplicate series {key}")
-            out[key] = self._number(row["value"][1])
-
     def _project(
         self, results: dict[str, dict], queries: list[PrometheusQuery] | None = None
     ) -> dict[str, float]:
-        out: dict[str, float] = {}
+        out = {}
         for query in self.queries if queries is None else queries:
-            data = results[query.promql]
-            if data["resultType"] == "scalar":
-                if query.labels:
-                    raise ValueError(
-                        f"Prometheus scalar query {query.name!r} cannot declare output labels"
-                    )
-                out[query.name] = self._number(data["result"][1])
-                continue
-            if data["resultType"] != "vector":
-                raise ValueError(
-                    f"Prometheus query {query.name!r} returned unsupported "
-                    f"result type {data['resultType']!r}"
-                )
-            self._record_vector(out, query, data["result"])
+            out.update(project_result(query, results[query.promql]))
         return out
+
+
+def project_result(query: PrometheusQuery, data: dict) -> dict[str, float]:
+    """Project a numeric instant result without losing or collapsing declared labels."""
+    out = {}
+    if data["resultType"] == "scalar":
+        if query.labels:
+            raise ValueError("Prometheus scalar query cannot declare output labels")
+        out[query.name] = finite_number(data["result"][1])
+        return out
+    if data["resultType"] != "vector":
+        raise ValueError("Prometheus instant query must return scalar or vector")
+    for row in data["result"]:
+        labels = {key: value for key, value in row["metric"].items() if key != "__name__"}
+        if set(labels) != set(query.labels):
+            raise ValueError(
+                f"Prometheus query {query.name!r} returned undeclared or missing labels"
+            )
+        key = series_id(query.name, labels)
+        if key in out:
+            raise ValueError(f"Prometheus query {query.name!r} returned duplicate series")
+        out[key] = finite_number(row["value"][1])
+    return out
+
+
+def finite_number(value: object) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Prometheus query returned an invalid numeric sample") from exc
+    if not math.isfinite(number):
+        raise ValueError("Prometheus query returned a non-finite sample")
+    return number

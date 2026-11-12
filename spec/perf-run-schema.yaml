@@ -475,6 +475,41 @@ $defs:
         minItems: 1
         items:
           $ref: '#/$defs/window'
+      started_at_s:
+        type: [number, 'null']
+        description: Unix seconds corresponding to the ArmRun relative load origin.
+      prometheus_observations:
+        type: array
+        items:
+          type: object
+          required: [probe, metric, expression, source_url, start_s, end_s, step_s, labels]
+          properties:
+            probe: {type: string}
+            metric: {type: string}
+            expression: {type: string}
+            source_url: {type: string}
+            start_s: {type: number}
+            end_s: {type: number}
+            step_s:
+              type: [number, 'null']
+              description: Positive range-query step in seconds; null selects an instant query at end_s.
+            labels:
+              type: object
+              additionalProperties: {type: string}
+            result_labels:
+              type: array
+              items: {type: string}
+            window_id: {type: [string, 'null']}
+            data: {type: [object, 'null']}
+            warnings:
+              type: array
+              items: {type: string}
+            infos:
+              type: array
+              items: {type: string}
+            error: {type: [string, 'null']}
+            collected_at_s: {type: [number, 'null']}
+          additionalProperties: true
       window_observations:
         type: array
         items:

@@ -117,9 +117,10 @@ Reader 必须恢复原始关联与完整请求记录；支持当前 schema 的�
 
 ## 可选服务指标报告
 
-Python 的 MetricProbe 默认直接抓服务指标，显式配置 PrometheusQueryProbe 才访问远端查询 API。
-可选 window_observations 保存窗口查询事实；report_columns 保存指标与窗口的报告选择。
-两者是 schema 7 的附加字段。直接采集查询与汇总列目前由 Python 实现，报告重渲染只读取已保存结果。
+Python 的 PrometheusQueryProbe 在压测后查询外部 Prometheus，不自行抓取服务 /metrics。
+可选 started_at_s 保存 ArmRun 发压 Unix 起点，prometheus_observations 保存可重放查询及原始结果；
+report_columns 保存指标与窗口选择。这些是 schema 7 的附加字段，目前由 Python 实现。
+历史查询可独立补采，不重发负载、不改写请求结果；报告重渲染只读取已保存结果。
 
 可选 `graph` 保存实际使用的 Common Graph 完整快照（含 environment/source/version），不保存本机路径。
 这是 schema 7 的附加字段，目前 Python 支持加载配置、绑定校验与离线重载。

@@ -58,6 +58,7 @@ from perf_harness.model import (
     PhaseError,
     ProbeErrors,
     ProbeWindowObservation,
+    PrometheusObservation,
     ReportColumn,
     RequestStats,
     ResourceProfile,
@@ -318,6 +319,8 @@ def _arm_run_json(r: ArmRun) -> dict:
             }
             for window in r.windows
         ],
+        "started_at_s": r.started_at_s,
+        "prometheus_observations": [asdict(item) for item in r.prometheus_observations],
         "window_observations": [asdict(item) for item in r.window_observations],
         "probe_errors": {
             name: {"failures": e.failures, "ticks": e.ticks, "last": e.last}
@@ -334,6 +337,18 @@ def _arm_run_from(d: dict, service: str) -> ArmRun:
     arm = d["arm"]
     return ArmRun(
         id=d["id"],
+        started_at_s=d.get("started_at_s"),
+        prometheus_observations=[
+            PrometheusObservation(
+                **{
+                    **item,
+                    "result_labels": tuple(item.get("result_labels", [])),
+                    "warnings": tuple(item.get("warnings", [])),
+                    "infos": tuple(item.get("infos", [])),
+                }
+            )
+            for item in d.get("prometheus_observations", [])
+        ],
         window_observations=[
             ProbeWindowObservation(**item) for item in d.get("window_observations", [])
         ],
@@ -408,6 +423,26 @@ def write_timeseries_data(arm_runs: list[ArmRun], run_dir: str | Path) -> Path:
                     # formatting belongs to report views, never persisted facts.
                     writer.writerow([arm_run.label(), key, repr(sample.t), repr(sample.value)])
     return path
+
+
+def write_metric_data(run: Run, run_dir: str | Path) -> None:
+    """Update collected metrics without rewriting request/Judge evidence or unknown fields."""
+    out = Path(run_dir)
+    path = out / "run.json"
+    doc = json.loads(path.read_text())
+    by_id = {arm.id: arm for arm in run.arm_runs}
+    for saved in doc["executions"]:
+        arm = by_id[saved["id"]]
+        updated = _arm_run_json(arm)
+        for key in ("prometheus_observations", "probe_errors"):
+            saved[key] = updated[key]
+        windows = {window["id"]: window for window in updated["windows"]}
+        for window in saved["windows"]:
+            window["probe_metrics"] = windows[window["id"]]["probe_metrics"]
+    write_timeseries_data(run.arm_runs, out)
+    temporary = out / "run.metrics.tmp"
+    temporary.write_text(json.dumps(doc, ensure_ascii=False, indent=2))
+    temporary.replace(path)
 
 
 def write_run_data(run: Run, run_dir: str | Path) -> dict[str, str]:

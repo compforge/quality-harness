@@ -26,6 +26,7 @@ from harness_common import (
 )
 from harness_common.execution.overlay import Overlay
 from harness_toolbox.environment import KubernetesEnvironment, parse_environment
+from harness_toolbox.prometheus import PrometheusDataSource
 from spec_case.facets import FacetSchema
 from spec_case.model import Case, CaseSet, load_caseset, validate
 
@@ -51,16 +52,20 @@ from perf_harness.model import (
 from perf_harness.observe import (
     ClientProbe,
     KubectlTopProbe,
-    MetricProbe,
     PerWorkerRSSProbe,
     PodCountProbe,
     Probe,
     ProbeConfig,
+    PrometheusQueryProbe,
     ResourceLimitsProbe,
     RestartProbe,
     build_probe,
 )
-from perf_harness.observe.configuration import parse_columns, parse_metric_probe
+from perf_harness.observe.configuration import (
+    parse_columns,
+    parse_prometheus,
+    parse_prometheus_probe,
+)
 
 _PROBES = {
     "client": ClientProbe,
@@ -116,16 +121,17 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     if "probes" in raw:
         raise ValueError(
             "`probes:` was removed — `client` is always recorded; put "
-            "metric/top/rss/restart/limits/pods or registered custom probes under "
+            "prometheus_query/top/rss/restart/limits/pods or registered custom probes under "
             "`observe:` (the Service is the entry that omits `k8s`)"
         )
     # client (load-gen's own inflight/sent) is harness-intrinsic → always on, not a
     # config knob. observe: is the one place for per-service resource observation.
-    probes = [ClientProbe(), *_parse_observe(raw.get("observe"), service)]
+    source, step_s = parse_prometheus(raw.get("prometheus"))
+    probes = [ClientProbe(), *_parse_observe(raw.get("observe"), service, source, step_s)]
     if "derived" in raw:
         raise ValueError(
             "`derived:` was removed — express server-side ratios and rates directly "
-            "as PromQL queries on the `metric` probe"
+            "as PromQL queries on the `prometheus_query` probe"
         )
     caseset = _load_caseset_ref(raw.get("caseset"), config_path.parent)
     cases = _parse_cases(raw, caseset)
@@ -163,7 +169,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
         report_columns, registry, declared_facets, declared_services, loads, per_pod_only
     )
     for probe in probes:
-        if not isinstance(probe, MetricProbe):
+        if not isinstance(probe, PrometheusQueryProbe):
             continue
         for summary in probe.summaries:
             for selection in report_columns:
@@ -402,11 +408,16 @@ def _parse_service(c: dict, fallback_environment: Environment | None = None) -> 
     )
 
 
-def _parse_observe(items: list[dict] | None, root_service: Service) -> list[Probe]:
+def _parse_observe(
+    items: list[dict] | None,
+    root_service: Service,
+    source: PrometheusDataSource | None = None,
+    step_s: float = 15,
+) -> list[Probe]:
     """``observe:`` → the ONE place for per-service resource observation, self +
     downstream in one shape. Each item is a Service plus ``probes``; omitted
     Environment fields inherit from the experiment Service.
-    ``metric`` embeds Prombed and requires declarative PromQL queries. Resource
+    ``prometheus_query`` reads external history after load. Resource
     families remain service-labeled, so reports can compare the same signal across
     observed services."""
     out: list[Probe] = []
@@ -421,7 +432,7 @@ def _parse_observe(items: list[dict] | None, root_service: Service) -> list[Prob
         if obsolete:
             raise ValueError(
                 f"observe[{service_name}]: removed keys {sorted(obsolete)!r}; configure "
-                "PromQL under `probes: [{name: metric, queries: [...]}]`"
+                "PromQL under `probes: [{name: prometheus_query, queries: [...]}]`"
             )
         # per_pod: top/limits emit one {pod}-labeled series per pod instead of the
         # service-level sum (per-pod usage vs its OWN request/limit on one chart)
@@ -451,8 +462,12 @@ def _parse_observe(items: list[dict] | None, root_service: Service) -> list[Prob
                         f"got {sorted(options)}"
                     )
                 out.append(_PROBES[pname](target_service=service, per_pod=per_pod))
-            elif pname in {"metric", "prometheus_query"}:
-                out.append(parse_metric_probe(pname, options, service))
+            elif pname == "metric":
+                raise ValueError(
+                    "Perf no longer scrapes /metrics; configure prometheus.url and prometheus_query"
+                )
+            elif pname == "prometheus_query":
+                out.append(parse_prometheus_probe(options, service, source, step_s))
             elif pname == "client":
                 raise ValueError(
                     f"observe[{service_name}].probes: 'client' is intrinsic and cannot "
@@ -464,6 +479,8 @@ def _parse_observe(items: list[dict] | None, root_service: Service) -> list[Prob
                         pname,
                         ProbeConfig(
                             service=service,
+                            prometheus=source,
+                            step_s=step_s,
                             per_pod=per_pod,
                             options=options,
                         ),
@@ -583,6 +600,8 @@ def _static_registry(probes: list[Probe], runner: Runner) -> dict[str, MetricFam
     }
     for p in probes:
         reg.update({d.name: d for d in p.describe()})  # by family (dedup across services)
+        if not p.periodic:
+            continue
         # the Engine synthesizes `<family>.up` health series per probe — declare it
         # so reports can show observation availability.
         reg[f"{p.family}.up"] = MetricFamily(

@@ -88,8 +88,11 @@ bytes, series count and pool size. Queries use one evaluation timestamp per call
 passing a `DataLoader` shares that timestamp and identical queries across readers
 in one observation cycle. `timestamp=` selects an explicit Unix time in seconds.
 Remote history is server-owned: a range selector such as `[1m]` can include data
-from before the experiment. This client uses `/api/v1/query`; historical range
-export via `/api/v1/query_range` is not part of this interface.
+from before the experiment. Use `read(expressions, timestamp=...)` for `/api/v1/query`, or
+`read_range(expressions, start=..., end=..., step=...)` for `/api/v1/query_range`.
+Range times are Unix seconds, both endpoints are inclusive, and step must be positive.
+Range reads preserve matrices and annotations and share identical grids within a DataLoader.
+The same response/time/series bounds apply; exceeding a limit fails instead of truncating.
 
 ## Run-owned connections without a VPN
 

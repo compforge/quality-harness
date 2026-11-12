@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
+from harness_toolbox.prometheus import PrometheusDataSource
+
 from perf_harness.model import Service
 from perf_harness.observe.base import Probe
 
@@ -21,6 +23,8 @@ class ProbeConfig:
     service: Service
     per_pod: bool = False
     options: Mapping[str, object] = field(default_factory=dict)
+    prometheus: PrometheusDataSource | None = None
+    step_s: float = 15
 
 
 ProbeFactory = Callable[[ProbeConfig], Probe]

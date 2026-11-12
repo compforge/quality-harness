@@ -1,9 +1,11 @@
+from harness_toolbox.prometheus import PrometheusDataSource
+
 from perf_harness.model import Sample, Service
 from perf_harness.observe import (
     KubectlTopProbe,
-    MetricProbe,
     ProbeContext,
     PrometheusQuery,
+    PrometheusQueryProbe,
     RestartProbe,
 )
 
@@ -34,11 +36,12 @@ def test_default_summarize_gauge_mean_and_peak():
 
 
 def test_prometheus_summarize_counter_rate():
-    probe = MetricProbe(
+    probe = PrometheusQueryProbe(
+        data_source=PrometheusDataSource("http://prom"),
         queries=[
             PrometheusQuery("req_total", "sum(requests_total)", "counter"),
             PrometheusQuery("in_progress", "sum(requests_in_progress)"),
-        ]
+        ],
     )
     out = probe.summarize(
         {
@@ -60,7 +63,10 @@ def test_counter_reset_uses_positive_delta_accumulation():
     # a scraped service counter resets when its pod restarts: last-first would be
     # NEGATIVE and poison rate summaries. increase = Σ max(0, Δ) (Prometheus increase()
     # semantics) and the summary carries the counter_reset caveat.
-    probe = MetricProbe(queries=[PrometheusQuery("req_total", "sum(requests_total)", "counter")])
+    probe = PrometheusQueryProbe(
+        data_source=PrometheusDataSource("http://prom"),
+        queries=[PrometheusQuery("req_total", "sum(requests_total)", "counter")],
+    )
     out = probe.summarize(
         {"req_total": [Sample(0, 100), Sample(5, 160), Sample(10, 20), Sample(20, 80)]}
     )

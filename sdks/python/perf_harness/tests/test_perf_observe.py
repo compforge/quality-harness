@@ -4,14 +4,10 @@ client (load-gen inflight/sent) is always recorded; there is no top-level probes
 """
 
 import json
-from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
-import httpx
 import pytest
-from harness_common.access.client import ClientManager
 from harness_toolbox.environment import KubernetesEnvironment
-from harness_toolbox.metric import MetricClient, MetricDataSource
 
 from perf_harness.config import load_experiment
 from perf_harness.drive.load import LoadPlan, Warmup
@@ -27,28 +23,14 @@ from perf_harness.model import Outcome, ResourceProfile, Service
 from perf_harness.observe import (
     FamilySpec,
     KubectlTopProbe,
-    MetricProbe,
     PodCountProbe,
     Probe,
-    ProbeContext,
-    PrometheusQuery,
+    PrometheusQueryProbe,
     ResourceLimitsProbe,
 )
 
-
-@asynccontextmanager
-async def _prometheus_context(monkeypatch, handler, service):
-    monkeypatch.setattr(
-        MetricDataSource,
-        "create_client",
-        lambda source, _: MetricClient(source, transport=httpx.MockTransport(handler)),
-    )
-    async with ClientManager() as clients:
-        yield ProbeContext(service=service, client=None, t0=1.0, clients=clients)
-
-
 _SERVICE = (
-    "name: x\n"
+    "name: x\nprometheus: {url: http://prom}\n"
     "service: { name: chat, base_url: 'http://x:8001',\n"
     "  environment: { name: dev, kubeconfig: ~/.kube/d },\n"
     "  namespace: ns, k8s_selector: app=chat }\n"
@@ -93,7 +75,7 @@ def test_observe_is_the_one_shape_with_client_always_on(tmp_path):
         _SERVICE + "observe:\n"
         "  - name: chat\n"
         "    probes:\n"
-        "      - { name: metric, queries: [ { name: requests, promql: 'sum(requests_total)', kind: counter } ] }\n"
+        "      - { name: prometheus_query, queries: [ { name: requests, promql: 'sum(requests_total)', kind: counter } ] }\n"
         "      - top\n"
         "      - rss\n"
         "  - { name: planit, namespace: ns, k8s_selector: app=planit, probes: [top, rss] }\n"
@@ -104,7 +86,7 @@ def test_observe_is_the_one_shape_with_client_always_on(tmp_path):
     # client is auto-prepended (always on); every observed probe is service-prefixed
     assert [p.name for p in exp.probes] == [
         "client",
-        "metric.chat",
+        "prometheus_query.chat",
         "top.chat",
         "rss.chat",
         "top.planit",
@@ -135,12 +117,12 @@ def test_observe_downstream_metric_uses_service_workload(tmp_path):
         "    workloads:\n"
         "      - {name: planit, namespace: ns, location: {kind: labels, labels: {app: planit}}}\n"
         "    probes:\n"
-        "      - {name: metric, queries: [{name: requests, promql: 'sum(requests_total)'}]}\n"
+        "      - {name: prometheus_query, queries: [{name: requests, promql: 'sum(requests_total)'}]}\n"
     )
     exp, _ = load_experiment(str(cfg))
-    probe = next(p for p in exp.probes if isinstance(p, MetricProbe))
-    assert probe._target_service.name == "planit"
-    assert probe._target_service.workloads
+    probe = next(p for p in exp.probes if isinstance(p, PrometheusQueryProbe))
+    assert probe.labels == {"service": "planit"}
+    assert probe.data_source.url == "http://prom"
 
 
 def test_observe_rejects_unknown_probe(tmp_path):
@@ -397,114 +379,20 @@ def test_observe_per_pod_wires_the_flag(tmp_path):
     assert by_name["top.chat"]._per_pod and by_name["limits.chat"]._per_pod
 
 
-async def test_prometheus_probe_evaluates_promql_queries(monkeypatch):
-    import httpx
-
-    text = (
-        'gen_ai_server_request_duration_seconds_count{gen_ai_operation_name="chat",error_type=""} 90\n'
-        'gen_ai_server_request_duration_seconds_count{gen_ai_operation_name="chat",error_type="X"} 10\n'
-    )
-
-    def handler(_request):
-        return httpx.Response(200, content=text.encode())
-
-    p = MetricProbe(
-        service="chat",
-        queries=[
-            PrometheusQuery(
-                name="sse_streams",
-                promql="sum(gen_ai_server_request_duration_seconds_count)",
-                value_kind="counter",
-                unit="count",
-            ),
-            PrometheusQuery(
-                name="sse_errors",
-                promql=(
-                    'sum(gen_ai_server_request_duration_seconds_count{error_type!="",'
-                    'error_type!="client_disconnect"})'
-                ),
-                value_kind="counter",
-                unit="count",
-            ),
-        ],
-    )
-    assert {d.name for d in p.describe()} == {
-        "metric.sse_streams",
-        "metric.sse_errors",
-    }
-    async with _prometheus_context(monkeypatch, handler, Service(base_url="http://x")) as ctx:
-        out = await p.sample(ctx)
-    assert out == {"sse_streams": 100.0, "sse_errors": 10.0}
-
-
-async def test_prometheus_probe_emits_declared_vector_labels(monkeypatch):
-    import httpx
-
-    text = (
-        'control_requests_total{path="/v1/bots",method="POST",status_code="200"} 30\n'
-        'control_requests_total{path="/v1/bots",method="GET",status_code="200"} 12\n'
-        'control_requests_total{path="/v1/configs",method="POST",status_code="200"} 7\n'
-    )
-
-    def handler(_request):
-        return httpx.Response(200, content=text.encode())
-
-    p = MetricProbe(
-        service="control",
-        queries=[
-            PrometheusQuery(
-                name="ctl_requests",
-                promql="sum by (path) (control_requests_total)",
-                value_kind="counter",
-                labels=("path",),
-            ),
-        ],
-    )
-    async with _prometheus_context(monkeypatch, handler, Service(base_url="http://x")) as ctx:
-        out = await p.sample(ctx)
-    assert out == {
-        'ctl_requests{path="/v1/bots"}': 42.0,
-        'ctl_requests{path="/v1/configs"}': 7.0,
-    }
-
-
-async def test_downstream_prometheus_does_not_receive_subject_credentials(monkeypatch):
-    import httpx
-
-    seen_headers = None
-
-    def handler(request):
-        nonlocal seen_headers
-        seen_headers = request.headers
-        return httpx.Response(200, content=b"requests_total 1\n")
-
-    probe = MetricProbe(
-        service="worker",
-        url="http://worker/metrics",
-        headers={"X-Metrics-Token": "metrics-secret"},
-        queries=[PrometheusQuery(name="requests", promql="sum(requests_total)")],
-    )
-    async with _prometheus_context(
-        monkeypatch,
-        handler,
-        Service(base_url="http://example", headers={"Authorization": "service-secret"}),
-    ) as ctx:
-        await probe.sample(ctx)
-    assert seen_headers["X-Metrics-Token"] == "metrics-secret"
-    assert "Authorization" not in seen_headers
-
-
 def test_observe_prometheus_wires_queries_and_report_labels(tmp_path):
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
         _SERVICE
-        + 'observe:\n- name: chat\n  probes:\n  - name: metric\n    queries:\n    - name: requests_by_path\n      promql: sum by (path) (requests_total)\n      kind: counter\n      unit: count\n      labels:\n      - path\n  - top\nreport:\n  columns:\n  - title: metric0\n    metric: metric.requests_by_path{service="chat",path="/v1"}.rate\n'
+        + 'observe:\n- name: chat\n  probes:\n  - name: prometheus_query\n    queries:\n    - name: requests_by_path\n      promql: sum by (path) (requests_total)\n      kind: counter\n      unit: count\n      labels:\n      - path\n  - top\nreport:\n  columns:\n  - title: metric0\n    metric: prometheus_query.requests_by_path{service="chat",path="/v1"}.rate\n'
     )
     exp, _ = load_experiment(str(cfg))
-    probe = next(p for p in exp.probes if p.name == "metric.chat")
+    probe = next(p for p in exp.probes if p.name == "prometheus_query.chat")
     assert probe.queries[0].promql == "sum by (path) (requests_total)"
     assert probe.queries[0].labels == ("path",)
-    assert exp.report_columns[0].metric == 'metric.requests_by_path{service="chat",path="/v1"}.rate'
+    assert (
+        exp.report_columns[0].metric
+        == 'prometheus_query.requests_by_path{service="chat",path="/v1"}.rate'
+    )
 
 
 def test_observe_rejects_removed_scrape_surface(tmp_path):
@@ -517,22 +405,6 @@ def test_observe_rejects_removed_scrape_surface(tmp_path):
     )
     with pytest.raises(ValueError, match="removed keys.*scrape"):
         load_experiment(str(cfg))
-
-
-async def test_prometheus_http_error_raises_not_empty(monkeypatch):
-    import httpx
-    from prombed import PrombedError
-
-    def handler(_request):
-        return httpx.Response(500, content=b"boom")
-
-    p = MetricProbe(
-        service="chat",
-        queries=[PrometheusQuery(name="requests", promql="sum(requests_total)")],
-    )
-    async with _prometheus_context(monkeypatch, handler, Service(base_url="http://x")) as ctx:
-        with pytest.raises(PrombedError, match="500"):
-            await p.sample(ctx)
 
 
 class _FlakyProbe(Probe):
@@ -583,30 +455,13 @@ def test_prometheus_query_replaces_derived_metrics(tmp_path):
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
         _SERVICE
-        + 'observe:\n- name: chat\n  probes:\n  - name: metric\n    retention_ms: 120000\n    queries:\n    - name: x_mean_s\n      promql: sum(rate(x_seconds_sum[1m])) / sum(rate(x_seconds_count[1m]))\n      unit: s\nreport:\n  columns:\n  - title: metric0\n    metric: metric.x_mean_s{service="chat"}.mean\n'
+        + 'observe:\n- name: chat\n  probes:\n  - name: prometheus_query\n    queries:\n    - name: x_mean_s\n      promql: sum(rate(x_seconds_sum[1m])) / sum(rate(x_seconds_count[1m]))\n      unit: s\nreport:\n  columns:\n  - title: metric0\n    metric: prometheus_query.x_mean_s{service="chat"}.mean\n'
     )
     exp, _ = load_experiment(str(cfg))
-    probe = next(p for p in exp.probes if p.name == "metric.chat")
-    assert probe._options.retention_ms == 120000
+    probe = next(p for p in exp.probes if p.name == "prometheus_query.chat")
+    assert probe.data_source.options.timeout_ms == 5000
     assert probe.queries[0].promql.startswith("sum(rate(")
-    assert exp.report_columns[0].metric == 'metric.x_mean_s{service="chat"}.mean'
-
-
-def test_observe_prometheus_downstream_url_config(tmp_path):
-    cfg = tmp_path / "c.yaml"
-    cfg.write_text(
-        _SERVICE + "observe:\n"
-        "  - name: worker\n"
-        "    namespace: ns\n"
-        "    k8s_selector: app=worker\n"
-        "    probes:\n"
-        "      - name: metric\n"
-        "        url: http://worker:8000/metrics\n"
-        "        queries: [ { name: tasks, promql: 'sum(tasks)' } ]\n"
-    )
-    exp, _ = load_experiment(str(cfg))
-    probe = next(p for p in exp.probes if p.name == "metric.worker")
-    assert probe._url == "http://worker:8000/metrics"
+    assert exp.report_columns[0].metric == 'prometheus_query.x_mean_s{service="chat"}.mean'
 
 
 def test_top_level_derived_is_removed(tmp_path):
@@ -649,7 +504,7 @@ def test_prometheus_query_may_not_shadow_up(tmp_path):
         _SERVICE + "observe:\n"
         "  - name: chat\n"
         "    probes:\n"
-        "      - name: metric\n"
+        "      - name: prometheus_query\n"
         "        queries: [ { name: up, promql: 'sum(x_total)' } ]\n"
     )
     with pytest.raises(ValueError, match="up"):
@@ -676,32 +531,3 @@ def test_limits_colors_are_report_palette():
     assert family_color("limits.mem_limit") == "#d62728"
     assert family_color("limits.cpu_request") == "#ff7f0e"
     assert family_color("top.cpu_m") == ""
-
-
-async def test_prometheus_history_is_scoped_to_arm_run_clients(monkeypatch):
-    values = iter([9, 11, 1])
-    now = 1_000_000
-    monkeypatch.setattr("prombed.prombed._now_ms", lambda: now)
-
-    def handler(_request):
-        return httpx.Response(200, text=f"requests_total {next(values)}\n")
-
-    probe = MetricProbe(queries=[PrometheusQuery("increase", "sum(increase(requests_total[5m]))")])
-    async with _prometheus_context(monkeypatch, handler, Service(base_url="http://x")) as ctx:
-        assert await probe.sample(ctx) == {}
-        now += 1_000
-        assert (await probe.sample(ctx))["increase"] > 0
-    now += 1_000
-    async with _prometheus_context(monkeypatch, handler, Service(base_url="http://x")) as ctx:
-        assert await probe.sample(ctx) == {}
-
-
-async def test_prometheus_subject_headers_and_scalar_mapping(monkeypatch):
-    def handler(request):
-        assert request.headers["Authorization"] == "subject-secret"
-        return httpx.Response(200, text="requests_total 1\n")
-
-    probe = MetricProbe(queries=[PrometheusQuery("answer", "1 + 2")])
-    service = Service(base_url="http://x", headers={"Authorization": "subject-secret"})
-    async with _prometheus_context(monkeypatch, handler, service) as ctx:
-        assert await probe.sample(ctx) == {"answer": 3}

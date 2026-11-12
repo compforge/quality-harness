@@ -301,7 +301,7 @@ pdata/pmetric（OTLP）与本模型独立收敛到同一形状：`Metric`(name/u
 
 ## 服务窗口查询
 
-直接 `MetricProbe` 的 summaries 在采集结束、客户端释放前查询本地历史，产出 resource 侧 scalar。
-结果保存到相应 Window.probe_metrics，来源与实际查询边界保留在 ArmRun.window_observations。
+`PrometheusQueryProbe` 的 summaries 在压测结束后查询外部 Prometheus 历史，产出 resource 侧 scalar。
+结果保存到相应 Window.probe_metrics，来源与实际查询边界保留在 ArmRun.prometheus_observations。
 这些值使用 `.value`，不经过 gauge 的采样平均归约；分析与报告仍只通过 MetricStore 寻址。
 完整语义见 [服务指标采集与报告](service-metrics.md)。

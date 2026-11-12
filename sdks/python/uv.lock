@@ -473,7 +473,7 @@ source = { editable = "common" }
 
 [[package]]
 name = "harness-toolbox"
-version = "0.8.1"
+version = "0.8.2"
 source = { editable = "toolbox" }
 dependencies = [
     { name = "harness-common" },
@@ -1094,13 +1094,13 @@ wheels = [
 
 [[package]]
 name = "quality-harness"
-version = "0.10.1"
+version = "0.11.0"
 source = { editable = "." }
 dependencies = [
     { name = "agent-ledger" },
     { name = "atif" },
     { name = "harness-common" },
-    { name = "harness-toolbox", extra = ["http", "llm", "prometheus"] },
+    { name = "harness-toolbox", extra = ["http", "llm"] },
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pytest" },
@@ -1135,7 +1135,7 @@ requires-dist = [
     { name = "agent-ledger", git = "https://github.com/compforge/agent-ledger?subdirectory=python&rev=34cb6d2b20019145763238c746cbe76505295e77" },
     { name = "atif", specifier = ">=1.8,<1.9" },
     { name = "harness-common", editable = "common" },
-    { name = "harness-toolbox", extras = ["http", "llm", "prometheus"], editable = "toolbox" },
+    { name = "harness-toolbox", extras = ["http", "llm"], editable = "toolbox" },
     { name = "harness-toolbox", extras = ["kube"], marker = "extra == 'kube'", editable = "toolbox" },
     { name = "httpx", specifier = ">=0.27,<1.0" },
     { name = "kubernetes-asyncio", marker = "extra == 'dev'", specifier = ">=36.1,<37" },

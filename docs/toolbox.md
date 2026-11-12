@@ -225,8 +225,8 @@ Python `harness-toolbox[prometheus]` 提供 `MetricDataSource`，描述 `/metric
 各消费方分别执行查询，返回原始 Prometheus 类型与 labels。
 
 读取频率与范围边界由调用方决定；toolbox 不运行采样循环，也不声明业务指标或 SLO。
-perf 每个 ArmRun 持有 ClientManager、每轮观测创建 DataLoader，再把查询结果映射为指标。
-这样下一轮可见新数据，内嵌 Prombed 的新 ArmRun 不会读到上一轮试验的历史。
+消费方持有 ClientManager、按读取范围创建 DataLoader；不同客户端的内嵌 Prombed 历史彼此独立。
+Perf 使用下述远端 Prometheus 查询能力，不调用此直接抓取路径。
 
 直接抓取声明显式 targets，或通过 environment + workloads + port 复用 Workload 解析。
 MetricDataSource 的 transport 选择 direct 或 port-forward；后者复用根执行拥有的 Toolbox 通道。
@@ -239,7 +239,8 @@ MetricDataSource 的 transport 选择 direct 或 port-forward；后者复用根�
 
 远端 Prometheus 使用 Python `PrometheusDataSource`，通过现有 HTTPClientProvider
 借用独立连接池，复用相同 ClientManager 生命周期。`read(expressions, timestamp=..., scope=...)`
-调用 `/api/v1/query`；单轮 DataLoader 共享求值时间与相同表达式的结果或错误。端点、显式认证、
+调用 `/api/v1/query`；`read_range(expressions, start=..., end=..., step=..., scope=...)`
+调用 `/api/v1/query_range` 并保留矩阵结果。单轮 DataLoader 共享求值时间与相同表达式的结果或错误。端点、显式认证、
 超时、响应字节数与序列上限属于 DataSource；超限失败，不请求服务端截断结果。
 原始 labels、warnings 和 infos 保留在返回值中，perf Probe 将 warnings 视为观测失败。
 

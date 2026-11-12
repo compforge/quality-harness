@@ -1,13 +1,14 @@
-"""Configuration for direct metric scraping and explicit remote Prometheus queries."""
+"""Configuration for external Prometheus access, queries and report columns."""
 
+import math
+import os
 from typing import get_args
 
 from harness_common import Operation
-from prombed import ScrapeTarget
+from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
 
 from perf_harness.model import ReportColumn, Service, WindowKind, WindowSelector
-from perf_harness.observe.metric import MetricProbe, WindowQuery
-from perf_harness.observe.prometheus import PrometheusQuery
+from perf_harness.observe.prometheus import PrometheusQuery, WindowQuery
 from perf_harness.observe.prometheus_query import PrometheusQueryProbe
 
 
@@ -25,33 +26,60 @@ def parse_window(raw: dict | None, *, default: str) -> WindowSelector:
     )
 
 
-def parse_metric_probe(name: str, options: dict, service: Service):
+def parse_prometheus(raw: dict | None) -> tuple[PrometheusDataSource | None, float]:
+    """Environment-owned query access. Only environment variable names carry secrets."""
+    if raw is None:
+        return None, 15
+    allowed = {
+        "url",
+        "headers_env",
+        "timeout_ms",
+        "max_response_bytes",
+        "max_series",
+        "connection_pool_maxsize",
+        "step_s",
+    }
+    if not isinstance(raw, dict) or set(raw) - allowed or not raw.get("url"):
+        raise ValueError("prometheus requires url and only supported query options")
+    headers_env = raw.get("headers_env", {})
+    if not isinstance(headers_env, dict) or any(
+        not isinstance(k, str) or not isinstance(v, str) or not v for k, v in headers_env.items()
+    ):
+        raise ValueError(
+            "prometheus.headers_env must map header names to environment variable names"
+        )
+    headers = {}
+    for header, name in headers_env.items():
+        if name not in os.environ:
+            raise ValueError(f"Missing Prometheus credential environment variable: {name}")
+        headers[header] = os.environ[name]
+    step = float(raw.get("step_s", 15))
+    if not math.isfinite(step) or step <= 0:
+        raise ValueError("prometheus.step_s must be finite and positive")
+    options = {
+        key: raw[key]
+        for key in ("timeout_ms", "max_response_bytes", "max_series", "connection_pool_maxsize")
+        if key in raw
+    }
+    if any(isinstance(v, bool) or not isinstance(v, int) or v <= 0 for v in options.values()):
+        raise ValueError("Prometheus limits must be positive integers")
+    return PrometheusDataSource(
+        str(raw["url"]), headers=headers, options=PrometheusOptions(**options)
+    ), step
+
+
+def parse_prometheus_probe(
+    options: dict, service: Service, source: PrometheusDataSource | None, step_s: float
+) -> PrometheusQueryProbe:
     options = dict(options)
+    if source is None:
+        raise ValueError("prometheus_query requires experiment prometheus.url")
     operation_name = options.pop("operation", None)
     if operation_name is not None and (not isinstance(operation_name, str) or not operation_name):
         raise ValueError("metric operation must be a nonempty name")
     operation = Operation(operation_name, service_name=service.name) if operation_name else None
-    headers = options.get("headers")
-    if headers is not None and not isinstance(headers, dict):
-        raise ValueError("headers must be a mapping")
     query_raw = options.pop("queries", [])
     queries = parse_queries(query_raw, service.name) if query_raw else []
-    if name == "prometheus_query":
-        allowed = {
-            "url",
-            "headers",
-            "timeout_ms",
-            "max_response_bytes",
-            "max_series",
-            "connection_pool_maxsize",
-        }
-        if not options.get("url") or not queries:
-            raise ValueError("prometheus_query requires an explicit `url` and queries")
-        if set(options) - allowed:
-            raise ValueError(f"prometheus_query: unknown options: {sorted(set(options) - allowed)}")
-        return PrometheusQueryProbe(
-            service=service.name, operation=operation, queries=queries, **options
-        )
     summaries = []
     for item in options.pop("summaries", []):
         definition = {key: value for key, value in item.items() if key != "window"}
@@ -66,61 +94,30 @@ def parse_metric_probe(name: str, options: dict, service: Service):
                 parse_window(item.get("window"), default="observation"),
             )
         )
-    metric_names = options.pop("metric_names", [])
-    if not isinstance(metric_names, list) or any(
-        not isinstance(name, str) or not name for name in metric_names
-    ):
-        raise ValueError("metric_names must be a list of nonempty metric names")
-    targets = options.pop("targets", [])
-    parsed_targets = []
-    for target in targets:
-        if (
-            not isinstance(target, dict)
-            or set(target) - {"url", "instance"}
-            or not target.get("url")
-        ):
-            raise ValueError("metric.targets entries need url and optional stable instance")
-        parsed_targets.append(
-            ScrapeTarget(
-                str(target["url"]),
-                labels={"instance": str(target.get("instance") or target["url"])},
-            )
-        )
-    allowed = {
-        "url",
-        "path",
-        "headers",
-        "timeout_ms",
-        "max_scrape_bytes",
-        "retention_ms",
-        "max_series",
-        "max_samples_per_series",
-        "connection_pool_maxsize",
-        "transport",
-        "prepare_timeout_ms",
-    }
-    if set(options) - allowed:
-        raise ValueError(f"Unknown metric options: {sorted(set(options) - allowed)}")
-    return MetricProbe(
+    if options:
+        raise ValueError(f"prometheus_query: unknown options: {sorted(options)}")
+    return PrometheusQueryProbe(
+        data_source=source,
         service=service.name,
-        target_service=service,
         operation=operation,
         queries=queries,
         summaries=summaries,
-        targets=tuple(parsed_targets),
-        metric_names=tuple(metric_names),
-        **options,
+        step_s=step_s,
     )
 
 
 def parse_queries(items: object, service: str) -> list[PrometheusQuery]:
     if not isinstance(items, list) or not items:
-        raise ValueError(f"observe[{service}].probes[metric] needs a non-empty `queries` list")
+        raise ValueError(
+            f"observe[{service}].probes[prometheus_query] needs a non-empty `queries` list"
+        )
     out: list[PrometheusQuery] = []
     seen = {"up"}
     for item in items:
         if not isinstance(item, dict):
-            raise ValueError(f"observe[{service}].probes[metric].queries entries must be mappings")
+            raise ValueError(
+                f"observe[{service}].probes[prometheus_query].queries entries must be mappings"
+            )
         name = item.get("name")
         promql = item.get("promql")
         if not isinstance(name, str) or not name:

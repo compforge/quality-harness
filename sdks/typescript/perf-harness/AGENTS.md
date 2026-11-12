@@ -7,7 +7,7 @@ Python runtime 的环境中制造受控负载并保存请求侧性能事实。Py
 公开名词、调度语义和 `run.json` / `requests.jsonl / evaluations.json` 字段共同遵守 `spec/` 契约。
 
 第一阶段只拥有负载调度、Runner 扩展、请求侧 Outcome、Window 归约和 raw/model 落盘。
-Prometheus、Kubernetes 等资源观测由消费方通过 Prombed 或自己的观测编排完成，不进入本包。
+Prometheus、Kubernetes 等资源观测由消费方的观测编排完成，不进入本包；本包不抓取服务 /metrics。
 
 ## 代码地图
 

@@ -1,5 +1,5 @@
 # Example sizing sweep against an already-deployed service, observed via k8s and
-# an embedded Prometheus runtime. Run from your consumer project (the one that does
+# an external Prometheus server. Run from your consumer project (the one that does
 # register_runner("example", ...)). Semantics live in the docs — this file is a
 # template to copy, not a manual:
 #   load shape / breaker / graceful stop → docs/load-model-redesign.md
@@ -49,10 +49,14 @@ load:
   cooldown_timeout_s: 5
 
 
+prometheus:
+  url: http://prometheus.example:9090
+  step_s: 15
+
 observe:                          # 资源观测：Service 自身 + 下游 Service
   - name: example
     probes:
-      - name: prometheus          # 默认抓 service.base_url + /metrics
+      - name: prometheus_query    # 压测后查询已采集的历史
         queries:
           - { name: request_rate, promql: "sum(rate(http_requests_total[1m]))", unit: req/s }
           - name: latency_p95_s
@@ -74,10 +78,10 @@ observe:                          # 资源观测：Service 自身 + 下游 Servi
   #   namespace: default
   #   k8s_selector: app=worker
   #   probes:
-  #     - { name: prometheus, url: "http://worker.default.svc:8000/metrics",
+  #     - { name: prometheus_query,
   #         queries: [ { name: tasks, promql: "sum(tasks)" } ] }
   #     - top
 
 observe_interval_s: 5
-# cooldown_s: 300                 # deactivate 后继续采样；window: {kind: cooldown} 可门禁
+# cooldown_s: 300                 # deactivate 后继续采样；window: {kind: cooldown} 可选择该窗口
 runs_dir: ./runs                  # each run → runs/example-sizing/<run_id>/

@@ -152,7 +152,65 @@ class PrometheusClient:
                     task.cancel()
             await asyncio.gather(*tasks.values(), return_exceptions=True)
 
+    async def read_range(
+        self,
+        expressions: Sequence[str],
+        *,
+        start: float,
+        end: float,
+        step: float,
+        scope: DataLoader | None = None,
+    ) -> dict[str, PrometheusQueryResult]:
+        """Evaluate historical expressions on an inclusive Unix-time grid.
+
+        @spec Range queries preserve server data and annotations; limits fail, never truncate.
+        """
+        if self._http is None:
+            raise RuntimeError("Prometheus query client is closed")
+        if not all(math.isfinite(v) for v in (start, end, step)) or end < start or step <= 0:
+            raise ValueError("Prometheus range needs finite start <= end and positive step")
+
+        async def query(expression: str) -> PrometheusQueryResult:
+            async def request() -> PrometheusQueryResult:
+                result = await self._request(
+                    "query_range",
+                    expression,
+                    {"start": str(start), "end": str(end), "step": str(step)},
+                )
+                if result.data["resultType"] != "matrix":
+                    raise PrometheusQueryError(
+                        "Prometheus range response must be a matrix",
+                        kind=ErrorKind.INVALID_RESPONSE,
+                    )
+                return result
+
+            return (
+                await scope.read(
+                    (self._source.client_key, "query_range", expression, start, end, step), request
+                )
+                if scope is not None
+                else await request()
+            )
+
+        tasks = {
+            expression: asyncio.create_task(query(expression))
+            for expression in dict.fromkeys(expressions)
+        }
+        try:
+            await asyncio.gather(*tasks.values())
+            return {expression: task.result() for expression, task in tasks.items()}
+        finally:
+            for task in tasks.values():
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks.values(), return_exceptions=True)
+
     async def _query(self, expression: str, timestamp: float) -> PrometheusQueryResult:
+        return await self._request("query", expression, {"time": str(timestamp)})
+
+    async def _request(
+        self, endpoint: str, expression: str, parameters: dict[str, str]
+    ) -> PrometheusQueryResult:
         if self._http is None:
             raise RuntimeError("Prometheus query client is closed")
         options = self._source.options
@@ -165,11 +223,11 @@ class PrometheusClient:
                 asyncio.timeout(timeout),
                 self._http.stream(
                     "POST",
-                    self._source.url.rstrip("/") + "/api/v1/query",
+                    self._source.url.rstrip("/") + "/api/v1/" + endpoint,
                     headers=self._source.headers,
                     data={
                         "query": expression,
-                        "time": str(timestamp),
+                        **parameters,
                         "timeout": f"{options.timeout_ms}ms",
                     },
                     timeout=timeout,

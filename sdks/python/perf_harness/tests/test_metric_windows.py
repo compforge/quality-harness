@@ -1,279 +1,298 @@
+"""Post-load history, raw evidence and retry stay independent of request execution."""
+
 import asyncio
-import csv
-import time
+import json
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
-import yaml
-from harness_common import ClientManager
-from harness_toolbox.metric import MetricClient, MetricDataSource
+from harness_toolbox.http import HTTPClient, HTTPClientProvider
+from harness_toolbox.prometheus import PrometheusDataSource
 
-from perf_harness import (
-    Engine,
-    Experiment,
-    LoadPlan,
-    MetricProbe,
-    Outcome,
-    ResourceProfile,
-    Service,
-)
-from perf_harness.config import load_experiment
-from perf_harness.drive.load import Warmup
+from perf_harness import Engine, Experiment, LoadPlan, Outcome, ResourceProfile, Service, Warmup
 from perf_harness.drive.runner import Runner
 from perf_harness.metric import Missing
 from perf_harness.metric.store import MetricStore
 from perf_harness.model import ReportColumn, WindowSelector
-from perf_harness.observe import ProbeContext, WindowQuery
+from perf_harness.observe import PrometheusQuery, PrometheusQueryProbe, WindowQuery
+from perf_harness.observe.history import recollect_metrics
 from perf_harness.report import write_report, write_run
 from perf_harness.runio import load_run
 
 
-async def test_baseline_precedes_load_final_scrape_includes_cooldown_and_report_is_offline(
-    monkeypatch, tmp_path
-):
-    baseline = False
-    completed = 0
-    clients = []
-    scrape_counts = []
+def with_transport(monkeypatch, handler):
+    pools = []
 
-    async def handle(request):
-        nonlocal baseline
-        assert request.url.path == "/metric"
-        assert request.headers["Authorization"] == "metrics-secret"
-        if not baseline:
-            await asyncio.sleep(0.02)
-            baseline = True
-        scrape_counts.append(completed)
-        return httpx.Response(
-            200,
-            text=(
-                f"duration_seconds_sum {completed * 10}\n"
-                f"duration_seconds_count {completed}\n"
-                f"ttft_seconds_sum {completed * 2}\n"
-                f"ttft_seconds_count {completed}\n"
-            ),
-        )
-
-    def create(source, owner):
-        client = MetricClient(source, clients=owner, transport=httpx.MockTransport(handle))
-        clients.append(client)
+    def create(provider, _):
+        client = HTTPClient(transport=httpx.MockTransport(handler), trust_env=False)
+        pools.append(client)
         return client
 
-    monkeypatch.setattr(MetricDataSource, "create_client", create)
+    monkeypatch.setattr(HTTPClientProvider, "create_client", create)
+    return pools
 
-    class Slow(Runner):
-        async def fire(self, ctx):
-            nonlocal completed
-            assert baseline
-            await asyncio.sleep(0.06)
-            completed += 1
-            return Outcome(status=200, duration_ms=60)
 
-        async def cleanup(self, ctx):
-            assert scrape_counts[-1] == completed
-            assert clients[0]._runtime is not None
+def response(request, *, value="2.5", labels=None, **annotations):
+    form = parse_qs(request.content.decode())
+    if request.url.path.endswith("query_range"):
+        data = {
+            "resultType": "matrix",
+            "result": [{"metric": labels or {}, "values": [[float(form["start"][0]), value]]}],
+        }
+    else:
+        data = {
+            "resultType": "vector",
+            "result": [{"metric": labels or {}, "value": [float(form["time"][0]), value]}],
+        }
+    return httpx.Response(200, json={"status": "success", "data": data, **annotations})
 
-    probe = MetricProbe(
-        service="chat",
-        path="/metric",
-        summaries=[
-            WindowQuery(
-                "duration_mean_s",
-                "sum(increase(duration_seconds_sum[$window])) / sum(increase(duration_seconds_count[$window]))",
-                unit="s",
-            ),
-            WindowQuery(
-                "ttft_mean_s",
-                "sum(increase(ttft_seconds_sum[$window])) / sum(increase(ttft_seconds_count[$window]))",
-                unit="s",
-            ),
+
+class Slow(Runner):
+    def __init__(self):
+        self.completed = 0
+        self.cleaned = False
+
+    async def fire(self, ctx):
+        await asyncio.sleep(0.04)
+        self.completed += 1
+        return Outcome(status=200, duration_ms=40)
+
+    async def cleanup(self, ctx):
+        self.cleaned = True
+
+
+def experiment(runner):
+    return Experiment(
+        service=Service("api", base_url="http://api", headers={"Authorization": "load-secret"}),
+        runner=runner,
+        resources=[ResourceProfile()],
+        loads=[
+            LoadPlan(
+                request_rate=float("inf"),
+                max_inflight=2,
+                hold_s=0.02,
+                warmup=Warmup(step_s=0),
+                cooldown_timeout_s=1,
+            )
+        ],
+        probes=[
+            PrometheusQueryProbe(
+                data_source=PrometheusDataSource(
+                    "http://prom/proxy", headers={"X-Prom-Token": "metric-secret"}
+                ),
+                service="api",
+                step_s=0.01,
+                queries=[PrometheusQuery("active", "sum(active)")],
+                summaries=[WindowQuery("count", "sum(increase(requests_total[$window]))")],
+            )
+        ],
+        report_columns=[
+            ReportColumn(
+                "count",
+                'prometheus_query.count{service="api"}.value',
+                WindowSelector("observation"),
+            )
         ],
     )
-    columns = [
-        ReportColumn("error rate", "request.error_rate.value"),
-        ReportColumn(
-            "duration (s)",
-            'metric.duration_mean_s{service="chat"}.value',
-            WindowSelector("observation"),
-        ),
-        ReportColumn(
-            "TTFT (s)", 'metric.ttft_mean_s{service="chat"}.value', WindowSelector("observation")
-        ),
-    ]
-    run = await Engine(
-        Experiment(
-            service=Service(
-                "chat", base_url="http://chat", headers={"Authorization": "metrics-secret"}
-            ),
-            runner=Slow(),
-            resources=[ResourceProfile()],
-            loads=[
-                LoadPlan(
-                    request_rate=float("inf"),
-                    max_inflight=2,
-                    hold_s=0.04,
-                    warmup=Warmup(step_s=0),
-                    cooldown_timeout_s=0.2,
-                )
-            ],
-            probes=[probe],
-            observe_interval_s=0.01,
-            report_columns=columns,
-        )
-    ).run()
+
+
+async def test_only_queries_after_cleanup_and_reloads_without_io(monkeypatch, tmp_path):
+    runner = Slow()
+    requests = []
+
+    def handle(request):
+        assert runner.cleaned and runner.completed == 2
+        assert request.url.path in {"/proxy/api/v1/query", "/proxy/api/v1/query_range"}
+        assert "Authorization" not in request.headers
+        assert request.headers["X-Prom-Token"] == "metric-secret"
+        requests.append(request)
+        return response(request, infos=["server annotation"])
+
+    pools = with_transport(monkeypatch, handle)
+    exp = experiment(runner)
+    run = await Engine(exp).run()
     arm = run.arm_runs[0]
-    assert run.status == "completed" and not arm.probe_errors and not arm.phase_errors
-    assert completed == 2 and scrape_counts[0] == 0 and scrape_counts[-1] == 2
-    assert arm.measurement.duration_s == pytest.approx(0.04)
-    assert all(client._http.is_closed for client in clients)
+    assert run.status == "completed" and not arm.probe_errors
+    assert len(requests) == 2 and all(pool.is_closed for pool in pools)
+    assert arm.measurement.duration_s == pytest.approx(0.02)
     observation = next(w for w in arm.windows if w.kind == "observation")
-    store = MetricStore([arm])
-    assert store.query(arm, columns[1].metric, observation) == pytest.approx(10)
-    assert store.query(arm, columns[2].metric, observation) == pytest.approx(2)
-    assert isinstance(store.query(arm, columns[1].metric), Missing)
-    assert all("$window" not in result.expression for result in arm.window_observations)
-    assert all(result.end_ms > result.start_ms for result in arm.window_observations)
+    query = arm.prometheus_observations[1]
+    assert query.start_s == pytest.approx(arm.started_at_s + observation.start_s, abs=0.001)
+    assert query.end_s == pytest.approx(arm.started_at_s + observation.end_s, abs=0.001)
+    assert query.end_s > arm.started_at_s + arm.measurement.end_s
+    assert "$window" not in query.expression and query.infos == ("server annotation",)
+    assert query.data and query.collected_at_s and not query.error
     paths = write_run(run, str(tmp_path))
-    assert "metrics-secret" not in Path(paths["run.json"]).read_text()
+    assert "secret" not in Path(paths["run.json"]).read_text()
     restored = load_run(paths["run_dir"])
-    assert restored.report_columns == columns
-    assert restored.arm_runs[0].window_observations == arm.window_observations
-
-    def no_remote_reads(*args, **kwargs):
-        raise AssertionError("offline report accessed a client")
-
-    monkeypatch.setattr(MetricDataSource, "create_client", no_remote_reads)
-    offline = write_report(
-        restored.arm_runs, str(tmp_path / "offline"), columns=restored.report_columns
-    )
-    with Path(offline["summary"]).open() as stream:
-        rows = list(csv.reader(stream))
-    assert rows[0][-3:] == ["error rate", "duration (s)", "TTFT (s)"]
-    assert rows[1][-3:] == ["0", "10", "2"]
-    assert "TTFT (s)" in Path(offline["report_html"]).read_text()
-    assert "duration (s)" in Path(offline["report"]).read_text()
-
-
-async def test_window_summary_preserves_missing_on_zero_denominator(monkeypatch):
-    now = 1000000
-    monkeypatch.setattr("prombed.prombed._now_ms", lambda: now)
+    assert restored.arm_runs[0].prometheus_observations == arm.prometheus_observations
+    assert restored.arm_runs[0].started_at_s == arm.started_at_s
+    store = MetricStore(restored.arm_runs)
+    ref = exp.report_columns[0].metric
+    assert store.query(restored.arm_runs[0], ref, observation) == 2.5
+    assert isinstance(store.query(restored.arm_runs[0], ref), Missing)
     monkeypatch.setattr(
-        MetricDataSource,
+        HTTPClientProvider,
         "create_client",
-        lambda source, owner: MetricClient(
-            source,
-            clients=owner,
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(200, text="x_sum 0\nx_count 0\n")
-            ),
-        ),
+        lambda *_: pytest.fail("offline report accessed network"),
     )
-    probe = MetricProbe(
-        summaries=[
-            WindowQuery("mean", "sum(increase(x_sum[$window])) / sum(increase(x_count[$window]))")
-        ]
-    )
-    async with ClientManager() as clients:
-        ctx = ProbeContext(
-            Service("chat", base_url="http://chat"), None, time.monotonic(), clients=clients
+    write_report(restored.arm_runs, str(tmp_path / "offline"), columns=restored.report_columns)
+
+
+@pytest.mark.parametrize(
+    "state", ["timeout", "http", "empty", "warning", "nan", "labels", "duplicate"]
+)
+async def test_incomplete_queries_remain_missing_and_do_not_change_request_results(
+    monkeypatch, state
+):
+    def handle(request):
+        if state == "timeout":
+            raise httpx.ReadTimeout("timeout")
+        if state == "http":
+            return httpx.Response(503)
+        result = response(
+            request,
+            value="NaN" if state == "nan" else "2.5",
+            labels={"unexpected": "label"} if state == "labels" else {},
+            **({"warnings": ["partial"]} if state == "warning" else {}),
         )
-        await probe.sample(ctx)
-        now += 1000
-        await probe.sample(ctx)
-        from perf_harness.model import Window
+        payload = result.json()
+        if state == "empty":
+            payload["data"]["result"] = []
+        elif state == "duplicate":
+            payload["data"]["result"] *= 2
+        return httpx.Response(200, json=payload)
 
-        result = (
-            await probe.finish(
-                ctx, [Window("observation", "observation", "observation", 0, 1, True)]
-            )
-        )[0]
-        assert result.values == {} and result.error is not None
-
-
-def test_config_defaults_to_direct_scrape_and_selects_window_results(tmp_path):
-    config = {
-        "service": {"name": "chat", "base_url": "http://chat"},
-        "runner": {"name": "mock"},
-        "load": {"request_rate": 8, "max_inflight": 80, "hold_s": 1},
-        "observe": [
-            {
-                "name": "chat",
-                "probes": [
-                    {
-                        "name": "metric",
-                        "path": "/metric",
-                        "summaries": [
-                            {
-                                "name": "mean_s",
-                                "promql": "sum(increase(d_sum[$window])) / sum(increase(d_count[$window]))",
-                                "unit": "s",
-                            }
-                        ],
-                    }
-                ],
-            }
-        ],
-        "report": {
-            "columns": [
-                {
-                    "title": "average",
-                    "metric": 'metric.mean_s{service="chat"}.value',
-                    "window": {"kind": "observation"},
-                }
-            ]
-        },
-    }
-    path = tmp_path / "perf.yaml"
-    path.write_text(yaml.safe_dump(config))
-    experiment, _ = load_experiment(str(path), mock=True)
-    probe = next(p for p in experiment.probes if isinstance(p, MetricProbe))
-    assert probe._path == "/metric" and probe.summaries[0].window.kind == "observation"
-    assert experiment.report_columns[0].title == "average"
-    config["report"]["columns"][0]["metric"] = 'metric.typo{service="chat"}.value'
-    path.write_text(yaml.safe_dump(config))
-    with pytest.raises(ValueError, match="declared metric"):
-        load_experiment(str(path), mock=True)
+    with_transport(monkeypatch, handle)
+    run = await Engine(experiment(Slow())).run()
+    arm = run.arm_runs[0]
+    assert run.status == "completed" and len(arm.requests) == 2
+    assert arm.probe_errors and all(q.error for q in arm.prometheus_observations)
+    assert not arm.series and not any(w.probe_metrics for w in arm.windows)
+    if state == "warning":
+        assert all(q.warnings == ("partial",) for q in arm.prometheus_observations)
+    if state == "nan":
+        assert all(q.data for q in arm.prometheus_observations)
 
 
-async def test_cancel_during_baseline_cancels_scrape_and_runs_cleanup(monkeypatch):
-    entered, closed, cleaned = asyncio.Event(), asyncio.Event(), asyncio.Event()
+async def test_retry_reuses_exact_windows_preserves_failed_attempt_and_never_loads_runner(
+    monkeypatch, tmp_path
+):
+    requests = []
+    failing = True
 
-    async def handler(request):
-        entered.set()
-        try:
-            await asyncio.Event().wait()
-        finally:
-            closed.set()
+    def handle(request):
+        requests.append((request.url.path, parse_qs(request.content.decode())))
+        return httpx.Response(503) if failing else response(request)
 
-    monkeypatch.setattr(
-        MetricDataSource,
-        "create_client",
-        lambda source, clients: MetricClient(
-            source, clients=clients, transport=httpx.MockTransport(handler)
-        ),
+    with_transport(monkeypatch, handle)
+    run = await Engine(experiment(Slow()), run_id="retry").run()
+    paths = write_run(run, str(tmp_path))
+    directory = Path(paths["run_dir"])
+    # Unknown additive producer fields and original formatting must survive recollection.
+    raw_request = (directory / "requests.jsonl").read_text().splitlines()
+    extra = json.loads(raw_request[0])
+    extra["producer_metadata"] = {"preserve": True}
+    raw_request[0] = json.dumps(extra)
+    (directory / "requests.jsonl").write_text("\n".join(raw_request) + "\n")
+    doc = json.loads((directory / "run.json").read_text())
+    doc["producer_metadata"] = {"preserve": True}
+    doc["executions"][0]["windows"][0]["producer_metadata"] = "retained"
+    (directory / "run.json").write_text(json.dumps(doc))
+    original_requests = (directory / "requests.jsonl").read_bytes()
+    original_evaluations = (directory / "evaluations.json").read_bytes()
+    config = tmp_path / "access.yaml"
+    config.write_text(
+        "prometheus: {url: http://prom/proxy}\nextensions: [does_not_exist]\nrunner: {name: does_not_exist}\n"
     )
+    failing = False
+    retried = await recollect_metrics(str(directory), str(config))
+    assert requests[:2] == requests[2:]
+    doc = json.loads((directory / "run.json").read_text())
+    assert doc["producer_metadata"] == {"preserve": True}
+    assert doc["executions"][0]["windows"][0]["producer_metadata"] == "retained"
 
-    class NoFire(Runner):
-        async def fire(self, ctx):
-            raise AssertionError("must not send before baseline completes")
+    assert not retried.arm_runs[0].probe_errors
+    assert retried.status == run.status
+    assert (directory / "requests.jsonl").read_bytes() == original_requests
+    assert (directory / "evaluations.json").read_bytes() == original_evaluations
+    attempts = sorted((directory / "metric-collections").glob("*.json"))
+    assert len(attempts) == 2
+    first = json.loads(attempts[0].read_text())
+    assert all(q["error"] for q in first["executions"][run.arm_runs[0].id])
+    restored = load_run(directory)
+    assert all(q.data and not q.error for q in restored.arm_runs[0].prometheus_observations)
+    # A later failed recollection must remove stale successful projections.
+    failing = True
+    failed = await recollect_metrics(str(directory), str(config))
+    assert failed.arm_runs[0].probe_errors and not failed.arm_runs[0].series
+    assert not any(w.probe_metrics for w in failed.arm_runs[0].windows)
 
+
+async def test_original_lifecycle_error_survives_successful_collection(monkeypatch):
+    class BrokenCleanup(Slow):
         async def cleanup(self, ctx):
-            cleaned.set()
+            raise RuntimeError("cleanup failed")
 
-    run = asyncio.create_task(
-        Engine(
-            Experiment(
-                service=Service("chat", base_url="http://chat"),
-                runner=NoFire(),
-                resources=[ResourceProfile()],
-                loads=[LoadPlan(request_rate=1, max_inflight=1, hold_s=1)],
-                probes=[MetricProbe(summaries=[WindowQuery("count", "sum(x)")])],
-            )
-        ).run()
+    with_transport(monkeypatch, response)
+    run = await Engine(experiment(BrokenCleanup())).run()
+    assert run.status == "error"
+    assert run.arm_runs[0].phase_errors[0].phase == "cleanup"
+    assert all(q.data and not q.error for q in run.arm_runs[0].prometheus_observations)
+
+
+def test_same_endpoint_cannot_silently_override_access_options():
+    exp = experiment(Slow())
+    exp.probes.append(
+        PrometheusQueryProbe(
+            data_source=PrometheusDataSource(
+                "http://prom/proxy", headers={"X-Prom-Token": "different"}
+            ),
+            service="worker",
+            queries=[PrometheusQuery("active", "sum(active)")],
+        )
     )
-    await asyncio.wait_for(entered.wait(), 1)
-    run.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(run, 1)
-    assert closed.is_set() and cleaned.is_set()
+    with pytest.raises(ValueError, match="share access options"):
+        exp.__post_init__()
+
+
+@pytest.mark.parametrize("failed", [True, False])
+def test_collect_command_uses_saved_queries_and_reports_query_exit_status(
+    monkeypatch, tmp_path, failed
+):
+    from perf_harness import cli
+
+    with_transport(monkeypatch, response)
+    run = asyncio.run(Engine(experiment(Slow())).run())
+    paths = write_run(run, str(tmp_path))
+    config = tmp_path / "access.yaml"
+    config.write_text("prometheus: {url: http://prom/proxy}\n")
+    with_transport(monkeypatch, (lambda _: httpx.Response(503)) if failed else response)
+    monkeypatch.setattr(
+        cli, "load_experiment", lambda *_: pytest.fail("recollection loaded experiment")
+    )
+    assert cli.main(["collect-metrics", paths["run_dir"], "--config", str(config)]) == (
+        1 if failed else 0
+    )
+
+
+def test_cli_persists_requests_and_query_plan_before_collection(monkeypatch, tmp_path):
+    from perf_harness import cli
+
+    config = tmp_path / "config.yaml"
+    config.write_text("prometheus: {url: http://prom/proxy}\n")
+    exp = experiment(Slow())
+    monkeypatch.setattr(cli, "load_experiment", lambda *a, **kw: (exp, str(tmp_path)))
+
+    async def interrupted(self, run):
+        directory = tmp_path / exp.name / "checkpoint"
+        saved = load_run(directory)
+        assert len(saved.arm_runs[0].requests) == 2
+        assert len(saved.arm_runs[0].prometheus_observations) == 2
+        assert (directory / "config.yaml").exists()
+        raise RuntimeError("collection interrupted")
+
+    monkeypatch.setattr(Engine, "collect_metrics", interrupted)
+    with pytest.raises(RuntimeError, match="collection interrupted"):
+        cli.main(["run", str(config), "--run-id", "checkpoint"])
