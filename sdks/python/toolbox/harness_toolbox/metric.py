@@ -20,8 +20,7 @@ from prombed.types import LabelMatcher, Sample
 from harness_toolbox.data_loader import DataLoader
 from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.http import HTTPClient, HTTPClientProvider
-from harness_toolbox.kube_portforward import KubernetesPortForwardTransport
-from harness_toolbox.transport import KubernetesAccess
+from harness_toolbox.transport import KubernetesAccess, KubernetesPortForwardTransport
 
 LOG = logging.getLogger(__name__)
 

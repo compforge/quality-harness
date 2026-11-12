@@ -6,9 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from harness_toolbox import kube_portforward as module
-from harness_toolbox.kube_portforward import KubernetesPortForwardTransport
-from harness_toolbox.transport import Endpoint, KubernetesAccess
+from harness_toolbox.transport import Endpoint, KubernetesAccess, KubernetesPortForwardTransport
+from harness_toolbox.transport import port_forward as module
 
 
 def pod(uid="uid-1", **spec):
@@ -117,8 +116,8 @@ async def test_scope_required():
 async def test_dead_service_tunnel_reopens_without_changing_service_uid(monkeypatch):
     import sys
 
-    from harness_toolbox import transport as transports
     from harness_toolbox.process import process_scope
+    from harness_toolbox.transport import port_forward as transports
 
     processes = []
 

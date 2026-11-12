@@ -6,8 +6,7 @@ from typing import Protocol
 import httpx
 from harness_common.access.client import ClientProvider, _ClientBorrower, client_key
 
-from harness_toolbox.socks import SocksProxy
-from harness_toolbox.transport import Transport
+from harness_toolbox.transport import SocksProxy, Transport
 
 
 class HTTPRoute(Transport, Protocol):
@@ -44,7 +43,8 @@ class HTTPClient(httpx.AsyncClient):
         if self._clients is None:
             raise RuntimeError("Routed HTTP requires a ClientManager")
         route = await self._clients.get(self._route_provider)
-        self._proxy = SocksProxy(route)
+        limits = self._client_options.get("limits", httpx.Limits())
+        self._proxy = SocksProxy(route, max_connections=limits.max_connections or 128)
         try:
             await self._proxy.__aenter__()
             super().__init__(proxy=self._proxy.url, **self._client_options)

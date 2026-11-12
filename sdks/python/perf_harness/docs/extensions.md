@@ -130,6 +130,9 @@ Runner 上展开远端路径或复制文件。Host 不改变压力机位置，Ch
 环境可以发压，但 Kubernetes probes 在没有集群访问配置时不产出观测。
 
 
+请求可通过显式 [`request_transport`](request-transport.md) 借用 Pod relay，保留逻辑 Service
+目标；观测通道仍独立配置。
+
 ### 原生 Pod 观测
 
 `restart/limits/pods` 通过 toolbox 原生 Kubernetes API 读取 Pod manifest。安装时启用
