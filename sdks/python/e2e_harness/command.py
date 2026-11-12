@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import signal
 
-from harness_toolbox.socks import SocksProxy
+from harness_toolbox.transport import SocksProxy
 from harness_toolbox.transport import Transport
 
 LOG = logging.getLogger(__name__)

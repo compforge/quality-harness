@@ -4,8 +4,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from harness_toolbox.socks import SocksProxy
-from harness_toolbox.transport import Endpoint
+from harness_toolbox.transport import Endpoint, SocksProxy
 
 
 async def echo(reader, writer):

@@ -8,6 +8,14 @@ The root [ClientManager](lifecycle.md#ownership-and-identity) owns shared client
 transports. Clients close first. Transport failure may invalidate a channel; it never authorizes
 replaying a business operation. Constructors and providers describe configuration without I/O.
 
+## Package layout
+
+`harness_toolbox.transport` exports the public connection types. Its implementation modules group
+base contracts, ConnectionSource, kubectl access, port-forward, Pod Python, Pod relay and SOCKS.
+The relay worker stays beside its owning implementation. Protocol clients, address resolution and
+process utilities remain separate from Transport. Existing `harness_toolbox.kube_portforward` and
+`harness_toolbox.socks` imports re-export the same implementations.
+
 ## Available paths
 
 | Implementation | Connection path | Selection boundary |
@@ -99,8 +107,8 @@ loopback-only SOCKS5 endpoint. It preserves request URLs, Host/SNI, credentials 
 keep-alive bytes, and never retries business requests or falls back to direct routing.
 
 ```python
-from harness_toolbox.kube_portforward import KubernetesPortForwardTransport
-from harness_toolbox.socks import SocksProxy
+from harness_toolbox.transport import KubernetesPortForwardTransport
+from harness_toolbox.transport import SocksProxy
 from harness_toolbox.transport import KubernetesAccess
 
 async with KubernetesPortForwardTransport(
@@ -140,7 +148,7 @@ Remote SSH Environment access is not supported by this transport.
 from harness_common import ClientManager, KubernetesWorkload
 from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.http import HTTPClientProvider
-from harness_toolbox.pod_relay import PodRelayTransport
+from harness_toolbox.transport import PodRelayTransport
 
 route = PodRelayTransport(
     KubernetesEnvironment("qa", "/path/to/kubeconfig", context="qa-context"),

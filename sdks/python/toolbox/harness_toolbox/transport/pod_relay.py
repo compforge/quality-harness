@@ -16,7 +16,9 @@ from harness_common.access.client import _ClientBorrower
 
 from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.process import process_scope
-from harness_toolbox.transport import Endpoint, KubernetesAccess, PortForwardTransport, _PortForward
+from harness_toolbox.transport.base import Endpoint
+from harness_toolbox.transport.kubernetes import KubernetesAccess
+from harness_toolbox.transport.port_forward import PortForwardTransport, _PortForward
 
 LOG = logging.getLogger(__name__)
 

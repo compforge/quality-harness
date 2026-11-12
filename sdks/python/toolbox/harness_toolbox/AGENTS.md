@@ -17,13 +17,10 @@ harness_toolbox/
 ├── address.py      # IP/DNS/环境内 Service 地址候选与解析失败
 ├── errors.py       # ToolboxError 契约与协议子类；适配器负责转换原生异常
 ├── diagnostics.py  # 客户端连接路径快照，与异常独立
-├── transport.py    # 连接解析、直连、port-forward、Pod Python 路径
+├── transport/      # Transport 契约、ConnectionSource、Kubernetes/Pod 通道与 SOCKS 适配
 ├── data_loader.py   # 单次读取范围内共享结果、错误与在途任务
 ├── metric.py       # MetricDataSource、Workload 目标抓取与本地窗口查询
 ├── prometheus.py   # PrometheusDataSource：远端查询 API、单轮去重与响应预算
-├── kube_portforward.py # 执行期 Service/Pod IP 隧道复用与资源身份校验
-├── pod_relay.py    # Workload 中的租约 TCP relay，保留逻辑 Service 目标与连接级分流
-├── socks.py        # 外部客户端接入 Transport 的 loopback SOCKS5 适配
 ├── process.py      # 有界子进程 I/O、退出结果与取消清理
 ├── kube/           # 本地/Host 原生资源后端、worker 通道、状态等待、Event、exec 与隧道
 ├── opensearch.py   # HTTP 池、有界响应与 scroll
@@ -41,6 +38,7 @@ harness_toolbox/
 - 协议依赖仅通过 extras 引入；通用生命周期归 harness-common，只使用标准库。Skill 必须显式安装所用协议 extra。
 - Pod 删除通过 UID precondition 保证实例身份；exec/log API 没有原子 UID 条件，只能前后核验。
 - ClientManager 释放连接、临时采集文件和子进程，不隐式删除消费方创建的远端 Pod。
+- Transport 的公共类型由 `harness_toolbox.transport` 导出，包内实现依赖具体子模块，避免经公共入口形成循环导入。旧 `kube_portforward` / `socks` 模块只保留兼容导出。
 - Client 保持执行期身份；Transport 负责失效通道的退役与后续重建，已发送的业务操作不重放，最终关闭后不重开。
 
 ## References

@@ -6,8 +6,7 @@ from typing import Protocol
 import httpx
 from harness_common.access.client import ClientProvider, _ClientBorrower, client_key
 
-from harness_toolbox.socks import SocksProxy
-from harness_toolbox.transport import Transport
+from harness_toolbox.transport import SocksProxy, Transport
 
 
 class HTTPRoute(Transport, Protocol):

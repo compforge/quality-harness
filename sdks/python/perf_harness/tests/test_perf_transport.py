@@ -2,8 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 import pytest
-from harness_toolbox.pod_relay import PodRelayTransport
-from harness_toolbox.transport import Endpoint
+from harness_toolbox.transport import Endpoint, PodRelayTransport
 
 from perf_harness import Engine, Experiment, LoadPlan, Outcome, ResourceProfile, Runner, Service
 from perf_harness.config import load_experiment

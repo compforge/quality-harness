@@ -9,11 +9,10 @@ from types import SimpleNamespace
 import pytest
 from harness_common import ClientManager, KubernetesWorkload, KubernetesWorkloadInstance
 
-from harness_toolbox import pod_relay
 from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.http import HTTPClientProvider
 from harness_toolbox.process import process_scope
-from harness_toolbox.transport import Endpoint
+from harness_toolbox.transport import Endpoint, pod_relay
 
 
 @pytest.fixture

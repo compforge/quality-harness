@@ -3,7 +3,7 @@
 from harness_common import ClientProvider, KubernetesWorkload
 from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.http import HTTPRoute
-from harness_toolbox.pod_relay import PodRelayTransport
+from harness_toolbox.transport import PodRelayTransport
 
 from perf_harness.model import Service
 

@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from harness_toolbox import transport
 from harness_toolbox.transport import KubernetesAccess, PodPythonTransport
+from harness_toolbox.transport import kubernetes as transport
 
 
 @pytest.mark.parametrize("container", [None, "business"])

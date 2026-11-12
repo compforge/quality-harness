@@ -99,8 +99,7 @@ async def test_workload_port_forward_reuses_uid_route_and_root_closes_it(monkeyp
     from contextlib import asynccontextmanager
 
     from harness_toolbox.http import HTTPClient, HTTPClientProvider
-    from harness_toolbox.kube_portforward import KubernetesPortForwardTransport
-    from harness_toolbox.transport import Endpoint
+    from harness_toolbox.transport import Endpoint, KubernetesPortForwardTransport
 
     events = []
     generation = 1
