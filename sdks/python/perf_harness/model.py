@@ -512,32 +512,49 @@ class ReportColumn:
     window: WindowSelector = field(default_factory=WindowSelector)
 
 
-@dataclass(frozen=True)
-class OperationMetricBinding:
-    """Persisted metric addresses for one operation; topology is independent of metrics."""
+# Standard display roles; projects may contribute additional named metrics.
+RED_UNITS = {"qps": "rps", "p95": "s", "error_rate": "ratio"}
 
-    operation: str
+
+@dataclass(frozen=True)
+class MetricBinding:
+    """An observed attribute points into MetricStore; never a second value store."""
+
+    metric: str
+    unit: str
+    description: str = ""
+    semantics: str = ""
+
+    def __post_init__(self) -> None:
+        from perf_harness.metric import parse_ref
+
+        parse_ref(self.metric)
+
+
+@dataclass(frozen=True)
+class ObservationBinding:
+    """Resolved observation contract, independent of the collecting Probe type.
+
+    @spec Common owns Service/Operation identity; workload names are Service-scoped.
+    @rule Metric values belong to Run/Arm/Window, never to the static target.
+    """
+
+    target: str
     service: str
-    qps: str | None = None
-    p95: str | None = None
+    metrics: dict[str, MetricBinding]
+    workload: str | None = None
     method: str = ""
     path: str = ""
-    qps_semantics: str = "completed"
-    descriptions: dict[str, str] = field(default_factory=dict)
     response_mode: str | None = None
 
     def __post_init__(self) -> None:
-        # @spec QPS and p95 are independent scalar roles, not a paired source schema.
-        refs = {"qps": self.qps, "p95": self.p95}
-        if not any(ref is not None for ref in refs.values()):
-            raise ValueError("operation metric binding requires qps or p95")
-        if any(ref is not None and (not isinstance(ref, str) or not ref) for ref in refs.values()):
-            raise ValueError("operation metric references must be nonempty strings")
-        if any(
-            role not in refs or refs[role] is None or not isinstance(text, str)
-            for role, text in self.descriptions.items()
-        ):
-            raise ValueError("metric descriptions must belong to bound qps/p95 roles")
+        if not self.target or not self.service or not self.metrics:
+            raise ValueError("observation requires target, service and metrics")
+        for name, binding in self.metrics.items():
+            if not isinstance(name, str) or not name:
+                raise ValueError("observed metric names must be nonempty strings")
+            if name in RED_UNITS and binding.unit != RED_UNITS[name]:
+                raise ValueError(f"{name} requires unit {RED_UNITS[name]}")
 
 
 @dataclass(frozen=True)
@@ -560,7 +577,7 @@ class Run(ExperimentRun):
     environment: str = ""
     report_columns: list[ReportColumn] = field(default_factory=list)
     graph: Graph | None = None
-    operation_metrics: list[OperationMetricBinding] = field(default_factory=list)
+    observation_bindings: list[ObservationBinding] = field(default_factory=list)
     case_ids: list[str] = field(default_factory=list)
     connection_budget: ConnectionBudget | None = None
 

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "nodes": [
+    {
+      "id": "service:search",
+      "kind": "service"
+    },
+    {
+      "id": "operation:search/search",
+      "kind": "operation",
+      "properties": {
+        "method": "POST",
+        "path": "/search"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "id": "[\"operation:search/search\",\"belongs_to\",\"service:search\"]",
+      "source": "operation:search/search",
+      "kind": "belongs_to",
+      "target": "service:search"
+    }
+  ]
+}

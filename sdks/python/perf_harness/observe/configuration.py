@@ -79,7 +79,7 @@ def parse_prometheus_probe(
     if operation_name is not None and (not isinstance(operation_name, str) or not operation_name):
         raise ValueError("metric operation must be a nonempty name")
     operation = Operation(operation_name, service_name=service.name) if operation_name else None
-    operation_metrics = options.pop("operation_metrics", None)
+    metrics = options.pop("metrics", None)
     qps_semantics = options.pop("qps_semantics", "completed")
     query_raw = options.pop("queries", [])
     queries = parse_queries(query_raw, service.name) if query_raw else []
@@ -109,7 +109,7 @@ def parse_prometheus_probe(
         queries=queries,
         summaries=summaries,
         step_s=step_s,
-        operation_metrics=operation_metrics,
+        metrics=metrics,
         qps_semantics=qps_semantics,
     )
 

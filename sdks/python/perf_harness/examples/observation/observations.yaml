@@ -1,0 +1,13 @@
+observations:
+  - target: operation:search/search
+    probes:
+      - type: http_api
+        data_source: metrics
+        profile:
+          requests_metric: http_requests_total
+          duration_bucket: http_duration_seconds_bucket
+          service_label: service
+          method_label: method
+          route_label: route
+          status_label: status
+          error_status_pattern: '5..'

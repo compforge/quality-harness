@@ -29,7 +29,14 @@ from perf_harness.metric import (
     MetricValueKind,
 )
 from perf_harness.metric.reduce import time_series_summary
-from perf_harness.model import ProbeErrors, ProbeWindowObservation, Sample, Service, Window
+from perf_harness.model import (
+    ObservationBinding,
+    ProbeErrors,
+    ProbeWindowObservation,
+    Sample,
+    Service,
+    Window,
+)
 
 
 class ClientStats:
@@ -100,12 +107,15 @@ class Probe(ABC):
 
     #: stable, UNIQUE store id (one per observed target, e.g. "top.chat"); the
     #: metric *family* is the class-level name ("top") and ``service`` is a label.
+    observation_binding: ObservationBinding | None = None
+
     name: str = "probe"
     #: where this probe reads — groups its metrics for bottleneck attribution
     source: str = ""
     #: which service this probe observes (a downstream entry / the Service); the
     #: family stays un-prefixed and ``service`` becomes a label on every metric.
     _service: str | None = None
+    workload_name: str | None = None
 
     @property
     def family(self) -> str:
@@ -116,7 +126,10 @@ class Probe(ABC):
     @property
     def labels(self) -> dict[str, str]:
         """Series labels — ``{service: …}`` when bound to a service, else none."""
-        return {"service": self._service} if self._service else {}
+        labels = {"service": self._service} if self._service else {}
+        if self.workload_name is not None:
+            labels["workload"] = self.workload_name
+        return labels
 
     #: THE declaration table: bare metric name → its FamilySpec (unit + value_kind +
     #: description). One source of truth for ``describe`` (the registry descriptor),

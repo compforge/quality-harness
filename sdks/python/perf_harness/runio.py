@@ -57,7 +57,8 @@ from perf_harness.model import (
     ArmStop,
     ConnectionBudget,
     HistogramQuantile,
-    OperationMetricBinding,
+    MetricBinding,
+    ObservationBinding,
     Outcome,
     PhaseError,
     PhaseRun,
@@ -77,11 +78,11 @@ from perf_harness.model import (
 from perf_harness.records import RequestEvaluation, RequestRecord
 
 #: bump when run.json's shape changes incompatibly — offline readers check this first
-RUN_SCHEMA = 10
+RUN_SCHEMA = 11
 
 
 def _record(model, data: dict):
-    """Read known fields while accepting additive fields from another schema-10 writer."""
+    """Read known fields while accepting additive fields from another schema-11 writer."""
     return model(**{f.name: data[f.name] for f in fields(model) if f.name in data})
 
 
@@ -484,7 +485,7 @@ def write_run_data(run: Run, run_dir: str | Path) -> dict[str, str]:
         "status": run.status,
         "environment": run.environment,
         "report_columns": [asdict(column) for column in run.report_columns],
-        "operation_metrics": [asdict(binding) for binding in run.operation_metrics],
+        "observation_bindings": [asdict(binding) for binding in run.observation_bindings],
         "case_ids": run.case_ids,
         "connection_budget": asdict(run.connection_budget) if run.connection_budget else None,
         "executions": [_arm_run_json(r) for r in run.arm_runs],
@@ -581,8 +582,19 @@ def load_run(run_dir: str | Path, *, with_series: bool = True) -> Run:
         service=service,
         environment=doc["environment"],
         graph=Graph.from_dict(doc["graph"]) if "graph" in doc else None,
-        operation_metrics=[
-            OperationMetricBinding(**binding) for binding in doc.get("operation_metrics", [])
+        observation_bindings=[
+            ObservationBinding(
+                **(
+                    binding
+                    | {
+                        "metrics": {
+                            name: MetricBinding(**metric)
+                            for name, metric in binding["metrics"].items()
+                        }
+                    }
+                )
+            )
+            for binding in doc.get("observation_bindings", [])
         ],
         case_ids=doc.get("case_ids", []),
         connection_budget=ConnectionBudget(**doc["connection_budget"])

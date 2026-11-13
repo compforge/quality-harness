@@ -14,7 +14,7 @@ required:
 properties:
   schema:
     type: integer
-    const: 10
+    const: 11
   run_id:
     type: string
     minLength: 1
@@ -38,33 +38,29 @@ properties:
   case_ids:
     type: array
     items: {type: string}
-  operation_metrics:
+  observation_bindings:
     type: array
     items:
       type: object
-      required: [operation, service]
-      anyOf:
-      - required: [qps]
-        properties:
-          qps: {type: string, minLength: 1}
-      - required: [p95]
-        properties:
-          p95: {type: string, minLength: 1}
+      required: [target, service, metrics]
       properties:
-        operation: {type: string}
-        service: {type: string}
-        qps: {type: [string, 'null']}
-        p95: {type: [string, 'null']}
+        target: {type: string, minLength: 1}
+        service: {type: string, minLength: 1}
+        workload: {type: [string, 'null']}
         method: {type: string}
         path: {type: string}
-        qps_semantics: {enum: [entered, completed]}
         response_mode: {enum: [unary, sse, null]}
-        descriptions:
+        metrics:
           type: object
-          properties:
-            qps: {type: string}
-            p95: {type: string}
-          additionalProperties: false
+          minProperties: 1
+          additionalProperties:
+            type: object
+            required: [metric, unit]
+            properties:
+              metric: {type: string, minLength: 1}
+              unit: {type: string}
+              description: {type: string}
+              semantics: {type: string}
   connection_budget:
     type: [object, 'null']
     properties:

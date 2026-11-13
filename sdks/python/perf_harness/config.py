@@ -8,7 +8,6 @@ filled-in file.
 from __future__ import annotations
 
 import importlib
-import json
 import os
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -67,7 +66,9 @@ from perf_harness.observe.configuration import (
     parse_http_api_probe,
     parse_prometheus,
     parse_prometheus_probe,
+    parse_window,
 )
+from perf_harness.observe.declaration import load_observation
 
 _PROBES = {
     "client": ClientProbe,
@@ -102,7 +103,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     if "base_url" not in subj:
         raise ValueError("service needs a `base_url` (how to reach the service)")
     service = _parse_service(subj)
-    graph = _load_graph(raw.get("graph"), config_path.parent)
+    graph = _load_graph(raw.get("graph"), config_path.parent, service.environment.name)
     if graph is not None:
         for item in raw.get("observe") or []:
             observed = _parse_service(item, service.environment)
@@ -129,7 +130,50 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     # client (load-gen's own inflight/sent) is harness-intrinsic → always on, not a
     # config knob. observe: is the one place for per-service resource observation.
     source, step_s = parse_prometheus(raw.get("prometheus"))
-    probes = [ClientProbe(), *_parse_observe(raw.get("observe"), service, source, step_s)]
+    observation = []
+    if "observation" in raw:
+        if "observe" in raw or "prometheus" in raw:
+            raise ValueError(
+                "observation uses data_sources and services; do not mix inline observe/prometheus"
+            )
+        services = {service.id(): service}
+        for item in raw.get("services", []):
+            observed = _parse_service(item, service.environment)
+            if observed.id() in services:
+                raise ValueError(f"duplicate service: {observed.id()}")
+            if observed.environment.name != service.environment.name:
+                raise ValueError("observed services must use the experiment environment")
+            services[observed.id()] = observed
+        windows = [
+            parse_window(w, default="full")
+            for w in raw.get(
+                "observation_windows", [{"kind": "full"}, {"kind": "phase"}, {"kind": "custom"}]
+            )
+        ]
+        if not windows:
+            raise ValueError("observation_windows must not be empty")
+        for index, left in enumerate(windows):
+            for right in windows[:index]:
+                if left.kind == right.kind and all(
+                    a is None or b is None or a == b
+                    for a, b in (
+                        (left.name, right.name),
+                        (left.phase, right.phase),
+                        (left.level, right.level),
+                    )
+                ):
+                    raise ValueError("observation_windows must not overlap")
+        observation = load_observation(
+            raw["observation"],
+            config_path.parent,
+            services,
+            graph,
+            raw.get("data_sources", {}),
+            windows,
+        )
+        probes = [ClientProbe(), *(p for item in observation for p in item.probes)]
+    else:
+        probes = [ClientProbe(), *_parse_observe(raw.get("observe"), service, source, step_s)]
     if "derived" in raw:
         raise ValueError(
             "`derived:` was removed — express server-side ratios and rates directly "
@@ -200,7 +244,8 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
         judge=build_judge(raw.get("judge", "default")),
         resources=resources,
         loads=loads,
-        probes=probes,
+        probes=[] if observation else probes,
+        observation=observation,
         report_columns=report_columns,
         time_ranges=[TimeRange(**item) for item in raw.get("time_ranges", [])],
         cases=cases,
@@ -216,7 +261,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     return experiment, raw.get("runs_dir") or raw.get("output_dir") or "./runs"
 
 
-def _load_graph(value: object, config_dir: Path) -> Graph | None:
+def _load_graph(value: object, config_dir: Path, environment: str) -> Graph | None:
     """Resolve project topology beside the config, before any target access."""
     if value is None:
         return None
@@ -225,7 +270,11 @@ def _load_graph(value: object, config_dir: Path) -> Graph | None:
     path = Path(value).expanduser()
     if not path.is_absolute():
         path = config_dir / path
-    return Graph.from_dict(json.loads(path.read_text()))
+    raw = yaml.safe_load(path.read_text())
+    # Common Graph remains an environment-scoped snapshot; a reusable file may defer binding.
+    if isinstance(raw, dict):
+        raw.setdefault("environment", environment)
+    return Graph.from_dict(raw)
 
 
 def _slug(s: str) -> str:

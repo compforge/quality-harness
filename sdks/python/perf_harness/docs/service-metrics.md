@@ -1,5 +1,8 @@
 # 服务指标查询与报告
 
+项目可复用的 Graph / Observation / Experiment 配置优先见 [观测声明](observation.md)。
+本文说明底层查询、补采和已有内联 `observe` 接入。
+
 Perf 记录请求结果，并在压测结束后查询外部 Prometheus 的服务指标。请求错误率来自独立 Judge；
 服务端指标用于解释同一时间窗口内的行为，二者分别保留。
 
@@ -85,7 +88,7 @@ CLI 在查询前先保存请求事实和查询计划，查询被中断也可独�
 `Engine.run(collect=False)` 先落盘，再调用 `Engine.collect_metrics(run)`；默认仍自动查询。
 
 Run 保存每条查询的表达式、来源地址、Unix 起止时间、step、Operation 绑定、原始返回结果、
-采集时间和错误。历史查询是 schema 10 的附加字段 `executions[].prometheus_observations`，
+采集时间和错误。历史查询是 schema 11 的附加字段 `executions[].prometheus_observations`，
 发压 Unix 起点为 `started_at_s`。趋势落入 timeseries.csv，汇总进入既有 MetricStore。
 
 ```bash

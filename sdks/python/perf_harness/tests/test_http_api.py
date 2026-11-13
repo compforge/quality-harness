@@ -50,8 +50,8 @@ def test_http_matching_scopes_service_method_and_route_and_escapes_values():
     assert "sum by (le) (increase(" in p95
     assert "$window" in p95
     assert probe.summaries[1].histogram.scale == 0.001
-    assert probe.operation_metrics.operation == operation.id()
-    assert probe.operation_metrics.path == "/faqs/{dataset_id}"
+    assert probe.observation_binding.target == operation.id()
+    assert probe.observation_binding.path == "/faqs/{dataset_id}"
     assert metrics.selector(replace(operation, method="GET")) != metrics.selector(operation)
     assert profile().selector(replace(operation, service_name="other")) != profile().selector(
         operation
@@ -176,11 +176,13 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     paths = write_run(run, str(tmp_path / "runs"))
     (tmp_path / "case.graph.json").unlink()
     restored = load_run(paths["run_dir"])
-    assert restored.operation_metrics == run.operation_metrics and restored.case_ids == ["faq"]
+    assert restored.observation_bindings == run.observation_bindings and restored.case_ids == [
+        "faq"
+    ]
     assert all("$window" not in q.expression for q in restored.arm_runs[0].prometheus_observations)
     if state in {"traffic", "overflow"}:
         assert MetricStore(restored.arm_runs).query(
-            restored.arm_runs[0], restored.operation_metrics[0].p95
+            restored.arm_runs[0], restored.observation_bindings[0].metrics["p95"].metric
         ) == (float("inf") if state == "overflow" else 2.5)
         assert not restored.arm_runs[0].probe_errors
 
@@ -272,7 +274,7 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
 def test_operation_roles_are_independent_and_preserve_meaning(tmp_path, roles):
     from harness_common import Operation
 
-    from perf_harness import OperationMetricBinding, Run
+    from perf_harness import ObservationBinding, Run
     from perf_harness.drive.load import LoadPlan
     from perf_harness.metric import ScalarSummary
     from perf_harness.model import (
@@ -306,12 +308,14 @@ def test_operation_roles_are_independent_and_preserve_meaning(tmp_path, roles):
             )
             for role in roles
         ],
-        operation_metrics={role: role for role in roles},
+        metrics={role: role for role in roles},
     )
-    binding = probe.operation_metrics
-    assert isinstance(binding, OperationMetricBinding)
+    binding = probe.observation_binding
+    assert isinstance(binding, ObservationBinding)
     assert binding.method == binding.path == ""
-    assert binding.descriptions == {role: meanings[role] for role in roles}
+    assert {name: metric.description for name, metric in binding.metrics.items()} == {
+        role: meanings[role] for role in roles
+    }
     graph = Graph(
         environment="qa",
         nodes=(
@@ -336,9 +340,7 @@ def test_operation_roles_are_independent_and_preserve_meaning(tmp_path, roles):
                 True,
                 request=RequestStats(0, 0, 0, 0, 0, 0, 0, {}),
                 probe_metrics={
-                    {"qps": binding.qps, "p95": binding.p95}[role].removesuffix(
-                        ".value"
-                    ): ScalarSummary(values[role])
+                    binding.metrics[role].metric.removesuffix(".value"): ScalarSummary(values[role])
                     for role in roles
                 },
             )
@@ -353,11 +355,11 @@ def test_operation_roles_are_independent_and_preserve_meaning(tmp_path, roles):
         environment="qa",
         executions=[arm],
         graph=graph,
-        operation_metrics=[binding],
+        observation_bindings=[binding],
     )
     paths = write_run(run, str(tmp_path))
     restored = load_run(paths["run_dir"])
-    assert restored.operation_metrics == [binding]
+    assert restored.observation_bindings == [binding]
     snapshot = build_callgraph(restored)
     props = snapshot.arms[0].windows[0].nodes[0].to_dict()["properties"]["perf"]
     for role in ("qps", "p95"):
@@ -384,7 +386,7 @@ def test_operation_role_descriptions_cannot_change_between_windows():
             data_source=PrometheusDataSource("http://prom"),
             operation=Operation("search", service_name="search-store"),
             service="search-store",
-            operation_metrics={"p95": "latency"},
+            metrics={"p95": "latency"},
             summaries=[
                 WindowQuery(
                     "latency",
@@ -417,7 +419,7 @@ def test_http_response_mode_survives_configuration_binding_and_request_roundtrip
     path.write_text(yaml.safe_dump(raw))
     experiment, _ = load_experiment(str(path))
     probe = next(p for p in experiment.probes if isinstance(p, HttpApiProbe))
-    assert probe.operation_metrics.response_mode == mode
+    assert probe.observation_binding.response_mode == mode
     operation_type = SSEOperation if mode == "sse" else HttpOperation
     call = OperationRun(
         id="call-1",
@@ -435,3 +437,28 @@ def test_http_response_mode_survives_configuration_binding_and_request_roundtrip
     serialized["operation"]["response_mode"] = "unknown"
     with pytest.raises(ValueError, match="response mode"):
         _operation_from(serialized)
+
+
+def test_http_error_profile_is_explicit_and_excludes_missing_status_schema():
+    operation = HttpOperation("search", service_name="search", method="POST", path="/search")
+    source = PrometheusDataSource("http://prom")
+    plain = HttpApiProbe(operation=operation, profile=profile(), data_source=source)
+    assert "error_rate" not in plain.observation_binding.metrics
+    probe = HttpApiProbe(
+        operation=operation,
+        profile=profile(status_label="status", error_status_pattern="5.."),
+        data_source=source,
+    )
+    query = next(q for q in probe.summaries if q.name == "error_rate")
+    assert 'status!=""' in query.promql and 'status=~"5.."' in query.promql
+    assert "or (0 *" in query.promql and "> 0" in query.promql
+    assert query.unit == "ratio" and "excludes SSE business errors" in query.description
+    broad = HttpApiProbe(
+        operation=operation,
+        profile=profile(status_label="status", error_status_pattern=".*"),
+        data_source=source,
+    )
+    error_query = next(q.promql for q in broad.summaries if q.name == "error_rate")
+    assert 'status!="",status=~".*"' in error_query
+    with pytest.raises(ValueError, match="together"):
+        profile(status_label="status")

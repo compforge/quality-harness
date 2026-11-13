@@ -7,6 +7,14 @@
 本目录是 Perf Harness 跨语言契约的 Python 实现，不是其它语言实现的 canonical source。共享名词、
 调度语义、对齐键和落盘字段以 `../../../spec/perf-contract.md` 及对应 schema 为准。
 
+### 声明与执行
+
+项目资产分为 Graph（静态关系）、ObservationSpec（观察对象、指标与 Probe）和 Experiment
+（case、环境、负载与窗口）。Engine 按计划驱动 Runner，组织采样/历史查询并记录事实；
+报告将 MetricStore 结果关联到 Graph。infra 身份与访问复用 common/toolbox。
+ObservationBinding 用开放指标映射关联 Common target，RED 是默认展示约定，不是观测上限。
+配置与生命周期细节见 [观测声明](docs/observation.md)。
+
 ### 脊柱
 
 ```
@@ -70,7 +78,7 @@ perf_harness/
 - Run.status 只表示 completed / stopped / error；错误率熔断、超时、取消、排空仍是执行保护。
 - 吞吐按完成事件分窗，code 是开放的非空字符串，仅 success 为成功；未判定独立于 code；中断与丢弃单列。
 - 无已判定请求的错误率是 Missing；未判定不计为服务错误。缺失与 Probe 故障不能伪装为零。
-- 下游 API 指标通过 Probe.operation 绑定 Common Operation.id()，采集不依赖 Graph。
+- 下游 API 指标通过 ObservationSpec / ObservationBinding 绑定 Common Operation.id()，采集不依赖 Graph。
   HttpApiProbe 按服务、method、路由模板生成查询；Run 保存 API 指标地址与 graph/case 快照。
   Call Graph 是按 Window 从 MetricStore 读取的 Operation 图视图，Service 仅作辅助信息。
   细节与分析指导见 [HTTP 指标与 Call Graph](docs/callgraph.md)。
@@ -80,7 +88,7 @@ perf_harness/
 
 ### 产物与运行
 
-- `Experiment` 扩展 common 的具名验证意图；`Run` 扩展 common `ExperimentRun`，`ArmRun` 是 common `Execution` 的 perf 子类，每次真实请求记录为 `OperationRun → Outcome`。`PerfReducer` 只读这些事实并把 Artifact 落到 `runs/<experiment>/<run_id>/`，累积不覆盖。落盘三层 raw（requests.jsonl / evaluations.json/timeseries.csv）→ 模型（run.json，schema 10 版本化，`load_run` 离线重建）→ 视图（report/CSV，纯下游）。
+- `Experiment` 扩展 common 的具名验证意图；`Run` 扩展 common `ExperimentRun`，`ArmRun` 是 common `Execution` 的 perf 子类，每次真实请求记录为 `OperationRun → Outcome`。`PerfReducer` 只读这些事实并把 Artifact 落到 `runs/<experiment>/<run_id>/`，累积不覆盖。落盘三层 raw（requests.jsonl / evaluations.json/timeseries.csv）→ 模型（run.json，schema 11 版本化，`load_run` 离线重建）→ 视图（report/CSV，纯下游）。
 - `verdict.json` 是跨 harness 契约（spec/verdict-schema.yaml，devloop 消费），改动需五家对齐。
 - 请求侧指标走客户端 Outcome；外部 Prometheus 指标归资源侧，缺失与错误不能伪造为零。
 

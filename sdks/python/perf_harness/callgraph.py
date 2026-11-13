@@ -12,7 +12,7 @@ from harness_common import Node, NodeKind, Relation, RelationKind
 
 from perf_harness.metric import Missing, ScalarSummary, parse_ref
 from perf_harness.metric.store import MetricStore
-from perf_harness.model import ArmRun, Run, Window
+from perf_harness.model import RED_UNITS, ArmRun, Run, Window
 
 
 @dataclass(frozen=True)
@@ -186,7 +186,9 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
     if run.graph is None:
         return None
     graph = run.graph
-    bindings = {binding.operation: binding for binding in run.operation_metrics}
+    bindings = {
+        binding.target: binding for binding in run.observation_bindings if binding.workload is None
+    }
     owners = {
         r.source: unquote(r.target.removeprefix("service:"))
         for r in graph.relations
@@ -203,41 +205,34 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
             nodes = []
             for node in operations:
                 binding = bindings.get(node.id)
+                observed = binding.metrics if binding else {}
                 metrics = {
-                    "qps": asdict(
+                    name: asdict(
                         _metric(
                             store,
                             arm,
                             window,
-                            binding.qps if binding else None,
-                            "rps",
-                            binding.descriptions.get("qps", "") if binding else "",
+                            observed[name].metric if name in observed else None,
+                            observed[name].unit if name in observed else RED_UNITS[name],
+                            observed[name].description if name in observed else "",
                         )
-                    ),
-                    "p95": asdict(
-                        _metric(
-                            store,
-                            arm,
-                            window,
-                            binding.p95 if binding else None,
-                            "s",
-                            binding.descriptions.get("p95", "") if binding else "",
-                        )
-                    ),
+                    )
+                    | {"semantics": observed[name].semantics if name in observed else ""}
+                    for name in dict.fromkeys([*RED_UNITS, *observed])
                 }
                 # Perf owns one property namespace; the source graph remains unchanged.
                 props = dict(node.properties) | {
                     "perf": {
                         "name": unquote(node.id.split("/", 1)[-1]),
                         "service": owners[node.id],
-                        "method": binding.method if binding else "",
-                        "path": binding.path if binding else "",
+                        "method": binding.method if binding else node.properties.get("method", ""),
+                        "path": binding.path if binding else node.properties.get("path", ""),
                         "response_mode": (
                             binding.response_mode
                             if binding and binding.response_mode
                             else node.properties.get("response_mode")
                         ),
-                        "qps_semantics": binding.qps_semantics if binding and binding.qps else None,
+                        "qps_semantics": observed["qps"].semantics if "qps" in observed else None,
                         "metrics": metrics,
                     }
                 }
