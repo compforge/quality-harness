@@ -31,6 +31,11 @@ function rkGraph(root, view) {
         'width': 310, 'height': 110, 'text-wrap': 'wrap', 'text-max-width': 290,
         'text-valign': 'center', 'font-size': 13, 'background-color': 'data(color)',
         'border-width': 1, 'border-color': '#94a3b8' } },
+      { selector: 'node[diameter]', style: { 'shape': 'ellipse',
+        'width': 'data(diameter)', 'height': 'data(diameter)',
+        'text-valign': 'center', 'font-size': 11,
+        'text-max-width': node => node.data('diameter') * 0.7,
+        'text-overflow-wrap': 'anywhere' } },
       { selector: 'node:parent', style: { 'text-valign': 'top', 'text-halign': 'center',
         'padding': 25, 'background-opacity': 0.18, 'font-weight': 'bold' } },
       { selector: 'edge', style: { 'label': 'data(label)', 'font-size': 11,
@@ -52,13 +57,14 @@ function rkGraph(root, view) {
     if (!canvas.clientWidth || !canvas.clientHeight) return;
     cy.resize();
     if (needsLayout) {
-      cy.layout({name: 'dagre', rankDir: 'LR', nodeSep: 35, rankSep: 100, padding: 30}).run();
+      cy.layout({name: 'dagre', rankDir: 'LR', nodeSep: 30, rankSep: 70, padding: 30,
+        nodeDimensionsIncludeLabels: true}).run();
       needsLayout = false;
     }
     syncZoom();
   }
   function showFrame() {
-    tooltip.hidden = true;
+    hideTooltip();
     const frame = view.frames[Number(select.value)];
     if (!frame) return;
     root.querySelectorAll('[data-graph-frame]').forEach(panel => {
@@ -75,7 +81,11 @@ function rkGraph(root, view) {
       groups.set(node.group, id);
       cy.add({data: {id, label: node.group, color: node.color, details: [['Group', node.group]]}});
     }
-    cy.add(frame.nodes.map(node => ({data: {...node, parent: groups.get(node.group)}})));
+    cy.add(frame.nodes.map(node => {
+      const data = {...node, parent: groups.get(node.group)};
+      if (data.diameter == null) delete data.diameter;
+      return {data};
+    }));
     cy.add(frame.edges.map(edge => ({data: edge, classes: edge.dashed ? 'conditional' : ''})));
     needsLayout = true;
     resize();
@@ -85,15 +95,28 @@ function rkGraph(root, view) {
     const node = event.target.data();
     details.textContent = node.details.map(item => item[0] + ': ' + item[1]).join('\n');
   });
-  cy.on('mouseover mousemove', 'node', event => {
+  let tooltipTimer;
+  function hideTooltip() {
+    clearTimeout(tooltipTimer);
+    tooltip.hidden = true;
+  }
+  function scheduleHide() { tooltipTimer = setTimeout(hideTooltip, 120); }
+  tooltip.addEventListener('mouseenter', () => clearTimeout(tooltipTimer));
+  tooltip.addEventListener('mouseleave', hideTooltip);
+  cy.on('mouseover', 'node', event => {
     const text = event.target.data('tooltip');
-    if (!text) return;
+    if (!text) { hideTooltip(); return; }
+    clearTimeout(tooltipTimer);
     tooltip.textContent = text;
     tooltip.hidden = false;
-    tooltip.style.left = Math.min(event.renderedPosition.x + 12, Math.max(0, canvas.clientWidth - tooltip.offsetWidth)) + 'px';
-    tooltip.style.top = Math.min(event.renderedPosition.y + 12, Math.max(0, canvas.clientHeight - tooltip.offsetHeight)) + 'px';
+    tooltip.scrollTop = 0;
+    tooltip.style.left = Math.max(0, Math.min(event.renderedPosition.x + 12,
+      canvas.clientWidth - tooltip.offsetWidth)) + 'px';
+    tooltip.style.top = Math.max(0, Math.min(event.renderedPosition.y + 12,
+      canvas.clientHeight - tooltip.offsetHeight)) + 'px';
   });
-  cy.on('mouseout pan zoom', () => { tooltip.hidden = true; });
+  cy.on('mouseout', 'node', scheduleHide);
+  cy.on('pan zoom', hideTooltip);
   scope.addEventListener('change', () => { selectScope(); showFrame(); });
   select.addEventListener('change', showFrame);
   root.querySelector('.graph-fit').addEventListener('click', () => cy.fit(undefined, 30));

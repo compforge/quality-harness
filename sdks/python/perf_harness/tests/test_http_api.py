@@ -228,7 +228,8 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     }[state]
     assert expected in node.label
     assert "kb" not in node.label
-    assert node.tooltip == "Service: kb\nPath: /faqs/{dataset_id}"
+    assert "Operation: operation:kb/retrieve" in node.tooltip
+    assert "Service: kb\nPath: /faqs/{dataset_id}" in node.tooltip
     if state == "zero":
         assert props["perf"]["metrics"]["p95"]["status"] == "missing"
         assert props["perf"]["metrics"]["p95"]["reason"] == "no_samples"

@@ -120,6 +120,7 @@ class GraphNode:
     details: list[tuple[str, str]] = field(default_factory=list)
     color: str = "#dbeafe"
     tooltip: str = ""
+    diameter: float | None = None
 
 
 @dataclass

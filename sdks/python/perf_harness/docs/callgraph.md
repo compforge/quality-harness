@@ -94,8 +94,12 @@ Run 保存 graph 快照、case_ids、operation_metrics 指标地址，以及已�
 `report.html` 将原有汇总、吞吐和资源图表放在默认的 Report Tab，调用图放在独立 Callgraph Tab，使用页面全宽和随视口高度变化的画布。
 Callgraph 下方的「指标明细」默认折叠，与图共用 Arm/Window 选择，保留该窗口全部 Operation
 指标的统计、单位和来源；Report Tab 不再重复显示 API 观测表。
-无 graph 的报告保持full API 观测表。Callgraph 只画 Operation 节点与 calls/may_call 边；Service 显示为分组背景；节点悬浮提示 service/path，节点正文只显示 Operation 与指标
-和颜色。支持按 Arm/Window 切换、缩放、拖动画布、Fit、点击节点查看指标地址、PromQL 和查询错误。
+无 graph 的报告保持 full API 观测表。Callgraph 只画 Operation 节点与 call/may_call 边，Service 保留分组背景。
+圆形节点内居中显示短名称、QPS、p95，长名称自动换行；完整 Operation ID、Service、path、时间范围与指标来源在悬浮提示中展示。
+最小圆尺寸保证标签可读；当前窗口内有效 QPS 的最小值和最大值映射到可读的圆面积区间，尺寸每次切换窗口时重新计算。
+缺失值使用默认尺寸，不作为零参与范围计算；有效值全相同（包括全零）时使用统一默认尺寸。
+圆面积用于比较当前窗口的流量，不直接跨窗口比较大小；精确数值始终保留。
+支持按 Arm/Window 切换、缩放、拖动画布、Fit，悬浮详情可滚动，点击节点也可固定查看详情。
 图右下角的 0–100% 滑块调整缩放；100% 为原始大小，0 端使用最小倍率 0.1%，
 滚轮和 Fit 会同步更新百分比。隐藏页面首次打开时才按可见画布布局。
 「复制图片」将当前 Arm/Window 的完整图复制为白底 PNG，不受当前缩放和可见区域限制，最多 2 倍绘制、最长边 4096 像素；
