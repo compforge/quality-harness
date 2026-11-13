@@ -32,6 +32,7 @@ def parse_prometheus(raw: dict | None) -> tuple[PrometheusDataSource | None, flo
     if raw is None:
         return None, 15
     allowed = {
+        "kind",
         "url",
         "headers_env",
         "timeout_ms",
@@ -65,8 +66,23 @@ def parse_prometheus(raw: dict | None) -> tuple[PrometheusDataSource | None, flo
     if any(isinstance(v, bool) or not isinstance(v, int) or v <= 0 for v in options.values()):
         raise ValueError("Prometheus limits must be positive integers")
     return PrometheusDataSource(
-        str(raw["url"]), headers=headers, options=PrometheusOptions(**options)
+        str(raw["url"]),
+        kind=raw.get("kind", "prometheus"),
+        headers=headers,
+        options=PrometheusOptions(**options),
     ), step
+
+
+def parse_data_source(raw: dict | None) -> tuple[PrometheusDataSource | None, float]:
+    """Resolve the experiment's single observation source without project imports."""
+    if raw is None:
+        return None, 15
+    if not isinstance(raw, dict):
+        raise ValueError("data_source must be a mapping")
+    options = dict(raw)
+    if options.pop("type", None) != "prometheus":
+        raise ValueError("data_source requires type: prometheus")
+    return parse_prometheus(options)
 
 
 def parse_prometheus_probe(

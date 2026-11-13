@@ -35,7 +35,7 @@ test("local groups preserve binary/empty data, continue after file failures and 
     const bytes = new Uint8Array([0, 255, 128, 10]);
     await writeFile(path, bytes); await symlink(path, link); await writeFile(empty, ""); await writeFile(large, "12345");
     const source = new LocalFileDataSource([link, missing, large, empty], { concurrency: 1 });
-    expect(source).toBeInstanceOf(FileDataSource); expect("kind" in source).toBe(false); expect("id" in source).toBe(false);
+    expect(source).toBeInstanceOf(FileDataSource); expect(source.kind).toBe("file"); expect("id" in source).toBe(false);
     const client = await manager.get(source);
     expect(client).toBe(await manager.get(new LocalFileDataSource(source.paths, { concurrency: 1 })));
     const result = await client.read({ ...readOptions, maxBytes: 4 });

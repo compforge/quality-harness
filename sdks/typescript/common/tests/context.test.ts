@@ -12,7 +12,7 @@ test("environment and data providers share root ownership without fixture or sou
   const clients = new ClientManager();
   const environment = { name: "test", clientKey: "environment", createClient: () => new Probe() } satisfies ClientProvider<Probe> & { name: string };
   const context = new EnvironmentContext(environment, clients, performance.now() + 10_000);
-  const source: DataSource<Probe> = { clientKey: "db", createClient: () => new Probe() };
+  const source: DataSource<Probe> = { kind: "mysql", clientKey: "db", createClient: () => new Probe() };
   const first = await context.clients.get(context.environment);
   const second = await context.clients.get(source);
   expect(first).toBe(await context.clients.get({ ...environment }));

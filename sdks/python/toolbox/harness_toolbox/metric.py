@@ -45,6 +45,8 @@ class MetricDataSource(DataSource["MetricClient"]):
     @link component://docs/toolbox.md
     """
 
+    kind: str = field(default="prombed", init=False)
+
     url: str = ""
     headers: dict[str, str] = field(default_factory=dict, repr=False)
     options: MetricOptions = field(default_factory=MetricOptions)

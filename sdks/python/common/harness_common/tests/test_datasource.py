@@ -11,6 +11,8 @@ class ExampleClient:
 
 
 class ExampleSource(DataSource[ExampleClient]):
+    kind = "example"
+
     @property
     def client_key(self) -> str:
         return "shared-db"

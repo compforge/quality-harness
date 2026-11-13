@@ -78,11 +78,11 @@ from perf_harness.model import (
 from perf_harness.records import RequestEvaluation, RequestRecord
 
 #: bump when run.json's shape changes incompatibly — offline readers check this first
-RUN_SCHEMA = 11
+RUN_SCHEMA = 12
 
 
 def _record(model, data: dict):
-    """Read known fields while accepting additive fields from another schema-11 writer."""
+    """Read known fields while accepting additive fields from another schema-12 writer."""
     return model(**{f.name: data[f.name] for f in fields(model) if f.name in data})
 
 

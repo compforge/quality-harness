@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -71,6 +71,8 @@ class PodLogCapture:
 
 @dataclass(frozen=True)
 class PodLogDataSource(DataSource["PodLogClient"]):
+    kind: str = field(default="kubernetes_pod_log", init=False)
+
     environment: KubernetesEnvironment
     concurrency: int = 4
     timeout_s: float = 60

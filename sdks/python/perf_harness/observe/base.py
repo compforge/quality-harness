@@ -109,6 +109,8 @@ class Probe(ABC):
     #: metric *family* is the class-level name ("top") and ``service`` is a label.
     observation_binding: ObservationBinding | None = None
 
+    datasource_kind: str | None = None
+
     name: str = "probe"
     #: where this probe reads — groups its metrics for bottleneck attribution
     source: str = ""

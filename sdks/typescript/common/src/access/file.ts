@@ -33,6 +33,7 @@ export interface FileClient extends Client {
  * @see {@link component://../../../docs/toolbox.md}
  */
 export abstract class FileDataSource<C extends FileClient = FileClient> implements DataSource<C> {
+  readonly kind = "file";
   abstract readonly paths: readonly string[];
   readonly description?: string;
   abstract readonly clientKey: string;

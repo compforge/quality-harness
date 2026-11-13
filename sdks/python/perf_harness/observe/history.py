@@ -137,6 +137,14 @@ async def collect_metrics(run: Run, sources: dict[str, PrometheusDataSource]) ->
     required = {q.source_url for arm in run.arm_runs for q in arm.prometheus_observations}
     if required - sources.keys():
         raise ValueError("Prometheus configuration does not match saved query sources")
+    for arm in run.arm_runs:
+        for query in arm.prometheus_observations:
+            if sources[query.source_url].kind != query.datasource_kind:
+                raise ValueError(
+                    f"Saved query backend mismatch: probe={query.probe} "
+                    f"expected={query.datasource_kind} "
+                    f"actual={sources[query.source_url].kind}"
+                )
     async with ClientManager() as clients, DataLoader() as scope:
         for arm in run.arm_runs:
             _clear(arm)
@@ -145,11 +153,13 @@ async def collect_metrics(run: Run, sources: dict[str, PrometheusDataSource]) ->
                 query.warnings, query.infos = (), ()
                 query.collected_at_s = time.time()
                 logger.info(
-                    "perf metric query started: run=%s arm=%s probe=%s metric=%s",
+                    "perf metric query started: run=%s arm=%s probe=%s "
+                    "metric=%s datasource_kind=%s",
                     run.run_id,
                     arm.id,
                     query.probe,
                     query.metric,
+                    query.datasource_kind,
                 )
                 try:
                     client = await clients.get(sources[query.source_url])
@@ -230,7 +240,7 @@ async def recollect_metrics(run_dir: str, config_path: str | None = None) -> Run
     """Use only source configuration and saved queries, without importing project runners."""
     import yaml
 
-    from perf_harness.observe.configuration import parse_prometheus
+    from perf_harness.observe.configuration import parse_data_source, parse_prometheus
     from perf_harness.runio import load_run, write_metric_data
 
     directory = Path(run_dir)
@@ -238,24 +248,16 @@ async def recollect_metrics(run_dir: str, config_path: str | None = None) -> Run
     if not any(arm.prometheus_observations for arm in run.arm_runs):
         raise ValueError("Run has no saved Prometheus queries; no load will be generated")
     raw = yaml.safe_load(Path(config_path or directory / "config.yaml").read_text())
-    sources = {}
-    configurations = (
-        raw.get("data_sources", {}).values() if "observation" in raw else [raw.get("prometheus")]
+    if "data_sources" in raw:
+        raise ValueError("Use one data_source mapping instead of named data_sources")
+    source, _ = (
+        parse_data_source(raw.get("data_source"))
+        if "observation" in raw
+        else parse_prometheus(raw.get("prometheus"))
     )
-    for configuration in configurations:
-        if configuration is None:
-            continue
-        options = dict(configuration)
-        kind = options.pop("type", "prometheus")
-        if kind != "prometheus":
-            raise ValueError(f"unsupported data source type: {kind}")
-        source, _ = parse_prometheus(options)
-        assert source is not None
-        if source.url in sources and sources[source.url].client_key != source.client_key:
-            raise ValueError("Prometheus sources sharing a URL must share access options")
-        sources[source.url] = source
-    if not sources:
+    if source is None:
         raise ValueError("Metric collection requires a Prometheus data source")
+    sources = {source.url: source}
     # Preserve the original failed attempt as well as each subsequent one.
     archive_collection(run, directory)
     await collect_metrics(run, sources)

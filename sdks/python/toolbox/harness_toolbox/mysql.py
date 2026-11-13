@@ -64,6 +64,8 @@ class QueryResult:
 
 @dataclass(frozen=True)
 class MySQLDataSource(DataSource["MySQLClient"]):
+    kind: str = field(default="mysql", init=False)
+
     connection: ConnectionSource[MySQLTarget]
     concurrency: int = 4
     timeout_s: float = 60

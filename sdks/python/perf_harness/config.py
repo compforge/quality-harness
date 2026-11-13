@@ -129,12 +129,16 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
         )
     # client (load-gen's own inflight/sent) is harness-intrinsic → always on, not a
     # config knob. observe: is the one place for per-service resource observation.
+    if "data_sources" in raw:
+        raise ValueError("Use one data_source mapping instead of named data_sources")
+    if "data_source" in raw and "observation" not in raw:
+        raise ValueError("data_source requires observation declarations")
     source, step_s = parse_prometheus(raw.get("prometheus"))
     observation = []
     if "observation" in raw:
         if "observe" in raw or "prometheus" in raw:
             raise ValueError(
-                "observation uses data_sources and services; do not mix inline observe/prometheus"
+                "observation uses data_source and services; do not mix inline observe/prometheus"
             )
         services = {service.id(): service}
         for item in raw.get("services", []):
@@ -168,7 +172,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
             config_path.parent,
             services,
             graph,
-            raw.get("data_sources", {}),
+            raw.get("data_source"),
             windows,
         )
         probes = [ClientProbe(), *(p for item in observation for p in item.probes)]

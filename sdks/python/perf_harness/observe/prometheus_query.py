@@ -123,6 +123,7 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
                             self.step_s,
                             self.labels,
                             query.labels,
+                            datasource_kind=self.data_source.kind,
                         )
                     )
             for query in self.summaries:
@@ -141,6 +142,7 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
                             query.labels,
                             window.id,
                             histogram=query.histogram,
+                            datasource_kind=self.data_source.kind,
                         )
                     )
         return observations

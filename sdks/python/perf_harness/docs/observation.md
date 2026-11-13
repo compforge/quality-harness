@@ -40,8 +40,7 @@ runner: {name: http, method: POST, path: /search}
 cases: [{id: example, input: {query: example}}]
 graph: ../product.graph.yaml
 observation: ../observations.yaml
-data_sources:
-  metrics: {type: prometheus, url: 'http://prometheus.qa:9090', step_s: 15}
+data_source: {type: prometheus, kind: prometheus, url: 'http://prometheus.qa:9090', step_s: 15}
 observation_windows:
   - {kind: full}
   - {kind: phase, phase: hold}
@@ -53,7 +52,9 @@ Workload 声明，环境默认继承被测 Service；root Service 不重复声�
 查询的 Service 可省略运行承载配置。没有 Graph 时，在 observation 资产的 `operations` 列表
 声明 Common Operation 字段（name、service_name，可选 method/path/response_mode）。
 
-`data_sources` 用逻辑名关联 Probe，不把环境地址写入项目查询模板。
+`data_source` 是实验唯一的观测数据源；`type` 选择访问适配器，`kind` 标识实际后端。
+例如 `type: prometheus, kind: victoriametrics` 使用 Prometheus HTTP API 访问 VictoriaMetrics。
+`kind` 默认 prometheus；VM 必须显式声明，不通过 URL 猜测。Probe 不引用数据源名称或地址。
 Prometheus 的 headers_env、timeout_ms、连接池与结果大小限制复用已有访问配置。
 `observation_windows` 默认 full / phase / custom；它选择求值窗口，不改变执行阶段或请求耗时。
 同一指标声明一次，在所选窗口求值；窗口规则不能重复或重叠。
@@ -66,7 +67,7 @@ observations:
   - target: operation:search/search
     probes:
       - type: prometheus_query
-        data_source: metrics
+        datasource_kind: prometheus
         metrics:
           qps:
             promql: sum(rate(search_requests_total[$window]))
@@ -92,7 +93,7 @@ rps / ratio / s；不会因此限制其他观测。错误率保存 0–1，显�
 同一 target/workload 的同名指标生产者冲突在发压前报错。一个带多个结果 label 的查询不能
 直接绑定为节点标量；显式聚合后再声明指标。`queries` 可继续声明独立趋势查询。
 
-HTTP 通用 profile 使用 `type: http_api`、Operation target、`data_source` 和 `profile`。
+HTTP 通用 profile 使用 `type: http_api`、Operation target、`datasource_kind` 和 `profile`。
 profile 自动提供 qps/p95；只有同时配置 status_label 和 error_status_pattern 时才提供 HTTP
 错误率。分母仅包含非空 status 的请求序列，无流量或缺少 status schema 保留 Missing。
 HTTP status 错误率不代表 SSE 业务错误率；后者需要项目查询和对应业务 counter。
@@ -119,17 +120,56 @@ observations:
 Python 可直接构造 ObservationSpec(service, probes, operation=..., workload=...)，交给
 Experiment.observation；独立 Probe 调用仍可使用 Experiment.probes，二者不混用。
 
+## 按数据源后端选择 Probe
+
+Probe 的 `type` 表示生产者实现，`datasource_kind` 表示查询适用的实际后端。
+省略 `datasource_kind` 表示通用声明，不表示失败后的 fallback；显式值必须为非空字符串。
+Engine 装配时先匹配 `data_source.kind`，再构造 Probe、检查指标冲突和生成执行计划。
+未匹配的项目 factory 不会执行，查询函数也不会被 Harness 自动替换。
+
+同一属性可以为不同后端分别声明。例如下面两份 p95 只执行匹配的一份：
+
+```yaml
+observations:
+  - target: operation:search/search
+    probes:
+      - type: prometheus_query
+        datasource_kind: prometheus
+        metrics:
+          p95:
+            promql: sum by (le) (increase(search_duration_seconds_bucket[$window]))
+            histogram: {quantile: 0.95}
+            unit: s
+      - type: prometheus_query
+        datasource_kind: victoriametrics
+        metrics:
+          p95:
+            promql: sum by (le) (increase_prometheus(search_duration_seconds_bucket[$window]))
+            histogram: {quantile: 0.95}
+            unit: s
+```
+
+实际查询需加环境、服务和 Operation 的 selector。此示例选择 VM 的首样本处理策略，
+不承诺它与 Prometheus 的窗口边界外推结果数值一致。
+
+声明的每个属性必须有匹配生产者；没有显式 metrics 的 Probe 用相同 type/name 标识后端变体。
+无匹配、同一属性多个生产者（包括通用与专用同时匹配）都在加压前报错，不静默覆盖或跳过。
+非数据源 Probe（如 restart）可以省略 datasource_kind，独立于 Prometheus 后端执行。
+项目 factory 的 ProbeConfig 接收实际 prometheus 数据源及声明的 datasource_kind。
+
 ## 执行与事实
 
 加压器自身及每次请求的 Outcome / Judge 数据自动记录，无需声明一个虚假的请求 Probe。
 周期 Probe 在执行期间采样；历史查询在实际窗口确定后执行。Engine 只调度观察过程，
 Prometheus 查询计划和转换保留在 observe 适配层。
 
-Run schema 11 保存 graph 快照、observation_bindings、指标类型及原始查询/结果。
+Run schema 12 保存 graph 快照、observation_bindings、指标类型及原始查询/结果。
 ObservationBinding 以目标身份、可选 workload 和开放 metrics 映射指向 MetricStore；
 不保存第二份指标值，不改写静态节点。旧 schema 不兼容读取。
-报告离线读取这些事实；collect-metrics 使用实验的具名 data_sources 和已保存查询补采，
+报告离线读取这些事实；collect-metrics 使用实验的单个 data_source 和已保存查询补采，
 不加载业务 Runner、不发压，不依赖源 Observation 或 Graph 文件。
+每条冻结查询保存 datasource_kind、Probe、表达式和实际窗口；补采拒绝后端 kind 不匹配，
+保留已有结果，不在另一后端上尝试运行或重写查询。查询失败同样不会执行另一份 Probe。
 
 缺失、查询错误、数值零和 histogram 溢出的 +Inf 分开表达。查询失败保留证据并降低观测完整性，
 不修改请求结果或自动裁决业务是否达标。静态边与节点流量不构成单次请求路径证明。

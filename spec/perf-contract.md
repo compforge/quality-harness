@@ -1,6 +1,6 @@
 # Perf Harness 跨语言契约
 
-Python 与 TypeScript 共享本契约；各语言保持惯用 API，功能覆盖可以不同。当前产物使用 schema 11。
+Python 与 TypeScript 共享本契约；各语言保持惯用 API，功能覆盖可以不同。当前产物使用 schema 12。
 
 ## 事实骨架
 
@@ -113,7 +113,7 @@ code 独立保存在 evaluations.json，原始 HTTP status / 异常仍归 Outcom
 
 | 文件 | 契约 |
 |---|---|
-| run.json | schema=11，executions 数组；无重复的 arm_runs/outcomes 存储 |
+| run.json | schema=12，executions 数组；无重复的 arm_runs/outcomes 存储 |
 | requests.jsonl | 每行 arm_run_id + request + 可选 operation_run（拥有唯一原始 Outcome） |
 | evaluations.json | ArmRun ID → OperationRun ID → RequestEvaluation |
 | timeseries.csv | arm_run,series,t,value 的资源采样 |
@@ -130,11 +130,11 @@ Reader 必须恢复原始关联与完整请求记录；支持当前 schema 的�
 
 Python 的 PrometheusQueryProbe 在压测后查询外部 Prometheus，不自行抓取服务 /metrics。
 可选 started_at_s 保存 ArmRun 发压 Unix 起点，prometheus_observations 保存可重放查询及原始结果；
-report_columns 保存指标与窗口选择。这些是 schema 11 的附加字段，目前由 Python 实现。
+report_columns 保存指标与窗口选择。这些是 schema 12 的附加字段，目前由 Python 实现。
 历史查询可独立补采，不重发负载、不改写请求结果；报告重渲染只读取已保存结果。
 
 可选 `graph` 保存实际使用的 Common Graph 完整快照（含 environment/source/version），不保存本机路径。
-这是 schema 11 的附加字段，目前 Python 支持加载配置、绑定校验与离线重载。
+这是 schema 12 的附加字段，目前 Python 支持加载配置、绑定校验与离线重载。
 其 environment 必须与 Run 一致；声明 Operation 绑定的 Probe 必须引用图中的 Operation 及其 Service。
 指标仍通过 operation label 关联；图中节点没有指标不表示零流量，静态 calls 不证明某次实际调用或因果。
 
@@ -147,9 +147,15 @@ stable ID remains the join key; metric-label spelling is a project-owned profile
 and an open metrics map. Each MetricBinding stores a MetricStore address, unit, description
 and semantics. RED's qps/p95/error_rate roles use rps/seconds/ratio; other roles are allowed.
 Multiple producers may contribute disjoint roles, never silently overwrite the same role.
+Experiments supply one `data_source` with adapter `type` and backend `kind`. Reusable probes declare
+`datasource_kind` and their query logic, without naming an environment source. Assembly selects matching
+or universal declarations before constructing factories and validating producer conflicts. Every declared
+contribution must be covered; multiple selected producers cannot overwrite one attribute. Collection
+freezes the selected probe, actual datasource kind, expression and window. Recollection validates kind
+before querying or clearing facts; query failure never selects another backend variant.
 Counter, histogram and log-derived measurements share this path; queries own their population
 and scope. ObservationSpec declares what to observe and its producers; it is not a runtime fact.
-Run schema 11 replaces the fixed OperationMetricBinding; older run schemas are rejected.
+Run schema 12 requires datasource_kind on every saved Prometheus query; older run schemas are rejected.
 Generic Operations use the same binding for middleware metrics without inventing HTTP routes.
 `case_ids` records the experiment scope. Observation collection is independent of optional topology.
 Reports read saved MetricStore windows and project only operation nodes plus calls/may_call

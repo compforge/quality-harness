@@ -19,6 +19,7 @@ from perf_harness.model import RED_UNITS, ArmRun, Run, Window
 class QueryEvidence:
     expression: str
     source_url: str
+    datasource_kind: str
     start_s: float
     end_s: float
     collected_at_s: float | None
@@ -144,7 +145,14 @@ def _metric(
     ]
     evidence = tuple(
         QueryEvidence(
-            q.expression, q.source_url, q.start_s, q.end_s, q.collected_at_s, q.error, q.warnings
+            q.expression,
+            q.source_url,
+            q.datasource_kind,
+            q.start_s,
+            q.end_s,
+            q.collected_at_s,
+            q.error,
+            q.warnings,
         )
         for q in queries
     )

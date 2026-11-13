@@ -38,7 +38,6 @@ def assets(tmp_path):
                     {
                         "type": "prometheus_query",
                         "name": "traffic",
-                        "data_source": "metrics",
                         "metrics": {
                             "qps": {
                                 "promql": "rate(requests[$window])",
@@ -55,7 +54,6 @@ def assets(tmp_path):
                     {
                         "type": "prometheus_query",
                         "name": "errors",
-                        "data_source": "metrics",
                         "metrics": {
                             "error_rate": {
                                 "promql": "errors / completed",
@@ -73,7 +71,7 @@ def assets(tmp_path):
         "name": "red",
         "graph": "product.graph.yaml",
         "observation": "observations.yaml",
-        "data_sources": {"metrics": {"type": "prometheus", "url": "http://metrics"}},
+        "data_source": {"type": "prometheus", "kind": "prometheus", "url": "http://metrics"},
         "service": {"name": "entry", "environment": {"name": "qa"}, "base_url": "http://unused"},
         "runner": {"name": "mock"},
         "cases": [{"id": "search", "input": {"ms": 1}}],
@@ -150,7 +148,7 @@ async def test_observation_to_red_offline(monkeypatch, tmp_path, error_value):
     cooldown = next(w for w in snapshot.arms[0].windows if w.phase == "cooldown")
     assert cooldown.nodes[0].properties["perf"]["metrics"]["qps"]["value"] is None
     payload = json.loads(Path(paths["run_dir"], "run.json").read_text())
-    assert payload["schema"] == 11
+    assert payload["schema"] == 12
 
 
 def test_graph_optional_and_service_workload_targets_reuse_common(tmp_path):
@@ -212,10 +210,13 @@ def test_observation_errors_fail_before_load(tmp_path, mistake):
         load_experiment(str(path))
 
 
-async def test_named_source_recollection_needs_no_project_assets(monkeypatch, tmp_path):
+@pytest.mark.parametrize("backend", ["prometheus", "victoriametrics"])
+async def test_single_source_recollection_needs_no_project_assets(monkeypatch, tmp_path, backend):
     from perf_harness.observe.history import recollect_metrics
 
-    path, _, _ = assets(tmp_path)
+    path, raw, _ = assets(tmp_path)
+    raw["data_source"]["kind"] = backend
+    path.write_text(yaml.safe_dump(raw))
     experiment, _ = load_experiment(str(path))
     run = await Engine(experiment, run_id="recollect").run(collect=False)
     paths = write_run(run, str(tmp_path / "runs"), config_path=str(path))
@@ -257,6 +258,7 @@ def test_registered_producer_and_open_attributes_share_observation_contract(tmp_
     def factory(config):
         assert config.operation.id() == "operation:entry/search"
         assert config.prometheus.url == "http://metrics"
+        assert config.datasource_kind == config.prometheus.kind == "victoriametrics"
         return PrometheusQueryProbe(
             service=config.service.name,
             operation=config.operation,
@@ -272,12 +274,13 @@ def test_registered_producer_and_open_attributes_share_observation_contract(tmp_
     asset["observations"][0]["probes"].append(
         {
             "type": "visit_ratio_test",
+            "datasource_kind": "victoriametrics",
             "name": "visits",
-            "data_source": "metrics",
             "metrics": {"visit_ratio": {"metric": "amplification.value"}},
         }
     )
     raw["observation"] = asset
+    raw["data_source"]["kind"] = "victoriametrics"
     path.write_text(yaml.safe_dump(raw))
     experiment, _ = load_experiment(str(path))
     assert set(experiment.observation_bindings()[0].metrics) == {
@@ -303,3 +306,189 @@ def test_project_observation_example_resolves_without_target_access():
     binding = experiment.observation_bindings()[0]
     assert binding.target == "operation:search/search"
     assert set(binding.metrics) == {"qps", "p95", "error_rate"}
+
+
+@pytest.mark.parametrize(
+    "backend,function", [("prometheus", "increase"), ("victoriametrics", "increase_prometheus")]
+)
+@pytest.mark.parametrize("query_fails", [False, True])
+async def test_backend_selection_freezes_only_matching_queries(
+    monkeypatch, tmp_path, backend, function, query_fails
+):
+    """@case Backend-specific histograms never execute the other backend, even after failure."""
+    from copy import deepcopy
+
+    path, raw, asset = assets(tmp_path)
+    traffic = asset["observations"][0]["probes"][0]
+    traffic["datasource_kind"] = "prometheus"
+    vm = deepcopy(traffic)
+    vm["datasource_kind"] = "victoriametrics"
+    vm["metrics"]["p95"]["promql"] = vm["metrics"]["p95"]["promql"].replace(
+        "increase(", "increase_prometheus("
+    )
+    asset["observations"][0]["probes"].append(vm)
+    raw["observation"], raw["data_source"]["kind"] = asset, backend
+    path.write_text(yaml.safe_dump(raw))
+    experiment, _ = load_experiment(str(path))
+    assert len(experiment.observation[0].probes) == 2  # matching traffic + universal errors
+    assert (
+        next(
+            p for p in experiment.observation[0].probes if "qps" in p.observation_binding.metrics
+        ).datasource_kind
+        == backend
+    )
+    seen = []
+
+    def handler(request):
+        params = parse_qs(request.content.decode())
+        expr = params["query"][0]
+        seen.append(expr)
+        if query_fails:
+            return httpx.Response(503)
+        t = float(params["time"][0])
+        rows = (
+            [
+                {"metric": {"le": le}, "value": [t, count]}
+                for le, count in [("1", "90"), ("+Inf", "100")]
+            ]
+            if "bucket" in expr
+            else [{"metric": {}, "value": [t, "0.1"]}]
+        )
+        return httpx.Response(
+            200, json={"status": "success", "data": {"resultType": "vector", "result": rows}}
+        )
+
+    monkeypatch.setattr(
+        HTTPClientProvider,
+        "create_client",
+        lambda *_: HTTPClient(transport=httpx.MockTransport(handler)),
+    )
+    run = await Engine(experiment, run_id="backend").run()
+    paths = write_run(run, str(tmp_path / "runs"), config_path=str(path))
+    restored = load_run(paths["run_dir"])
+    queries = restored.arm_runs[0].prometheus_observations
+    assert queries and all(q.datasource_kind == backend for q in queries)
+    assert (
+        all(q.error is not None for q in queries)
+        if query_fails
+        else all(q.error is None for q in queries)
+    )
+    buckets = [q for q in queries if "bucket" in q.expression]
+    assert buckets and all(f"{function}(" in q.expression for q in buckets)
+    assert set(seen) == {q.expression for q in queries}
+    graph_metrics = (
+        build_callgraph(restored).arms[0].windows[0].nodes[0].properties["perf"]["metrics"]
+    )
+    assert graph_metrics["p95"]["queries"][0]["datasource_kind"] == backend
+    assert graph_metrics["p95"]["value"] == (None if query_fails else "+Inf")
+
+
+@pytest.mark.parametrize(
+    "mistake",
+    [
+        "no_match",
+        "partial_match",
+        "universal_conflict",
+        "duplicate_match",
+        "missing_source",
+        "old_sources",
+        "old_probe_source",
+        "blank",
+        "null",
+        "number",
+    ],
+)
+def test_backend_config_errors_before_load(tmp_path, mistake):
+    from copy import deepcopy
+
+    path, raw, asset = assets(tmp_path)
+    probe = asset["observations"][0]["probes"][0]
+    probe["datasource_kind"] = "prometheus"
+    if mistake == "no_match":
+        raw["data_source"]["kind"] = "victoriametrics"
+    elif mistake == "partial_match":
+        candidate = deepcopy(probe)
+        candidate["datasource_kind"] = "victoriametrics"
+        candidate["metrics"] = {"extra": {"promql": "value", "unit": ""}}
+        asset["observations"][0]["probes"].append(candidate)
+    elif mistake in {"universal_conflict", "duplicate_match"}:
+        candidate = deepcopy(probe)
+        candidate["name"] = "duplicate"
+        if mistake == "universal_conflict":
+            del candidate["datasource_kind"]
+        asset["observations"][0]["probes"].append(candidate)
+    elif mistake == "missing_source":
+        del raw["data_source"]
+    elif mistake == "old_sources":
+        raw["data_sources"] = {"metrics": raw.pop("data_source")}
+    elif mistake == "old_probe_source":
+        probe["data_source"] = "metrics"
+    else:
+        probe["datasource_kind"] = {"blank": " ", "null": None, "number": 1}[mistake]
+    raw["observation"] = asset
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError):
+        load_experiment(str(path))
+
+
+def test_unselected_custom_factory_is_not_constructed(tmp_path):
+    from perf_harness import register_probe
+
+    def forbidden(config):
+        raise AssertionError("Unselected backend factory must not run")
+
+    register_probe("unselected_backend_test", forbidden)
+    path, raw, asset = assets(tmp_path)
+    asset["observations"][0]["probes"].append(
+        {
+            "type": "unselected_backend_test",
+            "datasource_kind": "victoriametrics",
+            "metrics": {"p95": {"metric": "latency.value"}},
+        }
+    )
+    raw["observation"] = asset
+    path.write_text(yaml.safe_dump(raw))
+    experiment, _ = load_experiment(str(path))
+    assert len(experiment.observation[0].probes) == 2
+
+
+async def test_recollection_rejects_changed_backend_before_io_or_clearing(monkeypatch, tmp_path):
+    from harness_toolbox.prometheus import PrometheusDataSource
+
+    from perf_harness.observe.history import collect_metrics, recollect_metrics
+
+    path, raw, _ = assets(tmp_path)
+    experiment, _ = load_experiment(str(path))
+    run = await Engine(experiment, run_id="kind-mismatch").run(collect=False)
+    for q in run.arm_runs[0].prometheus_observations:
+        q.error = "original failure"
+    paths = write_run(run, str(tmp_path / "runs"), config_path=str(path))
+    original = Path(paths["run_dir"], "run.json").read_bytes()
+
+    def forbidden(*_):
+        raise AssertionError("kind mismatch must fail before I/O")
+
+    monkeypatch.setattr(HTTPClientProvider, "create_client", forbidden)
+    with pytest.raises(ValueError, match="backend mismatch"):
+        await collect_metrics(
+            run, {"http://metrics": PrometheusDataSource("http://metrics", kind="victoriametrics")}
+        )
+    assert all(q.error == "original failure" for q in run.arm_runs[0].prometheus_observations)
+    raw["data_source"]["kind"] = "victoriametrics"
+    raw["extensions"] = ["must_not_be_imported"]
+    path.write_text(yaml.safe_dump(raw))
+    (tmp_path / "observations.yaml").unlink()
+    with pytest.raises(ValueError, match="backend mismatch"):
+        await recollect_metrics(paths["run_dir"], str(path))
+    assert Path(paths["run_dir"], "run.json").read_bytes() == original
+
+
+def test_resource_observation_needs_no_data_source(tmp_path):
+    path, raw, _ = assets(tmp_path)
+    del raw["data_source"]
+    raw["observation"] = {
+        "observations": [{"target": "service:entry", "probes": [{"type": "restart"}]}]
+    }
+    path.write_text(yaml.safe_dump(raw))
+    experiment, _ = load_experiment(str(path))
+    assert experiment.observation[0].probes[0].datasource_kind is None

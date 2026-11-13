@@ -11,7 +11,13 @@ class DataSource(ClientProvider[C], Protocol[C]):
     """A source of data; lifecycle and reuse follow ClientProvider.
 
     Accessible environment providers need not be described as data sources.
+
+    @spec kind identifies the backend implementation with a nonempty, open string;
+          consumer-owned query strategies may select by kind, not by URL or source name.
     """
+
+    # Backend implementation, not a source name or query-language dialect.
+    kind: str
 
     # Safe discovery metadata, not credentials or part of client_key.
     description: str | None = None

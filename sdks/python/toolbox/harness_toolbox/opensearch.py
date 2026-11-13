@@ -38,6 +38,8 @@ class OpenSearchTarget:
 
 @dataclass(frozen=True)
 class OpenSearchDataSource(DataSource["OpenSearchClient"]):
+    kind: str = field(default="opensearch", init=False)
+
     connection: ConnectionSource[OpenSearchTarget]
     timeout_s: float = 60
     concurrency: int = 8

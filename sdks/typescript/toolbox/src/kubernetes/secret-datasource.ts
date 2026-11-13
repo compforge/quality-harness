@@ -111,6 +111,7 @@ export class KubernetesSecretClient implements Client {
 
 /** Named Secret acquisition; callers own discovery, access policy and interpretation of the selected values. */
 export class KubernetesSecretDataSource implements DataSource<KubernetesSecretClient> {
+  readonly kind = "kubernetes_secret";
   readonly clientKey: string;
   readonly target: Readonly<KubernetesSecretTarget>;
   readonly keys: readonly string[];

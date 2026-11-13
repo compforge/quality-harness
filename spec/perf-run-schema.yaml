@@ -14,7 +14,7 @@ required:
 properties:
   schema:
     type: integer
-    const: 11
+    const: 12
   run_id:
     type: string
     minLength: 1
@@ -530,12 +530,13 @@ $defs:
         type: array
         items:
           type: object
-          required: [probe, metric, expression, source_url, start_s, end_s, step_s, labels]
+          required: [probe, metric, expression, source_url, datasource_kind, start_s, end_s, step_s, labels]
           properties:
             probe: {type: string}
             metric: {type: string}
             expression: {type: string}
             source_url: {type: string}
+            datasource_kind: {type: string, minLength: 1}
             start_s: {type: number}
             end_s: {type: number}
             step_s:
