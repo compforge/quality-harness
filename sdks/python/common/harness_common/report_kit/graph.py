@@ -14,11 +14,7 @@ def asset_script(name: str) -> str:
     assets = files("harness_common.report_kit").joinpath("assets")
     notices = {
         "cytoscape.min.js": ("cytoscape-LICENSE",),
-        "cytoscape-dagre.js": (
-            "cytoscape-dagre-LICENSE",
-            "dagre-LICENSE",
-            "graphlib-LICENSE",
-        ),
+        "elk.bundled.js": ("elk-LICENSE.md",),
         "echarts.min.js": ("echarts-LICENSE", "echarts-NOTICE"),
     }
     license_text = "\n".join(
@@ -63,6 +59,7 @@ def render_graph(
         f'<div id="{ident}" class="graph-view"><b>{html.escape(view.title)}</b> '
         '<select class="graph-scope" aria-label="统计范围"></select> <select class="graph-frame" aria-label="Graph view"></select> <button type="button" class="graph-fit">Fit</button>'
         ' <button type="button" class="graph-copy">复制图片</button>'
+        ' <span class="graph-layout-status" role="status" aria-live="polite"></span>'
         ' <span class="graph-copy-status" role="status" aria-live="polite"></span>'
         '<div class="graph-viewport" style="position:relative"><div class="graph-canvas"></div>'
         '<div class="graph-tooltip" role="tooltip" hidden style="position:absolute;pointer-events:auto;white-space:pre-wrap;overflow-wrap:anywhere;max-width:min(560px,90%);max-height:65%;overflow:auto;background:#fff;border:1px solid #94a3b8;padding:8px;border-radius:4px;z-index:3"></div>'
@@ -78,6 +75,7 @@ def render_graph(
 def graph_scripts() -> str:
     return (
         asset_script("cytoscape.min.js")
-        + asset_script("cytoscape-dagre.js")
+        + asset_script("elk.bundled.js")
+        + asset_script("graph-layout.js")
         + asset_script("graph-view.js")
     )
