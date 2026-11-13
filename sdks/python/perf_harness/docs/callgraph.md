@@ -61,6 +61,19 @@ OperationMetricBinding 将角色引用和各自的口径说明关联到 Operatio
 不能把两种来源的计数差异直接解释成精确覆盖率或丢失率。
 中间件可用普通 Operation 归属于 Service，只绑定已有 QPS；不必虚构 HTTP method/path 或耗时分位数。多个互不重叠的窗口 kind 可复用同一个 summary 名。
 
+## SSE Operation
+
+Common `SSEOperation(name, service_name=..., method="POST", path=...)` 继承 HttpOperation，
+共享 HTTP 指标的 method/route 匹配，但用 `response_mode=sse` 区分流式响应。
+普通 HttpOperation 为 `response_mode=unary`，Operation ID 不受模式影响。
+`http_api` 的 operation 配置可写 `response_mode: sse`；省略时为 unary。
+自定义 Runner 可从 `operation(ctx)` 返回 SSEOperation；Run schema 9 重载会保留具体类型。
+OperationMetricBinding、callgraph.json 和节点详情保留响应模式；也可读取静态节点 properties 中明确声明的 response_mode；缺少声明时不推测模式。
+
+该类型声明不改变请求调度、timeout、Judge 或 histogram 计时口径。SSE 的 HTTP 200 不能
+替代业务终态，首个 SSE 事件也不一定是有效输出。分析 p95 时核对对应指标测量的是
+服务端 middleware、首个有效输出还是完整流，不能仅凭 SSE 类型重新命名或换算指标。
+
 ## 时间窗口与数据
 
 自动查询包括 QPS/p95 趋势和 measurement、observation、各 hold/ramp/warmup/cooldown 窗口汇总。

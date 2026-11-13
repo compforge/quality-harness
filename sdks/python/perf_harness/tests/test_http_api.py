@@ -374,3 +374,36 @@ def test_operation_role_descriptions_cannot_change_between_windows():
                 ),
             ],
         )
+
+
+@pytest.mark.parametrize("mode", ["unary", "sse"])
+def test_http_response_mode_survives_configuration_binding_and_request_roundtrip(tmp_path, mode):
+    from harness_common import OperationRun, SSEOperation
+
+    from perf_harness.model import Outcome, Service
+    from perf_harness.runio import _operation_from, _operation_json
+
+    path = configuration(tmp_path)
+    raw = yaml.safe_load(path.read_text())
+    raw["observe"][0]["probes"][0]["operation"]["response_mode"] = mode
+    path.write_text(yaml.safe_dump(raw))
+    experiment, _ = load_experiment(str(path))
+    probe = next(p for p in experiment.probes if isinstance(p, HttpApiProbe))
+    assert probe.operation_metrics.response_mode == mode
+    operation_type = SSEOperation if mode == "sse" else HttpOperation
+    call = OperationRun(
+        id="call-1",
+        service=Service("kb"),
+        operation=operation_type(
+            "retrieve", service_name="kb", method="POST", path="/faqs/{dataset_id}"
+        ),
+        outcome=Outcome(status=200, duration_ms=50),
+    )
+    serialized = _operation_json(call)
+    restored = _operation_from(serialized)
+    assert type(restored.operation) is operation_type
+    assert restored.operation == call.operation
+    assert _operation_json(restored) == serialized
+    serialized["operation"]["response_mode"] = "unknown"
+    with pytest.raises(ValueError, match="response mode"):
+        _operation_from(serialized)

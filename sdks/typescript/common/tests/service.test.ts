@@ -147,3 +147,16 @@ test("Service and Operation implement Identity without graph helper functions", 
   expect(restored.id()).toBe(operation.id());
   expect(JSON.parse(JSON.stringify(service))).not.toHaveProperty("id");
 });
+
+
+test("SSEOperation retains HTTP contract and service-qualified identity", async () => {
+  const { SSEOperation } = await import("../src/index.js");
+  const args = { name: "ask", serviceName: "chat", method: "POST", path: "/chat" };
+  const ordinary = new HttpOperation(args);
+  const stream = new SSEOperation(args);
+  expect(stream).toBeInstanceOf(HttpOperation);
+  expect(stream.id()).toBe(ordinary.id());
+  expect(ordinary.response_mode).toBe("unary");
+  expect(JSON.parse(JSON.stringify(stream)).response_mode).toBe("sse");
+  expect(new SSEOperation(JSON.parse(JSON.stringify(stream))).id()).toBe(stream.id());
+});

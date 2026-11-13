@@ -4,7 +4,7 @@ import math
 import os
 from typing import get_args
 
-from harness_common import HttpOperation, Operation
+from harness_common import HttpOperation, Operation, SSEOperation
 from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
 
 from perf_harness.model import ReportColumn, Service, WindowKind, WindowSelector
@@ -203,16 +203,25 @@ def parse_http_api_probe(
     if set(options) - {"operation", "metric_route"}:
         raise ValueError("http_api supports only operation and metric_route")
     operation = options.get("operation")
-    if not isinstance(operation, dict) or set(operation) != {"name", "method", "path"}:
+    if (
+        not isinstance(operation, dict)
+        or not {"name", "method", "path"} <= set(operation)
+        or set(operation) - {"name", "method", "path", "response_mode"}
+    ):
         raise ValueError("http_api operation requires name, method and path (route template)")
     if any(not isinstance(value, str) or not value for value in operation.values()):
         raise ValueError("HTTP operation name, method and path must be nonempty strings")
+    declaration = dict(operation)
+    mode = declaration.pop("response_mode", "unary")
+    if mode not in {"unary", "sse"}:
+        raise ValueError("HTTP operation response_mode must be unary or sse")
+    operation_type = SSEOperation if mode == "sse" else HttpOperation
     try:
         metrics = HttpMetricProfile(**profile)
     except TypeError as exc:
         raise ValueError("http_metrics contains missing or unknown profile fields") from exc
     return HttpApiProbe(
-        operation=HttpOperation(service_name=service.name, **operation),
+        operation=operation_type(service_name=service.name, **declaration),
         profile=metrics,
         data_source=source,
         step_s=step_s,

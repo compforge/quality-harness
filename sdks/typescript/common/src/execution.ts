@@ -21,12 +21,17 @@ export class Operation implements Identity {
 export class HttpOperation extends Operation {
   readonly method: string;
   readonly path: string;
+  readonly response_mode: "unary" | "sse" = "unary";
 
-  constructor(value: Omit<HttpOperation, "id">) {
+  constructor(value: Omit<HttpOperation, "id" | "response_mode">) {
     super(value);
     this.method = value.method;
     this.path = value.path;
   }
+}
+/** SSE remains HTTP; response mode changes neither capability identity nor success. */
+export class SSEOperation extends HttpOperation {
+  override readonly response_mode = "sse" as const;
 }
 /** A real call owns its raw domain evidence. Case identity and scheduling belong to the domain. */
 export interface OperationRun<O> {

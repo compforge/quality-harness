@@ -45,7 +45,7 @@ python -m perf_harness.cli collect-metrics <run_dir> --config my-exp.yaml
 
 | 产物 | 内容 |
 |---|---|
-| run.json | schema 8：Execution、Arm、Window 与归约结果 |
+| run.json | schema 9：Execution、Arm、Window 与归约结果 |
 | requests.jsonl | 调度记录与关联 OperationRun 的唯一原始 Outcome |
 | evaluations.json | 按 OperationRun ID 保存的独立请求判定 |
 | timeseries.csv | Probe 原始采样 |

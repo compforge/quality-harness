@@ -1,6 +1,6 @@
 # Perf Harness 跨语言契约
 
-Python 与 TypeScript 共享本契约；各语言保持惯用 API，功能覆盖可以不同。当前产物使用 schema 8。
+Python 与 TypeScript 共享本契约；各语言保持惯用 API，功能覆盖可以不同。当前产物使用 schema 9。
 
 ## 事实骨架
 
@@ -102,7 +102,7 @@ code 独立保存在 evaluations.json，原始 HTTP status / 异常仍归 Outcom
 
 | 文件 | 契约 |
 |---|---|
-| run.json | schema=8，executions 数组；无重复的 arm_runs/outcomes 存储 |
+| run.json | schema=9，executions 数组；无重复的 arm_runs/outcomes 存储 |
 | requests.jsonl | 每行 arm_run_id + request + 可选 operation_run（拥有唯一原始 Outcome） |
 | evaluations.json | ArmRun ID → OperationRun ID → RequestEvaluation |
 | timeseries.csv | arm_run,series,t,value 的资源采样 |
@@ -119,11 +119,11 @@ Reader 必须恢复原始关联与完整请求记录；支持当前 schema 的�
 
 Python 的 PrometheusQueryProbe 在压测后查询外部 Prometheus，不自行抓取服务 /metrics。
 可选 started_at_s 保存 ArmRun 发压 Unix 起点，prometheus_observations 保存可重放查询及原始结果；
-report_columns 保存指标与窗口选择。这些是 schema 8 的附加字段，目前由 Python 实现。
+report_columns 保存指标与窗口选择。这些是 schema 9 的附加字段，目前由 Python 实现。
 历史查询可独立补采，不重发负载、不改写请求结果；报告重渲染只读取已保存结果。
 
 可选 `graph` 保存实际使用的 Common Graph 完整快照（含 environment/source/version），不保存本机路径。
-这是 schema 8 的附加字段，目前 Python 支持加载配置、绑定校验与离线重载。
+这是 schema 9 的附加字段，目前 Python 支持加载配置、绑定校验与离线重载。
 其 environment 必须与 Run 一致；声明 Operation 绑定的 Probe 必须引用图中的 Operation 及其 Service。
 指标仍通过 operation label 关联；图中节点没有指标不表示零流量，静态 calls 不证明某次实际调用或因果。
 
@@ -137,9 +137,9 @@ QPS and p95 are independent optional roles; at least one must be bound. A missin
 remains unbound, not zero. OperationMetricBinding retains separate descriptions for each
 role, copied from its WindowQuery declaration into the saved run and callgraph snapshot.
 Counter, histogram and log-derived measurements use this same binding path; each query
-owns its units, population and scope. The schema-8 operation_metrics field records OperationMetricBinding; older run schemas are rejected.
+owns its units, population and scope. The schema-9 operation_metrics field records OperationMetricBinding; older run schemas are rejected.
 Generic Operations use the same binding for middleware metrics without inventing HTTP routes.
-`case_ids` records the experiment scope. These are additive schema-8 fields.
+`case_ids` records the experiment scope. These are additive schema-9 fields.
 Reports read saved MetricStore windows and project only operation nodes plus calls/may_call
 edges. Service ownership is auxiliary metadata. QPS on a node does not prove an incoming edge
 executed or isolate case traffic. Missing values and collection errors cannot become zero.
@@ -149,3 +149,8 @@ one capacity before execution as max(default, configured, all LoadPlan/Stage pea
 then passes it to the load HTTP pool/local proxy/Pod relay. Observers and timeouts remain
 independent. Graph structure and built-in relation constraints are shared across languages;
 HTTP profile and interactive report coverage are currently Python capabilities.
+
+HTTP Operation 在 requests.jsonl 中保存 `response_mode=unary|sse`。SSEOperation 继承
+HttpOperation，身份仍只由 Service 和 Operation name 决定；流式响应不自动定义业务成功。
+OperationMetricBinding 的 response_mode 及 Callgraph 节点详情描述同一响应模式，
+指标自身的计时边界仍由其 description 定义。

@@ -18,3 +18,7 @@ harness_common/
 不是独立分发包；跨组引用必须指向具体模块，避免依赖包根聚合导出造成循环。
 包根保持既有符号和类型身份；深层导入迁移见 [0.6 升级说明](README.md)。
 从 `sdks/python` 运行 `make fix`、`make lint`、`make test` 和 `make build`。
+
+`HttpOperation` 声明普通 HTTP 响应（`response_mode=unary`）；`SSEOperation` 继承它并声明
+`response_mode=sse`。两者沿用 Service + Operation name 身份，不以响应模式划分 ID；
+HTTP 200、首个事件和业务终态是不同事实，成功判定与计时边界由领域/消费方拥有。

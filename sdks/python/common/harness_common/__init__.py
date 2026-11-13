@@ -13,7 +13,7 @@ and this repo is one of its runners. Import those names from `spec_case` directl
 execution happens. `Service` identifies a Component's runtime presence in one Environment.
 `Workload` locates a declared runtime carrier; a Service can reference multiple workloads.
 `Operation` identifies a capability exposed by a Service; `HttpOperation` adds its HTTP
-transport contract. An `Execution` groups domain-defined work such as an e2e CaseRun or
+transport contract; `SSEOperation` declares an SSE response. An `Execution` groups domain-defined work such as an e2e CaseRun or
 a perf Trial; each `OperationRun` owns one raw `Outcome`. Domain engines own scheduling
 details. A domain `Reducer` projects the recorded Outcomes into one or more
 `Artifact` objects without calling the tested Service again. `Deployment` records an
@@ -42,6 +42,7 @@ from harness_common.execution.experiment import ExperimentRun as ExperimentRun
 from harness_common.system.forge import Forge as Forge
 from harness_common.identity import Identity as Identity
 from harness_common.execution.operation import HttpOperation as HttpOperation
+from harness_common.execution.operation import SSEOperation as SSEOperation
 from harness_common.execution.operation import Operation as Operation
 from harness_common.execution.operation import OperationRun as OperationRun
 from harness_common.execution.outcome import Outcome as Outcome

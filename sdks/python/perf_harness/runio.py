@@ -38,6 +38,7 @@ from harness_common import (
     Reducer,
     Repository,
     Service,
+    SSEOperation,
     Workload,
 )
 
@@ -74,11 +75,11 @@ from perf_harness.model import (
 from perf_harness.records import RequestEvaluation, RequestRecord
 
 #: bump when run.json's shape changes incompatibly — offline readers check this first
-RUN_SCHEMA = 8
+RUN_SCHEMA = 9
 
 
 def _record(model, data: dict):
-    """Read known fields while accepting additive fields from another schema-8 writer."""
+    """Read known fields while accepting additive fields from another schema-9 writer."""
     return model(**{f.name: data[f.name] for f in fields(model) if f.name in data})
 
 
@@ -275,11 +276,15 @@ def _operation_from(d: dict) -> OperationRun:
             for w in target.get("workloads", [])
         ),
     )
-    operation = (
-        HttpOperation(service_name=service.name, **d["operation"])
-        if "method" in d["operation"]
-        else Operation(service_name=service.name, **d["operation"])
-    )
+    declaration = dict(d["operation"])
+    if "method" in declaration:
+        mode = declaration.pop("response_mode")
+        if mode not in {"unary", "sse"}:
+            raise ValueError(f"unsupported HTTP response mode: {mode}")
+        operation_type = SSEOperation if mode == "sse" else HttpOperation
+        operation = operation_type(service_name=service.name, **declaration)
+    else:
+        operation = Operation(service_name=service.name, **declaration)
     return OperationRun(
         id=d["id"], service=service, operation=operation, outcome=_record(Outcome, d["outcome"])
     )

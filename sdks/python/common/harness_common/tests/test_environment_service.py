@@ -242,3 +242,19 @@ def test_operation_identity_uses_owner_and_name_not_http_contract() -> None:
             operation=operation,
             outcome=Outcome(),
         )
+
+
+def test_sse_operation_is_http_with_same_capability_identity():
+    from dataclasses import asdict, FrozenInstanceError
+    import pytest
+    from harness_common import SSEOperation
+
+    args = dict(name="ask", service_name="chat", method="POST", path="/chat")
+    ordinary = HttpOperation(**args)
+    streaming = SSEOperation(**args)
+    assert isinstance(streaming, HttpOperation)
+    assert streaming.id() == ordinary.id()
+    assert asdict(ordinary)["response_mode"] == "unary"
+    assert asdict(streaming)["response_mode"] == "sse"
+    with pytest.raises(FrozenInstanceError):
+        streaming.response_mode = "unary"
