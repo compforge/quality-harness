@@ -212,4 +212,76 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     assert main(["report", paths["run_dir"]]) == 0
     html = Path(paths["report_html"]).read_text()
     assert "Call Graph" in html and "cytoscape" in html
+    assert 'aria-selected="true" tabindex="0">Report</button>' in html
+    assert 'aria-selected="false" tabindex="-1">Callgraph</button>' in html
+    assert html.index("执行状态</summary>") < html.index('id="rk-panel-1"')
+    assert html.index('id="rk-panel-1"') < html.index("Call Graph</summary>")
     assert "<script src=" not in html
+
+
+def test_middleware_qps_only_binding_round_trips_without_inventing_latency(tmp_path):
+    from harness_common import Operation
+
+    from perf_harness import Run
+    from perf_harness.drive.load import LoadPlan
+    from perf_harness.metric import ScalarSummary
+    from perf_harness.model import Arm, ArmRun, RequestStats, ResourceProfile, Window
+    from perf_harness.observe import PrometheusQueryProbe, WindowQuery
+
+    operation = Operation("search", service_name="search-store")
+    probe = PrometheusQueryProbe(
+        data_source=PrometheusDataSource("http://prom"),
+        operation=operation,
+        service="search-store",
+        summaries=[
+            WindowQuery("request_qps", "sum(rate(search_requests_total[$window]))", unit="rps")
+        ],
+        api_metrics={"qps": "request_qps"},
+    )
+    binding = probe.api_metrics
+    assert binding.p95 is None and binding.method == binding.path == ""
+    graph = Graph(
+        environment="qa",
+        nodes=(
+            Node("service:search-store", NodeKind.SERVICE),
+            Node(operation.id(), NodeKind.OPERATION),
+        ),
+        relations=(Relation(operation.id(), "service:search-store", RelationKind.BELONGS_TO),),
+    )
+    arm = ArmRun(
+        id="arm",
+        service="search-store",
+        arm=Arm("arm", ResourceProfile(), LoadPlan(request_rate=1, max_inflight=1)),
+        series={},
+        windows=[
+            Window(
+                "measurement",
+                "measurement",
+                "measurement",
+                0,
+                10,
+                True,
+                request=RequestStats(0, 0, 0, 0, 0, 0, 0, {}),
+                probe_metrics={binding.qps.removesuffix(".value"): ScalarSummary(3.5)},
+            )
+        ],
+        metrics={family.name: family for family in probe.describe()},
+    )
+    run = Run(
+        run_id="middleware",
+        experiment="test",
+        service="search-store",
+        created_at="2026-11-13T00:00:00Z",
+        environment="qa",
+        executions=[arm],
+        graph=graph,
+        api_metrics=[binding],
+    )
+    paths = write_run(run, str(tmp_path))
+    restored = load_run(paths["run_dir"])
+    assert restored.api_metrics == [binding]
+    snapshot = build_callgraph(restored)
+    metrics = snapshot.arms[0].windows[0].nodes[0].to_dict()["properties"]["perf"]["metrics"]
+    assert metrics["qps"]["value"] == 3.5
+    assert metrics["p95"]["value"] is None
+    assert metrics["p95"]["reason"] == "unbound"

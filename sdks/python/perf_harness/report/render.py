@@ -630,7 +630,13 @@ def write_report(
                 encoding="utf-8",
             )
             graph_paths["callgraph"] = str(graph_path)
-            doc.sections.insert(2, callgraph_section(snapshot))
+            from harness_common.report_kit import ReportTab
+
+            doc.tabs = [
+                ReportTab("Report", doc.sections),
+                ReportTab("Callgraph", [callgraph_section(snapshot)]),
+            ]
+            doc.sections = []
             with md_path.open("a") as stream:
                 stream.write(
                     "\n## Call Graph\n\nInteractive operation graph with window-aligned QPS/p95: "

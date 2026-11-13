@@ -66,9 +66,11 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
             if (
                 operation is None
                 or not isinstance(api_metrics, dict)
-                or set(api_metrics) != {"qps", "p95"}
+                or set(api_metrics) not in ({"qps"}, {"qps", "p95"})
             ):
-                raise ValueError("api_metrics requires operation and qps/p95 summary names")
+                raise ValueError(
+                    "api_metrics requires operation and a qps summary; p95 is optional"
+                )
             if qps_semantics not in {"entered", "completed"}:
                 raise ValueError("qps_semantics must be entered or completed")
             for role, name in api_metrics.items():
@@ -83,7 +85,9 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
                 operation.id(),
                 operation.service_name,
                 series_id(f"{self.family}.{api_metrics['qps']}", self.labels) + ".value",
-                series_id(f"{self.family}.{api_metrics['p95']}", self.labels) + ".value",
+                (series_id(f"{self.family}.{api_metrics['p95']}", self.labels) + ".value")
+                if "p95" in api_metrics
+                else None,
                 operation.method if isinstance(operation, HttpOperation) else "",
                 operation.path if isinstance(operation, HttpOperation) else "",
                 qps_semantics,

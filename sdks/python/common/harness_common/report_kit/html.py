@@ -17,6 +17,7 @@ from harness_common.report_kit.doc import (
     LineSeries,
     Prose,
     Report,
+    ReportTab,
     Section,
     Table,
 )
@@ -72,6 +73,19 @@ tbody tr:nth-child(even) { background: var(--zebra); }
 tr.winner { background: #dafbe1 !important; font-weight: 600; }
 tr.knee   { background: #fff1e5 !important; }
 .chart { width: 100%; height: 340px; margin: .5rem 0 1.5rem; }
+[hidden] { display: none !important; }
+.report-tabs { display:flex; gap:.5rem; border-bottom:1px solid var(--line); margin:1rem 0; }
+.report-tabs [role="tab"] { padding:.65rem 1.2rem; background:none; border:0;
+  border-bottom:3px solid transparent; font:inherit; cursor:pointer; color:var(--muted); }
+.report-tabs [aria-selected="true"] { color:var(--accent); border-color:var(--accent); font-weight:600; }
+.report-tabs [role="tab"]:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.graph-viewport { position:relative; margin-top:.5rem; }
+.graph-canvas { height:600px; border:1px solid var(--line); }
+.graph-zoom { position:absolute; bottom:12px; right:12px; display:flex; align-items:center;
+  gap:.5rem; padding:.45rem .65rem; background:white; border:1px solid var(--line);
+  border-radius:6px; box-shadow:0 2px 6px #0001; }
+.graph-zoom input { width:140px; }
+.graph-zoom output { min-width:3.5em; text-align:right; font-variant-numeric:tabular-nums; }
 p { margin: .5rem 0; }
 code { background: var(--zebra); padding: .1rem .3rem; border-radius: 3px; font-size: .85em; }
 """
@@ -275,11 +289,72 @@ def _section_html(s: Section, chart_counter: list[int]) -> str:
     )
 
 
+def _tabs_html(tabs: list[ReportTab], chart_counter: list[int]) -> str:
+    buttons, panels = [], []
+    for index, tab in enumerate(tabs):
+        tab_id, panel_id = f"rk-tab-{index}", f"rk-panel-{index}"
+        active = index == 0
+        buttons.append(
+            f'<button type="button" role="tab" id="{tab_id}" aria-controls="{panel_id}" '
+            f'aria-selected="{str(active).lower()}" tabindex="{0 if active else -1}">'
+            f"{_esc(tab.title)}</button>"
+        )
+        content = "".join(
+            _section_html(section, chart_counter) for section in tab.sections
+        )
+        panels.append(
+            f'<div role="tabpanel" id="{panel_id}" aria-labelledby="{tab_id}"'
+            f"{'' if active else ' hidden'}>{content}</div>"
+        )
+    return (
+        '<div class="report-tabs" role="tablist" aria-label="Report views">'
+        + "".join(buttons)
+        + "</div>"
+        + "".join(panels)
+    )
+
+
+_TABS_JS = """
+document.querySelectorAll('.report-tabs').forEach(list => {
+  const tabs = Array.from(list.querySelectorAll('[role="tab"]'));
+  function activate(tab) {
+    tabs.forEach(item => {
+      const selected = item === tab;
+      item.setAttribute('aria-selected', String(selected));
+      item.tabIndex = selected ? 0 : -1;
+      document.getElementById(item.getAttribute('aria-controls')).hidden = !selected;
+    });
+    // Charts initialized in a hidden panel need their visible dimensions on activation.
+    document.querySelectorAll('[role="tabpanel"]:not([hidden]) .chart').forEach(el => {
+      echarts.getInstanceByDom(el)?.resize();
+    });
+  }
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => activate(tab));
+    tab.addEventListener('keydown', event => {
+      let next;
+      if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+      else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = tabs.length - 1;
+      else return;
+      event.preventDefault();
+      tabs[next].focus();
+      activate(tabs[next]);
+    });
+  });
+});
+"""
+
+
 def render_html(report: Report) -> str:
     """Render a Report to one self-contained HTML document string."""
     chart_counter = [0]
     meta = "".join(f"<span><b>{_esc(k)}:</b> {_esc(v)}</span>" for k, v in report.meta)
     sections = "".join(_section_html(s, chart_counter) for s in report.sections)
+
+    if report.tabs:
+        sections += _tabs_html(report.tabs, chart_counter)
 
     head_extra = ""
     if report.has_charts():
@@ -304,5 +379,6 @@ def render_html(report: Report) -> str:
         f"<h1>{_esc(report.title)}</h1>"
         f'<div class="meta">{meta}</div>'
         f"{sections}{init}"
-        "</body></html>"
+        + (f"<script>{_TABS_JS}</script>" if report.tabs else "")
+        + "</body></html>"
     )

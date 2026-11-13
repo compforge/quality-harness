@@ -455,7 +455,7 @@ class ApiMetricBinding:
     operation: str
     service: str
     qps: str
-    p95: str
+    p95: str | None = None
     method: str = ""
     path: str = ""
     qps_semantics: str = "completed"

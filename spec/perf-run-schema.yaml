@@ -42,12 +42,12 @@ properties:
     type: array
     items:
       type: object
-      required: [operation, service, qps, p95]
+      required: [operation, service, qps]
       properties:
         operation: {type: string}
         service: {type: string}
         qps: {type: string}
-        p95: {type: string}
+        p95: {type: [string, 'null']}
         method: {type: string}
         path: {type: string}
         qps_semantics: {enum: [entered, completed]}

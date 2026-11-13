@@ -44,3 +44,40 @@ def test_graph_is_offline_and_untrusted_labels_cannot_close_script():
     assert "cytoscape" in rendered and "rkGraph(" in rendered
     assert "\\u003c/script>" in rendered
     assert "textContent" in rendered
+
+
+def test_tabs_include_nested_assets_and_keep_only_first_panel_visible():
+    from harness_common.report_kit import GraphFrame, GraphView, Prose, ReportTab
+
+    report = Report(
+        "tabs",
+        tabs=[
+            ReportTab("Report", [Section("summary", [Prose("original report")])]),
+            ReportTab(
+                "Callgraph <view>",
+                [
+                    Section(
+                        "graph", [GraphView("calls", [GraphFrame("window", [], [])])]
+                    )
+                ],
+            ),
+            ReportTab("Chart", [Section("trend", [Chart("rate", [])])]),
+        ],
+    )
+    rendered = render_html(report)
+    assert report.has_graphs() and report.has_charts()
+    assert 'role="tab" id="rk-tab-0"' in rendered
+    assert 'aria-selected="true" tabindex="0">Report</button>' in rendered
+    assert 'aria-labelledby="rk-tab-0"><details' in rendered
+    assert 'aria-labelledby="rk-tab-1" hidden><details' in rendered
+    assert 'aria-labelledby="rk-tab-2" hidden><details' in rendered
+    assert "Callgraph &lt;view&gt;" in rendered
+    assert "echarts.init" in rendered and "function rkGraph" in rendered
+    assert 'type="range" min="0" max="100"' in rendered
+    assert "original report" in rendered
+
+
+def test_report_without_tabs_keeps_flat_sections():
+    rendered = render_html(Report("flat", sections=[Section("summary")]))
+    assert 'role="tablist"' not in rendered
+    assert "<details open><summary>summary</summary>" in rendered
