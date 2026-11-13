@@ -29,6 +29,56 @@ function rkGraph(root, view) {
     });
   }
   selectScope();
+  const filterStatus = root.querySelector('.graph-filter-status');
+  const serviceGroups = [...new Set(view.frames.flatMap(frame => frame.nodes.map(n => n.group)))].sort();
+  const selectedGroups = new Set(serviceGroups);
+  const importanceLevels = ['high', 'medium', 'low'];
+  const selectedImportance = new Set(importanceLevels);
+  const valueGroups = ['= 0', 'N/A', '< 入口', '≥ 入口'];
+  const selectedValues = new Set(valueGroups);
+  function createFilter(selector, title, choices, selected, enabled) {
+    const element = root.querySelector(selector);
+    element.hidden = !enabled;
+    element.style.display = enabled ? 'inline-block' : 'none';
+    const summary = element.querySelector('summary');
+    const inputs = [];
+    document.addEventListener('click', event => {
+      if (!element.contains(event.target)) element.open = false;
+    });
+    element.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { element.open = false; summary.focus(); }
+    });
+    for (const choice of choices) {
+      const label = document.createElement('label');
+      label.style.display = 'block';
+      const input = document.createElement('input');
+      input.type = 'checkbox'; input.checked = true; input.value = choice;
+      input.addEventListener('change', () => {
+        if (input.checked) selected.add(choice); else selected.delete(choice);
+        showFrame();
+      });
+      label.append(input, document.createTextNode(choice || '未分组'));
+      element.querySelector('.graph-filter-options').appendChild(label);
+      inputs.push(input);
+    }
+    const all = element.querySelector('.graph-filter-all');
+    all.addEventListener('click', () => {
+      choices.forEach(choice => selected.add(choice));
+      inputs.forEach(input => { input.checked = true; });
+      showFrame();
+    });
+    return (canFilter, disabledChoices = new Set()) => {
+      summary.textContent = `${title} (${selected.size}/${choices.length})`;
+      inputs.forEach(input => { input.disabled = !canFilter || disabledChoices.has(input.value); });
+      all.disabled = !canFilter;
+    };
+  }
+  const updateServiceFilter = createFilter('.graph-filter', view.group_filter_label,
+    serviceGroups, selectedGroups, !!view.group_filter_label);
+  const updateImportanceFilter = createFilter('.graph-importance-filter', 'Importance',
+    importanceLevels, selectedImportance, view.importance_filter);
+  const updateValueFilter = createFilter('.graph-comparison-filter', view.comparison_filter_label,
+    valueGroups, selectedValues, !!view.comparison_filter_label);
   const cy = cytoscape({ container: canvas, elements: [], minZoom: 0.001, maxZoom: 1,
     style: [
       { selector: 'node', style: { 'label': 'data(label)', 'shape': 'round-rectangle',
@@ -93,8 +143,23 @@ function rkGraph(root, view) {
   function showFrame() {
     hideTooltip();
     ++generation;
-    const frame = view.frames[Number(select.value)];
-    if (!frame) return;
+    const original = view.frames[Number(select.value)];
+    if (!original) return;
+    const canFilter = original.entry_ids.length > 0 &&
+      original.entry_ids.every(id => original.nodes.some(n => n.id === id));
+    updateServiceFilter(canFilter);
+    updateImportanceFilter(canFilter);
+    const reference = rkEntryValue(original);
+    updateValueFilter(canFilter, reference === null ? new Set(['< 入口', '≥ 入口']) : new Set());
+    root.querySelector('.graph-comparison-status').textContent = !view.comparison_filter_label ? '' :
+      reference === null ? `入口 ${view.comparison_filter_label} 缺失或入口不唯一；相对比较不可用，正值节点保留。` :
+      `入口 ${view.comparison_filter_label}: ${Number(reference.toPrecision(6))}`;
+    const filtering = view.group_filter_label || view.importance_filter || view.comparison_filter_label;
+    const frame = filtering && canFilter ? rkFilterGraph(original, selectedGroups, selectedImportance, selectedValues) : original;
+    filterStatus.textContent = !filtering ? '' : canFilter
+      ? `${frame.nodes.length}/${original.nodes.length} 个节点；入口始终保留，仅显示入口可达节点。`
+      : '未指定有效入口，无法按可达性过滤。';
+    copyStatus.textContent = '';
     root.querySelectorAll('[data-graph-frame]').forEach(panel => {
       panel.hidden = panel.dataset.graphFrame !== select.value;
     });
@@ -167,7 +232,7 @@ function rkGraph(root, view) {
       // Pass the PNG promise directly to retain the click's clipboard permission.
       const png = cy.png({full: true, maxWidth, maxHeight, bg: '#ffffff', output: 'blob-promise'});
       await navigator.clipboard.write([new ClipboardItem({'image/png': png})]);
-      copyStatus.textContent = '完整图已复制。';
+      copyStatus.textContent = '当前图已复制。';
     } catch (error) {
       copyStatus.textContent = '复制失败，请允许浏览器访问剪贴板后重试。';
       console.warn('Graph image copy failed', {frame: select.value, error});

@@ -219,6 +219,14 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     view = section(snapshot).blocks[-1]
     frame = view.frames[0]
     assert len(frame.nodes) == 2 and len(frame.edges) == 1
+    assert frame.entry_ids == ["operation:entry/ask"]
+    assert view.group_filter_label == "Service"
+    assert view.comparison_filter_label == "QPS"
+    assert frame.nodes[1].comparison_value == metric["value"]
+    assert view.importance_filter
+    assert frame.nodes[0].importance == "high"
+    assert frame.nodes[1].importance == "medium"
+    assert props["perf"]["importance"] == "medium"
     assert frame.edges[0].dashed
     node = next(n for n in frame.nodes if n.id == "operation:kb/retrieve")
     expected = {
@@ -254,7 +262,7 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     assert html.index('id="rk-panel-1"') < html.index("Call Graph</summary>")
     assert "<script src=" not in html
     assert "API 观测（measurement）</summary>" not in html
-    assert '<details class="graph-table"><summary>指标明细</summary>' in html
+    assert '<details class="graph-table"><summary>完整窗口指标明细</summary>' in html
     from perf_harness.report.render import _api_observations
 
     tables = {
