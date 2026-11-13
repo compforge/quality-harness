@@ -203,6 +203,7 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
         if r.kind == RelationKind.BELONGS_TO
     }
     operations = [node for node in graph.nodes if node.kind == NodeKind.OPERATION]
+    incoming = {relation.target for relation in graph.calls}
     store = MetricStore(run.arm_runs)
     arms = []
     for arm in run.arm_runs:
@@ -232,6 +233,11 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
                 props = dict(node.properties) | {
                     "perf": {
                         "name": unquote(node.id.split("/", 1)[-1]),
+                        "importance": (
+                            "high"
+                            if node.id not in incoming
+                            else node.properties.get("importance", "medium")
+                        ),
                         "service": owners[node.id],
                         "method": binding.method if binding else node.properties.get("method", ""),
                         "path": binding.path if binding else node.properties.get("path", ""),

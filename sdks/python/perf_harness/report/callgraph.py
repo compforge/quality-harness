@@ -96,6 +96,7 @@ def section(
                 error_text = "N/A" if error is None else f"{error:.1%}"
                 details = [
                     ("Operation", node.id),
+                    ("Importance", props["importance"]),
                     ("Service", props["service"]),
                     ("Path", props["path"] or "N/A"),
                     ("Method", props["method"] or "N/A"),
@@ -134,6 +135,7 @@ def section(
                         colors[props["service"]],
                         tooltip="\n".join(f"{key}: {value}" for key, value in details),
                         diameter=diameters[node.id],
+                        importance=props["importance"],
                     )
                 )
             frames.append(
@@ -171,6 +173,7 @@ def section(
                 frames,
                 table_title="完整窗口指标明细",
                 group_filter_label="Service",
+                importance_filter=True,
             ),
         ],
     )

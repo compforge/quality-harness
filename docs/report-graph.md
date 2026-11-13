@@ -43,3 +43,15 @@ hides its other Operations unless they are separately declared entries.
 Filtering does not change source frames, JSON artifacts, metrics or the full-window diameter scale.
 The node count describes the displayed subset; the metric detail table remains explicitly full-window.
 The All button restores every Service selection. Copy exports the current filtered graph.
+
+Operation graph nodes may declare `properties.importance` as `high`, `medium`, or `low`.
+Perf defaults unspecified Operations to `medium` and normalizes entry Operations to `high` in the
+derived snapshot and report. Importance is project-owned attention priority, independent of QPS,
+latency, error rate and any bottleneck judgment. Invalid importance values fail report rendering.
+
+The Importance multi-select sits alongside Service before Fit. Both start fully selected and
+persist across windows. A non-entry Operation must match both selected Service and Importance;
+then directed entry reachability is applied. A high descendant behind an excluded low intermediate
+is hidden too, unless another allowed path reaches it. No intermediate context is retained.
+Entries remain pinned even if high is unchecked. Importance is shown in node details/hover;
+metric values and node size scaling are unaffected. Generic GraphViews opt in via importance_filter.

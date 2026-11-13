@@ -221,6 +221,10 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     assert len(frame.nodes) == 2 and len(frame.edges) == 1
     assert frame.entry_ids == ["operation:entry/ask"]
     assert view.group_filter_label == "Service"
+    assert view.importance_filter
+    assert frame.nodes[0].importance == "high"
+    assert frame.nodes[1].importance == "medium"
+    assert props["perf"]["importance"] == "medium"
     assert frame.edges[0].dashed
     node = next(n for n in frame.nodes if n.id == "operation:kb/retrieve")
     expected = {

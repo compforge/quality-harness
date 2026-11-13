@@ -18,8 +18,14 @@ def test_filter_preserves_only_reachable_nodes_without_mutating_metrics():
         nodes=[
             dict(id="entry", group="front", diameter=112, label="QPS 2"),
             dict(id="sibling", group="front"),
-            dict(id="middle", group="worker"),
-            dict(id="leaf", group="model", diameter=160, label="QPS 20"),
+            dict(id="middle", group="worker", importance="low"),
+            dict(
+                id="leaf",
+                group="model",
+                diameter=160,
+                label="QPS 20",
+                importance="high",
+            ),
             dict(id="alternate", group="backup"),
             dict(id="island", group="model"),
         ],
@@ -40,7 +46,13 @@ const original = JSON.stringify(frame);
 const filters = [['front', 'worker', 'model', 'backup'], ['front', 'model'],
   ['model', 'backup'], [], ['front', 'worker', 'model', 'backup']];
 const results = filters.map(groups => rkFilterGraph(frame, new Set(groups)));
-console.log(JSON.stringify({results, unchanged: original === JSON.stringify(frame)}));
+const all = new Set(filters[0]);
+const high = rkFilterGraph(frame, all, new Set(['high']));
+const highMedium = rkFilterGraph(frame, all, new Set(['high', 'medium']));
+const highLow = rkFilterGraph(frame, all, new Set(['high', 'low']));
+const intersect = rkFilterGraph(frame, new Set(['front', 'model']), new Set(['high', 'medium']));
+console.log(JSON.stringify({results, high, highMedium, highLow, intersect,
+  unchanged: original === JSON.stringify(frame)}));
 """
     result = subprocess.run(
         [node, "-e", script, str(assets)],
@@ -67,3 +79,20 @@ console.log(JSON.stringify({results, unchanged: original === JSON.stringify(fram
     assert none["edges"] == []
     assert restored == full
     assert next(n for n in alternate["nodes"] if n["id"] == "leaf") == frame["nodes"][3]
+
+    assert [n["id"] for n in data["high"]["nodes"]] == ["entry"]
+    assert {n["id"] for n in data["highMedium"]["nodes"]} == {
+        "entry",
+        "sibling",
+        "alternate",
+        "leaf",
+    }
+    assert {n["id"] for n in data["highLow"]["nodes"]} == {"entry", "middle", "leaf"}
+    assert {n["id"] for n in data["intersect"]["nodes"]} == {"entry", "sibling"}
+
+
+def test_graph_node_rejects_unknown_importance():
+    from harness_common.report_kit import GraphNode
+
+    with pytest.raises(ValueError, match="importance"):
+        GraphNode("api", "API", importance="urgent")

@@ -58,7 +58,11 @@ def render_graph(
     return (
         f'<div id="{ident}" class="graph-view"><b>{html.escape(view.title)}</b> '
         '<select class="graph-scope" aria-label="统计范围"></select> <select class="graph-frame" aria-label="Graph view"></select> '
-        ' <details class="graph-filter" hidden style="position:relative;vertical-align:top;margin:0"><summary aria-label="Service 多选过滤"></summary>'
+        ' <details class="graph-filter graph-filter-control" hidden style="position:relative;vertical-align:top;margin:0"><summary aria-label="Service 多选过滤"></summary>'
+        '<div style="position:absolute;z-index:4;top:100%;left:0;width:max-content;max-width:80vw;background:#fff;border:1px solid #94a3b8;padding:8px;border-radius:4px">'
+        '<div class="graph-filter-options" style="padding:8px;max-height:260px;overflow:auto"></div>'
+        '<button type="button" class="graph-filter-all">全部</button></div></details>'
+        ' <details class="graph-importance-filter graph-filter-control" hidden style="position:relative;vertical-align:top;margin:0"><summary aria-label="Importance 多选过滤"></summary>'
         '<div style="position:absolute;z-index:4;top:100%;left:0;width:max-content;max-width:80vw;background:#fff;border:1px solid #94a3b8;padding:8px;border-radius:4px">'
         '<div class="graph-filter-options" style="padding:8px;max-height:260px;overflow:auto"></div>'
         '<button type="button" class="graph-filter-all">全部</button></div></details>'

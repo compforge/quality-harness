@@ -121,6 +121,11 @@ class GraphNode:
     color: str = "#dbeafe"
     tooltip: str = ""
     diameter: float | None = None
+    importance: Literal["high", "medium", "low"] = "medium"
+
+    def __post_init__(self) -> None:
+        if self.importance not in {"high", "medium", "low"}:
+            raise ValueError(f"invalid graph node importance: {self.importance!r}")
 
 
 @dataclass
@@ -154,6 +159,7 @@ class GraphView:
     frames: list[GraphFrame]
     table_title: str = "Details"
     group_filter_label: str = ""
+    importance_filter: bool = False
 
 
 Block = Prose | Heading | KV | Table | Chart | GraphView

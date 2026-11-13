@@ -1,7 +1,7 @@
 /* Keep only allowed nodes reachable from the original, pinned entries. */
-function rkFilterGraph(frame, selectedGroups) {
+function rkFilterGraph(frame, selectedGroups, selectedImportance = new Set(['high', 'medium', 'low'])) {
   const entries = new Set(frame.entry_ids);
-  const allowed = new Set(frame.nodes.filter(n => entries.has(n.id) || selectedGroups.has(n.group)).map(n => n.id));
+  const allowed = new Set(frame.nodes.filter(n => entries.has(n.id) || (selectedGroups.has(n.group) && selectedImportance.has(n.importance || 'medium'))).map(n => n.id));
   const outgoing = new Map();
   for (const edge of frame.edges) {
     if (!allowed.has(edge.source) || !allowed.has(edge.target)) continue;

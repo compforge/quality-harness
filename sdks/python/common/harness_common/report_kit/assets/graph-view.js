@@ -29,40 +29,52 @@ function rkGraph(root, view) {
     });
   }
   selectScope();
-  const filter = root.querySelector('.graph-filter');
   const filterStatus = root.querySelector('.graph-filter-status');
   const serviceGroups = [...new Set(view.frames.flatMap(frame => frame.nodes.map(n => n.group)))].sort();
   const selectedGroups = new Set(serviceGroups);
-  const filterInputs = [];
-  filter.hidden = !view.group_filter_label;
-  filter.style.display = filter.hidden ? 'none' : 'inline-block';
-  document.addEventListener('click', event => {
-    if (!filter.contains(event.target)) filter.open = false;
-  });
-  filter.addEventListener('keydown', event => {
-    if (event.key === 'Escape') {
-      filter.open = false;
-      filter.querySelector('summary').focus();
+  const importanceLevels = ['high', 'medium', 'low'];
+  const selectedImportance = new Set(importanceLevels);
+  function createFilter(selector, title, choices, selected, enabled) {
+    const element = root.querySelector(selector);
+    element.hidden = !enabled;
+    element.style.display = enabled ? 'inline-block' : 'none';
+    const summary = element.querySelector('summary');
+    const inputs = [];
+    document.addEventListener('click', event => {
+      if (!element.contains(event.target)) element.open = false;
+    });
+    element.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { element.open = false; summary.focus(); }
+    });
+    for (const choice of choices) {
+      const label = document.createElement('label');
+      label.style.display = 'block';
+      const input = document.createElement('input');
+      input.type = 'checkbox'; input.checked = true; input.value = choice;
+      input.addEventListener('change', () => {
+        if (input.checked) selected.add(choice); else selected.delete(choice);
+        showFrame();
+      });
+      label.append(input, document.createTextNode(choice || '未分组'));
+      element.querySelector('.graph-filter-options').appendChild(label);
+      inputs.push(input);
     }
-  });
-  for (const group of serviceGroups) {
-    const label = document.createElement('label');
-    label.style.display = 'block';
-    const input = document.createElement('input');
-    input.type = 'checkbox'; input.checked = true; input.value = group;
-    input.addEventListener('change', () => {
-      if (input.checked) selectedGroups.add(group); else selectedGroups.delete(group);
+    const all = element.querySelector('.graph-filter-all');
+    all.addEventListener('click', () => {
+      choices.forEach(choice => selected.add(choice));
+      inputs.forEach(input => { input.checked = true; });
       showFrame();
     });
-    label.append(input, document.createTextNode(group || '未分组'));
-    filter.querySelector('.graph-filter-options').appendChild(label);
-    filterInputs.push(input);
+    return canFilter => {
+      summary.textContent = `${title} (${selected.size}/${choices.length})`;
+      inputs.forEach(input => { input.disabled = !canFilter; });
+      all.disabled = !canFilter;
+    };
   }
-  root.querySelector('.graph-filter-all').addEventListener('click', () => {
-    serviceGroups.forEach(group => selectedGroups.add(group));
-    filterInputs.forEach(input => { input.checked = true; });
-    showFrame();
-  });
+  const updateServiceFilter = createFilter('.graph-filter', view.group_filter_label,
+    serviceGroups, selectedGroups, !!view.group_filter_label);
+  const updateImportanceFilter = createFilter('.graph-importance-filter', 'Importance',
+    importanceLevels, selectedImportance, view.importance_filter);
   const cy = cytoscape({ container: canvas, elements: [], minZoom: 0.001, maxZoom: 1,
     style: [
       { selector: 'node', style: { 'label': 'data(label)', 'shape': 'round-rectangle',
@@ -127,15 +139,15 @@ function rkGraph(root, view) {
   function showFrame() {
     hideTooltip();
     ++generation;
-    filter.querySelector('summary').textContent = `${view.group_filter_label} (${selectedGroups.size}/${serviceGroups.length})`;
     const original = view.frames[Number(select.value)];
     if (!original) return;
     const canFilter = original.entry_ids.length > 0 &&
       original.entry_ids.every(id => original.nodes.some(n => n.id === id));
-    filterInputs.forEach(input => { input.disabled = !canFilter; });
-    root.querySelector('.graph-filter-all').disabled = !canFilter;
-    const frame = view.group_filter_label && canFilter ? rkFilterGraph(original, selectedGroups) : original;
-    filterStatus.textContent = !view.group_filter_label ? '' : canFilter
+    updateServiceFilter(canFilter);
+    updateImportanceFilter(canFilter);
+    const filtering = view.group_filter_label || view.importance_filter;
+    const frame = filtering && canFilter ? rkFilterGraph(original, selectedGroups, selectedImportance) : original;
+    filterStatus.textContent = !filtering ? '' : canFilter
       ? `${frame.nodes.length}/${original.nodes.length} 个节点；入口始终保留，仅显示入口可达节点。`
       : '未指定有效入口，无法按可达性过滤。';
     copyStatus.textContent = '';
