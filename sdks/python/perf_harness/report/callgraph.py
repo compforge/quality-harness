@@ -82,6 +82,7 @@ def section(
         )
         for r in snapshot.relations
     ]
+    incoming = {edge.target for edge in edges}
     frames = []
     for arm in snapshot.arms:
         for window in arm.windows:
@@ -140,6 +141,7 @@ def section(
                     f"{arm.arm_id} / {window.name} [{window.start_s:.3f}–{window.end_s:.3f}s]",
                     nodes,
                     edges,
+                    entry_ids=[node.id for node in nodes if node.id not in incoming],
                     table=metric_tables.get((arm.id, window.id)) if metric_tables else None,
                     group={"full": "全程观测", "phase": "指定阶段", "custom": "自定义范围"}[
                         window.kind
@@ -164,6 +166,11 @@ def section(
                 "Circle area scales with the current window’s QPS range; "
                 "missing QPS uses the default size. Hover for details."
             ),
-            GraphView("Operation metrics", frames, table_title="指标明细"),
+            GraphView(
+                "Operation metrics",
+                frames,
+                table_title="完整窗口指标明细",
+                group_filter_label="Service",
+            ),
         ],
     )

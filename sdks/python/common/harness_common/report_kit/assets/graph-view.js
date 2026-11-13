@@ -29,6 +29,40 @@ function rkGraph(root, view) {
     });
   }
   selectScope();
+  const filter = root.querySelector('.graph-filter');
+  const filterStatus = root.querySelector('.graph-filter-status');
+  const serviceGroups = [...new Set(view.frames.flatMap(frame => frame.nodes.map(n => n.group)))].sort();
+  const selectedGroups = new Set(serviceGroups);
+  const filterInputs = [];
+  filter.hidden = !view.group_filter_label;
+  filter.style.display = filter.hidden ? 'none' : 'inline-block';
+  document.addEventListener('click', event => {
+    if (!filter.contains(event.target)) filter.open = false;
+  });
+  filter.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      filter.open = false;
+      filter.querySelector('summary').focus();
+    }
+  });
+  for (const group of serviceGroups) {
+    const label = document.createElement('label');
+    label.style.display = 'block';
+    const input = document.createElement('input');
+    input.type = 'checkbox'; input.checked = true; input.value = group;
+    input.addEventListener('change', () => {
+      if (input.checked) selectedGroups.add(group); else selectedGroups.delete(group);
+      showFrame();
+    });
+    label.append(input, document.createTextNode(group || '未分组'));
+    filter.querySelector('.graph-filter-options').appendChild(label);
+    filterInputs.push(input);
+  }
+  root.querySelector('.graph-filter-all').addEventListener('click', () => {
+    serviceGroups.forEach(group => selectedGroups.add(group));
+    filterInputs.forEach(input => { input.checked = true; });
+    showFrame();
+  });
   const cy = cytoscape({ container: canvas, elements: [], minZoom: 0.001, maxZoom: 1,
     style: [
       { selector: 'node', style: { 'label': 'data(label)', 'shape': 'round-rectangle',
@@ -93,8 +127,18 @@ function rkGraph(root, view) {
   function showFrame() {
     hideTooltip();
     ++generation;
-    const frame = view.frames[Number(select.value)];
-    if (!frame) return;
+    filter.querySelector('summary').textContent = `${view.group_filter_label} (${selectedGroups.size}/${serviceGroups.length})`;
+    const original = view.frames[Number(select.value)];
+    if (!original) return;
+    const canFilter = original.entry_ids.length > 0 &&
+      original.entry_ids.every(id => original.nodes.some(n => n.id === id));
+    filterInputs.forEach(input => { input.disabled = !canFilter; });
+    root.querySelector('.graph-filter-all').disabled = !canFilter;
+    const frame = view.group_filter_label && canFilter ? rkFilterGraph(original, selectedGroups) : original;
+    filterStatus.textContent = !view.group_filter_label ? '' : canFilter
+      ? `${frame.nodes.length}/${original.nodes.length} 个节点；入口始终保留，仅显示入口可达节点。`
+      : '未指定有效入口，无法按可达性过滤。';
+    copyStatus.textContent = '';
     root.querySelectorAll('[data-graph-frame]').forEach(panel => {
       panel.hidden = panel.dataset.graphFrame !== select.value;
     });
@@ -167,7 +211,7 @@ function rkGraph(root, view) {
       // Pass the PNG promise directly to retain the click's clipboard permission.
       const png = cy.png({full: true, maxWidth, maxHeight, bg: '#ffffff', output: 'blob-promise'});
       await navigator.clipboard.write([new ClipboardItem({'image/png': png})]);
-      copyStatus.textContent = '完整图已复制。';
+      copyStatus.textContent = '当前图已复制。';
     } catch (error) {
       copyStatus.textContent = '复制失败，请允许浏览器访问剪贴板后重试。';
       console.warn('Graph image copy failed', {frame: select.value, error});

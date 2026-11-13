@@ -142,6 +142,8 @@ class GraphFrame:
     # @spec A frame owns both topology and its optional detail table; selection is shared.
     table: Table | None = None
     group: str = ""
+    # Entry identity is supplied by the domain, never inferred from the filtered graph.
+    entry_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -151,6 +153,7 @@ class GraphView:
     title: str
     frames: list[GraphFrame]
     table_title: str = "Details"
+    group_filter_label: str = ""
 
 
 Block = Prose | Heading | KV | Table | Chart | GraphView

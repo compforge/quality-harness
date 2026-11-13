@@ -26,3 +26,20 @@ metric identities, and do not prove execution of a static path.
 
 The ELK bundle runs in-process without a remote worker, CDN or runtime package install. Its pinned
 source, checksum and license are recorded in the assets README. This replaces the prior Dagre bundle.
+
+Callgraphs opt into group filtering with GraphView.group_filter_label="Service". Each frame declares
+entry_ids before filtering; Perf uses the source Operations of the original directed topology
+(nodes with no incoming call/may_call edge). Cyclic graphs without source Operations have no
+inferred entry and show a disabled filter rather than choosing an arbitrary root. Callers can supply
+explicit entry_ids for such GraphFrames. Entry IDs must exist in the selected frame.
+
+The Service checklist defaults to all selected and persists across window changes. Entry Operations
+are pinned even if their Service is unchecked. Traversal follows the original directed edges using
+only allowed nodes, then removes every node unreachable from the entries. A shared descendant
+survives when another allowed path reaches it; cycles terminate normally. No shortcut is invented.
+The renderer only groups and lays out surviving Operations. Unchecking the entry Service also
+hides its other Operations unless they are separately declared entries.
+
+Filtering does not change source frames, JSON artifacts, metrics or the full-window diameter scale.
+The node count describes the displayed subset; the metric detail table remains explicitly full-window.
+The All button restores every Service selection. Copy exports the current filtered graph.
