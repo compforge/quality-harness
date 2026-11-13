@@ -4,6 +4,7 @@ import { repositoryId, ClientManager, clientKey, Service, type ServiceDataSource
 
 test("datasource description is optional discovery metadata, not client identity", async () => {
   const source: DataSource<Client> = {
+    kind: "mysql",
     clientKey: "shared-db",
     createClient: () => ({ initialize: async () => {}, dispose: async () => {} }),
   };
@@ -26,7 +27,7 @@ test("source identity includes credentials and ignores configuration key order",
 test("service associations share the source client without owning its lifetime", async () => {
   let starts = 0;
   let closes = 0;
-  const source = { clientKey: "db", createClient: () => ({
+  const source = { kind: "mysql", clientKey: "db", createClient: () => ({
     initialize: async () => { starts++; },
     dispose: async () => { closes++; },
   }) };

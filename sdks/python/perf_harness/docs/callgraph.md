@@ -17,7 +17,7 @@ observations:
   - target: operation:search/search
     probes:
       - type: http_api
-        data_source: metrics
+        datasource_kind: prometheus
         profile:
           requests_metric: http_server_request_duration_seconds_count
           duration_bucket: http_server_request_duration_seconds_bucket
@@ -59,7 +59,7 @@ Common `SSEOperation(name, service_name=..., method="POST", path=...)` 继承 Ht
 共享 HTTP 指标的 method/route 匹配，但用 `response_mode=sse` 区分流式响应。
 普通 HttpOperation 为 `response_mode=unary`，Operation ID 不受模式影响。
 Graph Operation 的 properties 或独立 operations 声明可写 `response_mode: sse`；省略时为 unary。
-自定义 Runner 可从 `operation(ctx)` 返回 SSEOperation；Run schema 11 重载会保留具体类型。
+自定义 Runner 可从 `operation(ctx)` 返回 SSEOperation；Run schema 12 重载会保留具体类型。
 ObservationBinding、callgraph.json 和节点详情保留响应模式；也可读取静态节点 properties 中明确声明的 response_mode；缺少声明时不推测模式。
 
 该类型声明不改变请求调度、timeout、Judge 或 histogram 计时口径。SSE 的 HTTP 200 不能

@@ -36,11 +36,14 @@ class PrometheusDataSource(DataSource["PrometheusClient"]):
     """Prometheus server base URL (including any proxy prefix), auth and limits."""
 
     url: str
+    kind: str = field(default="prometheus", kw_only=True)
     headers: dict[str, str] = field(default_factory=dict, repr=False)
     options: PrometheusOptions = field(default_factory=PrometheusOptions)
     transport: ClientProvider[HTTPRoute] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.kind, str) or not self.kind.strip():
+            raise ValueError("Prometheus data source kind must be a nonempty string")
         parts = urlsplit(self.url)
         if (
             parts.scheme not in {"http", "https"}
@@ -60,6 +63,7 @@ class PrometheusDataSource(DataSource["PrometheusClient"]):
         return client_key(
             "prometheus_query",
             {
+                "kind": self.kind,
                 "url": self.url,
                 "headers": self.headers,
                 "options": asdict(self.options),

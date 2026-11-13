@@ -12,6 +12,8 @@ Python 位于 `sdks/python/toolbox`，独立分发为 `harness-toolbox`。
 - **Client**：拥有协议资源和操作，负责初始化与幂等销毁，包括初始化失败后的部分资源清理。
 - **ClientProvider**：通过 client_key / clientKey 标识客户端配置，以 create_client / createClient 构造 Client；构造阶段不执行外部访问。
 - **DataSource**：具有数据来源语义的 ClientProvider，例如数据库、日志和指标，不代表所有环境操作。
+  `kind` 是开放的非空后端类型标识，不是实例名称或查询语言方言；Python Protocol / TypeScript interface
+  声明契约，具体实现提供取值。查询策略选择属于消费方。
   可选 `description` 用于说明来源用途与数据范围，供能力发现和报告展示；不得包含凭据，也不参与客户端复用身份。
 - **ClientManager**：在一次根执行中按 ClientProvider key 复用初始化中的异步任务和成功的 Client。
   初始化失败完成清理后允许重试；结束时取消并等待进行中的初始化，再按依赖顺序逆序销毁。
@@ -237,10 +239,12 @@ MetricDataSource 的 transport 选择 direct 或 port-forward；后者复用根�
 `query_window` 只查询已保留的本地历史，历史缺失或采集不完整时显式失败；采集调度和业务 PromQL
 仍归消费方。direct 要求 Pod 地址从执行机可达；port-forward 显式复用 Kubernetes 通道，Host 配置不隐式切换 HTTP 路径。
 
-远端 Prometheus 使用 Python `PrometheusDataSource`，通过现有 HTTPClientProvider
+远端 Prometheus 使用 Python `PrometheusDataSource`（`kind` 默认 `prometheus`，VictoriaMetrics 声明
+`kind="victoriametrics"`；其他兼容实现可使用自己的非空 kind），通过现有 HTTPClientProvider
 借用独立连接池，复用相同 ClientManager 生命周期。`read(expressions, timestamp=..., scope=...)`
 调用 `/api/v1/query`；`read_range(expressions, start=..., end=..., step=..., scope=...)`
 调用 `/api/v1/query_range` 并保留矩阵结果。单轮 DataLoader 共享求值时间与相同表达式的结果或错误。端点、显式认证、
+kind 参与客户端复用身份；Toolbox 不猜测后端、不改写调用方查询或转换统计口径。
 超时、响应字节数与序列上限属于 DataSource；超限失败，不请求服务端截断结果。
 原始 labels、warnings 和 infos 保留在返回值中，perf Probe 将 warnings 视为观测失败。
 

@@ -1,5 +1,6 @@
-"""Resolve reusable observation YAML against Common targets and named data sources."""
+"""Resolve reusable observation YAML against Common targets and the experiment data source."""
 
+import logging
 from dataclasses import replace
 from pathlib import Path
 from urllib.parse import unquote
@@ -25,7 +26,7 @@ from perf_harness.model import (
     WindowSelector,
 )
 from perf_harness.observe.base import Probe
-from perf_harness.observe.configuration import parse_prometheus, parse_queries
+from perf_harness.observe.configuration import parse_data_source, parse_queries
 from perf_harness.observe.definition import ObservationSpec
 from perf_harness.observe.http_api import HttpApiProbe, HttpMetricProfile
 from perf_harness.observe.k8s import (
@@ -38,6 +39,8 @@ from perf_harness.observe.k8s import (
 from perf_harness.observe.prometheus import WindowQuery
 from perf_harness.observe.prometheus_query import PrometheusQueryProbe
 from perf_harness.observe.registry import ProbeConfig, build_probe
+
+logger = logging.getLogger(__name__)
 
 _KUBE = {
     "top": KubectlTopProbe,
@@ -73,7 +76,7 @@ def load_observation(
     config_dir: Path,
     services: dict[str, Service],
     graph: Graph | None,
-    data_sources: dict,
+    data_source: dict | None,
     windows: list[WindowSelector],
 ) -> list[ObservationSpec]:
     if isinstance(value, str):
@@ -111,14 +114,7 @@ def load_observation(
         if operation.id() in operations:
             raise ValueError(f"duplicate operation declaration: {operation.id()}")
         operations[operation.id()] = operation
-    sources: dict[str, tuple[PrometheusDataSource, float]] = {}
-    for name, raw in data_sources.items():
-        options = dict(raw)
-        if options.pop("type", None) != "prometheus":
-            raise ValueError(f"unsupported data source type for {name}")
-        source, step = parse_prometheus(options)
-        assert source is not None
-        sources[name] = (source, step)
+    source, step = parse_data_source(data_source)
     declarations = value.get("observations")
     if not isinstance(declarations, list):
         raise ValueError("observation asset requires an observations list")
@@ -138,10 +134,62 @@ def load_observation(
             if workload is None or operation:
                 raise ValueError("workload observation requires a declared Service workload")
         probes = []
-        for raw in item.get("probes", []):
-            probes.append(_probe(raw, service, operation, workload, sources, windows))
+        for raw in select_probes(item.get("probes", []), source, target=target):
+            probes.append(_probe(raw, service, operation, workload, source, step, windows))
         result.append(ObservationSpec(service, tuple(probes), operation, workload))
     return result
+
+
+def select_probes(
+    declarations: object, source: PrometheusDataSource | None, *, target: str
+) -> list[dict]:
+    """Select backend declarations before constructing factories or validating producers.
+
+    @spec Every declared contribution needs a matching producer; common and backend-specific
+          declarations do not override each other. Query failures never select another variant.
+    @link component://sdks/python/perf_harness/docs/observation.md
+    """
+    if not isinstance(declarations, list) or not declarations:
+        raise ValueError(f"observation {target} requires a nonempty probes list")
+    selected = []
+    expected = set()
+    covered = set()
+    for raw in declarations:
+        if not isinstance(raw, dict):
+            raise ValueError("observation probe must be a mapping")
+        if "data_source" in raw:
+            raise ValueError("Probe uses datasource_kind, not a named data_source")
+        kind = raw.get("datasource_kind")
+        if "datasource_kind" in raw and (not isinstance(kind, str) or not kind.strip()):
+            raise ValueError("datasource_kind must be a nonempty string")
+        probe_type, name = raw.get("type"), raw.get("name")
+        if not isinstance(probe_type, str) or not probe_type:
+            raise ValueError("observation probe requires a nonempty type")
+        if name is not None and (not isinstance(name, str) or not name):
+            raise ValueError("observation probe name must be a nonempty string")
+        metrics = raw.get("metrics", {})
+        if not isinstance(metrics, dict) or any(not isinstance(k, str) or not k for k in metrics):
+            raise ValueError("probe metrics must be a mapping of nonempty attribute names")
+        # Explicit attributes identify alternatives even when factories have different types.
+        contributions = {("metric", k) for k in metrics} or {("probe", probe_type, name)}
+        expected.update(contributions)
+        if kind is None or source is not None and kind == source.kind:
+            selected.append(raw)
+            covered.update(contributions)
+            logger.debug(
+                "perf probe selected: target=%s type=%s name=%s datasource_kind=%s",
+                target,
+                probe_type,
+                name,
+                source.kind if source else None,
+            )
+    if missing := expected - covered:
+        raise ValueError(
+            f"observation {target}: no matching probe for datasource_kind="
+            f"{source.kind if source else None!r}; missing contributions: "
+            f"{sorted(missing, key=str)}"
+        )
+    return selected
 
 
 def _probe(
@@ -149,7 +197,8 @@ def _probe(
     service: Service,
     operation: Operation | None,
     workload: Workload | None,
-    sources: dict[str, tuple[PrometheusDataSource, float]],
+    source: PrometheusDataSource | None,
+    step: float,
     windows: list[WindowSelector],
 ) -> Probe:
     if not isinstance(raw, dict):
@@ -165,17 +214,14 @@ def _probe(
         raise ValueError("observation probe name must be a nonempty string")
     if not isinstance(metrics, dict) or not isinstance(per_pod, bool):
         raise ValueError("probe metrics must be a mapping and per_pod must be boolean")
-    source_name = options.pop("data_source", None)
-    if source_name is not None and source_name not in sources:
-        raise ValueError(f"unknown observation data source: {source_name}")
-    source, step = sources[source_name] if source_name else (None, 15)
+    datasource_kind = options.pop("datasource_kind", None)
     if per_pod and metrics:
         raise ValueError(
             "per_pod observations retain Pod series; no implicit aggregate metric binding"
         )
     if kind in {"prometheus_query", "http_api"}:
         if source is None:
-            raise ValueError("Prometheus probe requires a named data_source")
+            raise ValueError("Prometheus probe requires experiment data_source")
         if per_pod:
             raise ValueError("Prometheus queries declare output labels, not per_pod")
         if kind == "http_api":
@@ -242,6 +288,7 @@ def _probe(
                 workload=workload,
                 windows=tuple(windows),
                 prometheus=source,
+                datasource_kind=datasource_kind,
                 step_s=step,
                 per_pod=per_pod,
                 options=options,
@@ -250,6 +297,7 @@ def _probe(
         options = {}
     if options:
         raise ValueError(f"unknown {kind} probe options: {sorted(options)}")
+    probe.datasource_kind = datasource_kind
     if instance_name:
         probe.name += "." + instance_name
     if workload:

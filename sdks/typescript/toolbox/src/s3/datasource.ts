@@ -5,6 +5,7 @@ import type { S3Limits, S3Target } from "./types";
 
 /** Connection details are resolved by the caller; route identity includes the cluster/context, not just a transport name. */
 export class S3DataSource implements DataSource<S3Client> {
+  readonly kind = "s3";
   readonly clientKey: string;
   readonly #target: S3Target;
   readonly #limits: S3Limits;

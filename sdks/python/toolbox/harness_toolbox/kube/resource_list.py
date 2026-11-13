@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from harness_common import DataSource, client_key
 from harness_common.access.client import _ClientBorrower
@@ -17,6 +17,8 @@ from harness_toolbox.kube.model import Options
 
 @dataclass(frozen=True)
 class ResourceListDataSource(DataSource["ResourceListClient"]):
+    kind: str = field(default="kubernetes_resource_list", init=False)
+
     environment: KubernetesEnvironment
     options: Options
 

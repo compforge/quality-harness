@@ -409,6 +409,7 @@ class PrometheusObservation:
     metric: str
     expression: str
     source_url: str
+    datasource_kind: str = field(kw_only=True)
     start_s: float
     end_s: float
     step_s: float | None

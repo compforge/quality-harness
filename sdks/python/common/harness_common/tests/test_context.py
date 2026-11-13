@@ -29,6 +29,7 @@ class Probe:
 @dataclass
 class ProbeSource:
     client_key: str
+    kind: str = "example"
 
     def create_client(self, clients):
         return Probe()

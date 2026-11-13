@@ -7,8 +7,7 @@ runner: {name: http, method: POST, path: /search}
 cases: [{id: example, input: {query: example}}]
 graph: product.graph.json
 observation: observations.yaml
-data_sources:
-  metrics: {type: prometheus, url: 'http://localhost:9090', step_s: 15}
+data_source: {type: prometheus, kind: prometheus, url: 'http://localhost:9090', step_s: 15}
 observation_windows:
   - {kind: full}
   - {kind: phase, phase: hold}
