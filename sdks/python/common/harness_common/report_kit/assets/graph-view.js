@@ -82,11 +82,15 @@ function rkGraph(root, view) {
     }
     copyButton.disabled = true;
     try {
-      // @why Export the complete selected frame, independent of viewport/zoom.
+      // @why Explicit pixel bounds suppress Cytoscape's devicePixelRatio multiplier.
+      // Retina scale * DPR can exceed native clipboard image decoding limits.
+      const bounds = cy.elements().boundingBox();
+      const maxWidth = Math.min(4096, Math.ceil(bounds.w) * 2);
+      const maxHeight = Math.min(4096, Math.ceil(bounds.h) * 2);
       // Pass the PNG promise directly to retain the click's clipboard permission.
-      const png = cy.png({full: true, scale: 2, bg: '#ffffff', output: 'blob-promise'});
+      const png = cy.png({full: true, maxWidth, maxHeight, bg: '#ffffff', output: 'blob-promise'});
       await navigator.clipboard.write([new ClipboardItem({'image/png': png})]);
-      copyStatus.textContent = '完整图已复制，可直接粘贴。';
+      copyStatus.textContent = '完整图已复制。';
     } catch (error) {
       copyStatus.textContent = '复制失败，请允许浏览器访问剪贴板后重试。';
       console.warn('Graph image copy failed', {frame: select.value, error});
