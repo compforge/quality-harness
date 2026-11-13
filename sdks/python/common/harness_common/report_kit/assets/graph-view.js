@@ -8,6 +8,10 @@ function rkGraph(root, view) {
   const zoom = root.querySelector('.graph-zoom input');
   const zoomValue = root.querySelector('.graph-zoom output');
   let needsLayout = true;
+  let generation = 0;
+  let layoutViewport;
+  const elk = new ELK();
+  const status = root.querySelector(".graph-layout-status");
   const groups = [...new Set(view.frames.map(frame => frame.group || 'Views'))];
   scope.hidden = groups.length === 1;
   groups.forEach(group => {
@@ -41,6 +45,7 @@ function rkGraph(root, view) {
       { selector: 'edge', style: { 'label': 'data(label)', 'font-size': 11,
         'curve-style': 'bezier', 'target-arrow-shape': 'triangle',
         'line-color': '#64748b', 'target-arrow-color': '#64748b', 'width': 1.5 } },
+      { selector: 'edge.flow', style: {'label': ''} },
       { selector: 'edge.conditional', style: { 'line-style': 'dashed' } },
       { selector: 'node:selected', style: { 'border-color': '#2563eb', 'border-width': 3 } }
     ]
@@ -53,18 +58,41 @@ function rkGraph(root, view) {
    * @why Hidden panels have no usable viewport; defer layout until visible so
    * opening a tab or a collapsed section never fits the graph into zero dimensions.
    */
-  function resize() {
+  async function resize() {
     if (!canvas.clientWidth || !canvas.clientHeight) return;
     cy.resize();
-    if (needsLayout) {
-      cy.layout({name: 'dagre', rankDir: 'LR', nodeSep: 30, rankSep: 70, padding: 30,
-        nodeDimensionsIncludeLabels: true}).run();
-      needsLayout = false;
+    const viewport = {width: canvas.clientWidth, height: canvas.clientHeight};
+    // A real viewport change deserves a new fit; pan/zoom or graph bounds changes do not.
+    const key = `${Math.round(viewport.width)}:${Math.round(viewport.height)}`;
+    if (!needsLayout && key === layoutViewport) { syncZoom(); return; }
+    layoutViewport = key;
+    needsLayout = false;
+    const current = ++generation;
+    status.textContent = '布局中…';
+    root.querySelector('.graph-copy').disabled = true;
+    try {
+      const nodes = cy.nodes().filter(n => !n.isParent()).map(n => ({
+        id: n.id(), group: n.data('group'), width: n.outerWidth(), height: n.outerHeight()
+      }));
+      const edges = cy.edges().map(e => ({source: e.source().id(), target: e.target().id()}));
+      const layout = await rkLayout(nodes, edges, viewport, elk);
+      // @spec A slow previous frame/resize must never overwrite the current graph.
+      if (current !== generation) return;
+      cy.batch(() => cy.nodes().filter(n => !n.isParent()).positions(n => layout.positions.get(n.id())));
+      cy.fit(undefined, 30);
+      status.textContent = '';
+      syncZoom();
+    } catch (error) {
+      if (current !== generation) return;
+      status.textContent = '布局失败，请切换视图重试。';
+      console.warn('Graph layout failed', {frame: select.value, error});
+    } finally {
+      if (current === generation) root.querySelector('.graph-copy').disabled = false;
     }
-    syncZoom();
   }
   function showFrame() {
     hideTooltip();
+    ++generation;
     const frame = view.frames[Number(select.value)];
     if (!frame) return;
     root.querySelectorAll('[data-graph-frame]').forEach(panel => {
@@ -86,12 +114,13 @@ function rkGraph(root, view) {
       if (data.diameter == null) delete data.diameter;
       return {data};
     }));
-    cy.add(frame.edges.map(edge => ({data: edge, classes: edge.dashed ? 'conditional' : ''})));
+    cy.add(frame.edges.map(edge => ({data: edge, classes: [edge.dashed ? 'conditional' : '',
+      ['call', 'calls', 'may_call'].includes(edge.label) ? 'flow' : ''].join(' ')})));
     needsLayout = true;
     resize();
     details.textContent = 'Select a node for details.';
   }
-  cy.on('tap', 'node', event => {
+  cy.on('tap', 'node, edge', event => {
     const node = event.target.data();
     details.textContent = node.details.map(item => item[0] + ': ' + item[1]).join('\n');
   });
@@ -103,8 +132,8 @@ function rkGraph(root, view) {
   function scheduleHide() { tooltipTimer = setTimeout(hideTooltip, 120); }
   tooltip.addEventListener('mouseenter', () => clearTimeout(tooltipTimer));
   tooltip.addEventListener('mouseleave', hideTooltip);
-  cy.on('mouseover', 'node', event => {
-    const text = event.target.data('tooltip');
+  cy.on('mouseover', 'node, edge', event => {
+    const text = event.target.data('tooltip') || (event.target.isEdge() ? event.target.data('label') : '');
     if (!text) { hideTooltip(); return; }
     clearTimeout(tooltipTimer);
     tooltip.textContent = text;
@@ -115,7 +144,7 @@ function rkGraph(root, view) {
     tooltip.style.top = Math.max(0, Math.min(event.renderedPosition.y + 12,
       canvas.clientHeight - tooltip.offsetHeight)) + 'px';
   });
-  cy.on('mouseout', 'node', scheduleHide);
+  cy.on('mouseout', 'node, edge', scheduleHide);
   cy.on('pan zoom', hideTooltip);
   scope.addEventListener('change', () => { selectScope(); showFrame(); });
   select.addEventListener('change', showFrame);

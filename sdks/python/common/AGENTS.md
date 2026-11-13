@@ -22,3 +22,5 @@ harness_common/
 `HttpOperation` 声明普通 HTTP 响应（`response_mode=unary`）；`SSEOperation` 继承它并声明
 `response_mode=sse`。两者沿用 Service + Operation name 身份，不以响应模式划分 ID；
 HTTP 200、首个事件和业务终态是不同事实，成功判定与计时边界由领域/消费方拥有。
+
+报告 GraphView 的分组布局、视口适配与异步交互见 [Graph 渲染](../../../docs/report-graph.md)。
