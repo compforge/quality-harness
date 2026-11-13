@@ -39,7 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     collect.add_argument("run_dir")
     collect.add_argument(
-        "--config", help="YAML containing prometheus access; defaults to the run config snapshot"
+        "--config",
+        help="YAML containing Prometheus data source access; defaults to the run config snapshot",
     )
     args = ap.parse_args(argv)
 

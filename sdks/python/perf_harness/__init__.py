@@ -53,7 +53,8 @@ from perf_harness.model import ArmStop as ArmStop
 from perf_harness.model import Deployment as Deployment
 from perf_harness.model import Environment as Environment
 from perf_harness.model import HistogramQuantile as HistogramQuantile
-from perf_harness.model import OperationMetricBinding as OperationMetricBinding
+from perf_harness.model import MetricBinding as MetricBinding
+from perf_harness.model import ObservationBinding as ObservationBinding
 from perf_harness.model import Outcome as Outcome
 from perf_harness.model import PhaseRun as PhaseRun
 from perf_harness.model import ReportColumn as ReportColumn
@@ -80,6 +81,7 @@ from perf_harness.observe import PrometheusQuery as PrometheusQuery
 from perf_harness.observe import ResourceLimitsProbe as ResourceLimitsProbe
 from perf_harness.observe import RestartProbe as RestartProbe
 from perf_harness.observe import register_probe as register_probe
+from perf_harness.observe.definition import ObservationSpec as ObservationSpec
 from perf_harness.observe.prometheus import WindowQuery as WindowQuery
 from perf_harness.observe.prometheus_query import PrometheusQueryProbe as PrometheusQueryProbe
 from perf_harness.records import RequestEvaluation as RequestEvaluation

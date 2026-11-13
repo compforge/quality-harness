@@ -7,7 +7,9 @@ Pure parsers preserve the metric model independently of the access transport.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
+from harness_common import KubernetesWorkload, Workload
 from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.host import command
 
@@ -59,7 +61,17 @@ class _K8sProbe(Probe):
 
     source = "k8s"
 
-    def __init__(self, *, target_service: Service | None = None, per_pod: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        target_service: Service | None = None,
+        target_workload: Workload | None = None,
+        per_pod: bool = False,
+    ) -> None:
+        if target_workload is not None and not isinstance(target_workload, KubernetesWorkload):
+            raise ValueError("Kubernetes probes require a KubernetesWorkload")
+        self._target_workload = target_workload
+        self.workload_name = target_workload.name if target_workload else None
         self._target_service = target_service
         self._service = target_service.name if target_service else None
         # per_pod fans the service-level reading out into one series per pod: sample()
@@ -69,18 +81,64 @@ class _K8sProbe(Probe):
         self._per_pod = per_pod
         if target_service:  # unique store id; family stays "top", service is a label
             self.name = f"{self.name}.{target_service.name}"
+        if target_workload:
+            self.name += "." + target_workload.name
 
     def _ref(self, ctx: ProbeContext) -> Service | None:
         """The explicitly bound Service, else the experiment Service."""
         service = self._target_service or ctx.service
+        if self._target_workload:
+            service = replace(
+                service,
+                namespace=self._target_workload.namespace or service.namespace,
+                container=self._target_workload.container or service.container,
+            )
         if not (
             isinstance(service.environment, KubernetesEnvironment)
             and service.environment.kubeconfig
             and service.namespace
-            and service.k8s_selector
+            and (service.k8s_selector or self._target_workload)
         ):
             return None
         return service
+
+    async def _snapshot(self, service: Service, ctx: ProbeContext) -> dict:
+        if self._target_workload is None:
+            return await _pod_snapshot(service, ctx)
+        # Reuse toolbox discovery and the shared ClientManager; no second discovery model.
+        from harness_toolbox.kube.model import Options
+        from harness_toolbox.kube.workload import resolve_workload
+
+        source = replace(
+            service.environment,
+            options=Options(
+                namespace=service.namespace, request_timeout_s=10, connection_pool_maxsize=8
+            ),
+        )
+        client = await ctx.clients.get(source)
+
+        async def discover():
+            return await resolve_workload(
+                client, self._target_workload, service.namespace, service.environment.name
+            )
+
+        instances = (
+            await ctx.reads.read(
+                (source.client_key, service.id(), self.workload_name, "instances"), discover
+            )
+            if ctx.reads is not None
+            else await discover()
+        )
+        pods = [
+            await ctx.reads.read(
+                (source.client_key, "pod", instance.uid),
+                lambda name=instance.pod: client.get("v1", "Pod", name),
+            )
+            if ctx.reads is not None
+            else await client.get("v1", "Pod", instance.pod)
+            for instance in instances
+        ]
+        return {"items": pods}
 
 
 async def _pod_snapshot(service: Service, ctx: ProbeContext) -> dict:
@@ -116,21 +174,43 @@ class KubectlTopProbe(_K8sProbe):
         # reading is the per-tick SUM across replicas (gauge summary = peak-of-sum,
         # "did total cpu/mem spike"); per_pod keeps the rows separate instead — one
         # {pod}-labeled series per replica ("which pod is hot / near ITS limit").
-        text = await _run(
-            service,
-            [
-                "kubectl",
-                "--kubeconfig",
-                service.environment.kubeconfig,
-                "-n",
-                service.namespace,
-                "top",
-                "pod",
-                "-l",
-                service.k8s_selector,
-                "--no-headers",
-            ],
-        )
+        if self._target_workload:
+            snapshot = await self._snapshot(service, ctx)
+            rows = []
+            for pod in snapshot["items"]:
+                rows.append(
+                    await _run(
+                        service,
+                        [
+                            "kubectl",
+                            "--kubeconfig",
+                            service.environment.kubeconfig,
+                            "-n",
+                            service.namespace,
+                            "top",
+                            "pod",
+                            pod["metadata"]["name"],
+                            "--no-headers",
+                        ],
+                    )
+                )
+            text = "\n".join(rows)
+        else:
+            text = await _run(
+                service,
+                [
+                    "kubectl",
+                    "--kubeconfig",
+                    service.environment.kubeconfig,
+                    "-n",
+                    service.namespace,
+                    "top",
+                    "pod",
+                    "-l",
+                    service.k8s_selector,
+                    "--no-headers",
+                ],
+            )
         if self._per_pod:
             out: dict[str, float] = {}
             for pod, (cpu_m, mem_mi) in parse_kubectl_top_per_pod(text).items():
@@ -163,7 +243,11 @@ class PerWorkerRSSProbe(_K8sProbe):
         service = self._ref(ctx)
         if not service:
             return {}
-        pod = await _pod_name(service)
+        if self._target_workload:
+            snapshot = await self._snapshot(service, ctx)
+            pod = next((p["metadata"]["name"] for p in snapshot["items"]), None)
+        else:
+            pod = await _pod_name(service)
         if not pod:
             return {}
         cmd = [
@@ -198,7 +282,7 @@ class RestartProbe(_K8sProbe):
         service = self._ref(ctx)
         if not service:
             return {}
-        snapshot = await _pod_snapshot(service, ctx)
+        snapshot = await self._snapshot(service, ctx)
         total = sum(
             container.get("restartCount", 0)
             for pod in snapshot.get("items", [])
@@ -226,7 +310,7 @@ class PodCountProbe(_K8sProbe):
         service = self._ref(ctx)
         if not service:
             return {}
-        snapshot = await _pod_snapshot(service, ctx)
+        snapshot = await self._snapshot(service, ctx)
         return {
             series_id("count", {"state": state}): float(value)
             for state, value in _pod_counts(snapshot).items()
@@ -283,7 +367,7 @@ class ResourceLimitsProbe(_K8sProbe):
         service = self._ref(ctx)
         if not service:
             return {}
-        snapshot = await _pod_snapshot(service, ctx)
+        snapshot = await self._snapshot(service, ctx)
         per_pod = _pod_resources(snapshot.get("items", []))
         out: dict[str, float] = {}
         if self._per_pod:

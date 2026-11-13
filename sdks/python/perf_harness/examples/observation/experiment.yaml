@@ -1,0 +1,15 @@
+name: search-red
+service:
+  name: search
+  base_url: http://localhost:8080
+  environment: {name: local}
+runner: {name: http, method: POST, path: /search}
+cases: [{id: example, input: {query: example}}]
+graph: product.graph.json
+observation: observations.yaml
+data_sources:
+  metrics: {type: prometheus, url: 'http://localhost:9090', step_s: 15}
+observation_windows:
+  - {kind: full}
+  - {kind: phase, phase: hold}
+load: {request_rate: 2, max_inflight: 10, hold_s: 120}

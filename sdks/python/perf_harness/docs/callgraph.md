@@ -7,38 +7,29 @@ Harness 不根据节点可达性猜测业务分支。不同 case 的路径分别
 ## HTTP 指标关联
 
 Common 已有 `HttpOperation(name, service_name, method, path)`，其中 path 使用路由模板，
-如 `/faqs/{dataset_id}/retrieve`，不填写某次请求的具体 dataset ID。Operation ID 保持稳定，
+如 `/products/{product_id}`，不填写某次请求的具体 product ID。Operation ID 保持稳定，
 service + method + route 用于选择 Prometheus 指标；相同 path 的不同服务或方法不会混合。
 
+项目级 Graph、Observation 文件和实验装配见 [观测声明](observation.md)。HTTP Probe 示例：
+
 ```yaml
-service: {name: entry, base_url: 'http://entry:8080', environment: {name: qa}}
-runner: {name: http, method: POST, path: /ask}
-cases: [{id: faq, input: {question: example}}]
-graph: ./faq.graph.json
-load: {request_rate: 8, max_inflight: 200, hold_s: 60}
-prometheus: {url: 'http://prometheus:9090', step_s: 15}
-observe:
-  - name: knowledge
-    http_metrics:
-      requests_metric: http_server_request_duration_seconds_count
-      duration_bucket: http_server_request_duration_seconds_bucket
-      service_label: service_name
-      method_label: http_request_method
-      route_label: http_route
-      match: {namespace: qa}
-      duration_unit: s
-      qps_semantics: completed
-      rate_interval: 5m
+observations:
+  - target: operation:search/search
     probes:
-      - name: http_api
-        operation:
-          name: retrieve
-          method: POST
-          path: /faqs/{dataset_id}/retrieve
+      - type: http_api
+        data_source: metrics
+        profile:
+          requests_metric: http_server_request_duration_seconds_count
+          duration_bucket: http_server_request_duration_seconds_bucket
+          service_label: service_name
+          method_label: http_request_method
+          route_label: http_route
+          status_label: http_response_status_code
+          error_status_pattern: '5..'
 ```
 
 指标名与 label 需依据实际导出结果配置；示例标签不是所有 OTel/Prometheus 部署的固定保证。
-profile 每个 Service 声明一次。默认 service_label=service_name、method_label=http_request_method、
+profile 由项目按实际 HTTP 埋点配置。默认 service_label=service_name、method_label=http_request_method、
 route_label=http_route。`service_value` 可覆盖实际服务标签值；`match` 补充集群、namespace、租户等
 等值过滤，但不能覆盖 service/method/route。Prometheus 未导出某标签时，应先调整匹配配置，
 不能自动删除过滤条件扩大查询范围。
@@ -52,9 +43,10 @@ HTTP 完成和 HTTP 200 也不能替代业务终态 Judge。
 
 Python 使用 `HttpMetricProfile` 和 `HttpApiProbe`，从 `perf_harness.observe` 导入。
 特殊协议或已有 PromQL 仍可使用 `PrometheusQueryProbe`，声明
-`operation_metrics={"qps": "<summary name>", "p95": "<summary name>"}`：必须指向无额外结果 label 的
-WindowQuery，单位分别为 rps、s。QPS/p95 均可独立省略，至少绑定一项，未绑定的角色显示 N/A。
-OperationMetricBinding 将角色引用和各自的口径说明关联到 Operation，使用 `operation_metrics` 配置/落盘字段。
+`metrics={"qps": "<summary name>", "p95": "<summary name>", "error_rate": "<summary name>"}`。
+这些角色指向无额外结果 label 的 WindowQuery，单位为 rps、s、ratio。
+ObservationBinding 将开放指标引用、单位和口径关联到目标，使用 observation_bindings 落盘字段。
+RED 是代表性指标；额外指标可通过同一机制绑定并在详情中查看。
 每个角色从对应 WindowQuery 的 description 继承口径，各窗口声明同一角色时说明须一致。
 例如 QPS 可以来自 Counter，p95 来自独立的日志 Histogram；来源不同是正常情况。
 说明应包含测量边界、统计范围及覆盖限制，随 Run、callgraph.json 和节点详情保存。
@@ -66,9 +58,9 @@ OperationMetricBinding 将角色引用和各自的口径说明关联到 Operatio
 Common `SSEOperation(name, service_name=..., method="POST", path=...)` 继承 HttpOperation，
 共享 HTTP 指标的 method/route 匹配，但用 `response_mode=sse` 区分流式响应。
 普通 HttpOperation 为 `response_mode=unary`，Operation ID 不受模式影响。
-`http_api` 的 operation 配置可写 `response_mode: sse`；省略时为 unary。
-自定义 Runner 可从 `operation(ctx)` 返回 SSEOperation；Run schema 10 重载会保留具体类型。
-OperationMetricBinding、callgraph.json 和节点详情保留响应模式；也可读取静态节点 properties 中明确声明的 response_mode；缺少声明时不推测模式。
+Graph Operation 的 properties 或独立 operations 声明可写 `response_mode: sse`；省略时为 unary。
+自定义 Runner 可从 `operation(ctx)` 返回 SSEOperation；Run schema 11 重载会保留具体类型。
+ObservationBinding、callgraph.json 和节点详情保留响应模式；也可读取静态节点 properties 中明确声明的 response_mode；缺少声明时不推测模式。
 
 该类型声明不改变请求调度、timeout、Judge 或 histogram 计时口径。SSE 的 HTTP 200 不能
 替代业务终态，首个 SSE 事件也不一定是有效输出。分析 p95 时核对对应指标测量的是
@@ -85,7 +77,7 @@ p95 先合并全部匹配实例的 histogram bucket，再计算 quantile；不�
 真实零计数速率显示 0。低流量下 histogram_quantile 可能是 NaN；边界 bucket 不足也会限制
 延迟估计，需要结合服务指标的 bucket 配置判断。
 
-Run 保存 graph 快照、case_ids、operation_metrics 指标地址，以及已有的原始查询和结果。
+Run 保存 graph 快照、case_ids、observation_bindings 指标地址，以及已有的原始查询和结果。
 指标始终按 Operation ID 关联，图中未配置指标的节点仍保留为 N/A。共享环境中 metrics
 可能含其他流量；混合 case 的图明确显示 aggregate scope，不将聚合值分配给单个 case。
 
@@ -95,7 +87,7 @@ Run 保存 graph 快照、case_ids、operation_metrics 指标地址，以及已�
 Callgraph 下方的「指标明细」默认折叠，与图共用 Arm/Window 选择，保留该窗口全部 Operation
 指标的统计、单位和来源；Report Tab 不再重复显示 API 观测表。
 无 graph 的报告保持 full API 观测表。Callgraph 只画 Operation 节点与 call/may_call 边，Service 保留分组背景。
-圆形节点内居中显示短名称、QPS、p95，长名称自动换行；完整 Operation ID、Service、path、时间范围与指标来源在悬浮提示中展示。
+圆形节点内居中显示短名称、QPS、p95 和错误率，长名称自动换行；完整 Operation ID、Service、path、时间范围与指标来源在悬浮提示中展示。
 最小圆尺寸保证标签可读；当前窗口内有效 QPS 的最小值和最大值映射到可读的圆面积区间，尺寸每次切换窗口时重新计算。
 缺失值使用默认尺寸，不作为零参与范围计算；有效值全相同（包括全零）时使用统一默认尺寸。
 圆面积用于比较当前窗口的流量，不直接跨窗口比较大小；精确数值始终保留。

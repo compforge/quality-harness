@@ -1,7 +1,7 @@
 # perf_harness 统一 metric 模型
 
 > 状态：**已实现**（greenfield 重构后收敛为 `metric/` 包：`family` + `store` + `reduce`）。本文是 perf 的**唯一 metric 概念**，也是整个 harness 的**脊柱**：加压 / Probe / Runner 只是 metric 的**生产者**，report / analysis 只是**消费者**，中间收腰在 `MetricFamily`（族）+ typed `MetricSummary`（值，带 caveats）+ `MetricStore`（读面）上——让 per-request 延迟、资源 gauge、server counter、派生标量走**同一条读取面**，消费方都只认 `<family>{labels}.<stat>`。
-> 取向参考 Prometheus 的 *typed metric* + *family/series + label* 思路（类型决定合法操作、label 即维度）。服务端遥测由内嵌 Prombed 抓取/查询或远端 Prometheus HTTP API 求值；查询结果再进入本模型（见 §5）。
+> 取向参考 Prometheus 的 *typed metric* + *family/series + label* 思路（类型决定合法操作、label 即维度）。服务端遥测通过外部 Prometheus HTTP API 查询已有历史；查询结果再进入本模型（见 §5）。
 
 ---
 
@@ -212,31 +212,19 @@ DAG：`metric.family ← model ← {metric.reduce, metric.store, engine}`；`sto
 
 ---
 
-## 5. 对 Prometheus 的对应与差异
+## 5. 外部 Prometheus 与指标投影
 
-Prometheus 有 Counter / Gauge / **Histogram** / **Summary**；我们是 Counter / Gauge / **Distribution** / **Scalar**。
+PrometheusDataSource 和客户端访问由 toolbox 提供，perf 不自行抓取服务 /metrics。
+响应可能较大，重复全量抓取会增加网络和解析成本，影响观测的及时性与完整性。
 
-```text
-Prometheus          →  perf_harness
-Counter             →  counter        (total/rate/increase，照搬)
-Gauge               →  gauge          (last/mean/peak，照搬)
-Histogram + Summary →  distribution   (合并：单 arm_run 内自算分位)
-(无)                 →  scalar         (arm_run 末派生值)
-```
+PrometheusQueryProbe 保存查询计划和原始结果，再投影到同一个 MetricStore。
+趋势查询形成时序，窗口查询形成 scalar；原始 classic histogram buckets 可通过
+HistogramQuantile 合并后计算 p95，有限桶溢出保留 +Inf。不得平均 Pod 分位数。
+Counter 的速率和错误比例在 PromQL 中按埋点语义求值，不能把所有不同来源强行解释为同一种分布。
 
-边界本质：**Prombed 负责 arm_run 内的 Prometheus scrape + 短期 TSDB + PromQL；perf metric 负责把查询结果与客户端请求、K8s 资源放进同一张可报告、可按实体和窗口读取 的表。**
-
-- **Histogram+Summary 合并成 `distribution`**：那俩的分裂是为了跨 scrape 目标聚合（Histogram 查询期 `histogram_quantile`、Summary 预算 φ 不可聚合）。perf 在单 arm_run 内持有 raw per-request 值自己算分位，**没有 fleet 要聚合**，分裂没意义。
-  - **不借名字的真正原因**：借了反而坑懂 Prometheus 的人——`Histogram`/`Summary` 带着"可/不可聚合、分位在哪算"的预期，我们两个都违背；两个 value_kind 合法 stat 还一样 = 没挣到存在。用一张映射表教得更准。
-- **新增 `scalar`**：Prometheus 用 recording rule / 查询表达式表达的派生单值（error_rate/throughput），我们建模成一等类型，让 resolver/report 统一对待。
-- **`side` 是我们的轴**：Prometheus 全是时间序列 scrape，没有"每请求"概念（延迟被迫塞 Histogram）。我们保留每请求 raw 值→distribution，对压测更忠实（不丢尾）；request/resource 一位就说清了"谁能按什么切"（§3.2），不需要按来路分三种 kind。
-- **temporality 词汇（对齐 OTLP）**：`CounterSummary` 同时携带两种 temporality 的读法——`total` 是 **cumulative**（窗口末累计值），`increase`/`rate` 是 **delta**（稳态窗口内的正增量累积，Prometheus `increase()` 语义，pod 重启回卷盖 `counter_reset`）。报告引用时选 stat 即选 temporality。
-- **labels → declared facets，更严**：Prometheus alert rule 可引任意 label（typo 易静默失效）；我们要求配置列引用的 facet 必须 declared（§3.4）。
-- **照搬的部分**：① **类型决定合法操作**（counter 不能 `rate` gauge、gauge 不能取 p99，且提前到解析期校验）；② **family/series + label 即维度**（`MetricFamily` 是族、`name{labels}` 是 series，report by_service/by_facet = 同一个 group-by-label）；③ **抓取健康是合成 series**——Prombed 每次 scrape 合成 `up`/`scrape_duration_seconds`，perf 每 tick 另合成 `<family>.up{service=…}` 表示整个 probe（抓取加所有查询）的可用性；④ **Prometheus 语义不再复制**——文本解析、staleness、counter reset、窗口外推、聚合与 `histogram_quantile` 均由 Prombed 实现。
-
-Prometheus histogram 不进入 perf 的 `histogram` value_kind；consumer 用 PromQL
-`histogram_quantile(...)` 将其投影成 gauge 序列。这样 Prometheus 原生类型留在 Prombed，perf
-只接收报告真正需要的结果类型。
+ObservationBinding 将对象的开放指标属性关联到 MetricStore 地址；RED 是默认展示的约定，
+不是封闭的类型表。资源 gauge、请求 distribution 和服务 scalar 继续保留自身类型。
+完整配置见 [观测声明](observation.md) 和 [服务指标](service-metrics.md)。
 
 ---
 
@@ -288,7 +276,7 @@ pdata/pmetric（OTLP）与本模型独立收敛到同一形状：`Metric`(name/u
 ## References
 - 加压模型：[`load-model-redesign.md`](load-model-redesign.md)
 - 结果语义：[`result-semantics.md`](result-semantics.md)
-- 当前实现锚点：`metric/family.py`（MetricFamily/*Summary/Missing/resolve）· `metric/store.py`（MetricStore）· `metric/reduce.py`（铸币）· `observe/base.py`（Probe/Prombed）· `config.py`（报告引用校验）
+- 当前实现锚点：`metric/family.py`（MetricFamily/*Summary/Missing/resolve）· `metric/store.py`（MetricStore）· `metric/reduce.py`（铸币）· `observe/base.py`（Probe）· `config.py`（报告引用校验）
 
 ## 请求生命周期指标
 

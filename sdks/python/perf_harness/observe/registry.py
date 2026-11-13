@@ -10,9 +10,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
+from harness_common import Operation, Workload
 from harness_toolbox.prometheus import PrometheusDataSource
 
-from perf_harness.model import Service
+from perf_harness.model import Service, WindowSelector
 from perf_harness.observe.base import Probe
 
 
@@ -21,6 +22,9 @@ class ProbeConfig:
     """Normalized context passed to a registered probe factory."""
 
     service: Service
+    operation: Operation | None = None
+    workload: Workload | None = None
+    windows: tuple[WindowSelector, ...] = ()
     per_pod: bool = False
     options: Mapping[str, object] = field(default_factory=dict)
     prometheus: PrometheusDataSource | None = None

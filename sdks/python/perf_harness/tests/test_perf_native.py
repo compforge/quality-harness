@@ -130,3 +130,59 @@ async def test_direct_samples_refresh_without_observer_tick(monkeypatch):
     async with ctx.clients:
         assert await RestartProbe().sample(ctx) == {"restarts": 1}
         assert await RestartProbe().sample(ctx) == {"restarts": 2}
+
+
+async def test_workload_probe_uses_common_declaration_and_toolbox_resolution(monkeypatch):
+    from harness_common import KubernetesWorkload
+
+    calls = []
+    clients = []
+
+    class Resources:
+        async def initialize(self):
+            pass
+
+        async def dispose(self):
+            calls.append("disposed")
+
+        async def get(self, api_version, kind, name):
+            calls.append((kind, name))
+            if kind == "Deployment":
+                return {"spec": {"selector": {"matchLabels": {"app": "worker"}}}}
+            return {
+                "metadata": {"name": name, "namespace": "workers", "uid": "pod-uid"},
+                "status": {"containerStatuses": [{"restartCount": 3}]},
+            }
+
+        async def list(self, api_version, kind, *, label_selector):
+            assert label_selector == "app=worker"
+            return {
+                "items": [
+                    {"metadata": {"name": "worker-1", "namespace": "workers", "uid": "pod-uid"}}
+                ]
+            }
+
+    def create(environment, manager):
+        assert environment.options.namespace == "workers"
+        client = Resources()
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(KubernetesEnvironment, "create_client", create)
+    workload = KubernetesWorkload(
+        "worker",
+        namespace="workers",
+        location={"kind": "resource", "resource_kind": "Deployment", "name": "worker-deployment"},
+    )
+    service = Service(
+        "search", environment=KubernetesEnvironment("qa", "/config"), workloads=(workload,)
+    )
+    probe = RestartProbe(target_service=service, target_workload=workload)
+    ctx = ProbeContext(service=service, client=None, t0=time.monotonic())
+    async with ctx.clients:
+        assert await probe.sample(ctx) == {"restarts": 3}
+        assert await probe.sample(ctx) == {"restarts": 3}
+    assert len(clients) == 1 and calls.count("disposed") == 1
+    assert calls.count(("Deployment", "worker-deployment")) == 2
+    assert calls.count(("Pod", "worker-1")) == 2
+    assert probe.labels == {"service": "search", "workload": "worker"}

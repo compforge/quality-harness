@@ -49,7 +49,7 @@ CLI 退出码为 completed=0、stopped=2、error=1。
 
 ## 离线数据
 
-schema 10 保存运行状态、环境、请求时间线、独立判定与窗口统计。旧主 schema 不由新 reader 兼容。
+schema 11 保存运行状态、环境、请求时间线、独立判定与窗口统计。旧主 schema 不由新 reader 兼容。
 load_run 不连接目标；更换 Judge 后可用 reduce_requests 重算每个 Window、Case 和 facet 的请求统计。
 保存重算结果时保持 requests.jsonl 原样；report 只读取已保存的窗口结果，不隐式执行 Judge。
 下游 API 数据按 Service / Operation 和实际窗口独立保存，不需要 Graph，也不能仅由相关性证明瓶颈。

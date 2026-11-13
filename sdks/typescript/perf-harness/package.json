@@ -1,6 +1,6 @@
 {
   "name": "@compforge/perf-harness",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "TypeScript load scheduling and request-side performance evidence harness",
   "type": "module",
   "scripts": {

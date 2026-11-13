@@ -33,12 +33,23 @@ class HttpMetricProfile:
     duration_unit: Literal["s", "ms"] = "s"
     qps_semantics: Literal["entered", "completed"] = "completed"
     rate_interval: str = "5m"
+    status_label: str | None = None
+    error_status_pattern: str | None = None
 
     def __post_init__(self) -> None:
         for name in (self.requests_metric, self.duration_bucket):
             if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z_:][a-zA-Z0-9_:]*", name):
                 raise ValueError("HTTP metric names must be Prometheus identifiers")
         labels = (self.service_label, self.method_label, self.route_label)
+        if (self.status_label is None) != (self.error_status_pattern is None):
+            raise ValueError("HTTP errors require status_label and error_status_pattern together")
+        if self.status_label is not None:
+            if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", self.status_label):
+                raise ValueError("HTTP status_label must be a Prometheus identifier")
+            if self.status_label in labels or self.status_label in self.match:
+                raise ValueError("HTTP status label cannot override request selectors")
+            if not isinstance(self.error_status_pattern, str) or not self.error_status_pattern:
+                raise ValueError("HTTP error_status_pattern must be nonempty")
         if len(set(labels)) != 3:
             raise ValueError("HTTP service/method/route labels must be distinct")
         if not isinstance(self.match, dict):
@@ -116,11 +127,24 @@ class HttpApiProbe(PrometheusQueryProbe):
         scale = " / 1000" if profile.duration_unit == "ms" else ""
 
         def expressions(interval: str) -> dict[str, str]:
-            return {
+            result = {
                 "qps": f"sum(rate({count}[{interval}]))",
                 "p95": f"histogram_quantile(0.95, sum by (le) (rate({buckets}[{interval}])))"
                 + scale,
             }
+            if profile.status_label is not None:
+                # An absent status schema is missing, not zero errors. Restrict both counts
+                # to series carrying status, and only zero-fill a missing error series.
+                total_selector = selector[:-1] + f',{profile.status_label}!=""' + "}"
+                error_selector = (
+                    total_selector[:-1]
+                    + f",{profile.status_label}=~{json.dumps(profile.error_status_pattern)}"
+                    + "}"
+                )
+                total = f"sum(increase({profile.requests_metric}{total_selector}[{interval}]))"
+                errors = f"sum(increase({profile.requests_metric}{error_selector}[{interval}]))"
+                result["error_rate"] = f"(({errors}) or (0 * ({total}))) / (({total}) > 0)"
+            return result
 
         summaries = [
             WindowQuery(
@@ -129,11 +153,14 @@ class HttpApiProbe(PrometheusQueryProbe):
                 histogram=HistogramQuantile(scale=0.001 if profile.duration_unit == "ms" else 1)
                 if role == "p95"
                 else None,
-                unit={"qps": "rps", "p95": "s"}[role],
+                unit={"qps": "rps", "p95": "s", "error_rate": "ratio"}[role],
                 description=(
                     f"HTTP request counter ({profile.qps_semantics}); matching service traffic, "
                     "not isolated run traffic or SSE business completion"
                     if role == "qps"
+                    else "HTTP status failures / completed HTTP requests; "
+                    "excludes SSE business errors"
+                    if role == "error_rate"
                     else "HTTP duration histogram p95; matching service traffic; instrumentation "
                     "boundary may differ from complete SSE duration"
                 ),
@@ -146,7 +173,7 @@ class HttpApiProbe(PrometheusQueryProbe):
             PrometheusQuery(
                 role + "_trend",
                 promql,
-                unit={"qps": "rps", "p95": "s"}[role],
+                unit={"qps": "rps", "p95": "s", "error_rate": "ratio"}[role],
                 description=f"HTTP server {role}; rolling query interval",
             )
             for role, promql in expressions(profile.rate_interval).items()
@@ -158,6 +185,6 @@ class HttpApiProbe(PrometheusQueryProbe):
             queries=queries,
             summaries=summaries,
             step_s=step_s,
-            operation_metrics={"qps": "qps", "p95": "p95"},
+            metrics={role: role for role in expressions("$window")},
             qps_semantics=profile.qps_semantics,
         )

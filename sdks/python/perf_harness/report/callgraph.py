@@ -91,6 +91,8 @@ def section(
                 props = node.to_dict()["properties"]["perf"]
                 metrics = props["metrics"]
                 qps, p95 = _value(metrics["qps"]), _value(metrics["p95"])
+                error = metrics["error_rate"]["value"]
+                error_text = "N/A" if error is None else f"{error:.1%}"
                 details = [
                     ("Operation", node.id),
                     ("Service", props["service"]),
@@ -104,6 +106,8 @@ def section(
                     details.append(
                         (role, f"{_value(metric)} {metric['unit']} ({metric['status']})")
                     )
+                    if metric.get("semantics"):
+                        details.append((role + " semantics", metric["semantics"]))
                     if metric.get("histogram"):
                         details.extend(
                             (key, str(value)) for key, value in metric["histogram"].items()
@@ -123,7 +127,7 @@ def section(
                 nodes.append(
                     GraphNode(
                         node.id,
-                        f"{props['name']}\nQPS {qps}\np95 {p95} s",
+                        f"{props['name']}\nQPS {qps}\np95 {p95} s\nerr {error_text}",
                         props["service"],
                         details,
                         colors[props["service"]],

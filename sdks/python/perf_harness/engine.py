@@ -43,6 +43,7 @@ from perf_harness.model import (
     ArmStop,
     ConnectionBudget,
     Deployment,
+    ObservationBinding,
     Phase,
     PhaseError,
     PhaseRun,
@@ -61,9 +62,10 @@ from perf_harness.observe import (
     Probe,
     ProbeContext,
     ProbeStore,
-    PrometheusQueryProbe,
     observe_loop,
 )
+from perf_harness.observe.definition import ObservationSpec, collect_bindings
+from perf_harness.observe.history import plan_history, sources_for
 from perf_harness.windows import merge_phases, traffic_windows
 
 logger = logging.getLogger(__name__)
@@ -119,6 +121,7 @@ class Experiment(BaseExperiment):
     judge: Judge = default_judge
     deployer: Deployer[Deployment] | None = None
     probes: list[Probe] = field(default_factory=list)
+    observation: list[ObservationSpec] = field(default_factory=list)
     cases: list[Case] = field(default_factory=list)
     # experiment runner mix: load weight per case.id (unwritten → 1.0; unknown id → error).
     # An Overlay, not a Case field — weight is "how this run uses the case", not its identity.
@@ -141,23 +144,17 @@ class Experiment(BaseExperiment):
         @rule A partial graph does not imply that unobserved operations have zero traffic.
         @link component://sdks/python/perf_harness/docs/service-metrics.md
         """
+        if self.observation:
+            if self.probes:
+                raise ValueError("configure observation or standalone probes, not both")
+            from perf_harness.observe import ClientProbe
+
+            self.probes = [ClientProbe(), *(p for item in self.observation for p in item.probes)]
         self.effective_connection = resolve_connection(
             self.request_transport, max(load.peak_inflight for load in self.loads)
         )
-        bindings = [
-            p.operation_metrics
-            for p in self.probes
-            if isinstance(p, PrometheusQueryProbe) and p.operation_metrics is not None
-        ]
-        if len({b.operation for b in bindings}) != len(bindings):
-            raise ValueError("duplicate API metric binding for operation")
-        sources = {}
-        for probe in self.probes:
-            if isinstance(probe, PrometheusQueryProbe):
-                source = probe.data_source
-                if source.url in sources and sources[source.url] != source.client_key:
-                    raise ValueError("Prometheus probes sharing a URL must share access options")
-                sources[source.url] = source.client_key
+        self.observation_bindings()  # reject duplicate producers before target access
+        sources_for(self.probes)  # validate shared access options before load
         if self.graph is None:
             return
         if self.graph.environment != self.service.environment.name:
@@ -176,6 +173,10 @@ class Experiment(BaseExperiment):
             service = probe.labels.get("service")
             if not service or owners[0].target != Service(service).id():
                 raise ValueError(f"observed operation owner differs from graph: {operation}")
+
+    def observation_bindings(self) -> list[ObservationBinding]:
+        """Merge disjoint attributes without knowing how a Probe collects them."""
+        return collect_bindings(self.probes)
 
     def resolved_arms(self) -> list[Arm]:
         """Expand the configured resource × load axes into named comparison Arms."""
@@ -257,11 +258,7 @@ class Engine:
             environment=exp.service.environment.name,
             report_columns=list(exp.report_columns),
             graph=exp.graph,
-            operation_metrics=[
-                p.operation_metrics
-                for p in exp.probes
-                if isinstance(p, PrometheusQueryProbe) and p.operation_metrics is not None
-            ],
+            observation_bindings=exp.observation_bindings(),
             case_ids=[case.id for case in exp.cases],
             connection_budget=ConnectionBudget(
                 exp.effective_connection.configured_max_connections,
@@ -276,12 +273,7 @@ class Engine:
     async def collect_metrics(self, run: Run) -> None:
         from perf_harness.observe.history import collect_metrics
 
-        sources = {
-            p.data_source.url: p.data_source
-            for p in self.experiment.probes
-            if isinstance(p, PrometheusQueryProbe)
-        }
-        await collect_metrics(run, sources)
+        await collect_metrics(run, sources_for(self.experiment.probes))
 
     async def _run_arm_run(self, service: Service, arm: Arm) -> ArmRun:
         exp = self.experiment
@@ -482,10 +474,8 @@ class Engine:
 
     async def _finish_probes(self, ctx: ProbeContext, result: ArmRun) -> None:
         windows = {window.id: window for window in result.windows}
+        plan_history(self.experiment.probes, result)
         for probe in self.experiment.probes:
-            if isinstance(probe, PrometheusQueryProbe):
-                result.prometheus_observations.extend(probe.plan(result))
-                continue
             try:
                 observations = await probe.finish(ctx, result.windows)
             except Exception as exc:
