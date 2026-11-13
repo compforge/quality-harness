@@ -46,6 +46,9 @@ function rkGraph(root, view) {
   function showFrame() {
     const frame = view.frames[Number(select.value)];
     if (!frame) return;
+    root.querySelectorAll('[data-graph-frame]').forEach(panel => {
+      panel.hidden = panel.dataset.graphFrame !== select.value;
+    });
     cy.elements().remove();
     const ids = new Set([...frame.nodes, ...frame.edges].map(item => item.id));
     const groups = new Map();

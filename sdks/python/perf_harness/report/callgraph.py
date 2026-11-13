@@ -1,7 +1,15 @@
 """Render numeric CallGraphSnapshot data without interpreting causality."""
 
 from harness_common import RelationKind
-from harness_common.report_kit import GraphEdge, GraphFrame, GraphNode, GraphView, Prose, Section
+from harness_common.report_kit import (
+    GraphEdge,
+    GraphFrame,
+    GraphNode,
+    GraphView,
+    Prose,
+    Section,
+    Table,
+)
 
 from perf_harness.callgraph import CallGraphSnapshot
 
@@ -12,7 +20,10 @@ def _value(metric: dict) -> str:
     return "N/A" if metric["value"] is None else f"{metric['value']:.3g}"
 
 
-def section(snapshot: CallGraphSnapshot) -> Section:
+def section(
+    snapshot: CallGraphSnapshot,
+    metric_tables: dict[tuple[str, str], Table] | None = None,
+) -> Section:
     colors = {
         name: _COLORS[index % len(_COLORS)]
         for index, name in enumerate(
@@ -74,7 +85,14 @@ def section(snapshot: CallGraphSnapshot) -> Section:
                         colors[props["service"]],
                     )
                 )
-            frames.append(GraphFrame(f"{arm.arm_id} / {window.id} ({window.kind})", nodes, edges))
+            frames.append(
+                GraphFrame(
+                    f"{arm.arm_id} / {window.id} ({window.kind})",
+                    nodes,
+                    edges,
+                    table=metric_tables.get((arm.id, window.id)) if metric_tables else None,
+                )
+            )
     scope = (
         f"Case: {snapshot.case_ids[0]}"
         if len(snapshot.case_ids) == 1
@@ -91,6 +109,6 @@ def section(snapshot: CallGraphSnapshot) -> Section:
                 "N/A means missing observation, not zero. "
                 "Latency percentiles cannot be summed along paths."
             ),
-            GraphView("Operation metrics", frames),
+            GraphView("Operation metrics", frames, table_title="指标明细"),
         ],
     )

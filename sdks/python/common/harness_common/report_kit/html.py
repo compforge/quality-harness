@@ -79,6 +79,7 @@ tr.knee   { background: #fff1e5 !important; }
   border-bottom:3px solid transparent; font:inherit; cursor:pointer; color:var(--muted); }
 .report-tabs [aria-selected="true"] { color:var(--accent); border-color:var(--accent); font-weight:600; }
 .report-tabs [role="tab"]:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.graph-table > [data-graph-frame] { overflow-x:auto; }
 .graph-viewport { position:relative; margin-top:.5rem; }
 .graph-canvas { height:600px; border:1px solid var(--line); }
 .graph-zoom { position:absolute; bottom:12px; right:12px; display:flex; align-items:center;
@@ -255,7 +256,7 @@ def _block_html(block: object, chart_counter: list[int]) -> str:
     if isinstance(block, GraphView):
         idx = chart_counter[0]
         chart_counter[0] += 1
-        return render_graph(block, idx)
+        return render_graph(block, idx, _table_html)
     if isinstance(block, Chart):
         idx = chart_counter[0]
         chart_counter[0] += 1

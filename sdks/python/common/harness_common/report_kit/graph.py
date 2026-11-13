@@ -2,10 +2,11 @@
 
 import html
 import json
+from collections.abc import Callable
 from dataclasses import asdict
 from importlib.resources import files
 
-from harness_common.report_kit.doc import GraphView
+from harness_common.report_kit.doc import GraphView, Table
 
 
 def asset_script(name: str) -> str:
@@ -29,9 +30,35 @@ def asset_script(name: str) -> str:
     return "<script>" + code.replace("</script", "<\\/script") + "</script>"
 
 
-def render_graph(view: GraphView, index: int) -> str:
+def render_graph(
+    view: GraphView, index: int, render_table: Callable[[Table], str]
+) -> str:
     ident = f"rk-graph-{index}"
-    payload = json.dumps(asdict(view), ensure_ascii=False).replace("<", "\\u003c")
+    data = asdict(view)
+    # Tables are escaped and rendered once in HTML; JS only switches visibility.
+    for frame in data["frames"]:
+        frame.pop("table")
+    payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
+    tables = ""
+    if any(frame.table is not None for frame in view.frames):
+        panels = []
+        for frame_index, frame in enumerate(view.frames):
+            content = (
+                render_table(frame.table)
+                if frame.table is not None and frame.table.rows
+                else "<p>No observations in this view.</p>"
+            )
+            panels.append(
+                f'<div data-graph-frame="{frame_index}"'
+                f"{'' if frame_index == 0 else ' hidden'}>{content}</div>"
+            )
+        tables = (
+            '<details class="graph-table"><summary>'
+            + html.escape(view.table_title)
+            + "</summary>"
+            + "".join(panels)
+            + "</details>"
+        )
     return (
         f'<div id="{ident}" class="graph-view"><b>{html.escape(view.title)}</b> '
         '<select aria-label="Graph view"></select> <button type="button" class="graph-fit">Fit</button>'
@@ -41,7 +68,7 @@ def render_graph(view: GraphView, index: int) -> str:
         'title="Zoom: 0 selects the minimum visible scale; 100 is actual size">'
         "<output>100%</output></label></div>"
         '<pre class="graph-details" style="white-space:pre-wrap">Select a node for details.</pre>'
-        f'</div><script>rkGraph(document.getElementById("{ident}"),{payload});</script>'
+        f'{tables}</div><script>rkGraph(document.getElementById("{ident}"),{payload});</script>'
     )
 
 
