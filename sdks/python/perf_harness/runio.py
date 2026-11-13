@@ -51,9 +51,11 @@ from perf_harness.metric import (
     ScalarSummary,
 )
 from perf_harness.model import (
+    ApiMetricBinding,
     Arm,
     ArmRun,
     ArmStop,
+    ConnectionBudget,
     Outcome,
     PhaseError,
     ProbeErrors,
@@ -463,6 +465,9 @@ def write_run_data(run: Run, run_dir: str | Path) -> dict[str, str]:
         "status": run.status,
         "environment": run.environment,
         "report_columns": [asdict(column) for column in run.report_columns],
+        "api_metrics": [asdict(binding) for binding in run.api_metrics],
+        "case_ids": run.case_ids,
+        "connection_budget": asdict(run.connection_budget) if run.connection_budget else None,
         "executions": [_arm_run_json(r) for r in run.arm_runs],
     }
     if run.graph is not None:
@@ -557,6 +562,11 @@ def load_run(run_dir: str | Path, *, with_series: bool = True) -> Run:
         service=service,
         environment=doc["environment"],
         graph=Graph.from_dict(doc["graph"]) if "graph" in doc else None,
+        api_metrics=[ApiMetricBinding(**binding) for binding in doc.get("api_metrics", [])],
+        case_ids=doc.get("case_ids", []),
+        connection_budget=ConnectionBudget(**doc["connection_budget"])
+        if doc.get("connection_budget")
+        else None,
         report_columns=[
             ReportColumn(item["title"], item["metric"], WindowSelector(**item.get("window", {})))
             for item in doc.get("report_columns", [])

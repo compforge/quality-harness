@@ -468,12 +468,12 @@ wheels = [
 
 [[package]]
 name = "harness-common"
-version = "0.7.0"
+version = "0.7.1"
 source = { editable = "common" }
 
 [[package]]
 name = "harness-toolbox"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "toolbox" }
 dependencies = [
     { name = "harness-common" },
@@ -1094,7 +1094,7 @@ wheels = [
 
 [[package]]
 name = "quality-harness"
-version = "0.11.0"
+version = "0.11.1"
 source = { editable = "." }
 dependencies = [
     { name = "agent-ledger" },

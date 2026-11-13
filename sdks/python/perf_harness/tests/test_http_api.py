@@ -1,0 +1,215 @@
+"""HTTP matching, window queries and graph reporting use one offline evidence path."""
+
+import json
+from dataclasses import replace
+from pathlib import Path
+from urllib.parse import parse_qs
+
+import httpx
+import pytest
+import yaml
+from harness_common import Graph, HttpOperation, Node, NodeKind, Relation, RelationKind
+from harness_toolbox.http import HTTPClient, HTTPClientProvider
+from harness_toolbox.prometheus import PrometheusDataSource
+
+from perf_harness import Engine, build_callgraph, load_experiment, load_run, write_run
+from perf_harness.metric.store import MetricStore
+from perf_harness.observe.http_api import HttpApiProbe, HttpMetricProfile
+from perf_harness.report.callgraph import section
+
+
+def profile(**kwargs):
+    return HttpMetricProfile(
+        requests_metric="http_requests_total", duration_bucket="http_duration_bucket", **kwargs
+    )
+
+
+def test_http_matching_scopes_service_method_and_route_and_escapes_values():
+    operation = HttpOperation(
+        "retrieve", method="POST", path="/faqs/{dataset_id}", service_name="kb"
+    )
+    metrics = profile(
+        service_label="job",
+        route_label="path",
+        method_label="method",
+        service_value="kb-metrics",
+        match={"namespace": 'qa"\\cluster'},
+        duration_unit="ms",
+    )
+    probe = HttpApiProbe(
+        operation=operation,
+        profile=metrics,
+        data_source=PrometheusDataSource("http://prom"),
+        metric_route="/faqs/:dataset_id",
+    )
+    selector = metrics.selector(operation, "/faqs/:dataset_id")
+    assert 'job="kb-metrics"' in selector and 'method="POST"' in selector
+    assert 'path="/faqs/:dataset_id"' in selector
+    assert json.dumps('qa"\\cluster') in selector
+    p95 = next(q.promql for q in probe.summaries if q.name == "p95")
+    assert "histogram_quantile(0.95, sum by (le) (rate(" in p95
+    assert p95.endswith(" / 1000") and "$window" in p95
+    assert probe.api_metrics.operation == operation.id()
+    assert probe.api_metrics.path == "/faqs/{dataset_id}"
+    assert metrics.selector(replace(operation, method="GET")) != metrics.selector(operation)
+    assert profile().selector(replace(operation, service_name="other")) != profile().selector(
+        operation
+    )
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"route_label": "bad-label"},
+        {"match": {"http_route": "/override"}},
+        {"match": {"namespace": 1}},
+        {"duration_unit": "minutes"},
+        {"qps_semantics": "unknown"},
+        {"rate_interval": "0s"},
+        {"method_label": "http_route"},
+    ],
+)
+def test_bad_profile_fails_before_network_access(options):
+    with pytest.raises(ValueError):
+        profile(**options)
+
+
+def configuration(tmp_path):
+    graph = Graph(
+        environment="qa",
+        nodes=(
+            Node("service:entry", NodeKind.SERVICE),
+            Node("service:kb", NodeKind.SERVICE),
+            Node("operation:entry/ask", NodeKind.OPERATION),
+            Node("operation:kb/retrieve", NodeKind.OPERATION, properties={"team": "search"}),
+        ),
+        relations=(
+            Relation("operation:entry/ask", "service:entry", RelationKind.BELONGS_TO),
+            Relation("operation:kb/retrieve", "service:kb", RelationKind.BELONGS_TO),
+            Relation("operation:entry/ask", "operation:kb/retrieve", RelationKind.MAY_CALL),
+        ),
+    )
+    (tmp_path / "case.graph.json").write_text(json.dumps(graph.to_dict()))
+    raw = {
+        "graph": "case.graph.json",
+        "prometheus": {"url": "http://prom", "step_s": 0.001},
+        "service": {"name": "entry", "base_url": "http://unused", "environment": {"name": "qa"}},
+        "runner": {"name": "mock"},
+        "cases": [{"id": "faq", "input": {"ms": 1}}],
+        "load": {"request_rate": "inf", "max_inflight": 1, "hold_s": 0.02, "warmup": {"step_s": 0}},
+        "observe": [
+            {
+                "name": "kb",
+                "http_metrics": {
+                    "requests_metric": "http_requests_total",
+                    "duration_bucket": "http_duration_bucket",
+                    "match": {"namespace": "qa"},
+                },
+                "probes": [
+                    {
+                        "name": "http_api",
+                        "operation": {
+                            "name": "retrieve",
+                            "method": "POST",
+                            "path": "/faqs/{dataset_id}",
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    path = tmp_path / "run.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    return path
+
+
+@pytest.mark.parametrize("state", ["traffic", "zero", "missing", "error"])
+async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
+    monkeypatch, tmp_path, state
+):
+    experiment, _ = load_experiment(str(configuration(tmp_path)))
+
+    def handler(request):
+        params = parse_qs(request.content.decode())
+        assert 'service_name="kb"' in params["query"][0]
+        if state == "error":
+            return httpx.Response(503)
+        p95 = "histogram_quantile" in params["query"][0]
+        value = "2.5" if p95 else ("0" if state == "zero" else "4")
+        is_range = request.url.path.endswith("query_range")
+        timestamp = float(params["start" if is_range else "time"][0])
+        row = {
+            "metric": {},
+            "values" if is_range else "value": [[timestamp, value]]
+            if is_range
+            else [timestamp, value],
+        }
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "resultType": "matrix" if is_range else "vector",
+                    "result": [] if state == "missing" else [row],
+                },
+            },
+        )
+
+    monkeypatch.setattr(
+        HTTPClientProvider,
+        "create_client",
+        lambda *_: HTTPClient(transport=httpx.MockTransport(handler)),
+    )
+    run = await Engine(experiment, run_id=state).run()
+    assert run.status == "completed"
+    paths = write_run(run, str(tmp_path / "runs"))
+    (tmp_path / "case.graph.json").unlink()
+    restored = load_run(paths["run_dir"])
+    assert restored.api_metrics == run.api_metrics and restored.case_ids == ["faq"]
+    assert all("$window" not in q.expression for q in restored.arm_runs[0].prometheus_observations)
+    if state in {"traffic", "zero"}:
+        assert (
+            MetricStore(restored.arm_runs).query(restored.arm_runs[0], restored.api_metrics[0].p95)
+            == 2.5
+        )
+        assert not restored.arm_runs[0].probe_errors
+
+    def offline(*_):
+        raise AssertionError("report must not access network")
+
+    monkeypatch.setattr(HTTPClientProvider, "create_client", offline)
+    snapshot = build_callgraph(restored)
+    payload = json.loads(Path(paths["callgraph"]).read_text())
+    metric = payload["arms"][0]["windows"][0]["nodes"][1]["properties"]["perf"]["metrics"]["qps"]
+    assert metric["value"] == {"traffic": 4, "zero": 0, "missing": None, "error": None}[state]
+    assert (
+        metric["status"]
+        == {"traffic": "observed", "zero": "observed", "missing": "missing", "error": "error"}[
+            state
+        ]
+    )
+    props = payload["arms"][0]["windows"][0]["nodes"][1]["properties"]
+    assert props["team"] == "search"
+    assert restored.graph.node("operation:kb/retrieve").properties == {"team": "search"}
+    assert payload["topology_source"] == "declared"
+    assert payload["relations"][0]["kind"] == "may_call"
+    assert payload["arms"][0]["load"]["request_rate"] == "inf"
+    assert snapshot.to_dict() == build_callgraph(restored).to_dict()
+    view = section(snapshot).blocks[-1]
+    frame = view.frames[0]
+    assert len(frame.nodes) == 2 and len(frame.edges) == 1
+    assert frame.edges[0].dashed
+    node = next(n for n in frame.nodes if n.id == "operation:kb/retrieve")
+    expected = {"traffic": "QPS 4", "zero": "QPS 0", "missing": "QPS N/A", "error": "QPS N/A"}[
+        state
+    ]
+    assert expected in node.label
+    assert "QPS N/A" in frame.nodes[0].label  # Unbound entry operation is not zero.
+    if state in {"error", "missing"}:
+        assert any(key == "Query error" for key, _ in node.details)
+    from perf_harness.cli import main
+
+    assert main(["report", paths["run_dir"]]) == 0
+    html = Path(paths["report_html"]).read_text()
+    assert "Call Graph" in html and "cytoscape" in html
+    assert "<script src=" not in html

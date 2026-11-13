@@ -7,7 +7,18 @@
     "nodes": [
       {
         "id": "service:chat",
-        "kind": "service"
+        "kind": "service",
+        "properties": {
+          "description": "entry",
+          "nested": {
+            "values": [
+              1,
+              2.5,
+              null,
+              true
+            ]
+          }
+        }
       },
       {
         "id": "service:a",
@@ -47,7 +58,10 @@
         "id": "[\"operation:chat/ask\",\"belongs_to\",\"service:chat\"]",
         "source": "operation:chat/ask",
         "target": "service:chat",
-        "kind": "belongs_to"
+        "kind": "belongs_to",
+        "properties": {
+          "source": "declaration"
+        }
       },
       {
         "id": "[\"operation:a/api1\",\"belongs_to\",\"service:a\"]",
@@ -542,6 +556,121 @@
             "source": "s",
             "target": "o",
             "kind": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "conditional_call_to_service",
+      "graph": {
+        "schema_version": 1,
+        "environment": "qa",
+        "source": "project:topology",
+        "version": "revision-1",
+        "nodes": [
+          {
+            "id": "service:chat",
+            "kind": "service"
+          },
+          {
+            "id": "service:a",
+            "kind": "service"
+          },
+          {
+            "id": "service:b",
+            "kind": "service"
+          },
+          {
+            "id": "service:d",
+            "kind": "service"
+          },
+          {
+            "id": "operation:chat/ask",
+            "kind": "operation"
+          },
+          {
+            "id": "operation:a/api1",
+            "kind": "operation"
+          },
+          {
+            "id": "operation:b/api2",
+            "kind": "operation"
+          },
+          {
+            "id": "operation:d/api4",
+            "kind": "operation"
+          },
+          {
+            "id": "operation:a/unrelated",
+            "kind": "operation"
+          }
+        ],
+        "relations": [
+          {
+            "id": "[\"operation:chat/ask\",\"belongs_to\",\"service:chat\"]",
+            "source": "operation:chat/ask",
+            "target": "service:chat",
+            "kind": "belongs_to"
+          },
+          {
+            "id": "[\"operation:a/api1\",\"belongs_to\",\"service:a\"]",
+            "source": "operation:a/api1",
+            "target": "service:a",
+            "kind": "belongs_to"
+          },
+          {
+            "id": "[\"operation:b/api2\",\"belongs_to\",\"service:b\"]",
+            "source": "operation:b/api2",
+            "target": "service:b",
+            "kind": "belongs_to"
+          },
+          {
+            "id": "[\"operation:d/api4\",\"belongs_to\",\"service:d\"]",
+            "source": "operation:d/api4",
+            "target": "service:d",
+            "kind": "belongs_to"
+          },
+          {
+            "id": "[\"operation:a/unrelated\",\"belongs_to\",\"service:a\"]",
+            "source": "operation:a/unrelated",
+            "target": "service:a",
+            "kind": "belongs_to"
+          },
+          {
+            "id": "[\"operation:chat/ask\",\"calls\",\"operation:a/api1\"]",
+            "source": "operation:chat/ask",
+            "target": "operation:a/api1",
+            "kind": "calls"
+          },
+          {
+            "id": "[\"operation:chat/ask\",\"calls\",\"operation:b/api2\"]",
+            "source": "operation:chat/ask",
+            "target": "operation:b/api2",
+            "kind": "calls"
+          },
+          {
+            "id": "[\"operation:a/api1\",\"calls\",\"operation:d/api4\"]",
+            "source": "operation:a/api1",
+            "target": "operation:d/api4",
+            "kind": "calls"
+          },
+          {
+            "id": "[\"operation:b/api2\",\"calls\",\"operation:d/api4\"]",
+            "source": "operation:b/api2",
+            "target": "operation:d/api4",
+            "kind": "calls"
+          },
+          {
+            "id": "[\"operation:d/api4\",\"calls\",\"operation:a/api1\"]",
+            "source": "operation:d/api4",
+            "target": "operation:a/api1",
+            "kind": "calls"
+          },
+          {
+            "source": "operation:chat/ask",
+            "target": "service:a",
+            "kind": "may_call",
+            "id": "[\"operation:chat/ask\",\"may_call\",\"service:a\"]"
           }
         ]
       }

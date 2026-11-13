@@ -70,7 +70,10 @@ perf_harness/
 - Run.status 只表示 completed / stopped / error；错误率熔断、超时、取消、排空仍是执行保护。
 - 吞吐按完成事件分窗，code 是开放的非空字符串，仅 success 为成功；未判定独立于 code；中断与丢弃单列。
 - 无已判定请求的错误率是 Missing；未判定不计为服务错误。缺失与 Probe 故障不能伪装为零。
-- 下游 API 指标通过 Probe.operation 绑定 Common Operation.id()，采集和报告不依赖 Graph。
+- 下游 API 指标通过 Probe.operation 绑定 Common Operation.id()，采集不依赖 Graph。
+  HttpApiProbe 按服务、method、路由模板生成查询；Run 保存 API 指标地址与 graph/case 快照。
+  Call Graph 是按 Window 从 MetricStore 读取的 Operation 图视图，Service 仅作辅助信息。
+  细节与分析指导见 [HTTP 指标与 Call Graph](docs/callgraph.md)。
 - 既有分析透镜与事实记录分层；本层不新增瓶颈、容量或“压不上去”的自动结论。
 
 - 请求通道通过 `Experiment.request_transport` 显式注入加压 HTTP pool，Runner 的 setup/fire/deactivate/cleanup 共用；观测客户端独立。通道初始化失败记录为 setup phase error，不发出业务请求。细节见 [请求通道](docs/request-transport.md)。

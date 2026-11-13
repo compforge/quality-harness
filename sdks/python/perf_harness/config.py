@@ -63,6 +63,7 @@ from perf_harness.observe import (
 )
 from perf_harness.observe.configuration import (
     parse_columns,
+    parse_http_api_probe,
     parse_prometheus,
     parse_prometheus_probe,
 )
@@ -192,7 +193,6 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
         request_transport=parse_request_transport(
             raw.get("request_transport"),
             service,
-            max_inflight=max(ld.peak_inflight for ld in loads),
         ),
         deployer=deployer,
         runner=runner,
@@ -465,6 +465,10 @@ def _parse_observe(
             elif pname == "metric":
                 raise ValueError(
                     "Perf no longer scrapes /metrics; configure prometheus.url and prometheus_query"
+                )
+            elif pname == "http_api":
+                out.append(
+                    parse_http_api_probe(options, service, item.get("http_metrics"), source, step_s)
                 )
             elif pname == "prometheus_query":
                 out.append(parse_prometheus_probe(options, service, source, step_s))

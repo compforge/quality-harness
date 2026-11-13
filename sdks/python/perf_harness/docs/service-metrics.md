@@ -104,7 +104,8 @@ Run 的指标投影，不能在本次查询失败时继续展示上次成功值�
 
 Probe 的 `operation` 引用 Service 内的 Operation 名，由 Common 生成 qualified ID；指标通过
 service/operation labels 与可选 `graph: product.graph.json` 关联。Graph 快照保存在 Run 中，
-离线重载不再依赖项目文件。绑定仅描述归属，不自动注入 PromQL 过滤条件或证明某次实际调用。
+离线重载不再依赖项目文件。`prometheus_query` 的绑定仅描述归属，不改写自定义 PromQL。内置 `http_api` 根据服务、method、
+route 自动生成过滤条件；两者均不证明某次实际调用。详见 [HTTP 指标与 Call Graph](callgraph.md)。
 
 Query 的 `labels` 必须明确声明返回维度，不能覆盖已绑定的 service/operation。按实例查询时保留
 instance 或 pod，服务级查询由 PromQL 显式聚合。Graph 中没有指标的节点仍是未知，不是零流量；

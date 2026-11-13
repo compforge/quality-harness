@@ -146,7 +146,11 @@ def test_open_enums_serialize_and_enforce_constructor_types():
         Relation("o", "o", "calls")
     assert Relation("o", "o", RelationKind.CALLS).id == '["o","calls","o"]'
     assert list(NodeKind) == [NodeKind.SERVICE, NodeKind.OPERATION]
-    assert list(RelationKind) == [RelationKind.BELONGS_TO, RelationKind.CALLS]
+    assert list(RelationKind) == [
+        RelationKind.BELONGS_TO,
+        RelationKind.CALLS,
+        RelationKind.MAY_CALL,
+    ]
     for kind_type in (NodeKind, RelationKind):
         with pytest.raises(ValueError):
             kind_type("")
@@ -156,3 +160,61 @@ def test_open_enums_serialize_and_enforce_constructor_types():
             nodes=nodes,
             relations=relations + (Relation("s", "o", RelationKind.CALLS),),
         )
+
+
+def test_conditional_calls_share_endpoint_rules_and_call_projection():
+    graph = Graph.from_dict(FIXTURE["graph"])
+    optional = Relation(
+        "operation:chat/ask", "operation:a/unrelated", RelationKind.MAY_CALL
+    )
+    graph = Graph(
+        environment=graph.environment,
+        nodes=graph.nodes,
+        relations=(*graph.relations, optional),
+    )
+    assert optional in graph.calls
+    assert all(
+        r.kind in (RelationKind.CALLS, RelationKind.MAY_CALL) for r in graph.calls
+    )
+    assert Graph.from_dict(graph.to_dict()) == graph
+    with pytest.raises(ValueError, match="may_call requires operation endpoints"):
+        Graph(
+            environment=graph.environment,
+            nodes=graph.nodes,
+            relations=(
+                *graph.relations,
+                Relation("operation:chat/ask", "service:a", RelationKind.MAY_CALL),
+            ),
+        )
+
+
+def test_properties_are_json_detached_immutable_and_do_not_change_identity():
+    props = {"http": {"path": "/items/{id}"}, "metrics": [1, 2.5, None, True]}
+    node = Node("s", NodeKind.SERVICE, properties=props)
+    edge = Relation("s", "s", RelationKind("related"), properties={"weight": 1.5})
+    graph = Graph(environment="qa", nodes=(node,), relations=(edge,))
+    props["http"]["path"] = "mutated"
+    assert node.properties["http"]["path"] == "/items/{id}"
+    with pytest.raises(TypeError):
+        node.properties["http"]["path"] = "mutated"
+    wire = graph.to_dict()
+    assert Graph.from_dict(wire) == graph
+    wire["nodes"][0]["properties"]["metrics"].append("mutated")
+    assert len(node.properties["metrics"]) == 4
+    assert edge.id == Relation("s", "s", RelationKind("related")).id
+    assert hash(node) == hash(Node("s", NodeKind.SERVICE))
+
+
+@pytest.mark.parametrize(
+    "properties", [{"value": float("nan")}, {"value": object()}, {1: "bad"}, []]
+)
+def test_non_json_properties_are_rejected(properties):
+    with pytest.raises(ValueError, match="properties|property"):
+        Node("s", NodeKind.SERVICE, properties=properties)
+
+
+def test_circular_properties_are_rejected():
+    properties = {}
+    properties["self"] = properties
+    with pytest.raises(ValueError, match="cycles"):
+        Node("s", NodeKind.SERVICE, properties=properties)

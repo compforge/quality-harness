@@ -48,7 +48,7 @@ def test_relay_config_is_pure_and_keeps_logical_service_url(tmp_path, host_trans
 @pytest.mark.parametrize(
     "change, expected",
     [
-        (("max_connections: 128", "max_connections: 99"), "max_connections"),
+        (("max_connections: 128", "max_connections: 0"), "positive"),
         (("kind: pod-relay", "kind: typo"), "request_transport.kind"),
         (("  max_connections: 128", "  unexpected: 1"), "unknown request_transport"),
         (("kind: kubernetes, kubeconfig: /tmp/config", "kind: generic"), "Kubernetes"),
@@ -62,7 +62,7 @@ def test_bad_relay_config_fails_before_io(tmp_path, change, expected):
         load_experiment(str(path))
 
 
-def test_stage_peak_must_fit_relay_pool(tmp_path):
+def test_stage_peak_resolves_all_load_connection_pools(tmp_path):
     path = tmp_path / "config.yaml"
     path.write_text(
         _CONFIG.replace(
@@ -70,8 +70,10 @@ def test_stage_peak_must_fit_relay_pool(tmp_path):
             "hold_s: 1, stages: [{duration_s: 1, request_rate: 8, max_inflight: 150}]}",
         )
     )
-    with pytest.raises(ValueError, match="max_connections"):
-        load_experiment(str(path))
+    experiment, _ = load_experiment(str(path))
+    assert experiment.request_transport.max_connections == 128
+    assert experiment.effective_connection.max_connections == 150
+    assert experiment.effective_connection.transport.max_connections == 150
 
 
 @pytest.mark.parametrize("fail_at", [None, "setup", "fire", "cleanup"])
@@ -209,3 +211,48 @@ async def test_failed_request_route_is_native_setup_error_without_dispatch():
     assert arm.phase_errors[0].phase == "setup"
     assert arm.phase_errors[0].message == "relay unavailable"
     assert not arm.measurement.complete
+
+
+@pytest.mark.parametrize(
+    "configured, peak, expected", [(99, 200, 200), (256, 200, 256), (99, 1, 128)]
+)
+def test_explicit_budget_is_a_floor_not_a_load_limit(tmp_path, configured, peak, expected):
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        _CONFIG.replace("max_connections: 128", f"max_connections: {configured}").replace(
+            "max_inflight: 100", f"max_inflight: {peak}"
+        )
+    )
+    experiment, _ = load_experiment(str(path))
+    effective = experiment.effective_connection
+    assert effective.configured_max_connections == configured
+    assert effective.max_connections == expected
+    assert effective.transport.max_connections == expected
+    assert experiment.request_transport.max_connections == configured
+
+
+async def test_effective_pool_reaches_engine_and_survives_reload(monkeypatch, tmp_path):
+    from harness_toolbox.http import HTTPClient, HTTPClientProvider
+
+    from perf_harness import load_run, write_run
+    from perf_harness.drive.runner import MockRunner
+
+    providers = []
+
+    def create(provider, clients):
+        providers.append(provider)
+        return HTTPClient()
+
+    monkeypatch.setattr(HTTPClientProvider, "create_client", create)
+    experiment = Experiment(
+        service=Service("test", base_url="http://unused"),
+        runner=MockRunner(),
+        resources=[ResourceProfile()],
+        loads=[LoadPlan(request_rate=1, max_inflight=200, hold_s=0.01, warmup=Warmup(step_s=0))],
+    )
+    run = await Engine(experiment).run()
+    assert next(p.max_connections for p in providers if p.pool == "load") == 200
+    assert next(p.max_connections for p in providers if p.pool == "observe") == 8
+    restored = load_run(write_run(run, str(tmp_path))["run_dir"])
+    assert restored.connection_budget.effective_max_connections == 200
+    assert restored.connection_budget.configured_max_connections is None

@@ -24,6 +24,7 @@ from harness_common.execution.overlay import Overlay
 from harness_toolbox.http import HTTPClientProvider, HTTPRoute
 from spec_case.model import Case
 
+from perf_harness.drive.connection import EffectiveConnection, resolve_connection
 from perf_harness.drive.load import LoadPlan
 from perf_harness.drive.runner import ArmContext, Runner
 from perf_harness.drive.scheduler import DriveState, drive
@@ -39,6 +40,7 @@ from perf_harness.metric.store import PER_REQUEST_DESCRIPTORS, REQUEST_DESCRIPTO
 from perf_harness.model import (
     Arm,
     ArmRun,
+    ConnectionBudget,
     Deployment,
     Phase,
     PhaseError,
@@ -126,6 +128,7 @@ class Experiment(BaseExperiment):
     report_columns: list[ReportColumn] = field(default_factory=list)
     graph: Graph | None = None
     request_transport: ClientProvider[HTTPRoute] | None = None
+    effective_connection: EffectiveConnection = field(init=False)
 
     def __post_init__(self) -> None:
         """Validate optional topology without making it a prerequisite for metrics.
@@ -134,6 +137,16 @@ class Experiment(BaseExperiment):
         @rule A partial graph does not imply that unobserved operations have zero traffic.
         @link component://sdks/python/perf_harness/docs/service-metrics.md
         """
+        self.effective_connection = resolve_connection(
+            self.request_transport, max(load.peak_inflight for load in self.loads)
+        )
+        bindings = [
+            p.api_metrics
+            for p in self.probes
+            if isinstance(p, PrometheusQueryProbe) and p.api_metrics is not None
+        ]
+        if len({b.operation for b in bindings}) != len(bindings):
+            raise ValueError("duplicate API metric binding for operation")
         sources = {}
         for probe in self.probes:
             if isinstance(probe, PrometheusQueryProbe):
@@ -240,6 +253,16 @@ class Engine:
             environment=exp.service.environment.name,
             report_columns=list(exp.report_columns),
             graph=exp.graph,
+            api_metrics=[
+                p.api_metrics
+                for p in exp.probes
+                if isinstance(p, PrometheusQueryProbe) and p.api_metrics is not None
+            ],
+            case_ids=[case.id for case in exp.cases],
+            connection_budget=ConnectionBudget(
+                exp.effective_connection.configured_max_connections,
+                exp.effective_connection.max_connections,
+            ),
         )
 
         if collect:
@@ -260,7 +283,15 @@ class Engine:
         exp = self.experiment
         profile, load = arm.resources, arm.load
         stats = ClientStats()
-        cap = load.peak_inflight
+        connection = exp.effective_connection
+        logger.info(
+            "perf connection budget: run=%s arm=%s configured=%s effective=%d peak_inflight=%d",
+            self.run_id,
+            arm.id,
+            connection.configured_max_connections,
+            connection.max_connections,
+            load.peak_inflight,
+        )
         result = ArmRun(
             id=f"{self.run_id}:{arm.id}", service=service.name, arm=arm, windows=[], series={}
         )
@@ -273,7 +304,9 @@ class Engine:
         async with ClientManager() as clients:
             try:
                 client = await clients.get(
-                    HTTPClientProvider(cap, 120, pool="load", transport=exp.request_transport)
+                    HTTPClientProvider(
+                        connection.max_connections, 120, pool="load", transport=connection.transport
+                    )
                 )
                 obs_client = await clients.get(HTTPClientProvider(8, 10, pool="observe"))
             except Exception as exc:

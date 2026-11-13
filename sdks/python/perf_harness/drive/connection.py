@@ -1,16 +1,17 @@
 """Explicit load-request connection selection; no cluster discovery in the Engine."""
 
+from dataclasses import dataclass, replace
+
 from harness_common import ClientProvider, KubernetesWorkload
 from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.http import HTTPRoute
 from harness_toolbox.transport import PodRelayTransport
+from harness_toolbox.transport.pod_relay import DEFAULT_MAX_CONNECTIONS
 
 from perf_harness.model import Service
 
 
-def parse_request_transport(
-    value: object, service: Service, *, max_inflight: int
-) -> ClientProvider[HTTPRoute] | None:
+def parse_request_transport(value: object, service: Service) -> ClientProvider[HTTPRoute] | None:
     if value is None:
         return None
     if not isinstance(value, dict):
@@ -41,6 +42,31 @@ def parse_request_transport(
     transport = PodRelayTransport(
         service.environment, KubernetesWorkload(**value["workload"]), **options
     )
-    if transport.max_connections < max_inflight:
-        raise ValueError("pod-relay max_connections must be >= every load's max_inflight")
     return transport
+
+
+@dataclass(frozen=True)
+class EffectiveConnection:
+    """Resolved once by Perf; all load-path connection pools consume this budget."""
+
+    max_connections: int
+    transport: ClientProvider[HTTPRoute] | None
+    configured_max_connections: int | None
+
+
+def resolve_connection(
+    transport: ClientProvider[HTTPRoute] | None, peak_inflight: int
+) -> EffectiveConnection:
+    """@spec HTTP pool, local proxy and Pod relay use the same effective capacity.
+
+    @why Users configure load concurrency; internal defaults must not reject that load.
+    Observation connections and request timeouts remain independent.
+    """
+    configured = transport.max_connections if isinstance(transport, PodRelayTransport) else None
+    effective = max(DEFAULT_MAX_CONNECTIONS, configured or 0, peak_inflight)
+    resolved = (
+        replace(transport, max_connections=effective)
+        if isinstance(transport, PodRelayTransport)
+        else transport
+    )
+    return EffectiveConnection(effective, resolved, configured)

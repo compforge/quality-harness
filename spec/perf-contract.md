@@ -126,3 +126,20 @@ report_columns 保存指标与窗口选择。这些是 schema 7 的附加字段�
 这是 schema 7 的附加字段，目前 Python 支持加载配置、绑定校验与离线重载。
 其 environment 必须与 Run 一致；声明 Operation 绑定的 Probe 必须引用图中的 Operation 及其 Service。
 指标仍通过 operation label 关联；图中节点没有指标不表示零流量，静态 calls 不证明某次实际调用或因果。
+
+
+### HTTP operation observations and call graph (Python)
+
+HTTP server observations match service scope, method and route template. The operation's
+stable ID remains the join key; metric-label spelling is a project-owned profile.
+`api_metrics` records qps/p95 scalar metric addresses (rps/seconds) and counter semantics;
+`case_ids` records the experiment scope. These are additive schema-7 fields.
+Reports read saved MetricStore windows and project only operation nodes plus calls/may_call
+edges. Service ownership is auxiliary metadata. QPS on a node does not prove an incoming edge
+executed or isolate case traffic. Missing values and collection errors cannot become zero.
+
+`connection_budget` records configured and effective max connections. Python Perf resolves
+one capacity before execution as max(default, configured, all LoadPlan/Stage peak inflight),
+then passes it to the load HTTP pool/local proxy/Pod relay. Observers and timeouts remain
+independent. Graph structure and built-in relation constraints are shared across languages;
+HTTP profile and interactive report coverage are currently Python capabilities.
