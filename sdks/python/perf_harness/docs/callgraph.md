@@ -53,7 +53,8 @@ HTTP 完成和 HTTP 200 也不能替代业务终态 Judge。
 Python 使用 `HttpMetricProfile` 和 `HttpApiProbe`，从 `perf_harness.observe` 导入。
 特殊协议或已有 PromQL 仍可使用 `PrometheusQueryProbe`，声明
 `api_metrics={"qps": "<summary name>", "p95": "<summary name>"}`：必须指向无额外结果 label 的
-WindowQuery，单位分别为 rps、s。多个互不重叠的窗口 kind 可复用同一个 summary 名。
+WindowQuery，单位分别为 rps、s。p95 可省略，未绑定时显示 N/A。
+中间件可用普通 Operation 归属于 Service，只绑定已有 QPS；不必虚构 HTTP method/path 或耗时分位数。多个互不重叠的窗口 kind 可复用同一个 summary 名。
 
 ## 时间窗口与数据
 
@@ -72,8 +73,11 @@ Run 保存 graph 快照、case_ids、api_metrics 指标地址，以及已有的�
 
 ## 离线报告
 
-`report.html` 中的 Call Graph 只画 Operation 节点与 calls/may_call 边；Service 显示为分组背景、辅助文字
+`report.html` 将原有汇总、吞吐和资源图表放在默认的 Report Tab，调用图放在独立 Callgraph Tab。
+无 graph 的报告保持原有布局。Callgraph 只画 Operation 节点与 calls/may_call 边；Service 显示为分组背景、辅助文字
 和颜色。支持按 Arm/Window 切换、缩放、拖动画布、Fit、点击节点查看指标地址、PromQL 和查询错误。
+图右下角的 0–100% 滑块调整缩放；100% 为原始大小，0 端使用最小倍率 0.1%，
+滚轮和 Fit 会同步更新百分比。隐藏页面首次打开时才按可见画布布局。
 默认选 measurement。`may_call` 下游节点出现流量是使用线索，不能在缺少 caller 维度时标记该边已执行。
 
 使用 Cytoscape.js + Dagre 自动布局，资源与 ECharts 一并内置，生成及查看不依赖 CDN。

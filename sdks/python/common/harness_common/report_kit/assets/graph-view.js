@@ -3,12 +3,15 @@ function rkGraph(root, view) {
   const select = root.querySelector('select');
   const details = root.querySelector('.graph-details');
   const canvas = root.querySelector('.graph-canvas');
+  const zoom = root.querySelector('.graph-zoom input');
+  const zoomValue = root.querySelector('.graph-zoom output');
+  let needsLayout = true;
   view.frames.forEach((frame, index) => {
     const option = document.createElement('option');
     option.value = String(index); option.textContent = frame.label;
     select.appendChild(option);
   });
-  const cy = cytoscape({ container: canvas, elements: [],
+  const cy = cytoscape({ container: canvas, elements: [], minZoom: 0.001, maxZoom: 1,
     style: [
       { selector: 'node', style: { 'label': 'data(label)', 'shape': 'round-rectangle',
         'width': 310, 'height': 110, 'text-wrap': 'wrap', 'text-max-width': 290,
@@ -23,6 +26,23 @@ function rkGraph(root, view) {
       { selector: 'node:selected', style: { 'border-color': '#2563eb', 'border-width': 3 } }
     ]
   });
+  function syncZoom() {
+    zoom.value = String(Math.round(cy.zoom() * 100));
+    zoomValue.textContent = `${Number((cy.zoom() * 100).toFixed(1))}%`;
+  }
+  /**
+   * @why Hidden panels have no usable viewport; defer layout until visible so
+   * opening a tab or a collapsed section never fits the graph into zero dimensions.
+   */
+  function resize() {
+    if (!canvas.clientWidth || !canvas.clientHeight) return;
+    cy.resize();
+    if (needsLayout) {
+      cy.layout({name: 'dagre', rankDir: 'LR', nodeSep: 35, rankSep: 100, padding: 30}).run();
+      needsLayout = false;
+    }
+    syncZoom();
+  }
   function showFrame() {
     const frame = view.frames[Number(select.value)];
     if (!frame) return;
@@ -39,7 +59,8 @@ function rkGraph(root, view) {
     }
     cy.add(frame.nodes.map(node => ({data: {...node, parent: groups.get(node.group)}})));
     cy.add(frame.edges.map(edge => ({data: edge, classes: edge.dashed ? 'conditional' : ''})));
-    cy.layout({name: 'dagre', rankDir: 'LR', nodeSep: 35, rankSep: 100, padding: 30}).run();
+    needsLayout = true;
+    resize();
     details.textContent = 'Select a node for details.';
   }
   cy.on('tap', 'node', event => {
@@ -47,7 +68,12 @@ function rkGraph(root, view) {
     details.textContent = node.details.map(item => item[0] + ': ' + item[1]).join('\n');
   });
   select.addEventListener('change', showFrame);
-  root.querySelector('button').addEventListener('click', () => cy.fit(undefined, 30));
-  new ResizeObserver(() => cy.resize()).observe(canvas);
+  root.querySelector('.graph-fit').addEventListener('click', () => cy.fit(undefined, 30));
+  cy.on('zoom', syncZoom);
+  zoom.addEventListener('input', () => {
+    cy.zoom({level: Math.max(cy.minZoom(), Number(zoom.value) / 100),
+      renderedPosition: {x: canvas.clientWidth / 2, y: canvas.clientHeight / 2}});
+  });
+  new ResizeObserver(resize).observe(canvas);
   showFrame();
 }

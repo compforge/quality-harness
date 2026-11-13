@@ -22,3 +22,5 @@ from harness_common.report_kit.doc import GraphNode as GraphNode
 from harness_common.report_kit.doc import GraphEdge as GraphEdge
 from harness_common.report_kit.doc import GraphFrame as GraphFrame
 from harness_common.report_kit.doc import GraphView as GraphView
+
+from harness_common.report_kit.doc import ReportTab as ReportTab

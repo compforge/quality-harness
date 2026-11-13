@@ -34,8 +34,12 @@ def render_graph(view: GraphView, index: int) -> str:
     payload = json.dumps(asdict(view), ensure_ascii=False).replace("<", "\\u003c")
     return (
         f'<div id="{ident}" class="graph-view"><b>{html.escape(view.title)}</b> '
-        '<select aria-label="Graph view"></select> <button type="button">Fit</button>'
-        '<div class="graph-canvas" style="height:600px;border:1px solid #d0d7de"></div>'
+        '<select aria-label="Graph view"></select> <button type="button" class="graph-fit">Fit</button>'
+        '<div class="graph-viewport"><div class="graph-canvas"></div>'
+        '<label class="graph-zoom">Zoom '
+        '<input type="range" min="0" max="100" value="100" aria-label="Graph zoom" '
+        'title="Zoom: 0 selects the minimum visible scale; 100 is actual size">'
+        "<output>100%</output></label></div>"
         '<pre class="graph-details" style="white-space:pre-wrap">Select a node for details.</pre>'
         f'</div><script>rkGraph(document.getElementById("{ident}"),{payload});</script>'
     )

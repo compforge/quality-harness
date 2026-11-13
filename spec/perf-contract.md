@@ -133,6 +133,8 @@ report_columns 保存指标与窗口选择。这些是 schema 7 的附加字段�
 HTTP server observations match service scope, method and route template. The operation's
 stable ID remains the join key; metric-label spelling is a project-owned profile.
 `api_metrics` records qps/p95 scalar metric addresses (rps/seconds) and counter semantics;
+p95 may be absent/null when only throughput is observed; it remains unbound, not zero.
+Generic Operations use the same binding for middleware metrics without inventing HTTP routes.
 `case_ids` records the experiment scope. These are additive schema-7 fields.
 Reports read saved MetricStore windows and project only operation nodes plus calls/may_call
 edges. Service ownership is auxiliary metadata. QPS on a node does not prove an incoming edge

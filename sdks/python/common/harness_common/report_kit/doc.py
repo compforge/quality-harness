@@ -157,6 +157,14 @@ class Section:
 
 
 @dataclass
+class ReportTab:
+    """A named page of sections within a report."""
+
+    title: str
+    sections: list[Section] = field(default_factory=list)
+
+
+@dataclass
 class Report:
     """A whole document: a title, a few header key/values, and ordered sections."""
 
@@ -164,8 +172,17 @@ class Report:
     meta: list[tuple[str, str]] = field(default_factory=list)
     sections: list[Section] = field(default_factory=list)
 
+    tabs: list[ReportTab] = field(default_factory=list)
+
+    def all_sections(self) -> list[Section]:
+        return self.sections + [
+            section for tab in self.tabs for section in tab.sections
+        ]
+
     def has_charts(self) -> bool:
-        return any(isinstance(b, Chart) for s in self.sections for b in s.blocks)
+        return any(isinstance(b, Chart) for s in self.all_sections() for b in s.blocks)
 
     def has_graphs(self) -> bool:
-        return any(isinstance(b, GraphView) for s in self.sections for b in s.blocks)
+        return any(
+            isinstance(b, GraphView) for s in self.all_sections() for b in s.blocks
+        )
