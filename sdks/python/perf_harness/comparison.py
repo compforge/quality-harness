@@ -36,6 +36,7 @@ def comparison_conditions(r: ArmRun) -> dict:
     conditions["stages"] = [
         {
             "kind": stage.kind,
+            "shape": stage.shape,
             "duration_s": stage.duration_s,
             "request_rate": "inf" if load.saturated else stage.request_rate,
             "max_inflight": stage.max_inflight,
@@ -60,9 +61,9 @@ def comparison_groups(
     """
     groups: dict[str, list[ArmRun]] = {}
     for r in arm_runs:
-        if not include_partial and not r.arm.load.saturated and r.measurement.limited_s > 0:
+        if not include_partial and not r.arm.load.saturated and r.full.limited_s > 0:
             continue
-        if not include_partial and r.phase_errors and not r.measurement.complete:
+        if not include_partial and r.phase_errors and not r.full.complete:
             continue
         key = json.dumps(comparison_conditions(r), sort_keys=True, separators=(",", ":"))
         groups.setdefault(key, []).append(r)

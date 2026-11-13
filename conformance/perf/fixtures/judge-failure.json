@@ -1,23 +1,23 @@
 [
   {
-    "name": "judge_during_measurement",
+    "name": "judge_during_hold",
     "duration_s": 1,
     "first_response_s": 0.02,
     "cancellation_delay_s": 0.08,
     "cooldown_timeout_s": 0.15,
     "stop_reason": "aborted",
-    "measurement_complete": false,
+    "hold_complete": false,
     "inflight_at_stop": 1,
     "completed": 1
   },
   {
-    "name": "judge_during_drain",
+    "name": "judge_during_cooldown",
     "duration_s": 0.03,
     "first_response_s": 0.08,
     "cancellation_delay_s": 0.02,
     "cooldown_timeout_s": 0.15,
     "stop_reason": "deadline",
-    "measurement_complete": true,
+    "hold_complete": true,
     "inflight_at_stop": 2,
     "completed": 0
   }

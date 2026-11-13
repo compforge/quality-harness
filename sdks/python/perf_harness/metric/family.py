@@ -122,6 +122,7 @@ class DistributionSummary:
 class ScalarSummary:
     value: float
     caveats: frozenset[Caveat] = field(default_factory=frozenset)
+    histogram: dict[str, float | bool] | None = None
 
 
 MetricSummary = CounterSummary | GaugeSummary | DistributionSummary | ScalarSummary

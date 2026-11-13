@@ -17,7 +17,13 @@ _COLORS = ("#dbeafe", "#dcfce7", "#fef3c7", "#ede9fe", "#fce7f3", "#cffafe")
 
 
 def _value(metric: dict) -> str:
-    return "N/A" if metric["value"] is None else f"{metric['value']:.3g}"
+    return (
+        "N/A"
+        if metric["value"] is None
+        else "+Inf"
+        if metric["value"] == "+Inf"
+        else f"{metric['value']:.3g}"
+    )
 
 
 def section(
@@ -67,6 +73,10 @@ def section(
                     details.append(
                         (role, f"{_value(metric)} {metric['unit']} ({metric['status']})")
                     )
+                    if metric.get("histogram"):
+                        details.extend(
+                            (key, str(value)) for key, value in metric["histogram"].items()
+                        )
                     if metric["description"]:
                         details.append((role + " description", metric["description"]))
                     if metric["reason"]:
@@ -82,18 +92,22 @@ def section(
                 nodes.append(
                     GraphNode(
                         node.id,
-                        f"{props['name']}\n{props['service']}\nQPS {qps} · p95 {p95} s",
+                        f"{props['name']}\nQPS {qps} · p95 {p95} s",
                         props["service"],
                         details,
                         colors[props["service"]],
+                        tooltip=f"Service: {props['service']}\nPath: {props['path'] or 'N/A'}",
                     )
                 )
             frames.append(
                 GraphFrame(
-                    f"{arm.arm_id} / {window.id} ({window.kind})",
+                    f"{arm.arm_id} / {window.name} [{window.start_s:.3f}–{window.end_s:.3f}s]",
                     nodes,
                     edges,
                     table=metric_tables.get((arm.id, window.id)) if metric_tables else None,
+                    group={"full": "全程观测", "phase": "指定阶段", "custom": "自定义范围"}[
+                        window.kind
+                    ],
                 )
             )
     scope = (

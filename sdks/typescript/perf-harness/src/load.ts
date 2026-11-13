@@ -2,7 +2,8 @@ export interface Stage {
   duration_s: number;
   request_rate: number;
   max_inflight: number;
-  kind: "hold" | "ramp" | "warmup";
+  kind: "hold" | "warmup";
+  shape?: "constant" | "ramp";
   name?: string;
 }
 
@@ -72,17 +73,24 @@ export function validateLoadPlan(load: LoadPlan): void {
     throw new Error("hold_s must be finite and > 0");
   if (!Number.isFinite(load.warmup?.step_s ?? 5) || (load.warmup?.step_s ?? 5) < 0)
     throw new Error("warmup.step_s must be finite and >= 0");
-  for (const stage of [{ ...load, duration_s: load.hold_s ?? 60, kind: "hold" }, ...stages(load)]) {
+  for (const stage of [{ ...load, duration_s: load.hold_s ?? 60, kind: "hold", shape: "constant" }, ...stages(load)]) {
     if (!Number.isFinite(stage.duration_s) || stage.duration_s <= 0)
       throw new Error("duration_s must be finite and > 0");
     if (!(stage.request_rate >= 0) || stage.request_rate === -Infinity)
       throw new Error("request_rate must be >= 0 or inf");
     if (!Number.isInteger(stage.max_inflight) || stage.max_inflight < 1)
       throw new Error("max_inflight must be an integer >= 1");
-    if (stage.kind !== "hold" && stage.kind !== "ramp" && stage.kind !== "warmup")
-      throw new Error("stage.kind must be hold, ramp or warmup");
+    if (stage.kind !== "hold" && stage.kind !== "warmup")
+      throw new Error("stage.kind must be hold or warmup");
     if ((stage.request_rate === Infinity) !== saturated(load))
       throw new Error("stages cannot switch between finite rate and inf");
+  }
+  let held = false;
+  for (const stage of stages(load)) {
+    if (stage.kind === "warmup" && held) throw new Error("warmup must precede hold");
+    held ||= stage.kind === "hold";
+    if (stage.shape && !["constant", "ramp"].includes(stage.shape)) throw new Error("invalid stage shape");
+    if (stage.shape === "ramp" && stage.kind !== "warmup") throw new Error("ramp shape belongs to warmup");
   }
   if (
     !Number.isFinite(load.cooldown_timeout_s ?? 180) ||
@@ -108,7 +116,7 @@ export function target(load: LoadPlan, t: number): [number, number] {
     concurrency = load.max_inflight;
   for (const s of stages(load)) {
     if (t < clock + s.duration_s) {
-      if (s.kind !== "ramp") return [s.request_rate, s.max_inflight];
+      if (s.shape !== "ramp") return [s.request_rate, s.max_inflight];
       const f = Math.max(0, t - clock) / s.duration_s;
       return [
         saturated(load) ? Infinity : rate + (s.request_rate - rate) * f,
@@ -128,7 +136,7 @@ export function arrivalTime(load: LoadPlan, volume: number): number {
   let clock = 0,
     previous = load.request_rate;
   for (const s of stages(load)) {
-    const start = s.kind === "ramp" ? previous : s.request_rate;
+    const start = s.shape === "ramp" ? previous : s.request_rate;
     const slope = (s.request_rate - start) / s.duration_s;
     const mass = ((start + s.request_rate) * s.duration_s) / 2;
     if (volume < mass) {

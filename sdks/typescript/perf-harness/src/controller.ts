@@ -1,10 +1,10 @@
 import { stages, saturated, stageLabel, level, type LoadPlan, type Stage } from "./load";
-import type { Window, Phase } from "./model";
+import type { PhaseRun, Phase } from "./model";
 
 /** Owns actual stage boundaries independently of the async scheduler. */
 export class LoadController {
   readonly stages: Stage[];
-  readonly windows: Window[] = [];
+  readonly phases: PhaseRun[] = [];
   index = 0;
   start_s = 0;
   hold_start_s?: number;
@@ -34,7 +34,7 @@ export class LoadController {
 
   private open(): void {
     const stage = this.stages[this.index]!;
-    this.windows.push({
+    this.phases.push({
       id: `stage-${this.index}`,
       name: stageLabel(stage),
       kind: stage.kind,
@@ -43,9 +43,6 @@ export class LoadController {
       complete: false,
       target_level: level(stage),
       limited_s: 0,
-      by_case: {},
-      by_facet: {},
-      probe_metrics: {},
     });
     if (stage.kind === "hold" && this.hold_start_s === undefined)
       this.hold_start_s = this.start_s;
@@ -53,7 +50,7 @@ export class LoadController {
 
   target(at: number): [number, number] {
     const stage = this.stages[this.index]!;
-    if (stage.kind !== "ramp") return [stage.request_rate, stage.max_inflight];
+    if (stage.shape !== "ramp") return [stage.request_rate, stage.max_inflight];
     const fraction = Math.min(1, Math.max(0, at - this.start_s) / stage.duration_s);
     return [
       saturated(this.load)
@@ -67,7 +64,7 @@ export class LoadController {
     while (!this.done) {
       const stage = this.stages[this.index]!;
       const end = Math.min(at, this.deadline);
-      const window = this.windows.at(-1)!;
+      const window = this.phases.at(-1)!;
       if (this.limited)
         window.limited_s = (window.limited_s ?? 0) + Math.max(0, end - this.last_s);
       this.last_s = end;
@@ -102,7 +99,7 @@ export class LoadController {
 
   abort(at: number): void {
     if (!this.done) {
-      const window = this.windows.at(-1)!;
+      const window = this.phases.at(-1)!;
       window.end_s = Math.min(at, this.deadline);
       window.end_reason = "aborted";
       this.end_s = window.end_s;

@@ -12,8 +12,9 @@ class Stage:
     duration_s: float
     request_rate: float
     max_inflight: int
-    kind: Literal["hold", "ramp", "warmup"] = "hold"
+    kind: Literal["hold", "warmup"] = "hold"
     name: str | None = None
+    shape: Literal["constant", "ramp"] = "constant"
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.duration_s) or self.duration_s <= 0:
@@ -26,8 +27,12 @@ class Stage:
             or self.max_inflight < 1
         ):
             raise ValueError("stage.max_inflight must be an integer >= 1")
-        if self.kind not in {"hold", "ramp", "warmup"}:
-            raise ValueError("stage.kind must be hold, ramp or warmup")
+        if self.kind not in {"hold", "warmup"}:
+            raise ValueError("stage.kind must be hold or warmup")
+        if self.shape not in {"constant", "ramp"} or (
+            self.shape == "ramp" and self.kind != "warmup"
+        ):
+            raise ValueError("ramp shape belongs to warmup")
 
     @property
     def level(self) -> float:
@@ -78,6 +83,11 @@ class LoadPlan:
             or self.breaker_min_n < 1
         ):
             raise ValueError("load.breaker_min_n must be an integer >= 1")
+        seen_hold = False
+        for stage in self.stages:
+            if stage.kind == "warmup" and seen_hold:
+                raise ValueError("warmup must precede hold")
+            seen_hold |= stage.kind == "hold"
         if any(math.isinf(s.request_rate) != self.saturated for s in self.stages):
             raise ValueError("stages cannot switch between finite request_rate and inf")
 
@@ -120,7 +130,7 @@ class LoadPlan:
         clock = 0.0
         for stage in self.planned_stages:
             if elapsed_s < clock + stage.duration_s:
-                if stage.kind != "ramp":
+                if stage.shape != "ramp":
                     return stage.request_rate, stage.max_inflight
                 fraction = max(0.0, elapsed_s - clock) / stage.duration_s
                 # Infinity is a replenish policy, never an interpolated number.
@@ -136,7 +146,7 @@ class LoadPlan:
         """Invert integrated rate, so scheduler stalls never reset the arrival clock."""
         clock, previous = 0.0, self.request_rate
         for stage in self.planned_stages:
-            start = previous if stage.kind == "ramp" else stage.request_rate
+            start = previous if stage.shape == "ramp" else stage.request_rate
             slope = (stage.request_rate - start) / stage.duration_s
             mass = (start + stage.request_rate) * stage.duration_s / 2
             if volume < mass:

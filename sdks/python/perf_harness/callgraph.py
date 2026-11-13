@@ -10,7 +10,7 @@ from urllib.parse import unquote
 
 from harness_common import Node, NodeKind, Relation, RelationKind
 
-from perf_harness.metric import Missing, parse_ref
+from perf_harness.metric import Missing, ScalarSummary, parse_ref
 from perf_harness.metric.store import MetricStore
 from perf_harness.model import ArmRun, Run, Window
 
@@ -28,19 +28,21 @@ class QueryEvidence:
 
 @dataclass(frozen=True)
 class CallGraphMetric:
-    value: float | None
+    value: float | str | None
     unit: str
     status: Literal["observed", "missing", "error"]
     metric_ref: str | None
     reason: str | None = None
     queries: tuple[QueryEvidence, ...] = ()
     description: str = ""
+    histogram: dict | None = None
 
 
 @dataclass(frozen=True)
 class CallGraphWindow:
     id: str
     kind: str
+    phase: str | None
     name: str
     start_s: float
     end_s: float
@@ -77,7 +79,7 @@ class CallGraphSnapshot:
     graph_version: str | None
     relations: tuple[Relation, ...]
     arms: tuple[CallGraphArm, ...]
-    schema_version: int = field(default=1, init=False)
+    schema_version: int = field(default=2, init=False)
     topology_source: str = field(default="declared", init=False)
 
     def to_dict(self) -> dict:
@@ -105,6 +107,7 @@ class CallGraphSnapshot:
                         {
                             "id": window.id,
                             "kind": window.kind,
+                            "phase": window.phase,
                             "name": window.name,
                             "start_s": window.start_s,
                             "end_s": window.end_s,
@@ -152,7 +155,10 @@ def _metric(
             for q in queries
         )
         empty = bool(queries) and all(
-            q.data is not None and q.data.get("result") == [] and not q.warnings for q in queries
+            q.data is not None
+            and not q.warnings
+            and (q.data.get("result") == [] or (q.histogram is not None and not q.error))
+            for q in queries
         )
         return CallGraphMetric(
             None,
@@ -163,8 +169,15 @@ def _metric(
             evidence,
             description,
         )
+    summary = window.probe_metrics.get(address.removesuffix(".value"))
     return CallGraphMetric(
-        value, unit, "observed", address, queries=evidence, description=description
+        "+Inf" if value == math.inf else value,
+        unit,
+        "observed",
+        address,
+        queries=evidence,
+        description=description,
+        histogram=summary.histogram if isinstance(summary, ScalarSummary) else None,
     )
 
 
@@ -185,7 +198,7 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
     for arm in run.arm_runs:
         windows = []
         for window in sorted(
-            arm.windows, key=lambda w: (w.kind != "measurement", w.kind != "observation", w.start_s)
+            arm.windows, key=lambda w: (w.kind != "full", w.kind != "phase", w.start_s)
         ):
             nodes = []
             for node in operations:
@@ -233,6 +246,7 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
                 CallGraphWindow(
                     window.id,
                     window.kind,
+                    window.phase,
                     window.name,
                     window.start_s,
                     window.end_s,

@@ -1,16 +1,30 @@
 /* Neutral report graph renderer. No remote data access or domain calculations. */
 function rkGraph(root, view) {
-  const select = root.querySelector('select');
+  const select = root.querySelector('.graph-frame');
+  const scope = root.querySelector('.graph-scope');
+  const tooltip = root.querySelector('.graph-tooltip');
   const details = root.querySelector('.graph-details');
   const canvas = root.querySelector('.graph-canvas');
   const zoom = root.querySelector('.graph-zoom input');
   const zoomValue = root.querySelector('.graph-zoom output');
   let needsLayout = true;
-  view.frames.forEach((frame, index) => {
+  const groups = [...new Set(view.frames.map(frame => frame.group || 'Views'))];
+  scope.hidden = groups.length === 1;
+  groups.forEach(group => {
     const option = document.createElement('option');
-    option.value = String(index); option.textContent = frame.label;
-    select.appendChild(option);
+    option.value = group; option.textContent = group;
+    scope.appendChild(option);
   });
+  function selectScope() {
+    select.replaceChildren();
+    view.frames.forEach((frame, index) => {
+      if ((frame.group || 'Views') !== scope.value) return;
+      const option = document.createElement('option');
+      option.value = String(index); option.textContent = frame.label;
+      select.appendChild(option);
+    });
+  }
+  selectScope();
   const cy = cytoscape({ container: canvas, elements: [], minZoom: 0.001, maxZoom: 1,
     style: [
       { selector: 'node', style: { 'label': 'data(label)', 'shape': 'round-rectangle',
@@ -44,6 +58,7 @@ function rkGraph(root, view) {
     syncZoom();
   }
   function showFrame() {
+    tooltip.hidden = true;
     const frame = view.frames[Number(select.value)];
     if (!frame) return;
     root.querySelectorAll('[data-graph-frame]').forEach(panel => {
@@ -70,6 +85,16 @@ function rkGraph(root, view) {
     const node = event.target.data();
     details.textContent = node.details.map(item => item[0] + ': ' + item[1]).join('\n');
   });
+  cy.on('mouseover mousemove', 'node', event => {
+    const text = event.target.data('tooltip');
+    if (!text) return;
+    tooltip.textContent = text;
+    tooltip.hidden = false;
+    tooltip.style.left = Math.min(event.renderedPosition.x + 12, Math.max(0, canvas.clientWidth - tooltip.offsetWidth)) + 'px';
+    tooltip.style.top = Math.min(event.renderedPosition.y + 12, Math.max(0, canvas.clientHeight - tooltip.offsetHeight)) + 'px';
+  });
+  cy.on('mouseout pan zoom', () => { tooltip.hidden = true; });
+  scope.addEventListener('change', () => { selectScope(); showFrame(); });
   select.addEventListener('change', showFrame);
   root.querySelector('.graph-fit').addEventListener('click', () => cy.fit(undefined, 30));
   const copyButton = root.querySelector('.graph-copy');

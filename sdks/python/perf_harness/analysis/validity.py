@@ -25,9 +25,7 @@ def analyze(run: Run, store=None) -> list[AnalysisNote]:  # noqa: ARG001 — uni
         s = r.stop
         for error in r.phase_errors:
             curve_note = (
-                "measurement 已完成，保留性能曲线点"
-                if r.measurement.complete
-                else "measurement 未完成，不进入性能曲线"
+                "full 已完成，保留性能曲线点" if r.full.complete else "full 未完成，不进入性能曲线"
             )
             out.append(
                 AnalysisNote(
@@ -40,7 +38,7 @@ def analyze(run: Run, store=None) -> list[AnalysisNote]:  # noqa: ARG001 — uni
                         "phase": error.phase,
                         "error_type": error.error_type,
                         "message": error.message,
-                        "measurement_complete": r.measurement.complete,
+                        "full_complete": r.full.complete,
                     },
                 )
             )
@@ -73,9 +71,9 @@ def analyze(run: Run, store=None) -> list[AnalysisNote]:  # noqa: ARG001 — uni
         # breaker reachability: at the observed rps, how long until min_n is even
         # judged? Longer than half the window → the safety net mostly isn't armed.
         ld = r.arm.load
-        if ld.abort_on_error_rate is not None and r.measurement.request.throughput_rps > 0:
-            t_arm = ld.breaker_min_n / r.measurement.request.throughput_rps
-            window = r.measurement.duration_s
+        if ld.abort_on_error_rate is not None and r.full.request.throughput_rps > 0:
+            t_arm = ld.breaker_min_n / r.full.request.throughput_rps
+            window = r.full.duration_s
             if window and t_arm / window > BREAKER_WINDOW_SHARE:
                 out.append(
                     AnalysisNote(
@@ -105,7 +103,7 @@ def analyze(run: Run, store=None) -> list[AnalysisNote]:  # noqa: ARG001 — uni
                 )
             )
 
-        for key, vals in sorted(r.measurement.by_facet.items()):
+        for key, vals in sorted(r.full.by_facet.items()):
             if len(vals) == 1:
                 only = next(iter(vals))
                 out.append(
@@ -118,14 +116,14 @@ def analyze(run: Run, store=None) -> list[AnalysisNote]:  # noqa: ARG001 — uni
                     )
                 )
 
-        if r.measurement.request.drop_rate > DROP_FLAG:
+        if r.full.request.drop_rate > DROP_FLAG:
             out.append(
                 AnalysisNote(
                     "validity",
                     "flag",
-                    f"[{tid}] drop率 {r.measurement.request.drop_rate * 100:.1f}%——压力机欠投放，"
+                    f"[{tid}] drop率 {r.full.request.drop_rate * 100:.1f}%——压力机欠投放，"
                     f"延迟/吞吐低估真实负载",
-                    {"arm_run": tid, "drop_rate": round(r.measurement.request.drop_rate, 4)},
+                    {"arm_run": tid, "drop_rate": round(r.full.request.drop_rate, 4)},
                 )
             )
     return out

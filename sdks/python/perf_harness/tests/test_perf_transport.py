@@ -143,7 +143,7 @@ async def test_engine_uses_request_transport_through_cleanup_but_isolates_observ
 
     class Observer(Probe):
         name = "observer"
-        families = {"count": FamilySpec("count", "gauge", "observation")}
+        families = {"count": FamilySpec("count", "gauge", "full")}
 
         async def sample(self, ctx):
             assert ctx.probe_client is not ctx.client
@@ -210,7 +210,7 @@ async def test_failed_request_route_is_native_setup_error_without_dispatch():
     assert not arm.requests and not arm.operation_runs
     assert arm.phase_errors[0].phase == "setup"
     assert arm.phase_errors[0].message == "relay unavailable"
-    assert not arm.measurement.complete
+    assert not arm.full.complete
 
 
 @pytest.mark.parametrize(

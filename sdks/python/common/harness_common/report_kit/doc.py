@@ -119,6 +119,7 @@ class GraphNode:
     group: str = ""
     details: list[tuple[str, str]] = field(default_factory=list)
     color: str = "#dbeafe"
+    tooltip: str = ""
 
 
 @dataclass
@@ -139,6 +140,7 @@ class GraphFrame:
     edges: list[GraphEdge]
     # @spec A frame owns both topology and its optional detail table; selection is shared.
     table: Table | None = None
+    group: str = ""
 
 
 @dataclass

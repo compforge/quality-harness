@@ -47,8 +47,9 @@ def test_http_matching_scopes_service_method_and_route_and_escapes_values():
     assert 'path="/faqs/:dataset_id"' in selector
     assert json.dumps('qa"\\cluster') in selector
     p95 = next(q.promql for q in probe.summaries if q.name == "p95")
-    assert "histogram_quantile(0.95, sum by (le) (rate(" in p95
-    assert p95.endswith(" / 1000") and "$window" in p95
+    assert "sum by (le) (increase(" in p95
+    assert "$window" in p95
+    assert probe.summaries[1].histogram.scale == 0.001
     assert probe.operation_metrics.operation == operation.id()
     assert probe.operation_metrics.path == "/faqs/{dataset_id}"
     assert metrics.selector(replace(operation, method="GET")) != metrics.selector(operation)
@@ -123,7 +124,7 @@ def configuration(tmp_path):
     return path
 
 
-@pytest.mark.parametrize("state", ["traffic", "zero", "missing", "error"])
+@pytest.mark.parametrize("state", ["traffic", "zero", "missing", "error", "overflow"])
 async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     monkeypatch, tmp_path, state
 ):
@@ -134,7 +135,7 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
         assert 'service_name="kb"' in params["query"][0]
         if state == "error":
             return httpx.Response(503)
-        p95 = "histogram_quantile" in params["query"][0]
+        p95 = "http_duration_bucket" in params["query"][0]
         value = "2.5" if p95 else ("0" if state == "zero" else "4")
         is_range = request.url.path.endswith("query_range")
         timestamp = float(params["start" if is_range else "time"][0])
@@ -144,13 +145,23 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
             if is_range
             else [timestamp, value],
         }
+        result = [row]
+        if p95 and not is_range:
+            result = [
+                {"metric": {"le": bound}, "value": [timestamp, "0" if state == "zero" else count]}
+                for bound, count in [
+                    ("2.5", "90" if state == "overflow" else "95"),
+                    ("5", "90" if state == "overflow" else "100"),
+                    ("+Inf", "100"),
+                ]
+            ]
         return httpx.Response(
             200,
             json={
                 "status": "success",
                 "data": {
                     "resultType": "matrix" if is_range else "vector",
-                    "result": [] if state == "missing" else [row],
+                    "result": [] if state == "missing" else result,
                 },
             },
         )
@@ -167,13 +178,10 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     restored = load_run(paths["run_dir"])
     assert restored.operation_metrics == run.operation_metrics and restored.case_ids == ["faq"]
     assert all("$window" not in q.expression for q in restored.arm_runs[0].prometheus_observations)
-    if state in {"traffic", "zero"}:
-        assert (
-            MetricStore(restored.arm_runs).query(
-                restored.arm_runs[0], restored.operation_metrics[0].p95
-            )
-            == 2.5
-        )
+    if state in {"traffic", "overflow"}:
+        assert MetricStore(restored.arm_runs).query(
+            restored.arm_runs[0], restored.operation_metrics[0].p95
+        ) == (float("inf") if state == "overflow" else 2.5)
         assert not restored.arm_runs[0].probe_errors
 
     def offline(*_):
@@ -183,12 +191,19 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     snapshot = build_callgraph(restored)
     payload = json.loads(Path(paths["callgraph"]).read_text())
     metric = payload["arms"][0]["windows"][0]["nodes"][1]["properties"]["perf"]["metrics"]["qps"]
-    assert metric["value"] == {"traffic": 4, "zero": 0, "missing": None, "error": None}[state]
+    assert (
+        metric["value"]
+        == {"traffic": 4, "zero": 0, "missing": None, "error": None, "overflow": 4}[state]
+    )
     assert (
         metric["status"]
-        == {"traffic": "observed", "zero": "observed", "missing": "missing", "error": "error"}[
-            state
-        ]
+        == {
+            "traffic": "observed",
+            "zero": "observed",
+            "missing": "missing",
+            "error": "error",
+            "overflow": "observed",
+        }[state]
     )
     props = payload["arms"][0]["windows"][0]["nodes"][1]["properties"]
     if state == "missing":
@@ -204,10 +219,24 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     assert len(frame.nodes) == 2 and len(frame.edges) == 1
     assert frame.edges[0].dashed
     node = next(n for n in frame.nodes if n.id == "operation:kb/retrieve")
-    expected = {"traffic": "QPS 4", "zero": "QPS 0", "missing": "QPS N/A", "error": "QPS N/A"}[
-        state
-    ]
+    expected = {
+        "traffic": "QPS 4",
+        "zero": "QPS 0",
+        "missing": "QPS N/A",
+        "error": "QPS N/A",
+        "overflow": "QPS 4",
+    }[state]
     assert expected in node.label
+    assert "kb" not in node.label
+    assert node.tooltip == "Service: kb\nPath: /faqs/{dataset_id}"
+    if state == "zero":
+        assert props["perf"]["metrics"]["p95"]["status"] == "missing"
+        assert props["perf"]["metrics"]["p95"]["reason"] == "no_samples"
+        assert not restored.arm_runs[0].probe_errors
+    if state == "overflow":
+        assert "p95 +Inf s" in node.label
+        assert props["perf"]["metrics"]["p95"]["value"] == "+Inf"
+        assert props["perf"]["metrics"]["p95"]["histogram"]["overflow"]
     assert "QPS N/A" in frame.nodes[0].label  # Unbound entry operation is not zero.
     if state in {"error", "missing"}:
         assert any(key == "Query error" for key, _ in node.details)
@@ -233,9 +262,7 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     frames = section(snapshot, tables).blocks[-1].frames
     for arm in snapshot.arms:
         for window in arm.windows:
-            frame = next(
-                f for f in frames if f.label == f"{arm.arm_id} / {window.id} ({window.kind})"
-            )
+            frame = next(f for f in frames if f.label.startswith(f"{arm.arm_id} / {window.name} "))
             assert frame.table is tables[arm.id, window.id]
             assert all(row[0] == arm.id and row[1] == window.id for row in frame.table.rows)
 
@@ -300,9 +327,9 @@ def test_operation_roles_are_independent_and_preserve_meaning(tmp_path, roles):
         series={},
         windows=[
             Window(
-                "measurement",
-                "measurement",
-                "measurement",
+                "full",
+                "full",
+                "full",
                 0,
                 10,
                 True,
@@ -363,14 +390,14 @@ def test_operation_role_descriptions_cannot_change_between_windows():
                     "p95",
                     unit="s",
                     description="all requests",
-                    window=WindowSelector(kind="measurement"),
+                    window=WindowSelector(kind="full"),
                 ),
                 WindowQuery(
                     "latency",
                     "p95",
                     unit="s",
                     description="success only",
-                    window=WindowSelector(kind="observation"),
+                    window=WindowSelector(kind="phase", phase="hold"),
                 ),
             ],
         )

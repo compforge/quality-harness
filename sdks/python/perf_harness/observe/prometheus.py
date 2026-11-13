@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from harness_common import Operation
 
 from perf_harness.metric import MetricValueKind, series_id
-from perf_harness.model import WindowSelector
+from perf_harness.model import HistogramQuantile, WindowSelector
 from perf_harness.observe.base import FamilySpec, Probe
 
 
@@ -36,7 +36,12 @@ class WindowQuery:
     unit: str = ""
     description: str = ""
     labels: tuple[str, ...] = ()
-    window: WindowSelector = field(default_factory=lambda: WindowSelector(kind="observation"))
+    window: WindowSelector = field(default_factory=lambda: WindowSelector(kind="full"))
+    histogram: HistogramQuantile | None = None
+
+    def __post_init__(self) -> None:
+        if self.histogram is not None and self.labels:
+            raise ValueError("histogram summary must aggregate by le only; output labels are empty")
 
 
 class _PrometheusResultProbe(Probe):

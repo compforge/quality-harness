@@ -86,6 +86,7 @@ EVENT_FIELDS = (
     "n_judged",
     "unjudged_rps",
     "n_interrupted",
+    "n_pending",
     "inflight_peak",
     "inflight_end",
     "arrival_rps",
@@ -184,8 +185,8 @@ class MetricStore:
         return self._families.get(name)
 
     def query(self, arm_run: ArmRun, ref: str, window: Window | None = None) -> Read:
-        """Resolve a metric ref inside one Window; measurement is the default."""
-        window = window or arm_run.measurement
+        """Resolve a metric ref inside one Window; full is the default."""
+        window = window or arm_run.full
         name, labels, stat = parse_ref(ref)
         family = arm_run.metrics.get(name) or self._families.get(name)
         if family is not None and family.side == "resource":
@@ -220,7 +221,7 @@ class MetricStore:
     def summary(
         self, arm_run: ArmRun, sid: str, window: Window | None = None
     ) -> MetricSummary | None:
-        window = window or arm_run.measurement
+        window = window or arm_run.full
         name, labels, _ = parse_ref(sid)
         if "service" in labels:
             return window.probe_metrics.get(series_id(name, labels))
@@ -235,7 +236,7 @@ class MetricStore:
         self, arm_run: ArmRun, family: str, by: str, window: Window | None = None
     ) -> dict[str, MetricSummary]:
         """Group one Window's resource series by a label."""
-        window = window or arm_run.measurement
+        window = window or arm_run.full
         out: dict[str, MetricSummary] = {}
         for sid, summary in window.probe_metrics.items():
             name, labels, _ = parse_ref(sid)

@@ -40,10 +40,12 @@ from perf_harness.metric.store import PER_REQUEST_DESCRIPTORS, REQUEST_DESCRIPTO
 from perf_harness.model import (
     Arm,
     ArmRun,
+    ArmStop,
     ConnectionBudget,
     Deployment,
     Phase,
     PhaseError,
+    PhaseRun,
     ProbeErrors,
     ReportColumn,
     ResourceProfile,
@@ -51,7 +53,7 @@ from perf_harness.model import (
     Sample,
     Series,
     Service,
-    Window,
+    TimeRange,
     make_run_id,
 )
 from perf_harness.observe import (
@@ -62,6 +64,7 @@ from perf_harness.observe import (
     PrometheusQueryProbe,
     observe_loop,
 )
+from perf_harness.windows import merge_phases, traffic_windows
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +130,7 @@ class Experiment(BaseExperiment):
     teardown: bool = False
     report_columns: list[ReportColumn] = field(default_factory=list)
     graph: Graph | None = None
+    time_ranges: list[TimeRange] = field(default_factory=list)
     request_transport: ClientProvider[HTTPRoute] | None = None
     effective_connection: EffectiveConnection = field(init=False)
 
@@ -282,6 +286,7 @@ class Engine:
     async def _run_arm_run(self, service: Service, arm: Arm) -> ArmRun:
         exp = self.experiment
         profile, load = arm.resources, arm.load
+        setup_started = time.monotonic()
         stats = ClientStats()
         connection = exp.effective_connection
         logger.info(
@@ -297,8 +302,6 @@ class Engine:
         )
         store: ProbeStore = {}
         probe_errors: dict[str, ProbeErrors] = {}
-        cooldown_start_s: float | None = None
-        cooldown_end_s: float | None = None
         # Ambient proxy settings must not silently change the measurement path.
         # Only the load pool borrows the explicit request transport; observers own theirs.
         async with ClientManager() as clients:
@@ -310,8 +313,12 @@ class Engine:
                 )
                 obs_client = await clients.get(HTTPClientProvider(8, 10, pool="observe"))
             except Exception as exc:
+                result.phases = [
+                    PhaseRun("setup", "setup", "setup", 0, time.monotonic() - setup_started, False)
+                ]
+                result.stop = ArmStop(reason="aborted")
                 result = self._aggregate(
-                    arm, result, store, measurement_end_s=0.0, drive_state=DriveState()
+                    arm, result, store, load_end_s=0.0, drive_state=DriveState()
                 )
                 result.phase_errors = [_phase_error("setup", exc)]
                 logger.error(
@@ -329,13 +336,14 @@ class Engine:
                     load=load,
                 )
             )
+            origin = setup_started
+            setup_finished: float | None = None
             ctx: ProbeContext | None = None
             observer: asyncio.Task | None = None
             stop = asyncio.Event()
             start_observation = asyncio.Event()
             try:
                 await exp.runner.setup(execution.context)
-                execution.enter("warmup")
                 ctx = ProbeContext(
                     service=service,
                     client=client,
@@ -371,8 +379,11 @@ class Engine:
                 for key, samples in store.items():
                     store[key] = [Sample(sample.t - offset, sample.value) for sample in samples]
                 ctx.t0 = now
+                origin = now
+                setup_finished = now
                 result.started_at_s = ctx.wall_origin_s + now
                 start_observation.set()
+                execution.enter("warmup")
                 await drive(
                     exp.runner,
                     exp.judge,
@@ -387,7 +398,6 @@ class Engine:
                 await exp.runner.deactivate(execution.context)
                 if exp.cooldown_s:
                     execution.enter("cooldown")
-                    cooldown_start_s = time.monotonic() - ctx.t0
                     await asyncio.sleep(exp.cooldown_s)
             except Exception as exc:
                 if execution.phase in ("warmup", "hold"):
@@ -414,27 +424,21 @@ class Engine:
                             execution.fatal_error.add_note(
                                 f"observer finalization also failed: {exc!r}"
                             )
-                    else:
-                        if cooldown_start_s is not None and ctx is not None:
-                            # The observer takes one final tick after ``stop`` wakes it.
-                            # Close the Window only after that tick has been recorded.
-                            cooldown_end_s = time.monotonic() - ctx.t0
-                try:
-                    result = self._aggregate(
-                        arm,
-                        result,
-                        store,
-                        probe_errors,
-                        measurement_end_s=execution.drive.measurement_end_s or 0.0,
-                        drive_state=execution.drive,
-                        cooldown_start_s=cooldown_start_s,
-                        cooldown_end_s=cooldown_end_s,
-                        observation_end_s=time.monotonic() - ctx.t0 if ctx else None,
+                observation_finished = time.monotonic()
+                if setup_finished is None:
+                    setup_finished = observation_finished
+                result.phases = [
+                    PhaseRun(
+                        "setup",
+                        "setup",
+                        "setup",
+                        setup_started - origin,
+                        setup_finished - origin,
+                        not any(e.phase == "setup" for e in execution.phase_errors),
                     )
-                    if ctx is not None and execution.fatal_error is None:
-                        await self._finish_probes(ctx, result)
-                except Exception as exc:
-                    execution.record(exc, phase="cooldown")
+                ]
+                execution.enter("cleanup")
+                cleanup_started = time.monotonic()
                 try:
                     await exp.runner.cleanup(execution.context)
                 except BaseException as cleanup_error:
@@ -444,6 +448,31 @@ class Engine:
                         execution.record(cleanup_error, phase="cleanup")
                     else:
                         execution.fatal_error = cleanup_error
+                cleanup_finished = time.monotonic()
+                result.phases.append(
+                    PhaseRun(
+                        "cleanup",
+                        "cleanup",
+                        "cleanup",
+                        cleanup_started - origin,
+                        cleanup_finished - origin,
+                        not any(e.phase == "cleanup" for e in execution.phase_errors),
+                    )
+                )
+                try:
+                    result = self._aggregate(
+                        arm,
+                        result,
+                        store,
+                        probe_errors,
+                        load_end_s=execution.drive.load_end_s or 0.0,
+                        drive_state=execution.drive,
+                        observation_end_s=observation_finished - ctx.t0 if ctx else None,
+                    )
+                    if ctx is not None and execution.fatal_error is None:
+                        await self._finish_probes(ctx, result)
+                except Exception as exc:
+                    execution.record(exc, phase="cooldown")
                 if execution.fatal_error is not None:
                     raise execution.fatal_error
 
@@ -485,93 +514,35 @@ class Engine:
         store: ProbeStore,
         probe_errors: dict[str, ProbeErrors] | None = None,
         *,
-        measurement_end_s: float | None = None,
+        load_end_s: float | None = None,
         drive_state: DriveState | None = None,
-        cooldown_start_s: float | None = None,
-        cooldown_end_s: float | None = None,
         observation_end_s: float | None = None,
     ) -> ArmRun:
         exp = self.experiment
         load = arm.load
-        warmup = drive_state.measurement_start_s if drive_state else 0.0
-        measured_end = measurement_end_s if measurement_end_s is not None else load.duration_s
-
-        windows = [
-            Window(
-                id="measurement",
-                name="measurement",
-                kind="measurement",
-                start_s=warmup,
-                end_s=max(warmup, measured_end),
-                complete=measured_end >= load.duration_s,
-            )
-        ]
-        clock = 0.0
-        for index, stage in enumerate(() if drive_state else load.planned_stages):
-            stage_start, stage_end = clock, clock + stage.duration_s
-            start, end = max(stage_start, warmup), min(stage_end, measured_end)
-            if end > start:
-                windows.append(
-                    Window(
-                        id=f"stage-{index}",
-                        name=stage.label,
-                        kind=stage.kind,
-                        start_s=start,
-                        end_s=end,
-                        complete=measured_end >= stage_end,
-                        target_level=stage.level,
-                    )
-                )
-            clock = stage_end
+        measured_end = load_end_s if load_end_s is not None else load.duration_s
         if drive_state:
-            windows[0].complete = drive_state.stop.reason == "deadline" and any(
-                w.kind == "hold" and w.complete for w in drive_state.windows
-            )
-            windows[0].limited_s = sum(w.limited_s for w in drive_state.windows if w.kind == "hold")
-            windows.extend(drive_state.windows)
-        if drive_state and cooldown_end_s is not None and drive_state.windows:
-            drive_state.windows[-1].end_s = cooldown_end_s
-        elif cooldown_start_s is not None and cooldown_end_s is not None:
-            windows.append(
-                Window(
-                    id="cooldown",
-                    name="cooldown",
-                    kind="cooldown",
-                    start_s=cooldown_start_s,
-                    end_s=cooldown_end_s,
-                    complete=True,
-                )
-            )
+            segments = list(drive_state.phases)
+        else:
+            from perf_harness.drive.controller import LoadController
 
+            controller = LoadController(load)
+            controller.advance(measured_end, 0)
+            if not controller.done:
+                controller.abort(measured_end)
+            segments = list(controller.phases)
         drain_end = max([measured_end, *(r.finished_at or measured_end for r in result.requests)])
-        if not drive_state and drain_end > measured_end:
-            windows.append(
-                Window(
-                    id="cooldown",
-                    name="cooldown",
-                    kind="cooldown",
-                    start_s=measured_end,
-                    end_s=drain_end + 1e-12,
-                    complete=True,
-                )
-            )
-
-        if observation_end_s is not None and any(p.needs_observation_window for p in exp.probes):
-            baseline = min(
-                (sample.t for samples in store.values() for sample in samples), default=0.0
-            )
-            windows.append(
-                Window(
-                    id="observation",
-                    name="observation",
-                    kind="observation",
-                    start_s=min(0.0, baseline),
-                    end_s=observation_end_s,
-                    complete=(not drive_state.stop.early and not drive_state.stop.interrupted)
-                    if drive_state
-                    else True,
-                )
-            )
+        end = observation_end_s if observation_end_s is not None else drain_end + 1e-12
+        if segments and segments[-1].kind == "cooldown":
+            segments[-1].end_s = max(segments[-1].end_s, end)
+        elif segments:
+            segments.append(PhaseRun("cooldown", "cooldown", "cooldown", measured_end, end, True))
+        result.phases = (
+            [p for p in result.phases if p.kind == "setup"]
+            + merge_phases(segments)
+            + [p for p in result.phases if p.kind == "cleanup"]
+        )
+        windows = traffic_windows(result.phases, exp.time_ranges)
         result.windows = windows
         for window in windows:
             window.request = reduce_requests(result, window.start_s, window.end_s)
@@ -586,8 +557,8 @@ class Engine:
                     for value in {r.facets[key] for r in result.requests if key in r.facets}
                 }
 
-        measurement = windows[0]
-        assert measurement.request is not None
+        full = windows[0]
+        assert full.request is not None
 
         # unified metric registry: every report/analysis-visible metric → its descriptor.
         # (1) builtin request.* (duration_ms / error_rate / throughput_rps /
@@ -598,7 +569,7 @@ class Engine:
         # per-request descriptor precedence: Runner-declared > framework (first_byte_ms) > inferred
         known = {d.name: d for d in PER_REQUEST_DESCRIPTORS}
         known.update({m.name: m for m in exp.runner.describe()})
-        for key in measurement.request.metrics:
+        for key in full.request.metrics:
             registry[key] = known.get(
                 key,
                 MetricFamily(
@@ -644,7 +615,7 @@ class Engine:
                     # a labeled series that vanished before the last healthy tick,
                     # cannot prove recovery; omit that summary so MetricStore returns
                     # Missing instead of reusing a stale pre-scale-down value.
-                    if window.kind == "cooldown" and (
+                    if window.phase == "cooldown" and (
                         not window_health or any(sample.value <= 0 for sample in window_health)
                     ):
                         continue
@@ -659,7 +630,7 @@ class Engine:
                     for bare, summary in probe.summarize(own).items():
                         samples = own.get(bare)
                         if (
-                            window.kind == "cooldown"
+                            window.phase == "cooldown"
                             and samples is not None
                             and (not samples or samples[-1].t < window_health[-1].t)
                         ):

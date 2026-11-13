@@ -11,7 +11,7 @@
 
 ```
 Experiment 把 ResourceProfile × LoadPlan 解析为命名 Arm
-每个 Arm 执行一次 ArmRun；Stage 规划负载，Window 统一切请求与资源事实
+每个 Arm 执行一次 ArmRun；Stage 规划负载步骤，PhaseRun 记录执行阶段，Window 选择请求与资源事实
 report / analyze 都按 (arm_id, window_id, <family>{labels}.<stat>) 查询
 ```
 
@@ -52,7 +52,7 @@ perf_harness/
 ### 脊柱（动它先想清楚）
 
 - **metric 是收腰**：producer 产 metric、分析/报告读 metric，只经 `MetricStore` 按 `<family>{labels}.<stat>` 寻址；service / facet 是实体 label，时间只由 Window 选择，不能再伪装成 metric label。模型细节见 `docs/metric-model.md`。
-- **Stage ≠ Window**：Stage 是计划的负载控制段；Window 是实际观测边界，延迟按发射时刻归窗，吞吐按真实事件时刻计数，request/resource 使用同一 start/end。重复 stage 名仍有不同 `window_id`。
+- **Stage ≠ Window**：Stage 是计划的负载控制段；Window 是实际观测边界，延迟按发射时刻归窗，吞吐按真实事件时刻计数，request/resource 使用同一 start/end。阶段是 setup/warmup/hold/cooldown/cleanup；Window.kind 是 full/phase/custom。相邻同类负载步骤合并为一个执行阶段。
 - **比较先固定条件**：有限速率扫 request_rate，饱和发压扫 max_inflight；另一轴与调度形态等条件不同就分组，分析 / 容量 / 报告共用 comparison。
 - **加压是 x 轴不是 metric**：响应面 `metric = f(Arm, Window, slice)`；Arm 是命名配置，ArmRun 是该 Arm 的一次真实执行。
 
@@ -62,7 +62,7 @@ perf_harness/
 - **证据与复评**：request Outcome、Probe sample 及其 window-aligned 归约事实是 Observation；request、window、run 是不同 Unit grain，必须区分分析粒度，不能混成一张表。raw/model Run facts 构成可离线重算 Dataset，本次选择的 独立 Judge 和 analysis 组件直接定义评估侧重点；换 Judge 或分析透镜不得重新发压，详见 [`../../../docs/evaluation-data.md`](../../../docs/evaluation-data.md#dataset-与反复评估)。
 - **`Runner`**（协议适配）：`ArmContext` 是整个 ArmRun 共用的不可变输入，单次并发请求通过 `FireContext(arm_run, case)` 组合请求 Case；`fire` 只记原始观测，独立 `Judge(outcome)→RequestEvaluation` 才裁决（纯函数，可离线重判）。各服务在自己项目写、`register_runner` 注册；ArmRun 固定按 `setup → warmup → hold → cooldown → cleanup` 运行，其中业务 hook 只有 `setup/deactivate/cleanup`。
 - **`Probe`**（看什么）：`families` 声明指标元数据；资源 Probe 周期采样，PrometheusQueryProbe 只声明压测后查询。实验顶层 `prometheus` 通过 toolbox PrometheusDataSource 访问已有历史，不自行抓取 `/metrics`。Query 时间与原始结果保存到 Run；补采不发压，报告不访问远端。详细配置和原因见 docs/service-metrics.md。
-- **压后观测不污染容量口径**：`cooldown_s` 延长 raw series 以观察回收/缩容；默认汇总只读 measurement Window，`window: {kind: cooldown}` 显式读取 cooldown。
+- **观测范围与阶段分离**：默认 full 范围覆盖 warmup/hold/cooldown，排除 setup/cleanup；`window: {kind: phase, phase: hold}` 显式选 hold。`cooldown_s` 延长 cooldown 资源观测；完整请求耗时不被窗口截断。
 
 ### 判定与可信度语义（细节见 docs/result-semantics.md + metric-model.md §3.6-3.8）
 
@@ -80,7 +80,7 @@ perf_harness/
 
 ### 产物与运行
 
-- `Experiment` 扩展 common 的具名验证意图；`Run` 扩展 common `ExperimentRun`，`ArmRun` 是 common `Execution` 的 perf 子类，每次真实请求记录为 `OperationRun → Outcome`。`PerfReducer` 只读这些事实并把 Artifact 落到 `runs/<experiment>/<run_id>/`，累积不覆盖。落盘三层 raw（requests.jsonl / evaluations.json/timeseries.csv）→ 模型（run.json，schema 9 版本化，`load_run` 离线重建）→ 视图（report/CSV，纯下游）。
+- `Experiment` 扩展 common 的具名验证意图；`Run` 扩展 common `ExperimentRun`，`ArmRun` 是 common `Execution` 的 perf 子类，每次真实请求记录为 `OperationRun → Outcome`。`PerfReducer` 只读这些事实并把 Artifact 落到 `runs/<experiment>/<run_id>/`，累积不覆盖。落盘三层 raw（requests.jsonl / evaluations.json/timeseries.csv）→ 模型（run.json，schema 10 版本化，`load_run` 离线重建）→ 视图（report/CSV，纯下游）。
 - `verdict.json` 是跨 harness 契约（spec/verdict-schema.yaml，devloop 消费），改动需五家对齐。
 - 请求侧指标走客户端 Outcome；外部 Prometheus 指标归资源侧，缺失与错误不能伪造为零。
 

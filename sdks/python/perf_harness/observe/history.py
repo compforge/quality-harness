@@ -14,6 +14,7 @@ from harness_toolbox.prometheus import PrometheusDataSource
 from perf_harness.metric import ScalarSummary, series_id, split_series
 from perf_harness.metric.reduce import time_series_summary
 from perf_harness.model import ArmRun, ProbeErrors, PrometheusObservation, Run, Sample, Series
+from perf_harness.observe.histogram import histogram_summary
 from perf_harness.observe.prometheus import PrometheusQuery, finite_number, project_result
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,12 @@ def _project(arm: ArmRun, observation: PrometheusObservation) -> None:
         raise ValueError("Prometheus query has no result")
     if observation.warnings:
         raise ValueError("Prometheus query returned warnings; observation may be incomplete")
+    if observation.histogram is not None:
+        summary = histogram_summary(observation.data, observation.histogram)
+        window = next(w for w in arm.windows if w.id == observation.window_id)
+        if summary is not None:
+            window.probe_metrics[series_id(observation.metric, observation.labels)] = summary
+        return
     query = PrometheusQuery(
         observation.metric, observation.expression, labels=observation.result_labels
     )

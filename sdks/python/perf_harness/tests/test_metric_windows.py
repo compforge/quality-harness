@@ -12,7 +12,6 @@ from harness_toolbox.prometheus import PrometheusDataSource
 
 from perf_harness import Engine, Experiment, LoadPlan, Outcome, ResourceProfile, Service, Warmup
 from perf_harness.drive.runner import Runner
-from perf_harness.metric import Missing
 from perf_harness.metric.store import MetricStore
 from perf_harness.model import ReportColumn, WindowSelector
 from perf_harness.observe import PrometheusQuery, PrometheusQueryProbe, WindowQuery
@@ -91,7 +90,7 @@ def experiment(runner):
             ReportColumn(
                 "count",
                 'prometheus_query.count{service="api"}.value',
-                WindowSelector("observation"),
+                WindowSelector("full"),
             )
         ],
     )
@@ -115,12 +114,13 @@ async def test_only_queries_after_cleanup_and_reloads_without_io(monkeypatch, tm
     arm = run.arm_runs[0]
     assert run.status == "completed" and not arm.probe_errors
     assert len(requests) == 2 and all(pool.is_closed for pool in pools)
-    assert arm.measurement.duration_s == pytest.approx(0.02)
-    observation = next(w for w in arm.windows if w.kind == "observation")
+    hold = next(w for w in arm.windows if w.phase == "hold")
+    assert hold.duration_s == pytest.approx(0.02)
+    observation = next(w for w in arm.windows if w.kind == "full")
     query = arm.prometheus_observations[1]
     assert query.start_s == pytest.approx(arm.started_at_s + observation.start_s, abs=0.001)
     assert query.end_s == pytest.approx(arm.started_at_s + observation.end_s, abs=0.001)
-    assert query.end_s > arm.started_at_s + arm.measurement.end_s
+    assert query.end_s > arm.started_at_s + hold.end_s
     assert "$window" not in query.expression and query.infos == ("server annotation",)
     assert query.data and query.collected_at_s and not query.error
     paths = write_run(run, str(tmp_path))
@@ -131,7 +131,7 @@ async def test_only_queries_after_cleanup_and_reloads_without_io(monkeypatch, tm
     store = MetricStore(restored.arm_runs)
     ref = exp.report_columns[0].metric
     assert store.query(restored.arm_runs[0], ref, observation) == 2.5
-    assert isinstance(store.query(restored.arm_runs[0], ref), Missing)
+    assert store.query(restored.arm_runs[0], ref) == 2.5
     monkeypatch.setattr(
         HTTPClientProvider,
         "create_client",

@@ -141,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"ERROR {error.phase}: {error.error_type}: {error.message}"
             )
             continue
-        o = r.measurement.request
+        o = r.full.request
         print(
             f"  {r.arm.resources.label():<14} {r.arm.load.label():<8} "
             f"rps={o.throughput_rps:6.1f} err={o.error_rate * 100:5.1f}% "

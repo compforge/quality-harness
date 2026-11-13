@@ -363,8 +363,8 @@ async def test_engine_fans_pod_labeled_keys_into_per_pod_series():
         'fan.up{service="chat"}',
     }
     # …and its own summary (constant gauges → peak == the per-pod constant)
-    assert r.measurement.probe_metrics['fan.cpu_m{pod="p0",service="chat"}'].peak == 100.0
-    assert r.measurement.probe_metrics['fan.cpu_m{pod="p1",service="chat"}'].peak == 200.0
+    assert r.full.probe_metrics['fan.cpu_m{pod="p0",service="chat"}'].peak == 100.0
+    assert r.full.probe_metrics['fan.cpu_m{pod="p1",service="chat"}'].peak == 200.0
     # the registry stays family-keyed — pod is a label, not a new family
     assert r.metrics["fan.cpu_m"].side == "resource"
 
@@ -490,9 +490,9 @@ async def test_up_series_synthesized_per_probe():
         observe_interval_s=0.05,
     )
     r = (await Engine(exp).run()).arm_runs[0]
-    healthy = r.measurement.probe_metrics[series_id("fan.up", {"service": "chat"})]
+    healthy = r.full.probe_metrics[series_id("fan.up", {"service": "chat"})]
     assert healthy.mean == 1.0 and healthy.peak == 1.0
-    broken = r.measurement.probe_metrics[series_id("flaky.up", {"service": "chat"})]
+    broken = r.full.probe_metrics[series_id("flaky.up", {"service": "chat"})]
     assert broken.mean == 0.0  # every tick failed
     assert all(s.value == 0.0 for s in r.series[series_id("flaky.up", {"service": "chat"})].samples)
     assert r.metrics["flaky.up"].value_kind == "gauge"  # registered family

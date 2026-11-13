@@ -32,14 +32,14 @@ async def test_facets_pivot_and_weighting():
     )
     r = (await Engine(experiment).run()).arm_runs[0]
 
-    assert r.measurement.request.n > 0
-    assert set(r.measurement.by_case) == {"simple", "complex"}
-    assert sum(s.n for s in r.measurement.by_case.values()) == r.measurement.request.n
-    assert "difficulty" in r.measurement.by_facet
-    by = r.measurement.by_facet["difficulty"]
+    assert r.full.request.n > 0
+    assert set(r.full.by_case) == {"simple", "complex"}
+    assert sum(s.n for s in r.full.by_case.values()) == r.full.request.n
+    assert "difficulty" in r.full.by_facet
+    by = r.full.by_facet["difficulty"]
     assert set(by) <= {"simple", "complex"}
     # every outcome is tagged → the pivot partitions the whole arm_run
-    assert sum(s.n for s in by.values()) == r.measurement.request.n
+    assert sum(s.n for s in by.values()) == r.full.request.n
     # both present with enough fires; weight 80/20 → more simple; ms 20 > 2 → higher p50
     assert "simple" in by and "complex" in by
     assert by["simple"].n > by["complex"].n
@@ -69,25 +69,22 @@ async def test_inflight_backpressure_preserves_case_and_facet_latency_samples():
         cases=[Case(id="x", input={}, facets={"difficulty": "simple"})],
     )
     r = (await Engine(experiment).run()).arm_runs[0]
-    assert r.measurement.request.n_dropped == 0
-    assert r.measurement.limited_s > 0
-    assert "co_biased" in r.measurement.request.caveats
-    assert r.measurement.request.n > 0  # some requests were actually sent
-    assert set(r.measurement.by_case) == {"x"}
-    assert r.measurement.by_case["x"].n == r.measurement.request.n
-    assert r.measurement.by_case["x"].n_dropped == r.measurement.request.n_dropped
+    assert r.full.request.n_dropped == 0
+    assert r.full.limited_s > 0
+    assert "co_biased" in r.full.request.caveats
+    assert r.full.request.n > 0  # some requests were actually sent
+    assert set(r.full.by_case) == {"x"}
+    assert r.full.by_case["x"].n == r.full.request.n
+    assert r.full.by_case["x"].n_dropped == r.full.request.n_dropped
     # Only actual 50ms requests contribute to the latency distribution.
-    assert r.measurement.request.p50_ms >= 40
+    assert r.full.request.p50_ms >= 40
     # Intentional backpressure is not a request error.
-    assert "client_saturated" not in r.measurement.request.error_breakdown
+    assert "client_saturated" not in r.full.request.error_breakdown
     # Case and facet projections reconcile with the same request facts.
-    assert "difficulty" in r.measurement.by_facet
+    assert "difficulty" in r.full.by_facet
+    assert sum(s.n for s in r.full.by_facet["difficulty"].values()) == r.full.request.n
     assert (
-        sum(s.n for s in r.measurement.by_facet["difficulty"].values()) == r.measurement.request.n
-    )
-    assert (
-        sum(s.n_dropped for s in r.measurement.by_facet["difficulty"].values())
-        == r.measurement.request.n_dropped
+        sum(s.n_dropped for s in r.full.by_facet["difficulty"].values()) == r.full.request.n_dropped
     )
 
 
@@ -106,6 +103,6 @@ async def test_no_cases_is_anonymous_no_facets():
         ],
     )
     r = (await Engine(experiment).run()).arm_runs[0]
-    assert r.measurement.request.n > 0
-    assert r.measurement.by_case == {"default": r.measurement.request}
-    assert r.measurement.by_facet == {}
+    assert r.full.request.n > 0
+    assert r.full.by_case == {"default": r.full.request}
+    assert r.full.by_facet == {}

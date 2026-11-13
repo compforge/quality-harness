@@ -68,9 +68,9 @@ def _arm_run(level, stats, cpu_peaks: dict[str, float], breaker=None) -> ArmRun:
         arm=Arm(f"{resources.label()}|{load.label()}", resources, load),
         windows=[
             Window(
-                "measurement",
-                "measurement",
-                "measurement",
+                "full",
+                "full",
+                "full",
                 0.0,
                 45.0,
                 True,
@@ -140,10 +140,10 @@ def test_resource_headroom_slope_and_extrapolation():
 def test_resource_flags_idle_service():
     run = _sweep()
     for t in run.arm_runs:  # executor pinned at 5m across all levels
-        t.measurement.probe_metrics[series_id("top.cpu_m", {"service": "executor"})] = GaugeSummary(
+        t.full.probe_metrics[series_id("top.cpu_m", {"service": "executor"})] = GaugeSummary(
             last=5, mean=5, peak=5
         )
-        t.measurement.probe_metrics[series_id("limits.cpu_request", {"service": "executor"})] = (
+        t.full.probe_metrics[series_id("limits.cpu_request", {"service": "executor"})] = (
             GaugeSummary(last=1000, mean=1000, peak=1000)
         )
     flags = _titles(analyze(run), "resource", "flag")
@@ -213,7 +213,7 @@ def test_phase_error_is_diagnostic_not_a_curve_point():
     run = _sweep()
     broken = run.arm_runs[1]
     broken.stop = ArmStop(reason="aborted")
-    broken.measurement.complete = False
+    broken.full.complete = False
     broken.phase_errors = [PhaseError("setup", "RuntimeError", "testbed unavailable")]
 
     grouped = comparison_groups(run.arm_runs)
@@ -276,7 +276,7 @@ def test_two_dimensional_load_slices_are_shared_by_analysis_report_and_capacity(
     assert _curve_groups(same_rate) == []
     assert not any("points" in o.evidence for o in analyze(replace(run, executions=same_rate)))
     for r in rows:
-        hold = replace(r.measurement, id="hold", kind="hold", target_level=r.arm.load.request_rate)
+        hold = replace(r.full, id="hold", kind="hold", target_level=r.arm.load.request_rate)
         r.windows.append(hold)
     paths = write_report(rows, str(tmp_path))
     html = Path(paths["report_html"]).read_text()
@@ -302,7 +302,7 @@ def test_two_dimensional_load_slices_are_shared_by_analysis_report_and_capacity(
         {"cooldown_timeout_s": 1},
         {"abort_on_error_rate": 0.1},
         {"stages": (Stage(20, 20, 1), Stage(25, 20, 10))},
-        {"request_rate": 0, "stages": (Stage(45, 20, 10, "ramp"),)},
+        {"request_rate": 0, "stages": (Stage(45, 20, 10, "warmup", shape="ramp"),)},
     ],
 )
 def test_fixed_conditions_and_full_stage_history_are_not_erased(changes):
@@ -328,7 +328,7 @@ def test_proportional_stage_shapes_remain_comparable():
             load=replace(
                 r.arm.load,
                 request_rate=0,
-                stages=(Stage(20, rate, 10, "ramp"), Stage(25, rate, 10)),
+                stages=(Stage(20, rate, 10, "warmup", shape="ramp"), Stage(25, rate, 10)),
             ),
         )
     assert len(comparison_groups([first, second])) == 1

@@ -31,7 +31,7 @@ def test_phase_contract(scenario):
         assert controller.target(step["at"])[0] == step["rate"]
     assert controller.hold_start_s == scenario["hold_start_s"]
     assert controller.end_s == scenario["end_s"]
-    hold = next(w for w in controller.windows if w.kind == "hold")
+    hold = next(w for w in controller.phases if w.kind == "hold")
     assert hold.complete and hold.duration_s == 60
 
 
@@ -82,7 +82,7 @@ async def test_hold_refills_at_target_and_stops_before_cooldown(tmp_path):
         )
     ).run()
     arm = run.arm_runs[0]
-    warmup, hold, cooldown = [w for w in arm.windows if w.kind != "measurement"]
+    warmup, hold, cooldown = [w for w in arm.windows if w.kind != "full"]
     assert warmup.end_reason == "inflight_limit"
     assert warmup.duration_s < 0.1
     assert hold.target_level == 100  # cap at 1 QPS does not freeze replenishment at 1 QPS
@@ -92,7 +92,7 @@ async def test_hold_refills_at_target_and_stops_before_cooldown(tmp_path):
     assert len(arm.operation_runs) >= 3
     assert all(r.state == "finished" and r.dispatched_at < hold.end_s for r in arm.requests)
     assert cooldown.request.completed >= 1
-    assert arm.measurement.request.n_dropped == 0
+    assert arm.full.request.n_dropped == 0
     write_run_data(run, tmp_path)
     restored = load_run(tmp_path).arm_runs[0]
     assert [(w.start_s, w.end_s, w.end_reason, w.limited_s) for w in restored.windows] == [
@@ -130,5 +130,5 @@ async def test_slow_generator_does_not_burst_to_catch_up():
     starts = [r.dispatched_at for r in arm.requests]
     assert len(starts) >= 3
     assert all(b - a >= 0.008 for a, b in zip(starts, starts[1:], strict=False))
-    assert arm.measurement.request.n_dropped == 0
+    assert arm.full.request.n_dropped == 0
     assert max(r.arrived_at - r.scheduled_at for r in arm.requests) >= 0.015

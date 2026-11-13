@@ -86,9 +86,9 @@ def test_result_partition_uses_completion_windows_and_preserves_evidence(tmp_pat
         assert reduce_requests(arm, window["start"], window["end"], facet=("kind", "chat")) == stat
     arm.windows = [
         Window(
-            "measurement",
-            "measurement",
-            "measurement",
+            "full",
+            "full",
+            "full",
             0,
             10,
             True,
@@ -107,18 +107,18 @@ def test_result_partition_uses_completion_windows_and_preserves_evidence(tmp_pat
     )
     store = MetricStore(run.arm_runs)
     ref = 'request.throughput_by_code{code="model_unavailable",kind="chat"}.value'
-    arm.measurement.by_facet = {"kind": {"chat": arm.measurement.request}}
+    arm.full.by_facet = {"kind": {"chat": arm.full.request}}
     assert store.query(arm, ref) == 0.1
     assert store.summary(arm, 'request.completed_by_code{code="model_unavailable"}').value == 1
     write_run_data(run, tmp_path)
     raw = (tmp_path / "requests.jsonl").read_bytes()
     restored = load_run(tmp_path)
     assert restored.environment == "qa"
-    assert restored.arm_runs[0].measurement.request == arm.measurement.request
+    assert restored.arm_runs[0].full.request == arm.full.request
     restored.arm_runs[0].evaluations.clear()
     stats = reduce_requests(restored.arm_runs[0], 0, 10)
     assert stats.unjudged == stats.completed == 5 and stats.error_breakdown == {}
-    restored.arm_runs[0].measurement.request = stats
+    restored.arm_runs[0].full.request = stats
     assert isinstance(
         MetricStore(restored.arm_runs).query(restored.arm_runs[0], "error_rate"), Missing
     )
@@ -236,7 +236,7 @@ async def test_request_failures_do_not_fail_an_experiment():
     )
     run = await Engine(exp).run()
     assert run.status == "completed"
-    assert run.arm_runs[0].measurement.request.throughput_by_code["business"] > 0
+    assert run.arm_runs[0].full.request.throughput_by_code["business"] > 0
     assert build_verdict_doc(run)["status"] == "skipped"
 
 
@@ -263,7 +263,7 @@ report:
     run = await Engine(experiment, run_id="open-code").run()
     paths = write_run(run, str(tmp_path))
     loaded = load_run(paths["run_dir"])
-    stats = loaded.arm_runs[0].measurement.request
+    stats = loaded.arm_runs[0].full.request
     assert stats.completed_by_code == {code: stats.completed}
     assert stats.throughput_by_code == {code: stats.throughput_rps}
     assert stats.unjudged == stats.succeeded == 0
