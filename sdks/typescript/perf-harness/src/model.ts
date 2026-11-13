@@ -168,7 +168,7 @@ export interface ArmRun extends Execution<Outcome> {
 }
 
 export interface Run extends ExperimentRun<ArmRun> {
-  schema: 8;
+  schema: 9;
   service: string;
   status: "completed" | "stopped" | "error";
   environment: string;

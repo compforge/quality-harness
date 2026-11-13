@@ -99,6 +99,7 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
                 operation.path if isinstance(operation, HttpOperation) else "",
                 qps_semantics,
                 descriptions,
+                operation.response_mode if isinstance(operation, HttpOperation) else None,
             )
 
     async def sample(self, ctx: ProbeContext) -> dict[str, float]:

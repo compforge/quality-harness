@@ -1,5 +1,5 @@
 $schema: https://json-schema.org/draft/2020-12/schema
-title: Perf schema 8 request record
+title: Perf schema 9 request record
 type: object
 required: [arm_run_id, request]
 properties:
@@ -28,7 +28,15 @@ properties:
           service:
             type: object
             required: [name, component, environment, workloads]
-          operation: {type: object, required: [name]}
+          operation:
+            type: object
+            required: [name]
+            properties:
+              response_mode: {enum: [unary, sse]}
+            if:
+              required: [method]
+            then:
+              required: [method, path, response_mode]
           outcome:
             type: object
             required: [status, duration_ms]

@@ -40,6 +40,18 @@ class HttpOperation(Operation):
 
     method: str
     path: str
+    response_mode: str = field(default="unary", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class SSEOperation(HttpOperation):
+    """An HTTP operation returning Server-Sent Events.
+
+    @spec Response mode does not change Operation identity or imply business success.
+    @rule First event, first useful output and full stream duration have distinct boundaries.
+    """
+
+    response_mode: str = field(default="sse", init=False)
 
 
 OutcomeT = TypeVar("OutcomeT", bound=Outcome)

@@ -34,3 +34,6 @@ src/
 概念关系与主流程见 [全仓开发约定](../../../AGENTS.md#核心模型与主流程)；分组不改变现有导出路径。
 
 `value.ts`、`summary.ts`、`json.ts` 提供纯数据的编码、恢复、阅读提示和不可变 JSON 契约；领域 Codec、Observation 和渲染归消费方。
+
+`SSEOperation` 是 `HttpOperation` 的子类，`response_mode` 为 `sse`（普通 HTTP 为 `unary`）。
+类型不改变 Operation identity，也不规定领域业务成功、流结束或首个有效输出的判据。

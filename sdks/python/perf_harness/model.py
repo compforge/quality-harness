@@ -460,6 +460,7 @@ class OperationMetricBinding:
     path: str = ""
     qps_semantics: str = "completed"
     descriptions: dict[str, str] = field(default_factory=dict)
+    response_mode: str | None = None
 
     def __post_init__(self) -> None:
         # @spec QPS and p95 are independent scalar roles, not a paired source schema.

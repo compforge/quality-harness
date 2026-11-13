@@ -293,7 +293,7 @@ export class Engine {
       if (arm_run.phase_errors.length) break;
     }
     return {
-      schema: 8,
+      schema: 9,
       run_id: this.#runId,
       experiment: this.#experiment.name ?? "perf",
       created_at: created.toISOString(),

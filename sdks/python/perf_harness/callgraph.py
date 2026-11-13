@@ -219,6 +219,11 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
                         "service": owners[node.id],
                         "method": binding.method if binding else "",
                         "path": binding.path if binding else "",
+                        "response_mode": (
+                            binding.response_mode
+                            if binding and binding.response_mode
+                            else node.properties.get("response_mode")
+                        ),
                         "qps_semantics": binding.qps_semantics if binding and binding.qps else None,
                         "metrics": metrics,
                     }

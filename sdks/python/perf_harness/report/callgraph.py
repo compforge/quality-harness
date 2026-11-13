@@ -59,6 +59,7 @@ def section(
                     ("Operation", node.id),
                     ("Service", props["service"]),
                     ("HTTP", f"{props['method']} {props['path']}".strip()),
+                    ("Response mode", props["response_mode"] or "unbound"),
                     ("Window", f"{window.id}: {window.start_s:.3f}–{window.end_s:.3f}s"),
                     ("QPS semantics", props["qps_semantics"] or "unbound"),
                 ]

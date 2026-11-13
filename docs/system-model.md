@@ -18,6 +18,7 @@
 | **Service** | 一个 Component 在某个 Environment 中具名的运行体现；由 service name、Component 与 Environment 共同确定，不等同于代码 Repository 或具体平台 Workload。 |
 | **Workload** | Service 在运行平台上的具名承载单元；Service 声明零个或多个 Workload 引用，具体实例及当前状态在执行期查询。它不是一次 Deployment 发布记录，也不是 perf 领域的请求负载模型。 |
 | **Operation** | Service 对外提供的一项具名能力，也是 Case 所绑定的服务能力；不包含特定传输协议的访问细节。 |
+| **SSEOperation** | `HttpOperation` 的流式子类，`response_mode=sse`；仍使用相同 method/path 和身份规则，业务成功由消费方 Judge 判定。 |
 | **HttpOperation** | `Operation` 的 HTTP 子类，以 method 与 path 表达协议契约；base URL 仍属于运行态 Service。 |
 | **Deployment** | 把某个 Component 发布到 Environment、从而创建或更新 Service 的一次部署记录；同一 Service 可以经历多次 Deployment。 |
 | **Deployer** | 执行 Deployment 的协议无关端口；Helm、Docker 等是具体实现。 |
