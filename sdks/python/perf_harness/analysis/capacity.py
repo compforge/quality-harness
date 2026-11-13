@@ -36,10 +36,10 @@ def _closed_scaling(label: str, rs: list[ArmRun]) -> list[AnalysisNote]:
     rows = []
     for r in rs:
         n = r.arm.load.peak_level
-        x = r.measurement.request.throughput_rps
+        x = r.full.request.throughput_rps
         # Little's law N = X·R uses mean latency, not a percentile.
         # a closed loop is self-consistent when this tracks the configured level
-        implied_n = x * r.measurement.request.mean_ms / 1000.0
+        implied_n = x * r.full.request.mean_ms / 1000.0
         rows.append(
             {
                 "level": n,
@@ -81,8 +81,8 @@ def _open_saturation(label: str, rs: list[ArmRun]) -> list[AnalysisNote]:
     rows = [
         {
             "offered": r.arm.load.peak_level,
-            "achieved_rps": round(r.measurement.request.dispatch_rps, 3),
-            "drop_rate": round(r.measurement.request.drop_rate, 4),
+            "achieved_rps": round(r.full.request.dispatch_rps, 3),
+            "drop_rate": round(r.full.request.drop_rate, 4),
         }
         for r in rs
     ]
@@ -106,7 +106,7 @@ def _amplification(label: str, rs: list[ArmRun], store: MetricStore) -> list[Ana
         {
             parse_ref(sid)[1].get("service", "")
             for r in rs
-            for sid in r.measurement.probe_metrics
+            for sid in r.full.probe_metrics
             if parse_ref(sid)[0] == "metrics.req_total"
         }
         - {""}
@@ -115,13 +115,13 @@ def _amplification(label: str, rs: list[ArmRun], store: MetricStore) -> list[Ana
         rows = []
         for r in rs:
             rate = store.query(r, f'metrics.req_total{{service="{svc}"}}.rate')
-            if not isinstance(rate, float) or not r.measurement.request.throughput_rps:
+            if not isinstance(rate, float) or not r.full.request.throughput_rps:
                 continue
             rows.append(
                 {
                     "level": r.arm.load.peak_level,
                     "server_rate": round(rate, 2),
-                    "amplification": round(rate / r.measurement.request.throughput_rps, 1),
+                    "amplification": round(rate / r.full.request.throughput_rps, 1),
                 }
             )
         if rows:

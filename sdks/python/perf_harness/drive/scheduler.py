@@ -14,7 +14,7 @@ from spec_case.model import Case
 from perf_harness.drive.controller import LoadController
 from perf_harness.drive.runner import ArmContext, FireContext, Runner
 from perf_harness.judge import Judge
-from perf_harness.model import ArmRun, ArmStop, Outcome, StopSnapshot, Window
+from perf_harness.model import ArmRun, ArmStop, Outcome, PhaseRun, StopSnapshot
 from perf_harness.observe.base import ProbeContext
 from perf_harness.records import RequestRecord
 
@@ -23,9 +23,9 @@ from perf_harness.records import RequestRecord
 class DriveState:
     """ArmRun-owned facts that survive scheduler and Judge exceptions."""
 
-    measurement_end_s: float | None = None
-    measurement_start_s: float = 0.0
-    windows: list[Window] = field(default_factory=list)
+    load_end_s: float | None = None
+    hold_start_s: float = 0.0
+    phases: list[PhaseRun] = field(default_factory=list)
     phase: str = "warmup"
     stop: ArmStop = field(default_factory=lambda: ArmStop(reason="aborted"))
 
@@ -48,7 +48,7 @@ async def drive(
     failures: list[BaseException] = []
     completed = errors = 0
     controller = LoadController(load)
-    state.windows = controller.windows
+    state.phases = controller.phases
     due = 0.0
     last_dispatch: float | None = None
     last_rate: float | None = None
@@ -196,11 +196,9 @@ async def drive(
                 delay = min(delay, due - now())
             with suppress(TimeoutError):
                 await asyncio.wait_for(wake.wait(), timeout=delay)
-        state.measurement_end_s = controller.end_s
-        state.measurement_start_s = (
-            controller.hold_start_s
-            if controller.hold_start_s is not None
-            else state.measurement_end_s
+        state.load_end_s = controller.end_s
+        state.hold_start_s = (
+            controller.hold_start_s if controller.hold_start_s is not None else state.load_end_s
         )
         state.stop = ArmStop(reason=reason, snapshot=snapshot, inflight_at_stop=ctx.stats.inflight)
         state.phase = "cooldown"
@@ -208,10 +206,10 @@ async def drive(
             await asyncio.wait(active, timeout=load.cooldown_timeout_s)
     finally:
         # Freeze load facts BEFORE waiting for cancellation; cleanup cannot rewrite them.
-        if state.measurement_end_s is None:
+        if state.load_end_s is None:
             controller.abort(now())
-            state.measurement_end_s = controller.end_s
-            state.measurement_start_s = (
+            state.load_end_s = controller.end_s
+            state.hold_start_s = (
                 controller.hold_start_s if controller.hold_start_s is not None else controller.end_s
             )
             state.stop = ArmStop(reason="aborted", inflight_at_stop=ctx.stats.inflight)
@@ -222,12 +220,12 @@ async def drive(
             await asyncio.gather(*remaining, return_exceptions=True)
         interrupted = sum(r.state == "interrupted" for r in execution.requests)
         state.stop = replace(state.stop, interrupted=interrupted, force_cancelled=bool(interrupted))
-        state.windows.append(
-            Window(
+        state.phases.append(
+            PhaseRun(
                 id="cooldown",
                 name="cooldown",
                 kind="cooldown",
-                start_s=state.measurement_end_s,
+                start_s=state.load_end_s,
                 end_s=now(),
                 complete=not bool(interrupted),
                 end_reason=(

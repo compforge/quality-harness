@@ -7,22 +7,23 @@ from typing import get_args
 from harness_common import HttpOperation, Operation, SSEOperation
 from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
 
-from perf_harness.model import ReportColumn, Service, WindowKind, WindowSelector
+from perf_harness.model import HistogramQuantile, ReportColumn, Service, WindowKind, WindowSelector
 from perf_harness.observe.prometheus import PrometheusQuery, WindowQuery
 from perf_harness.observe.prometheus_query import PrometheusQueryProbe
 
 
 def parse_window(raw: dict | None, *, default: str) -> WindowSelector:
     raw = raw if raw is not None else {"kind": default}
-    if not isinstance(raw, dict) or set(raw) - {"kind", "name", "level"}:
-        raise ValueError("window must contain only kind, name and level")
+    if not isinstance(raw, dict) or set(raw) - {"kind", "name", "level", "phase"}:
+        raise ValueError("window must contain only kind, phase, name and level")
     kind = raw.get("kind", default)
     if kind not in get_args(WindowKind):
         raise ValueError(f"window: invalid kind: {kind!r}")
-    if kind not in {"hold", "ramp", "warmup"} and ("name" in raw or "level" in raw):
-        raise ValueError("window name/level only apply to load stages")
+    phase = raw.get("phase")
+    if phase is not None and (kind != "phase" or phase not in {"warmup", "hold", "cooldown"}):
+        raise ValueError("phase window must select warmup, hold or cooldown")
     return WindowSelector(
-        kind, raw.get("name"), float(raw["level"]) if raw.get("level") is not None else None
+        kind, raw.get("name"), float(raw["level"]) if raw.get("level") is not None else None, phase
     )
 
 
@@ -84,7 +85,9 @@ def parse_prometheus_probe(
     queries = parse_queries(query_raw, service.name) if query_raw else []
     summaries = []
     for item in options.pop("summaries", []):
-        definition = {key: value for key, value in item.items() if key != "window"}
+        definition = {
+            key: value for key, value in item.items() if key not in {"window", "histogram"}
+        }
         query = parse_queries([definition], service.name)[0]
         summaries.append(
             WindowQuery(
@@ -93,7 +96,8 @@ def parse_prometheus_probe(
                 query.unit,
                 query.description,
                 query.labels,
-                parse_window(item.get("window"), default="observation"),
+                parse_window(item.get("window"), default="full"),
+                HistogramQuantile(**item["histogram"]) if "histogram" in item else None,
             )
         )
     if options:
@@ -181,7 +185,7 @@ def parse_columns(raw: dict | None) -> list[ReportColumn]:
             ReportColumn(
                 item["title"],
                 item["metric"],
-                parse_window(item.get("window"), default="measurement"),
+                parse_window(item.get("window"), default="full"),
             )
         )
     return columns

@@ -1,6 +1,6 @@
 # Perf Harness 跨语言契约
 
-Python 与 TypeScript 共享本契约；各语言保持惯用 API，功能覆盖可以不同。当前产物使用 schema 9。
+Python 与 TypeScript 共享本契约；各语言保持惯用 API，功能覆盖可以不同。当前产物使用 schema 10。
 
 ## 事实骨架
 
@@ -29,7 +29,8 @@ hold 从实际进入时计时，维持配置的目标 request_rate 作为补位�
 constant/poisson 间隔，seed 保证本语言内重复性；inf 按空位补充。
 并发覆盖完整请求生命周期，包括 SSE 完整读取。调度器卡顿不在恢复后补发错过的请求。
 
-Stage 显式声明 duration_s/request_rate/max_inflight/kind，支持 warmup/hold/ramp；简单配置
+Stage 显式声明 duration_s/request_rate/max_inflight/kind，kind 为 warmup/hold；
+shape 为 constant/ramp，ramp 只用于 warmup。warmup 必须全部在 hold 之前；简单配置
 生成 warmup 与 hold 计划。显式 stages 自行决定时长，不叠加默认 warmup 和 hold。
 降并发不取消已有请求；单个 LoadPlan 不混合有限速率与 inf。
 
@@ -44,20 +45,28 @@ RequestEvaluation，按 OperationRun ID 保存，不回写 Outcome。默认 Judg
 SSE 业务完成规则由 consumer 显式声明。Outcome.meta 可记录 trace_id、message_id、完成事件等原始信号。
 first_byte_ms 只表示首字节，不能自动命名 TTFT；业务 token 时刻由 Runner 识别。
 
-生命周期：setup → warmup → hold → cooldown → cleanup。
+生命周期：setup → warmup → hold → cooldown → cleanup，串行且不重叠。
+ArmRun.phases 保存实际执行阶段的开始、结束、完成状态；未执行的阶段不补造。
+setup/cleanup 只负责前置准备与后置清理，不产生流量统计窗口，也不计入吞吐分母。
+Stage 是阶段内的负载步骤；多个相邻 hold 步骤仍属于同一个 hold PhaseRun。
 排空和停用是内部动作；可选 cooldown_s 在停用后延长资源观测。
 Python 资源观察覆盖发压、排空、停用与 cooldown；TypeScript 资源观察仍由消费方负责。
 普通生命周期异常记录 phase_errors，终止 sweep，verdict=error；控制流取消允许继续向调用方传播。
-停止发压时立即记录 measurement 边界、停止原因与在途数量；取消并 join 后补齐中断清点。
+停止发压时立即记录 hold 边界、停止原因与在途数量；取消并 join 后补齐中断清点。
 这些事实随 ArmRun 生命周期维护，不依赖 scheduler 正常返回。Judge 异常保留已完成 Outcome，
-标记缺失判定并使 Run.status=error；排空期间的异常不得重置或延长 measurement，也不得改写已发生的停止原因。
+标记缺失判定并使 Run.status=error；排空期间的异常不得重置或延长 hold，也不得改写已发生的停止原因。
 每个实际中断请求保留独立事实，不执行 Judge，不把短暂取消耗时混入延迟样本。
 
 ## 时间与统计
 
 所有时刻是相对 ArmRun 发压起点的秒数；Window 使用半开区间 `[start_s,end_s)`。
-Python 指标采集可增加 observation Window，覆盖发压前基线至最终抓取；基线时间可为负，
-它不是负载阶段，不参与容量分组。最终窗口查询记录实际查询时间范围，默认请求统计口径不变。
+执行阶段与统计范围分离，Window.kind 只有 full/phase/custom：
+- full：从实际开始加压到 cooldown 观测结束，是默认统计范围。
+- phase：只选择 warmup、hold 或 cooldown，具体阶段保存在 Window.phase。
+- custom：Experiment.time_ranges（TypeScript: timeRanges）声明具名 start_s/end_s，
+  以发压起点为零点，裁到实际流量观测边界；被裁短的范围标记 incomplete。
+setup 时间可为负，但不进入上述 Window。查询记录实际起止，报告不在线补采。
+Window 是筛选证据的范围，不是请求的计时边界。
 
 - arrived / arrival_rps 按源头实际接受的发起机会 scheduled_at 归窗；arrived_at 保留实际处理时刻。
 - dispatched / dispatch_rps 按实际 dispatched_at 归窗。
@@ -72,8 +81,10 @@ Python 指标采集可增加 observation Window，覆盖发压前基线至最终
 - inflight_peak/end 由实际调用起止事件求得，包括前一个窗口带入的请求。
 - scheduler_lag_ms = (arrived_at - scheduled_at) × 1000。
 
-measurement 从首个实际 hold 开始；warmup/ramp/hold 对齐实际执行的 Stage；
-cooldown 记录停压后的完成事件与资源观测。Window.end_reason 记录阶段结束原因，
+hold 统计范围对应整个 hold 阶段，cooldown 记录停压后的完成事件与资源观测。
+同一次请求可以在 hold 发起、cooldown 完成：完整耗时计入 hold 的 dispatch cohort，完成事件计入 cooldown。
+请求耗时不被统计边界截断；n 是已完成延迟样本数，n_pending/n_interrupted 单列仍在途未完成/已中断的 cohort 请求。
+Window.end_reason 记录阶段结束原因，
 limited_s 记录已经允许发起但被在途上限阻塞的时间。nearest-rank 百分位索引为 `ceil(q*n)-1`。
 丢弃、中断不进入延迟分布；无完成样本的延迟与无判定的错误率为缺数据。
 co_biased/high_drop/incomplete/few_samples 等可信度标记必须随 summary 保存。
@@ -102,7 +113,7 @@ code 独立保存在 evaluations.json，原始 HTTP status / 异常仍归 Outcom
 
 | 文件 | 契约 |
 |---|---|
-| run.json | schema=9，executions 数组；无重复的 arm_runs/outcomes 存储 |
+| run.json | schema=10，executions 数组；无重复的 arm_runs/outcomes 存储 |
 | requests.jsonl | 每行 arm_run_id + request + 可选 operation_run（拥有唯一原始 Outcome） |
 | evaluations.json | ArmRun ID → OperationRun ID → RequestEvaluation |
 | timeseries.csv | arm_run,series,t,value 的资源采样 |
@@ -119,11 +130,11 @@ Reader 必须恢复原始关联与完整请求记录；支持当前 schema 的�
 
 Python 的 PrometheusQueryProbe 在压测后查询外部 Prometheus，不自行抓取服务 /metrics。
 可选 started_at_s 保存 ArmRun 发压 Unix 起点，prometheus_observations 保存可重放查询及原始结果；
-report_columns 保存指标与窗口选择。这些是 schema 9 的附加字段，目前由 Python 实现。
+report_columns 保存指标与窗口选择。这些是 schema 10 的附加字段，目前由 Python 实现。
 历史查询可独立补采，不重发负载、不改写请求结果；报告重渲染只读取已保存结果。
 
 可选 `graph` 保存实际使用的 Common Graph 完整快照（含 environment/source/version），不保存本机路径。
-这是 schema 9 的附加字段，目前 Python 支持加载配置、绑定校验与离线重载。
+这是 schema 10 的附加字段，目前 Python 支持加载配置、绑定校验与离线重载。
 其 environment 必须与 Run 一致；声明 Operation 绑定的 Probe 必须引用图中的 Operation 及其 Service。
 指标仍通过 operation label 关联；图中节点没有指标不表示零流量，静态 calls 不证明某次实际调用或因果。
 
@@ -137,9 +148,9 @@ QPS and p95 are independent optional roles; at least one must be bound. A missin
 remains unbound, not zero. OperationMetricBinding retains separate descriptions for each
 role, copied from its WindowQuery declaration into the saved run and callgraph snapshot.
 Counter, histogram and log-derived measurements use this same binding path; each query
-owns its units, population and scope. The schema-9 operation_metrics field records OperationMetricBinding; older run schemas are rejected.
+owns its units, population and scope. The schema-10 operation_metrics field records OperationMetricBinding; older run schemas are rejected.
 Generic Operations use the same binding for middleware metrics without inventing HTTP routes.
-`case_ids` records the experiment scope. These are additive schema-9 fields.
+`case_ids` records the experiment scope. These are additive schema-10 fields.
 Reports read saved MetricStore windows and project only operation nodes plus calls/may_call
 edges. Service ownership is auxiliary metadata. QPS on a node does not prove an incoming edge
 executed or isolate case traffic. Missing values and collection errors cannot become zero.
@@ -154,3 +165,15 @@ HTTP Operation 在 requests.jsonl 中保存 `response_mode=unary|sse`。SSEOpera
 HttpOperation，身份仍只由 Service 和 Operation name 决定；流式响应不自动定义业务成功。
 OperationMetricBinding 的 response_mode 及 Callgraph 节点详情描述同一响应模式，
 指标自身的计时边界仍由其 description 定义。
+
+## Histogram 分位数与展示
+
+客户端 p95 来自完整请求耗时；服务端 p95 来自所选时间范围的 Histogram 增量，
+通常是该范围内完成的调用，两者 population 不相同。SSE 的 server duration 边界由埋点定义。
+HttpApiProbe 获取 `sum by (le) (increase(..._bucket[$window]))`，显式计算 classic Histogram 分位数。
+落入最后 `+Inf` 桶时返回 `+Inf`，不得以最大有限桶替代。ScalarSummary.histogram 保存 quantile、
+sample_count、max_finite_bucket 和 overflow；JSON value 用字符串 `"+Inf"`，不写非法 JSON Infinity。
+任意 scalar PromQL 不推断 overflow。无样本是 Missing，非法桶数据是查询错误。
+
+Callgraph 将全程/阶段/自定义范围分开选择；节点只显示 Operation 和指标，Service 以分组呈现，
+悬浮提示 Service 与 path。详情保留统计范围、指标来源和 Histogram 证据。

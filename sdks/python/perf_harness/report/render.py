@@ -1,7 +1,7 @@
-"""Report — measurement summary, Window/facet breakdown, and raw series.
+"""Report — full-range summary, Window/facet breakdown, and raw series.
 
 Artifacts:
-  - ``summary.csv`` + report.md §1: one row per ArmRun — measurement request-side
+  - ``summary.csv`` + report.md §1: one row per ArmRun — full-range request-side
     stats (from Outcomes) beside resource-side stats (from Probes).
   - ``by_facet.csv`` + report.md §2: per ArmRun, the marginal pivot by each facet
     (slice p50/95/99 / err% / throughput by difficulty, by kb, …).
@@ -67,6 +67,8 @@ _STAT_COLS = _THROUGHPUT_COLS + [
     "completed_by_code",
     "throughput_by_code",
     "n",
+    "n_pending",
+    "n_interrupted",
     "ok",
     "completion_rps",
     "err%",
@@ -147,6 +149,8 @@ def _stat_cells(s: RequestStats) -> list[str]:
         json.dumps(s.completed_by_code, ensure_ascii=False, sort_keys=True),
         json.dumps(s.throughput_by_code, ensure_ascii=False, sort_keys=True),
         str(s.n),
+        str(s.n_pending),
+        str(s.n_interrupted),
         str(s.n_ok),
         f"{s.throughput_rps:.2f}",
         f"{s.error_rate * 100:.1f}" if s.n_judged else "—",
@@ -159,7 +163,7 @@ def _stat_cells(s: RequestStats) -> list[str]:
 
 
 def _probe_columns(results: list[ArmRun], *, labeled: bool | None = None) -> list[str]:
-    """Flat ``<series>.<stat>`` columns for measurement resource metrics,
+    """Flat ``<series>.<stat>`` columns for full-range resource metrics,
     expanded from each arm_run's typed ``probe_metrics``. ``labeled`` filters by
     whether the series carries labels: ``False`` → only unlabeled (e.g. ``client.*``,
     for the §1 table); ``None`` → all (the CSV). Service-labeled metrics
@@ -167,7 +171,7 @@ def _probe_columns(results: list[ArmRun], *, labeled: bool | None = None) -> lis
     as flat columns."""
     cols: list[str] = []
     for r in results:
-        for k in flatten(r.measurement.probe_metrics):
+        for k in flatten(r.full.probe_metrics):
             if labeled is not None and ("{" in k) != labeled:
                 continue
             if k not in cols:
@@ -176,7 +180,7 @@ def _probe_columns(results: list[ArmRun], *, labeled: bool | None = None) -> lis
 
 
 def _probe_cells(r: ArmRun, probe_cols: list[str]) -> list[str]:
-    flat = flatten(r.measurement.probe_metrics)
+    flat = flatten(r.full.probe_metrics)
     return [_fmt(flat.get(c)) for c in probe_cols]
 
 
@@ -194,7 +198,7 @@ def _metric_keys(results: list[ArmRun]) -> list[str]:
     """Ordered union of per_request metric keys across arm_runs (ttft_ms / first_…)."""
     keys: list[str] = []
     for r in results:
-        for k in r.measurement.request.metrics:
+        for k in r.full.request.metrics:
             if k not in keys:
                 keys.append(k)
     return keys
@@ -247,6 +251,8 @@ _DISPLAY_STAT_COLS = _THROUGHPUT_COLS + [
     "completed_by_code",
     "throughput_by_code",
     "n",
+    "n_pending",
+    "n_interrupted",
     "ok",
     "completion_rps",
     "err%",
@@ -262,6 +268,8 @@ def _display_stat_cells(s: RequestStats) -> list[str]:
         json.dumps(s.completed_by_code, ensure_ascii=False, sort_keys=True),
         json.dumps(s.throughput_by_code, ensure_ascii=False, sort_keys=True),
         str(s.n),
+        str(s.n_pending),
+        str(s.n_interrupted),
         str(s.n_ok),
         f"{s.throughput_rps:.2f}",
         f"{s.error_rate * 100:.1f}" if s.n_judged else "—",
@@ -285,9 +293,7 @@ def _api_observations(results: list[ArmRun], window_id: str | None = None) -> Ta
     rows: list[list[str]] = []
     for run in results:
         window = (
-            run.measurement
-            if window_id is None
-            else next(w for w in run.windows if w.id == window_id)
+            run.full if window_id is None else next(w for w in run.windows if w.id == window_id)
         )
         for sid, summary in window.probe_metrics.items():
             name, labels = split_series(sid)
@@ -318,7 +324,7 @@ def _display_probe_cols(results: list[ArmRun]) -> list[str]:
     silent; outages surface via §4/validity) — the CSV keeps them."""
     cols: list[str] = []
     for r in results:
-        for sid in r.measurement.probe_metrics:
+        for sid in r.full.probe_metrics:
             if "{" in sid or sid in cols:  # unlabeled only, dedup
                 continue
             if _series_family(sid).endswith(".up"):
@@ -330,7 +336,7 @@ def _display_probe_cols(results: list[ArmRun]) -> list[str]:
 def _display_probe_cells(r: ArmRun, cols: list[str]) -> list[str]:
     out: list[str] = []
     for sid in cols:
-        summ = r.measurement.probe_metrics.get(sid)
+        summ = r.full.probe_metrics.get(sid)
         if summ is None:
             out.append("-")
             continue
@@ -530,8 +536,8 @@ def write_report(
                 + (
                     [cases_cell(r)] + selected_cells(r, columns)
                     if columns
-                    else _stat_cells(r.measurement.request)
-                    + _metric_cells(r.measurement.request, metric_keys)
+                    else _stat_cells(r.full.request)
+                    + _metric_cells(r.full.request, metric_keys)
                     + _probe_cells(r, probe_cols)
                 )
             )
@@ -542,9 +548,9 @@ def write_report(
         w.writerow(["arm_run", "facet", "value", *_STAT_COLS, *mcols])
         for r in results:
             tid = _arm_run_id(r)
-            for key in sorted(r.measurement.by_facet):
-                for val in _sorted_values(key, list(r.measurement.by_facet[key]), facet_order):
-                    sl = r.measurement.by_facet[key][val]
+            for key in sorted(r.full.by_facet):
+                for val in _sorted_values(key, list(r.full.by_facet[key]), facet_order):
+                    sl = r.full.by_facet[key][val]
                     w.writerow([tid, key, val, *_stat_cells(sl), *_metric_cells(sl, metric_keys)])
 
     window_path = out / "windows.csv"
@@ -733,8 +739,8 @@ def _build_doc(
         + (
             [cases_cell(r)] + selected_cells(r, columns)
             if columns
-            else _display_stat_cells(r.measurement.request)
-            + _display_metric_cells(r.measurement.request, metric_keys)
+            else _display_stat_cells(r.full.request)
+            + _display_metric_cells(r.full.request, metric_keys)
             + _display_probe_cells(r, dprobe)
         )
         for r in results
@@ -742,9 +748,17 @@ def _build_doc(
     # hover a column header → the merged stats + what the metric is (unit · source).
     tips = _display_col_tips(results, metric_keys, dprobe)
     tips.update({c.title: f"{c.metric} · window={c.window.kind}" for c in columns or []})
-    sec1 = Section("1. 汇总（overall）")
+    sec1 = Section("1. 汇总（全程观测）")
     if consts:
         sec1.blocks.append(Prose("固定：" + " · ".join(f"`{k}={v}`" for k, v in consts)))
+    sec1.blocks.append(
+        Prose(
+            "默认范围覆盖 warmup、hold、cooldown，排除 setup/cleanup。"
+            "吞吐按范围内完成事件计算；客户端延迟按范围内发起请求的完整耗时计算。"
+            "n 为完成样本数，n_pending/n_interrupted 为该 cohort 未完成/中断数；"
+            "服务端 p95 的完成样本口径可能不同。"
+        )
+    )
     sec1.blocks.append(Table(cols, rows, col_tips=tips))
     if any(r.arm.load.saturated for r in results):
         sec1.blocks.append(
@@ -754,11 +768,11 @@ def _build_doc(
                 "——勿当严格 无偏尾延迟；有限 request_rate 也须结合丢弃与调度延迟判断样本偏差。"
             )
         )
-    saturated = [r for r in results if r.measurement.request.drop_rate >= _SATURATION_FLAG]
+    saturated = [r for r in results if r.full.request.drop_rate >= _SATURATION_FLAG]
     if saturated:
         sat_txt = "；".join(
-            f"{_arm_run_id(r)}: drop {r.measurement.request.drop_rate * 100:.1f}% "
-            f"({r.measurement.request.n_dropped} 未发出)"
+            f"{_arm_run_id(r)}: drop {r.full.request.drop_rate * 100:.1f}% "
+            f"({r.full.request.n_dropped} 未发出)"
             for r in saturated
         )
         sec1.blocks.append(
@@ -781,40 +795,39 @@ def _build_doc(
     report.sections.append(lifecycle.section(results))
     api = _api_observations(results)
     if include_api_observations and api.rows:
-        report.sections.append(Section("API 观测（measurement）", [api]))
+        report.sections.append(Section("API 观测（全程）", [api]))
 
     # (no per-service resource TABLE: §3's response curves + §4's timeseries carry the
     # per-service story visually; the exact numbers live in summary.csv / run.json)
 
     # §2 per-dimension breakdown ("facet" = a request dimension like difficulty / lang)
     sec2 = Section("2. 按维度拆（如 difficulty/lang）")
-    if not any(r.measurement.by_facet for r in results):
+    if not any(r.full.by_facet for r in results):
         sec2.blocks.append(Prose("（无分组维度；所有请求同质，无需拆）"))
     else:
         for r in results:
-            if not r.measurement.by_facet:
+            if not r.full.by_facet:
                 continue
-            for key in sorted(r.measurement.by_facet):
+            for key in sorted(r.full.by_facet):
                 facet_rows = [
                     [
                         val,
-                        *_display_stat_cells(r.measurement.by_facet[key][val]),
-                        *_display_metric_cells(r.measurement.by_facet[key][val], metric_keys),
+                        *_display_stat_cells(r.full.by_facet[key][val]),
+                        *_display_metric_cells(r.full.by_facet[key][val], metric_keys),
                     ]
-                    for val in _sorted_values(key, list(r.measurement.by_facet[key]), facet_order)
+                    for val in _sorted_values(key, list(r.full.by_facet[key]), facet_order)
                 ]
                 sec2.blocks.append(Prose(f"{_arm_run_id(r)} · {key}"))
                 sec2.blocks.append(Table(["value", *_DISPLAY_STAT_COLS, *metric_keys], facet_rows))
     report.sections.append(sec2)
 
     # §2b observed Window breakdown
-    windowed = [r for r in results if any(w.kind in ("warmup", "ramp", "hold") for w in r.windows)]
+    windowed = [r for r in results if any(w.kind != "full" for w in r.windows)]
     if windowed:
-        sec2b = Section("2b. 按 Window 拆（schedule 的实际观测边界）")
+        sec2b = Section("2b. 统计范围（阶段 / 自定义）")
         sec2b.blocks.append(
             Prose(
-                "Stage 是负载计划，Window 是请求与资源指标共同使用的实际时间切片；"
-                "容量只读取 complete 的 hold Window。"
+                "执行阶段与统计范围独立；以下按实际起止选择证据，跨范围完成的请求仍保留完整耗时。"
             )
         )
         for r in windowed:
@@ -823,17 +836,30 @@ def _build_doc(
                     window.id,
                     window.name,
                     window.kind,
+                    window.phase or "",
+                    f"{window.start_s:.3f}",
+                    f"{window.end_s:.3f}",
                     "yes" if window.complete else "no",
                     *_display_stat_cells(window.request),
                     *_display_metric_cells(window.request, metric_keys),
                 ]
                 for window in r.windows
-                if window.kind in ("warmup", "ramp", "hold") and window.request is not None
+                if window.kind != "full" and window.request is not None
             ]
             sec2b.blocks.append(Prose(_arm_run_id(r)))
             sec2b.blocks.append(
                 Table(
-                    ["window_id", "name", "kind", "complete", *_DISPLAY_STAT_COLS, *metric_keys],
+                    [
+                        "window_id",
+                        "name",
+                        "kind",
+                        "phase",
+                        "start_s",
+                        "end_s",
+                        "complete",
+                        *_DISPLAY_STAT_COLS,
+                        *metric_keys,
+                    ],
                     window_rows,
                 )
             )
@@ -883,11 +909,11 @@ def _response_section(results: list[ArmRun]) -> Section | None:
     for clabel, rs in groups:
         pts = [(r.arm.load.peak_level, r) for r in rs]
         err = [
-            (lv, round(r.measurement.request.error_rate * 100, 2))
+            (lv, round(r.full.request.error_rate * 100, 2))
             for lv, r in pts
-            if r.measurement.request.n_judged
+            if r.full.request.n_judged
         ]
-        drop = [(lv, round(r.measurement.request.drop_rate * 100, 2)) for lv, r in pts]
+        drop = [(lv, round(r.full.request.drop_rate * 100, 2)) for lv, r in pts]
         sec.blocks.append(
             Chart(
                 f"错误率与丢弃 — {clabel}",
@@ -897,13 +923,13 @@ def _response_section(results: list[ArmRun]) -> Section | None:
             )
         )
         lat = [
-            LineSeries(name, [(lv, getattr(r.measurement.request, attr)) for lv, r in pts])
+            LineSeries(name, [(lv, getattr(r.full.request, attr)) for lv, r in pts])
             for name, attr in (("p50", "p50_ms"), ("p95", "p95_ms"), ("p99", "p99_ms"))
         ]
         ttft = [
-            (lv, r.measurement.request.metrics["ttft_ms"].p95)
+            (lv, r.full.request.metrics["ttft_ms"].p95)
             for lv, r in pts
-            if "ttft_ms" in r.measurement.request.metrics
+            if "ttft_ms" in r.full.request.metrics
         ]
         if ttft:
             lat.append(LineSeries("ttft p95", ttft))
@@ -932,7 +958,7 @@ def _response_section(results: list[ArmRun]) -> Section | None:
                 # fan-out, e.g. {path=…} / {pod=…}) stay in the LINE identity — one
                 # chart per (service, unit, kind) with one line per label value,
                 # not one sub-section per label value.
-                for sid, summary in r.measurement.probe_metrics.items():
+                for sid, summary in r.full.probe_metrics.items():
                     name, labels, _ = parse_ref(sid)
                     if name != family or "service" not in labels:
                         continue
@@ -1127,7 +1153,7 @@ def _render_md(
     lines.extend(lifecycle.markdown(results))
     api = _api_observations(results)
     if api.rows:
-        lines.extend(["## API 观测（measurement）", ""])
+        lines.extend(["## API 观测（全程）", ""])
         lines.append("| " + " | ".join(api.columns) + " |")
         lines.append("|" + "|".join(["---"] * len(api.columns)) + "|")
         for row in api.rows:
@@ -1135,7 +1161,7 @@ def _render_md(
         lines.append("")
 
     # §1 overall summary — narrow: constant key cols → caption, each metric one slashed col
-    lines.append("## 1. 汇总（overall）")
+    lines.append("## 1. 汇总（全程观测）")
     lines.append("")
     consts, var_cols = _key_layout(results)
     dprobe = _display_probe_cols(results)
@@ -1153,8 +1179,8 @@ def _render_md(
         cells = _key_cells_var(r, var_cols) + (
             [cases_cell(r)] + selected_cells(r, columns)
             if columns
-            else _display_stat_cells(r.measurement.request)
-            + _display_metric_cells(r.measurement.request, metric_keys)
+            else _display_stat_cells(r.full.request)
+            + _display_metric_cells(r.full.request, metric_keys)
             + _display_probe_cells(r, dprobe)
         )
         lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
@@ -1166,7 +1192,7 @@ def _render_md(
         )
         lines.append("")
 
-    saturated = [r for r in results if r.measurement.request.drop_rate >= _SATURATION_FLAG]
+    saturated = [r for r in results if r.full.request.drop_rate >= _SATURATION_FLAG]
     if saturated:
         lines.append(
             f"**⚠ 客户端饱和**（drop ≥ {_SATURATION_FLAG * 100:.0f}%，该档延迟/吞吐**不可信**——"
@@ -1174,8 +1200,8 @@ def _render_md(
         )
         for r in saturated:
             lines.append(
-                f"- `{_arm_run_id(r)}`: drop {r.measurement.request.drop_rate * 100:.1f}% "
-                f"({r.measurement.request.n_dropped} 个未发出)"
+                f"- `{_arm_run_id(r)}`: drop {r.full.request.drop_rate * 100:.1f}% "
+                f"({r.full.request.n_dropped} 个未发出)"
             )
         lines.append("")
 
@@ -1201,23 +1227,23 @@ def _render_md(
     # §2 per-dimension breakdown ("facet" = a request dimension like difficulty / lang)
     lines.append("## 2. 按维度拆（如 difficulty/lang）")
     lines.append("")
-    if not any(r.measurement.by_facet for r in results):
+    if not any(r.full.by_facet for r in results):
         lines.append("- （无分组维度；所有请求同质，无需拆）")
         lines.append("")
     else:
         for r in results:
-            if not r.measurement.by_facet:
+            if not r.full.by_facet:
                 continue
             lines.append(f"### {_arm_run_id(r)}")
             lines.append("")
-            for key in sorted(r.measurement.by_facet):
+            for key in sorted(r.full.by_facet):
                 lines.append(f"**{key}**")
                 lines.append("")
                 hdr = ["value", *_DISPLAY_STAT_COLS, *metric_keys]
                 lines.append("| " + " | ".join(hdr) + " |")
                 lines.append("|" + "|".join(["---"] * len(hdr)) + "|")
-                for val in _sorted_values(key, list(r.measurement.by_facet[key]), facet_order):
-                    sl = r.measurement.by_facet[key][val]
+                for val in _sorted_values(key, list(r.full.by_facet[key]), facet_order):
+                    sl = r.full.by_facet[key][val]
                     cells = [val, *_display_stat_cells(sl), *_display_metric_cells(sl, metric_keys)]
                     lines.append(
                         "| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |"
@@ -1225,28 +1251,38 @@ def _render_md(
                 lines.append("")
 
     # §2b observed Window breakdown
-    windowed = [r for r in results if any(w.kind in ("warmup", "ramp", "hold") for w in r.windows)]
+    windowed = [r for r in results if any(w.kind != "full" for w in r.windows)]
     if windowed:
-        lines.append("## 2b. 按 Window 拆（schedule 的实际观测边界）")
+        lines.append("## 2b. 统计范围（阶段 / 自定义）")
         lines.append("")
-        lines.append(
-            "> Stage 是负载计划，Window 是请求与资源指标共同使用的实际时间切片；"
-            "容量只读取 complete 的 hold Window。"
-        )
+        lines.append("> 统计范围只选择证据，跨范围完成的请求仍保留完整耗时。")
         lines.append("")
         for r in windowed:
             lines.append(f"### {_arm_run_id(r)}")
             lines.append("")
-            hdr = ["window_id", "name", "kind", "complete", *_DISPLAY_STAT_COLS, *metric_keys]
+            hdr = [
+                "window_id",
+                "name",
+                "kind",
+                "phase",
+                "start_s",
+                "end_s",
+                "complete",
+                *_DISPLAY_STAT_COLS,
+                *metric_keys,
+            ]
             lines.append("| " + " | ".join(hdr) + " |")
             lines.append("|" + "|".join(["---"] * len(hdr)) + "|")
             for window in r.windows:
-                if window.kind not in ("warmup", "ramp", "hold") or window.request is None:
+                if window.kind == "full" or window.request is None:
                     continue
                 cells = [
                     window.id,
                     window.name,
                     window.kind,
+                    window.phase or "",
+                    f"{window.start_s:.3f}",
+                    f"{window.end_s:.3f}",
                     "yes" if window.complete else "no",
                     *_display_stat_cells(window.request),
                     *_display_metric_cells(window.request, metric_keys),
@@ -1270,6 +1306,8 @@ def _render_md(
 def _fmt(v: float | None) -> str:
     if v is None:
         return "-"
+    if v == float("inf"):
+        return "+Inf"
     if v == int(v):
         return str(int(v))
     return f"{v:.2f}"

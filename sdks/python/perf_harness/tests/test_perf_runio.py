@@ -88,12 +88,12 @@ async def test_run_json_is_the_full_model(tmp_path):
     windows = {window["id"]: window for window in t["windows"]}
     assert "cooldown" in windows
     assert t["registry"]["first_byte_ms"]["unit"] == "ms"  # metric metadata persisted
-    assert windows["measurement"]["request"]["n"] == run.arm_runs[0].measurement.request.n
-    assert "a" in windows["measurement"]["by_case"]
-    assert "simple" in windows["measurement"]["by_facet"]["difficulty"]
+    assert windows["full"]["request"]["n"] == run.arm_runs[0].full.request.n
+    assert "a" in windows["full"]["by_case"]
+    assert "simple" in windows["full"]["by_facet"]["difficulty"]
     sid = series_id("top.cpu_m", {"service": "chat"})
-    assert windows["measurement"]["probe_metrics"][sid]["kind"] == "gauge"
-    assert windows["measurement"]["probe_metrics"][sid]["peak"] == 123.0
+    assert windows["full"]["probe_metrics"][sid]["kind"] == "gauge"
+    assert windows["full"]["probe_metrics"][sid]["peak"] == 123.0
 
 
 async def test_load_run_round_trips_the_store(tmp_path):

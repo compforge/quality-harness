@@ -72,6 +72,6 @@ async def test_engine_buckets_judged_errors():
         ],
     )
     r = (await Engine(exp).run()).arm_runs[0]
-    assert r.measurement.request.n > 0
-    assert r.measurement.request.error_rate == 1.0
-    assert r.measurement.request.error_breakdown.get("http_500", 0) > 0
+    assert r.full.request.n > 0
+    assert r.full.request.error_rate == 1.0
+    assert r.full.request.error_breakdown.get("http_500", 0) > 0

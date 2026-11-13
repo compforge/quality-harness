@@ -209,6 +209,7 @@ class RequestStats:
     interrupted: int = 0
     n_judged: int = 0
     n_interrupted: int = 0
+    n_pending: int = 0
     arrival_rps: float = 0.0
     dispatch_rps: float = 0.0
     success_rps: float = 0.0
@@ -287,7 +288,7 @@ class ProbeErrors:
     last: str
 
 
-WindowKind = Literal["measurement", "warmup", "ramp", "hold", "cooldown", "observation"]
+WindowKind = Literal["full", "phase", "custom"]
 Phase = Literal["setup", "warmup", "hold", "cooldown", "cleanup"]
 
 
@@ -306,6 +307,42 @@ class PhaseError:
 
 
 @dataclass
+class PhaseRun:
+    """Actual serial lifecycle phase; setup/cleanup do not own traffic windows."""
+
+    id: str
+    name: str
+    kind: Phase
+    start_s: float
+    end_s: float
+    complete: bool
+    target_level: float | None = None
+    end_reason: str | None = None
+    limited_s: float = 0.0
+
+    @property
+    def duration_s(self) -> float:
+        return self.end_s - self.start_s
+
+
+@dataclass(frozen=True)
+class TimeRange:
+    """A requested traffic range relative to load start, independent of phases."""
+
+    name: str
+    start_s: float
+    end_s: float
+
+    def __post_init__(self) -> None:
+        import math
+
+        if not self.name or not all(math.isfinite(x) for x in (self.start_s, self.end_s)):
+            raise ValueError("time range needs a name and finite bounds")
+        if not 0 <= self.start_s < self.end_s:
+            raise ValueError("time range requires 0 <= start_s < end_s")
+
+
+@dataclass
 class Window:
     """An observed time boundary within a ArmRun.
 
@@ -321,6 +358,7 @@ class Window:
     start_s: float
     end_s: float
     complete: bool
+    phase: Phase | None = field(default=None, kw_only=True)
     target_level: float | None = None
     request: RequestStats | None = None
     by_case: dict[str, RequestStats] = field(default_factory=dict)
@@ -349,6 +387,20 @@ class ProbeWindowObservation:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class HistogramQuantile:
+    """Explicit classic-histogram projection; source expression returns bucket increments."""
+
+    quantile: float = 0.95
+    scale: float = 1.0
+
+    def __post_init__(self) -> None:
+        import math
+
+        if not 0 < self.quantile < 1 or not math.isfinite(self.scale) or self.scale <= 0:
+            raise ValueError("histogram requires 0 < quantile < 1 and a positive finite scale")
+
+
 @dataclass
 class PrometheusObservation:
     """One replayable query and its latest result; no connection credentials."""
@@ -368,6 +420,7 @@ class PrometheusObservation:
     infos: tuple[str, ...] = ()
     error: str | None = None
     collected_at_s: float | None = None
+    histogram: HistogramQuantile | None = None
 
 
 @dataclass
@@ -378,6 +431,7 @@ class ArmRun(Execution[Outcome]):
     arm: Arm
     windows: list[Window]
     series: dict[str, Series]
+    phases: list[PhaseRun] = field(default_factory=list)
     stop: ArmStop = field(default_factory=ArmStop)
     """How this arm_run ended (every arm_run has one; default ``reason="deadline"`` =
     normal). When it stopped early (e.g. the error-rate breaker), the arm_run's numbers
@@ -414,8 +468,8 @@ class ArmRun(Execution[Outcome]):
         return self.id
 
     @property
-    def measurement(self) -> Window:
-        return next(window for window in self.windows if window.kind == "measurement")
+    def full(self) -> Window:
+        return next(window for window in self.windows if window.kind == "full")
 
 
 # ---------------------------------------------------------------------------
@@ -427,13 +481,23 @@ class ArmRun(Execution[Outcome]):
 class WindowSelector:
     """Select ArmRun Windows by observed semantics, not by metric labels."""
 
-    kind: WindowKind = "measurement"
+    kind: WindowKind = "full"
     name: str | None = None
     level: float | None = None
+    phase: Phase | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"full", "phase", "custom"}:
+            raise ValueError(f"invalid window kind: {self.kind}")
+        if self.phase is not None and (
+            self.kind != "phase" or self.phase not in {"warmup", "hold", "cooldown"}
+        ):
+            raise ValueError("phase window must select warmup, hold or cooldown")
 
     def matches(self, window: Window) -> bool:
         return (
             window.kind == self.kind
+            and (self.phase is None or window.phase == self.phase)
             and (self.name is None or window.name == self.name)
             and (self.level is None or window.target_level == self.level)
         )

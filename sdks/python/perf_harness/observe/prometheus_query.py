@@ -52,8 +52,7 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
                 raise ValueError("Prometheus query names must be unique and cannot use up")
             previous = [q for q in self.summaries[:index] if q.name == summary.name]
             if any(
-                q.window.kind == summary.window.kind
-                or (q.unit, q.labels) != (summary.unit, summary.labels)
+                q.window == summary.window or (q.unit, q.labels) != (summary.unit, summary.labels)
                 for q in previous
             ):
                 raise ValueError("duplicate or inconsistent Prometheus window summary")
@@ -115,7 +114,7 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
             end = (math.ceil((arm.started_at_s + window.end_s) * 1000) - 1) / 1000
             if end < start:
                 continue
-            if window.kind == "observation":
+            if window.kind == "full":
                 for query in self.queries:
                     observations.append(
                         PrometheusObservation(
@@ -145,6 +144,7 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
                             self.labels,
                             query.labels,
                             window.id,
+                            histogram=query.histogram,
                         )
                     )
         return observations

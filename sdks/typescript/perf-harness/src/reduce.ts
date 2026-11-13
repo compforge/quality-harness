@@ -104,6 +104,7 @@ export function requestStats(
     error_breakdown,
     n_dropped,
     n_interrupted,
+    n_pending: cohort.filter(r => r.state === "dispatched").length,
     arrived: arrived.length,
     dispatched: cohort.length,
     completed: completions.length,
@@ -122,9 +123,8 @@ export function requestStats(
     metrics,
   };
 }
-export function buildWindows(execution: ArmRun, actualEnd: number, drive?: DriveState): Window[] {
-  const load = execution.arm.load,
-    warmup = drive?.measurement_start_s ?? 0;
+export function buildWindows(execution: ArmRun, actualEnd: number, drive?: DriveState, ranges: import("./model").TimeRange[] = []): Window[] {
+  const load = execution.arm.load;
   const make = (
     id: string,
     name: string,
@@ -173,55 +173,40 @@ export function buildWindows(execution: ArmRun, actualEnd: number, drive?: Drive
       probe_metrics: {},
     };
   };
-  if (drive?.windows) execution.windows = drive.windows;
-  const result = [
-    make(
-      "measurement",
-      "measurement",
-      "measurement",
-      warmup,
-      Math.max(warmup, actualEnd),
-      drive
-        ? drive.stop.reason === "deadline" && !!drive.windows?.some(w => w.kind === "hold" && w.complete)
-        : actualEnd >= stages(load).reduce((n, s) => n + s.duration_s, 0),
-    ),
-  ];
-  let clock = 0;
-  (drive ? [] : stages(load)).forEach((stage, i) => {
-    const start = Math.max(clock, warmup),
-      end = Math.min(clock + stage.duration_s, actualEnd);
-    if (end > start)
-      result.push(
-        make(
-          `stage-${i}`,
-          stageLabel(stage),
-          stage.kind,
-          start,
-          end,
-          actualEnd >= clock + stage.duration_s,
-          level(stage),
-        ),
-      );
-    clock += stage.duration_s;
-  });
-  if (drive?.windows) {
-    result[0]!.limited_s = drive.windows
-      .filter(w => w.kind === "hold")
-      .reduce((n, w) => n + (w.limited_s ?? 0), 0);
-    for (const w of drive.windows) {
-      result.push({
-        ...make(w.id, w.name, w.kind, w.start_s, w.end_s, w.complete, w.target_level),
-        end_reason: w.end_reason, limited_s: w.limited_s,
-      });
-    }
+  const segments = drive?.phases ?? [];
+  if (!drive) {
+    let clock = 0;
+    stages(load).forEach((stage, index) => {
+      const end = Math.min(clock + stage.duration_s, actualEnd);
+      if (end > clock) segments.push({id: `stage-${index}`, name: stageLabel(stage), kind: stage.kind,
+        start_s: clock, end_s: end, complete: end >= clock + stage.duration_s, target_level: level(stage)});
+      clock += stage.duration_s;
+    });
+    const end = Math.max(actualEnd, ...execution.requests.map(r => r.finished_at ?? actualEnd));
+    segments.push({id: "cooldown", name: "cooldown", kind: "cooldown", start_s: actualEnd, end_s: end + 1e-12, complete: true});
   }
-  const drainEnd = Math.max(
-    actualEnd,
-    ...execution.requests.map((r) => r.finished_at ?? actualEnd),
-  );
-  if (!drive && drainEnd > actualEnd)
-    result.push(
-      make("cooldown", "cooldown", "cooldown", actualEnd, drainEnd + 1e-9, true),
-    );
+  const phases: import("./model").PhaseRun[] = [];
+  for (const segment of segments) {
+    const previous = phases.at(-1);
+    if (previous?.kind === segment.kind) {
+      previous.end_s = segment.end_s;
+      previous.complete &&= segment.complete;
+      previous.limited_s = (previous.limited_s ?? 0) + (segment.limited_s ?? 0);
+      previous.end_reason = segment.end_reason;
+      if (previous.target_level !== segment.target_level) previous.target_level = undefined;
+    } else phases.push({...segment, id: segment.kind, name: segment.kind});
+  }
+  execution.phases = [...execution.phases.filter(p => p.kind === "setup"), ...phases,
+    ...execution.phases.filter(p => p.kind === "cleanup")];
+  const start = phases[0]?.start_s ?? 0, end = phases.at(-1)?.end_s ?? start;
+  const result = [make("full", "Full observation", "full", start, end, phases.length > 0 && phases.every(p => p.complete))];
+  result[0]!.limited_s = phases.reduce((n,p) => n + (p.limited_s ?? 0), 0);
+  for (const p of phases) result.push({...make(p.id, p.name, "phase", p.start_s, p.end_s, p.complete, p.target_level),
+    phase: p.kind, end_reason: p.end_reason, limited_s: p.limited_s});
+  ranges.forEach((range, index) => {
+    const left = Math.max(start, range.start_s), right = Math.min(end, range.end_s);
+    if (right > left) result.push(make(`custom-${index}`, range.name, "custom", left, right,
+      range.start_s >= start && range.end_s <= end));
+  });
   return result;
 }

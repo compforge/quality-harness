@@ -112,12 +112,12 @@ Read = float | Missing
 
 ```python
 class MetricStore:
-    def query(self, arm_run, ref, window=None) -> Read  # 默认 measurement Window
+    def query(self, arm_run, ref, window=None) -> Read  # 默认 full Window
     def pivot(self, arm_run, family, by, window=None) -> dict
     def rows(self) -> list[ArmRun]               # 扫响应面（找 knee / capacity）
 ```
 
-`query` 先确定 Window（省略时为 measurement），再把 `service` label 路由到资源 metric、facet label 路由到请求 slice、无 label 路由到该 Window 的整体请求统计。底层 `resolve(summaries, ref)` 纯函数从 `{series_id: MetricSummary}` 里取 `getattr(summary, stat)`，缺则返回 `None`（store 转成 `Missing`）。`RequestStats` 仍是请求 slice 的**存储底**，store 是其上的**寻址层**（perf 版 TSDB vs PromQL）。
+`query` 先确定 Window（省略时为 full），再把 `service` label 路由到资源 metric、facet label 路由到请求 slice、无 label 路由到该 Window 的整体请求统计。底层 `resolve(summaries, ref)` 纯函数从 `{series_id: MetricSummary}` 里取 `getattr(summary, stat)`，缺则返回 `None`（store 转成 `Missing`）。`RequestStats` 仍是请求 slice 的**存储底**，store 是其上的**寻址层**（perf 版 TSDB vs PromQL）。
 
 寻址示例（一套语法，类型不抹平；service/facet 是 label，Window 单独传入）：
 
@@ -242,7 +242,7 @@ Prometheus histogram 不进入 perf 的 `histogram` value_kind；consumer 用 Pr
 
 ## 6. Window 与 metric 正交
 
-Stage 是负载计划，Window 是执行后形成的观测边界。measurement、每个实际经过的 ramp/hold、cooldown 都是 Window；请求结果和资源采样在同一 Window 上分别规约，因而一次查询 不会用 hold 的请求延迟配上整轮 ArmRun 的 CPU。
+Stage 是负载步骤，PhaseRun 是串行执行阶段，Window 是统计范围（full/phase/custom）。setup/cleanup 没有流量 Window；请求结果和资源采样在同一 Window 上分别规约，因而一次查询 不会用 hold 的请求延迟配上整轮 ArmRun 的 CPU。
 
 Window 有唯一 `id`，展示名可以重复；例如 spike 前后的两个 `hold@base` 是两个 Window。报告的 `WindowSelector` 选择时间，metric label 只选择实体。长请求按 dispatch/start 时间归入 Window，避免 `sleep 30s` 因结束较晚被错误记到下一阶段。窗口完整性作为事实保留；后续分析自行选择窗口。
 

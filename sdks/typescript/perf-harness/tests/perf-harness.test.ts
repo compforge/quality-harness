@@ -73,13 +73,13 @@ test("finite rate pauses at the inflight cap without queued or dropped calls", a
   expect(runner.active).toBe(0);
   expect(arm.operation_runs.length).toBe(3);
   expect(arm.requests.some((r) => r.state === "dropped")).toBe(false);
-  expect(arm.windows.find(w => w.kind === "hold")!.limited_s).toBeGreaterThan(0);
+  expect(arm.windows.find(w => w.phase === "hold")!.limited_s).toBeGreaterThan(0);
   expect(
     arm.requests.every(
       (r) => r.dispatched_at === undefined || r.dispatched_at < 0.06,
     ),
   ).toBe(true);
-  expect(arm.windows[0]!.request!.completed).toBe(0);
+  expect(arm.windows.find(w => w.phase === "hold")!.request!.completed).toBe(0);
   expect(arm.windows[0]!.request!.n).toBe(3);
   expect(arm.requests.filter((r) => r.state !== "dropped").length).toBe(
     arm.operation_runs.length,
@@ -91,6 +91,7 @@ test("infinite rate replenishes, downscale does not cancel running SSE", async (
     run = await new Engine({
       service,
       runner,
+      timeRanges: [{name: "first step", start_s: 0, end_s: .02}],
       loads: [
         {
           request_rate: Infinity,
@@ -124,13 +125,11 @@ test("infinite rate replenishes, downscale does not cancel running SSE", async (
       (r) => r.dispatched_at! >= 0.02 && r.dispatched_at! < 0.075,
     ).length,
   ).toBe(0);
-  expect(arm.windows.filter((w) => w.kind === "hold").map((w) => w.id)).toEqual(
-    ["stage-0", "stage-1"],
+  expect(arm.windows.filter((w) => w.phase === "hold").map((w) => w.id)).toEqual(
+    ["hold"],
   );
-  expect(arm.windows.find((w) => w.id === "stage-0")!.request!.n).toBe(4);
-  expect(arm.windows.find((w) => w.id === "stage-0")!.request!.completed).toBe(
-    0,
-  );
+  expect(arm.windows.find((w) => w.name === "first step")!.request!.n).toBe(4);
+  expect(arm.windows.find((w) => w.name === "first step")!.request!.completed).toBe(0);
 });
 
 test("hard stop records every interrupted call and leaves no tasks", async () => {
@@ -191,7 +190,7 @@ test("ramp arrival clock and validation use explicit units", () => {
         duration_s: 2,
         request_rate: 20,
         max_inflight: 4,
-        kind: "ramp" as const,
+        kind: "warmup" as const, shape: "ramp" as const,
       },
       {
         duration_s: 1,
@@ -359,7 +358,7 @@ const failureScenarios = JSON.parse(
   cancellation_delay_s: number;
   cooldown_timeout_s: number;
   stop_reason: string;
-  measurement_complete: boolean;
+  hold_complete: boolean;
   inflight_at_stop: number;
   completed: number;
 }[];
@@ -422,7 +421,7 @@ for (const scenario of failureScenarios) {
       ],
     }).run();
     const arm = run.executions[0]!,
-      measurement = arm.windows[0]!;
+      measurement = arm.windows.find(w => w.phase === "hold")!;
     expect(run.status).not.toBe("completed");
     expect(cleaned).toBe(true);
     expect(arm.phase_errors[0]!.message).toBe("judge unavailable");
@@ -430,9 +429,9 @@ for (const scenario of failureScenarios) {
     expect(arm.stop.inflight_at_stop).toBe(scenario.inflight_at_stop);
     expect(arm.stop.interrupted).toBe(1);
     expect(arm.stop.force_cancelled).toBe(true);
-    expect(measurement.complete).toBe(scenario.measurement_complete);
+    expect(measurement.complete).toBe(scenario.hold_complete);
     expect(measurement.end_s).toBeGreaterThan(0);
-    if (scenario.measurement_complete)
+    if (scenario.hold_complete)
       expect(measurement.end_s).toBe(scenario.duration_s);
     else expect(measurement.end_s).toBeLessThan(scenario.duration_s);
     expect(measurement.request!.completed).toBe(scenario.completed);
@@ -443,7 +442,7 @@ for (const scenario of failureScenarios) {
     expect(arm.evaluations).toEqual({});
     const interrupted = arm.requests.find((r) => r.state === "interrupted")!;
     expect(interrupted.finished_at!).toBeGreaterThan(measurement.end_s);
-    const drain = arm.windows.find((w) => w.kind === "cooldown")!;
+    const drain = arm.windows.find((w) => w.phase === "cooldown")!;
     expect(drain.start_s).toBe(measurement.end_s);
     expect(drain.request!.completed).toBe(1 - scenario.completed);
     expect(
@@ -547,7 +546,7 @@ test("shared phased load contract", () => {
     }
     expect(control.hold_start_s).toBe(scenario.hold_start_s);
     expect(control.end_s).toBe(scenario.end_s);
-    const hold = control.windows.find(w => w.kind === "hold")!;
+    const hold = control.phases.find(w => w.kind === "hold")!;
     expect(hold.complete).toBe(true);
     expect(hold.end_s - hold.start_s).toBe(60);
   }
@@ -557,8 +556,8 @@ test("cap feedback replenishes at target rate throughout hold", async () => {
   const runner = slow(30);
   const run = await new Engine({ service, runner, loads: [{ request_rate: 100, max_inflight: 1, hold_s: 0.12, warmup: {step_s: 1}, cooldown_timeout_s: 0.2 }] }).run();
   const arm = run.executions[0]!;
-  const warmup = arm.windows.find(w => w.kind === "warmup")!;
-  const hold = arm.windows.find(w => w.kind === "hold")!;
+  const warmup = arm.windows.find(w => w.phase === "warmup")!;
+  const hold = arm.windows.find(w => w.phase === "hold")!;
   expect(warmup.end_reason).toBe("inflight_limit");
   expect(hold.target_level).toBe(100);
   expect(hold.end_s - hold.start_s).toBeCloseTo(0.12);
@@ -567,5 +566,24 @@ test("cap feedback replenishes at target rate throughout hold", async () => {
   expect(runner.active).toBe(0);
   expect(arm.operation_runs.length).toBeGreaterThanOrEqual(3);
   expect(arm.requests.every(r => r.state === "finished" && r.dispatched_at! < hold.end_s)).toBe(true);
-  expect(arm.windows.find(w => w.kind === "cooldown")!.request!.completed).toBeGreaterThan(0);
+  expect(arm.windows.find(w => w.phase === "cooldown")!.request!.completed).toBeGreaterThan(0);
+});
+
+
+test("five serial phases exclude setup and cleanup from traffic windows", async () => {
+  const runner = slow(2);
+  const run = await new Engine({service, runner,
+    loads: [{request_rate: 2, max_inflight: 10, warmup: {step_s: .01}, hold_s: .02}],
+    timeRanges: [{name: "middle", start_s: .005, end_s: .015}],
+  }).run();
+  const arm = run.executions[0]!;
+  expect(arm.phases.map(p => p.kind)).toEqual(["setup", "warmup", "hold", "cooldown", "cleanup"]);
+  for (let i = 1; i < arm.phases.length; i++)
+    expect(arm.phases[i - 1]!.end_s).toBeLessThanOrEqual(arm.phases[i]!.start_s);
+  const full = arm.windows.find(w => w.kind === "full")!;
+  expect(full.start_s).toBe(arm.phases[1]!.start_s);
+  expect(full.end_s).toBe(arm.phases.at(-2)!.end_s);
+  expect(arm.windows.filter(w => w.kind === "phase").map(w => w.phase)).toEqual(["warmup", "hold", "cooldown"]);
+  const middle = arm.windows.find(w => w.name === "middle")!;
+  expect([middle.start_s, middle.end_s, middle.complete]).toEqual([.005, .015, true]);
 });

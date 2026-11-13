@@ -56,9 +56,11 @@ from perf_harness.model import (
     ArmRun,
     ArmStop,
     ConnectionBudget,
+    HistogramQuantile,
     OperationMetricBinding,
     Outcome,
     PhaseError,
+    PhaseRun,
     ProbeErrors,
     ProbeWindowObservation,
     PrometheusObservation,
@@ -75,11 +77,11 @@ from perf_harness.model import (
 from perf_harness.records import RequestEvaluation, RequestRecord
 
 #: bump when run.json's shape changes incompatibly — offline readers check this first
-RUN_SCHEMA = 9
+RUN_SCHEMA = 10
 
 
 def _record(model, data: dict):
-    """Read known fields while accepting additive fields from another schema-9 writer."""
+    """Read known fields while accepting additive fields from another schema-10 writer."""
     return model(**{f.name: data[f.name] for f in fields(model) if f.name in data})
 
 
@@ -146,7 +148,12 @@ def _summary_json(s: MetricSummary) -> dict:
     if isinstance(s, DistributionSummary):
         return {"kind": "distribution", "n": s.n, "mean": s.mean, "p50": s.p50, "p95": s.p95,
                 "p99": s.p99, "caveats": caveats}  # fmt: skip
-    return {"kind": "scalar", "value": s.value, "caveats": caveats}
+    return {
+        "kind": "scalar",
+        "value": "+Inf" if s.value == float("inf") else s.value,
+        "caveats": caveats,
+        "histogram": s.histogram,
+    }
 
 
 def _summary_from(d: dict) -> MetricSummary:
@@ -162,7 +169,7 @@ def _summary_from(d: dict) -> MetricSummary:
         return DistributionSummary(
             n=d["n"], mean=d["mean"], p50=d["p50"], p95=d["p95"], p99=d["p99"], caveats=caveats
         )
-    return ScalarSummary(value=d["value"], caveats=caveats)
+    return ScalarSummary(value=float(d["value"]), caveats=caveats, histogram=d.get("histogram"))
 
 
 def _stats_json(s: RequestStats) -> dict:
@@ -301,11 +308,13 @@ def _arm_run_json(r: ArmRun) -> dict:
         },
         "stop": _stop_json(r.stop),
         "registry": {name: _family_json(f) for name, f in r.metrics.items()},
+        "phases": [asdict(p) for p in r.phases],
         "windows": [
             {
                 "id": window.id,
                 "name": window.name,
                 "kind": window.kind,
+                "phase": window.phase,
                 "start_s": window.start_s,
                 "end_s": window.end_s,
                 "complete": window.complete,
@@ -352,6 +361,9 @@ def _arm_run_from(d: dict, service: str) -> ArmRun:
                     "result_labels": tuple(item.get("result_labels", [])),
                     "warnings": tuple(item.get("warnings", [])),
                     "infos": tuple(item.get("infos", [])),
+                    "histogram": HistogramQuantile(**item["histogram"])
+                    if item.get("histogram")
+                    else None,
                 }
             )
             for item in d.get("prometheus_observations", [])
@@ -365,11 +377,13 @@ def _arm_run_from(d: dict, service: str) -> ArmRun:
             resources=_resources_from(arm["resources"]),
             load=_load_from(arm["load"]),
         ),
+        phases=[PhaseRun(**item) for item in d["phases"]],
         windows=[
             Window(
                 id=window["id"],
                 name=window["name"],
                 kind=window["kind"],
+                phase=window.get("phase"),
                 start_s=float(window["start_s"]),
                 end_s=float(window["end_s"]),
                 complete=bool(window["complete"]),

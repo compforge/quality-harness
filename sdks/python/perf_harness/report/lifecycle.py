@@ -40,14 +40,14 @@ def rows(executions: list[ArmRun]) -> list[list[str]]:
     for execution in executions:
         load = execution.arm.load
         for window in execution.windows:
-            if window.kind not in {"warmup", "hold", "cooldown"} or window.request is None:
+            if window.kind != "phase" or window.request is None:
                 continue
             s = window.request
             rate = "inf" if load.saturated else f"{load.peak_level:g}"
             out.append(
                 [
                     execution.arm.id,
-                    window.kind,
+                    window.phase or "",
                     rate,
                     str(load.peak_inflight),
                     str(s.arrived),
@@ -69,23 +69,50 @@ def rows(executions: list[ArmRun]) -> list[list[str]]:
     return out
 
 
+PHASE_COLUMNS = ["arm", "phase", "start_s", "end_s", "duration_s", "complete"]
+
+
+def phase_rows(executions: list[ArmRun]) -> list[list[str]]:
+    return [
+        [
+            run.arm.id,
+            p.kind,
+            f"{p.start_s:.3f}",
+            f"{p.end_s:.3f}",
+            f"{p.duration_s:.3f}",
+            str(p.complete),
+        ]
+        for run in executions
+        for p in run.phases
+    ]
+
+
 def section(executions: list[ArmRun]) -> Section:
-    return Section("请求生命周期", [Prose(EXPLANATION), Table(COLUMNS, rows(executions))])
+    return Section(
+        "执行阶段与流量统计",
+        [
+            Prose(
+                "setup → warmup → hold → cooldown → cleanup 串行、不重叠。"
+                "setup/cleanup 只准备与清理，不计入流量观测或吞吐分母；时间以开始加压为零点。"
+            ),
+            Table(PHASE_COLUMNS, phase_rows(executions)),
+            Prose(EXPLANATION),
+            Table(COLUMNS, rows(executions)),
+        ],
+    )
 
 
 def markdown(executions: list[ArmRun]) -> list[str]:
-    return (
-        [
-            "## 请求生命周期",
-            "",
-            EXPLANATION,
-            "",
-            "| " + " | ".join(COLUMNS) + " |",
-            "|" + "|".join(["---"] * len(COLUMNS)) + "|",
+    lines = [
+        "## 执行阶段与流量统计",
+        "",
+        "setup/cleanup 只负责准备与清理，不计入流量观测。五阶段串行、不重叠。",
+        "",
+    ]
+    for columns, values in [(PHASE_COLUMNS, phase_rows(executions)), (COLUMNS, rows(executions))]:
+        lines += ["| " + " | ".join(columns) + " |", "|" + "|".join(["---"] * len(columns)) + "|"]
+        lines += [
+            "| " + " | ".join(cell.replace("|", "\\|") for cell in row) + " |" for row in values
         ]
-        + [
-            "| " + " | ".join(cell.replace("|", "\\|") for cell in row) + " |"
-            for row in rows(executions)
-        ]
-        + [""]
-    )
+        lines.append("")
+    return lines + [EXPLANATION, ""]

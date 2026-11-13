@@ -162,6 +162,7 @@ def reduce_requests(
         error_breakdown=dict(breakdown),
         n_dropped=dropped,
         n_interrupted=interrupted,
+        n_pending=sum(r.state == "dispatched" for r in cohort),
         arrived=len(arrived),
         dispatched=len(cohort),
         completed=len(completions),

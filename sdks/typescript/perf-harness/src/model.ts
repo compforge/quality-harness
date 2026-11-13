@@ -87,6 +87,7 @@ export interface RequestStats {
   n_judged: number;
   unjudged_rps: number;
   n_interrupted: number;
+  n_pending: number;
   arrival_rps: number;
   dispatch_rps: number;
   success_rps: number;
@@ -96,12 +97,27 @@ export interface RequestStats {
   metrics: Record<string, DistributionSummary>;
 }
 
-export type WindowKind = "measurement" | "warmup" | "ramp" | "hold" | "cooldown";
+export type WindowKind = "full" | "phase" | "custom";
+
+export interface PhaseRun {
+  id: string;
+  name: string;
+  kind: Phase;
+  start_s: number;
+  end_s: number;
+  complete: boolean;
+  target_level?: number;
+  end_reason?: string;
+  limited_s?: number;
+}
+
+export interface TimeRange { name: string; start_s: number; end_s: number; }
 
 export interface Window {
   id: string;
   name: string;
   kind: WindowKind;
+  phase?: Phase;
   start_s: number;
   end_s: number;
   complete: boolean;
@@ -159,6 +175,7 @@ export interface ArmRun extends Execution<Outcome> {
   started_at: string;
   finished_at: string;
   windows: Window[];
+  phases: PhaseRun[];
   stop: ArmStop;
   registry: Record<string, unknown>;
   probe_errors: Record<string, unknown>;
@@ -168,7 +185,7 @@ export interface ArmRun extends Execution<Outcome> {
 }
 
 export interface Run extends ExperimentRun<ArmRun> {
-  schema: 9;
+  schema: 10;
   service: string;
   status: "completed" | "stopped" | "error";
   environment: string;

@@ -51,12 +51,12 @@ async def _one_arm_run():
 
 async def test_per_request_metrics_aggregate_to_distribution():
     r = await _one_arm_run()
-    assert "first_byte_ms" in r.measurement.request.metrics
-    ms = r.measurement.request.metrics["first_byte_ms"]
+    assert "first_byte_ms" in r.full.request.metrics
+    ms = r.full.request.metrics["first_byte_ms"]
     # constant 5.0 across every sent request → n matches, all percentiles == 5.0
-    assert ms.n == r.measurement.request.n
+    assert ms.n == r.full.request.n
     assert ms.mean == ms.p50 == ms.p95 == 5.0
-    assert r.measurement.request.metrics["first_answer_ms"].p95 == 30.0
+    assert r.full.request.metrics["first_answer_ms"].p95 == 30.0
 
 
 class _DeclaringWL(Runner):

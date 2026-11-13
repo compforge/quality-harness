@@ -59,14 +59,14 @@ async def test_engine_smoke_offline():
     assert run.executions == run.arm_runs
     assert r.operation_runs
     assert r.operation_runs[0].outcome in [call.outcome for call in r.operation_runs]
-    assert r.measurement.request.n > 0
-    assert r.measurement.request.n_ok == r.measurement.request.n
-    assert r.measurement.request.error_rate == 0.0
-    assert r.measurement.request.throughput_rps > 0
+    assert r.full.request.n > 0
+    assert r.full.request.n_ok == r.full.request.n
+    assert r.full.request.error_rate == 0.0
+    assert r.full.request.throughput_rps > 0
     # client-side probe produced a time-series within the arm_run
     assert any(k.startswith("client.") for k in r.series)
-    assert "client.inflight" in r.measurement.probe_metrics  # typed gauge summary
-    assert r.measurement.probe_metrics["client.inflight"].peak is not None
+    assert "client.inflight" in r.full.probe_metrics  # typed gauge summary
+    assert r.full.probe_metrics["client.inflight"].peak is not None
 
 
 async def test_engine_stamps_case_id_and_preserves_exception_detail():
@@ -187,8 +187,8 @@ async def test_circuit_breaker_aborts_arm_run_on_error_rate():
     assert snap.completed >= 5 and snap.error_rate >= 0.5 and snap.threshold == 0.5
     # fast requests drain instantly on stop → nothing force-cancelled
     assert r.stop.force_cancelled is False and r.stop.interrupted == 0
-    assert r.measurement.request.error_rate == 1.0
-    assert r.measurement.request.n < 3000  # stopped early — nowhere near a full 5s window
+    assert r.full.request.error_rate == 1.0
+    assert r.full.request.n < 3000  # stopped early — nowhere near a full 5s window
 
 
 async def test_no_breaker_runs_full_window_not_aborted():
@@ -212,7 +212,7 @@ async def test_no_breaker_runs_full_window_not_aborted():
     r = (await Engine(exp).run()).arm_runs[0]
     assert r.stop.early is False
     assert r.stop.reason == "deadline" and r.stop.snapshot is None
-    assert r.measurement.request.error_rate == 1.0  # still all errors, just not auto-stopped
+    assert r.full.request.error_rate == 1.0  # still all errors, just not auto-stopped
 
 
 class _SlowWL(Runner):
@@ -249,7 +249,7 @@ async def test_hard_stop_force_cancels_inflight_and_counts_interrupted():
     assert r.stop.reason == "deadline"  # not a breaker — just hit the (short) deadline
     assert r.stop.force_cancelled is True
     assert r.stop.interrupted == 3 and r.stop.inflight_at_stop == 3
-    assert r.measurement.request.n == 0  # the 3 cut requests are NOT latency samples
+    assert r.full.request.n == 0  # the 3 cut requests are NOT latency samples
 
 
 async def test_engine_open_model_smoke():
@@ -272,9 +272,9 @@ async def test_engine_open_model_smoke():
     run = await Engine(experiment).run()
     r = run.arm_runs[0]
     # open-loop produced steady-window outcomes at roughly the held rate
-    assert r.measurement.request.n > 0
-    assert r.measurement.request.error_rate == 0.0
-    assert r.measurement.request.throughput_rps > 0
+    assert r.full.request.n > 0
+    assert r.full.request.error_rate == 0.0
+    assert r.full.request.throughput_rps > 0
 
 
 async def test_arm_run_hooks_wrap_load_and_cooldown_only_extends_raw_series():
@@ -330,9 +330,12 @@ async def test_arm_run_hooks_wrap_load_and_cooldown_only_extends_raw_series():
     assert events == ["setup", "deactivation", "cleanup"]
     assert len({id(ctx) for ctx in lifecycle_contexts}) == 1
     assert fire_contexts and all(ctx.arm_run is lifecycle_contexts[0] for ctx in fire_contexts)
-    assert arm_run.measurement.probe_metrics["phase.post_load"].peak == 0.0
+    assert (
+        next(w for w in arm_run.windows if w.phase == "hold").probe_metrics["phase.post_load"].peak
+        == 0.0
+    )
     assert any(s.value == 1.0 for s in arm_run.series["phase.post_load"].samples)
-    assert any(window.kind == "cooldown" for window in arm_run.windows)
+    assert any(window.phase == "cooldown" for window in arm_run.windows)
     assert run.status == "completed"
 
 
@@ -377,8 +380,8 @@ async def test_cleanup_runs_when_setup_fails():
     assert events == ["setup", "cleanup"]
     assert run.status != "completed"
     assert arm_run.stop.reason == "aborted"
-    assert arm_run.measurement.complete is False
-    assert arm_run.measurement.request.n == 0
+    assert arm_run.full.complete is False
+    assert arm_run.full.request.n == 0
     assert arm_run.phase_errors == [PhaseError("setup", "RuntimeError", "setup failed")]
 
 
@@ -469,7 +472,7 @@ async def test_cleanup_error_marks_completed_arm_run_as_phase_error():
     run = await Engine(exp).run()
     arm_run = run.arm_runs[0]
     assert arm_run.stop.reason == "deadline"
-    assert arm_run.measurement.complete is True
+    assert arm_run.full.complete is True
     assert arm_run.phase_errors == [PhaseError("cleanup", "RuntimeError", "cleanup failed")]
     assert run.status != "completed"
 
@@ -507,8 +510,7 @@ def test_cooldown_window_omits_stale_or_failed_probe_data():
             ("value", "current"): [Sample(1.1, 0.0)],
             ("value", "up"): [Sample(1.1, 1.0), Sample(1.19, 1.0)],
         },
-        cooldown_start_s=1.0,
-        cooldown_end_s=1.2,
+        observation_end_s=1.2,
     )
     assert "value.current" not in stale.windows[-1].probe_metrics
 
@@ -519,7 +521,6 @@ def test_cooldown_window_omits_stale_or_failed_probe_data():
             ("value", "current"): [Sample(1.1, 0.0), Sample(1.19, 0.0)],
             ("value", "up"): [Sample(1.1, 1.0), Sample(1.19, 0.0)],
         },
-        cooldown_start_s=1.0,
-        cooldown_end_s=1.2,
+        observation_end_s=1.2,
     )
     assert "value.current" not in failed.windows[-1].probe_metrics

@@ -10,7 +10,7 @@ from typing import Literal
 from harness_common import HttpOperation
 from harness_toolbox.prometheus import PrometheusDataSource
 
-from perf_harness.model import WindowSelector
+from perf_harness.model import HistogramQuantile, WindowSelector
 from perf_harness.observe.prometheus import PrometheusQuery, WindowQuery
 from perf_harness.observe.prometheus_query import PrometheusQueryProbe
 
@@ -125,7 +125,10 @@ class HttpApiProbe(PrometheusQueryProbe):
         summaries = [
             WindowQuery(
                 role,
-                promql,
+                f"sum by (le) (increase({buckets}[$window]))" if role == "p95" else promql,
+                histogram=HistogramQuantile(scale=0.001 if profile.duration_unit == "ms" else 1)
+                if role == "p95"
+                else None,
                 unit={"qps": "rps", "p95": "s"}[role],
                 description=(
                     f"HTTP request counter ({profile.qps_semantics}); matching service traffic, "
@@ -136,7 +139,7 @@ class HttpApiProbe(PrometheusQueryProbe):
                 ),
                 window=WindowSelector(kind=kind),
             )
-            for kind in ("measurement", "observation", "hold", "ramp", "warmup", "cooldown")
+            for kind in ("full", "phase", "custom")
             for role, promql in expressions("$window").items()
         ]
         queries = [

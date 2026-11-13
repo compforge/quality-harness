@@ -58,10 +58,10 @@ Stage 表达计划；Window 记录实际边界。简单配置生成若干 warmup
 或异常退出，limited_s 记录发起节奏已经允许、但被在途上限阻塞的时间。
 
 需要阶梯资源上限或 spike 等高级实验时可显式声明 stages。每段声明 duration_s、request_rate、
-max_inflight 和 kind；hold 使用本段目标，ramp 从前一目标线性变化。显式阶段自行定义时长，
+max_inflight 和 kind；hold 使用本段目标，warmup 的 shape=ramp 从前一目标线性变化。显式阶段自行定义时长，
 不额外叠加默认 warmup 和 hold_s。降在途上限只暂停补位，不取消已有请求。
 
-measurement 从第一个实际 hold 开始，warmup 和 cooldown 分别保留观测窗口；阶段窗口都保留
+full 覆盖 warmup/hold/cooldown；每个阶段及自定义范围独立保留统计窗口，阶段窗口都保留
 真实起止时刻。资源与请求使用同一边界。有限速率被在途限制阻塞时，实际发出速率可能低于目标，
 不能把配置 QPS 当作已证明的容量；这类窗口不会用于目标速率容量确认或资源斜率外推。
 

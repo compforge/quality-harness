@@ -42,9 +42,9 @@ def _arm_run(level=10) -> ArmRun:
         arm=Arm(f"{resources.label()}|{load.label()}", resources, load),
         windows=[
             Window(
-                "measurement",
-                "measurement",
-                "measurement",
+                "full",
+                "full",
+                "full",
                 0.0,
                 1.0,
                 True,
@@ -60,7 +60,9 @@ def _arm_run(level=10) -> ArmRun:
                     "metrics.req_total": CounterSummary(total=900.0, rate=9.0),
                 },
             ),
-            Window("stage-0", f"hold@{level:g}", "hold", 0.0, 1.0, True, level, stats),
+            Window(
+                "stage-0", f"hold@{level:g}", "phase", 0.0, 1.0, True, level, stats, phase="hold"
+            ),
         ],
         series={"top.mem_mi": Series("mem_mi", "MiB", [Sample(0, 1000), Sample(5, 1800)])},
     )
@@ -72,11 +74,12 @@ def test_write_report_emits_artifacts(tmp_path):
         Window(
             "cooldown",
             "cooldown",
-            "cooldown",
+            "phase",
             1.0,
             2.0,
             True,
             probe_metrics={"top.mem_mi": GaugeSummary(last=0, mean=10, peak=20)},
+            phase="cooldown",
         )
     )
     paths = write_report([arm_run], str(tmp_path))
@@ -105,9 +108,9 @@ def test_write_report_emits_artifacts(tmp_path):
 
 def test_report_does_not_invent_acceptance_thresholds(tmp_path):
     low = _arm_run(level=5)
-    low.measurement.request.error_rate = 0.0
+    low.full.request.error_rate = 0.0
     high = _arm_run(level=40)
-    high.measurement.request.error_rate = 0.11
+    high.full.request.error_rate = 0.11
     paths = write_report([low, high], str(tmp_path))
     md = Path(paths["report"]).read_text()
     assert "拐点" not in md
@@ -162,7 +165,7 @@ def _svc_arm_run(level: float) -> ArmRun:
     r = _arm_run(level=level)
     cpu = series_id("top.cpu_m", {"service": "chat"})
     lim = series_id("limits.cpu_limit", {"service": "chat"})
-    r.measurement.probe_metrics = {
+    r.full.probe_metrics = {
         cpu: GaugeSummary(last=1.0, mean=1.0, peak=100.0 + level * 20),
         lim: GaugeSummary(last=500.0, mean=500.0, peak=500.0),
     }
@@ -227,10 +230,8 @@ def _biz_arm_run(level: float) -> ArmRun:
     r = _svc_arm_run(level)
     errs = series_id("metrics.sse_errors", {"service": "chat"})
     mean = series_id("sse_ttft_mean_s", {"service": "chat"})
-    r.measurement.probe_metrics[errs] = CounterSummary(
-        total=level * 10, rate=level * 0.1, increase=level
-    )
-    r.measurement.probe_metrics[mean] = ScalarSummary(value=0.1 + level * 0.01)
+    r.full.probe_metrics[errs] = CounterSummary(total=level * 10, rate=level * 0.1, increase=level)
+    r.full.probe_metrics[mean] = ScalarSummary(value=0.1 + level * 0.01)
     r.series[errs] = Series(
         "sse_errors", "count", [Sample(0, 0), Sample(5, level), Sample(10, level * 3)]
     )
@@ -261,7 +262,7 @@ def test_response_curves_group_by_label_fanout_under_one_service(tmp_path):
         r = _svc_arm_run(level)
         for path, mult in (("/v1/a", 1.0), ("/v1/b", 3.0)):
             sid = series_id("metrics.ctl_requests", {"path": path, "service": "control"})
-            r.measurement.probe_metrics[sid] = CounterSummary(
+            r.full.probe_metrics[sid] = CounterSummary(
                 total=level * mult * 10, rate=level * mult * 0.1, increase=level * mult
             )
         r.metrics["metrics.ctl_requests"] = MetricFamily(

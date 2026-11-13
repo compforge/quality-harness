@@ -52,8 +52,10 @@ from perf_harness.model import ArmRun as ArmRun
 from perf_harness.model import ArmStop as ArmStop
 from perf_harness.model import Deployment as Deployment
 from perf_harness.model import Environment as Environment
+from perf_harness.model import HistogramQuantile as HistogramQuantile
 from perf_harness.model import OperationMetricBinding as OperationMetricBinding
 from perf_harness.model import Outcome as Outcome
+from perf_harness.model import PhaseRun as PhaseRun
 from perf_harness.model import ReportColumn as ReportColumn
 from perf_harness.model import RequestStats as RequestStats
 from perf_harness.model import ResourceProfile as ResourceProfile
@@ -62,6 +64,7 @@ from perf_harness.model import Sample as Sample
 from perf_harness.model import Series as Series
 from perf_harness.model import Service as Service
 from perf_harness.model import StopSnapshot as StopSnapshot
+from perf_harness.model import TimeRange as TimeRange
 from perf_harness.model import Window as Window
 from perf_harness.model import WindowSelector as WindowSelector
 from perf_harness.model import make_run_id as make_run_id

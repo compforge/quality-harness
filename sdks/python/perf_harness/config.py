@@ -48,6 +48,7 @@ from perf_harness.model import (
     ReportColumn,
     ResourceProfile,
     Service,
+    TimeRange,
 )
 from perf_harness.observe import (
     ClientProbe,
@@ -201,6 +202,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
         loads=loads,
         probes=probes,
         report_columns=report_columns,
+        time_ranges=[TimeRange(**item) for item in raw.get("time_ranges", [])],
         cases=cases,
         mix=mix,
         facet_order=facet_schema.ordered_value_lists(),
@@ -662,16 +664,12 @@ def _validate_columns(
                 "for configured columns)"
             )
 
-        if a.window.kind in ("warmup", "ramp", "hold"):
-            candidates = [stage for stage in planned if stage.kind == a.window.kind]
-            if a.window.name is not None:
-                candidates = [stage for stage in candidates if stage.label == a.window.name]
-            if a.window.level is not None:
-                candidates = [stage for stage in candidates if stage.level == a.window.level]
-            if not candidates:
-                raise ValueError(f"report.window {a.window!r} matches no configured stage")
-        elif a.window.name is not None or a.window.level is not None:
-            raise ValueError("report.window name/level only apply to ramp or hold windows")
+        if (
+            a.window.kind == "phase"
+            and a.window.phase in {"warmup", "hold"}
+            and not any(stage.kind == a.window.phase for stage in planned)
+        ):
+            raise ValueError(f"report.window {a.window!r} matches no configured phase")
 
         if fam is not None and fam.side == "resource":
             if stat is None:

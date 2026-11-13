@@ -22,4 +22,4 @@ def selected_cells(run: ArmRun, columns: list[ReportColumn]) -> list[str]:
 
 
 def cases_cell(run: ArmRun) -> str:
-    return ", ".join(sorted(run.measurement.by_case)) or "—"
+    return ", ".join(sorted(run.full.by_case)) or "—"

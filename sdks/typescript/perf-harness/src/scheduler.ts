@@ -7,7 +7,7 @@ import type {
   Outcome,
   RequestRecord,
   StopSnapshot,
-  Window,
+  PhaseRun,
   Phase,
 } from "./model";
 import type { ArmContext, Runner } from "./runner";
@@ -15,9 +15,9 @@ import { validateEvaluation, type Judge } from "./judge";
 
 // Owned by the ArmRun lifecycle, so exceptions cannot discard already observed facts.
 export interface DriveState {
-  measurement_end_s?: number;
-  measurement_start_s?: number;
-  windows?: Window[];
+  load_end_s?: number;
+  hold_start_s?: number;
+  phases?: PhaseRun[];
   phase?: Phase;
   stop: ArmStop;
 }
@@ -61,7 +61,7 @@ export async function drive(options: {
   let lastDispatch: number | undefined, lastRate: number | undefined;
   let wasFull = false;
   const control = new LoadController(load);
-  state.windows = control.windows;
+  state.phases = control.phases;
   let reason: ArmStop["reason"] = "deadline",
     snapshot: StopSnapshot | undefined;
   let rngState = (load.seed ?? 0) >>> 0;
@@ -233,8 +233,8 @@ export async function drive(options: {
       reason = "aborted";
       control.abort(now());
     }
-    state.measurement_end_s = control.end_s!;
-    state.measurement_start_s = control.hold_start_s ?? control.end_s!;
+    state.load_end_s = control.end_s!;
+    state.hold_start_s = control.hold_start_s ?? control.end_s!;
     state.stop = {
       reason, snapshot, inflight_at_stop: inflightAtCancellation ?? active.size,
       interrupted: 0, force_cancelled: false,
@@ -247,10 +247,10 @@ export async function drive(options: {
   } finally {
     signal.removeEventListener("abort", onCancel);
     // Capture the load boundary before cancellation; cleanup latency is not measurement.
-    if (state.measurement_end_s === undefined) {
+    if (state.load_end_s === undefined) {
       control.abort(now());
-      state.measurement_end_s = control.end_s!;
-      state.measurement_start_s = control.hold_start_s ?? control.end_s!;
+      state.load_end_s = control.end_s!;
+      state.hold_start_s = control.hold_start_s ?? control.end_s!;
       state.stop = {
         reason: "aborted", inflight_at_stop: inflightAtCancellation ?? active.size,
         interrupted: 0, force_cancelled: false,
@@ -260,16 +260,15 @@ export async function drive(options: {
     await Promise.all(active.keys());
     state.stop.interrupted = execution.requests.filter((r) => r.state === "interrupted").length;
     state.stop.force_cancelled = state.stop.interrupted > 0;
-    state.windows!.push({
+    state.phases!.push({
       id: "cooldown", name: "cooldown", kind: "cooldown",
-      start_s: state.measurement_end_s,
+      start_s: state.load_end_s,
       end_s: now(),
       complete: !state.stop.force_cancelled,
       end_reason: state.stop.force_cancelled
         ? (state.stop.reason === "aborted" ? "cancelled" : "timeout")
         : "empty",
       limited_s: 0,
-      by_case: {}, by_facet: {}, probe_metrics: {},
     });
   }
   if (errors.length) throw errors[0];

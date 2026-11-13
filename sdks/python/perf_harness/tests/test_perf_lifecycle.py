@@ -65,16 +65,19 @@ async def test_rate_cap_pauses_without_drops_and_never_dispatches_after_deadline
     assert len(arm.operation_runs) == 3
     assert all(r.state == "finished" for r in arm.requests)
     assert all(r.dispatched_at is None or r.dispatched_at < 0.06 for r in arm.requests)
-    assert arm.measurement.request.completed == 0
-    assert arm.measurement.request.dispatched == 3
-    assert arm.measurement.request.n == 3
-    assert arm.measurement.request.n_dropped == 0
-    assert arm.measurement.limited_s > 0
+    assert next(w for w in arm.windows if w.phase == "hold").request.completed == 0
+    assert next(w for w in arm.windows if w.phase == "hold").request.dispatched == 3
+    assert next(w for w in arm.windows if w.phase == "hold").request.n == 3
+    assert next(w for w in arm.windows if w.phase == "hold").request.n_dropped == 0
+    assert next(w for w in arm.windows if w.phase == "hold").limited_s > 0
     write_run_data(run, tmp_path)
     restored = load_run(tmp_path).arm_runs[0]
     assert restored.requests == arm.requests
     assert restored.evaluations == arm.evaluations
-    assert reduce_requests(restored, 0, 0.06) == arm.measurement.request
+    assert (
+        reduce_requests(restored, 0, 0.06)
+        == next(w for w in arm.windows if w.phase == "hold").request
+    )
 
 
 async def test_hard_stop_keeps_each_interrupted_call_and_does_not_judge_it():
@@ -101,7 +104,10 @@ async def test_hard_stop_keeps_each_interrupted_call_and_does_not_judge_it():
     assert len(arm.operation_runs) == arm.stop.interrupted == 4
     assert all(r.state == "interrupted" and r.finished_at is not None for r in arm.requests)
     assert not arm.evaluations
-    assert arm.measurement.request.n == 0 and arm.measurement.request.n_interrupted == 4
+    assert (
+        next(w for w in arm.windows if w.phase == "hold").request.n == 0
+        and next(w for w in arm.windows if w.phase == "hold").request.n_interrupted == 4
+    )
 
 
 async def test_offline_rejudge_preserves_raw_evidence():
@@ -168,8 +174,8 @@ async def test_generator_stall_does_not_catch_up_after_the_hold_deadline():
     assert len(arm.requests) == 1
     assert len(arm.operation_runs) == 1
     assert all(r.state == "finished" for r in arm.requests)
-    assert arm.measurement.request.n_dropped == 0
-    assert arm.measurement.request.completed == 0
+    assert next(w for w in arm.windows if w.phase == "hold").request.n_dropped == 0
+    assert next(w for w in arm.windows if w.phase == "hold").request.completed == 0
 
 
 async def test_interrupted_run_verdict_and_no_latency_evidence(tmp_path):
@@ -246,23 +252,25 @@ async def test_judge_failure_preserves_boundaries_and_census(scenario, tmp_path)
     assert arm.stop.reason == scenario["stop_reason"]
     assert arm.stop.inflight_at_stop == scenario["inflight_at_stop"]
     assert arm.stop.interrupted == 1 and arm.stop.force_cancelled
-    assert arm.measurement.complete == scenario["measurement_complete"]
-    assert arm.measurement.end_s > 0
-    if scenario["measurement_complete"]:
-        assert arm.measurement.end_s == scenario["duration_s"]
+    assert next(w for w in arm.windows if w.phase == "hold").complete == scenario["hold_complete"]
+    assert next(w for w in arm.windows if w.phase == "hold").end_s > 0
+    if scenario["hold_complete"]:
+        assert next(w for w in arm.windows if w.phase == "hold").end_s == scenario["duration_s"]
     else:
-        assert arm.measurement.end_s < scenario["duration_s"]
-    assert arm.measurement.request.completed == scenario["completed"]
-    assert arm.measurement.request.n == 1
-    assert arm.measurement.request.n_interrupted == 1
-    assert arm.measurement.request.error_breakdown == {}
-    assert arm.measurement.request.n_judged == 0
+        assert next(w for w in arm.windows if w.phase == "hold").end_s < scenario["duration_s"]
+    assert (
+        next(w for w in arm.windows if w.phase == "hold").request.completed == scenario["completed"]
+    )
+    assert next(w for w in arm.windows if w.phase == "hold").request.n == 1
+    assert next(w for w in arm.windows if w.phase == "hold").request.n_interrupted == 1
+    assert next(w for w in arm.windows if w.phase == "hold").request.error_breakdown == {}
+    assert next(w for w in arm.windows if w.phase == "hold").request.n_judged == 0
     assert not arm.evaluations
     finished = next(r for r in arm.requests if r.state == "finished")
     interrupted = next(r for r in arm.requests if r.state == "interrupted")
-    assert interrupted.finished_at > arm.measurement.end_s
-    drain = next(w for w in arm.windows if w.kind == "cooldown")
-    assert drain.start_s == arm.measurement.end_s
+    assert interrupted.finished_at > next(w for w in arm.windows if w.phase == "hold").end_s
+    drain = next(w for w in arm.windows if w.phase == "cooldown")
+    assert drain.start_s == next(w for w in arm.windows if w.phase == "hold").end_s
     assert drain.request.completed == 1 - scenario["completed"]
     call = next(o for o in arm.operation_runs if o.id == finished.operation_run_id)
     assert call.outcome.meta["trace_id"] == "completed-before-judge-error"

@@ -36,6 +36,7 @@ export interface Experiment {
   caseSet?: CaseSet;
   caseMix?: readonly CaseMixEntry[];
   /** @spec Host cancellation reaches every Runner phase and in-flight request with its original reason. */
+  timeRanges?: import("./model").TimeRange[];
   signal?: AbortSignal;
   onArmStart?(context: ArmContext, startedAt: Date): Promise<void> | void;
   onArmFinish?(arm_run: ArmRun): Promise<void> | void;
@@ -187,6 +188,11 @@ export class Engine {
     if (!experiment.loads.length)
       throw new Error("perf experiment requires at least one load profile");
     experiment.loads.forEach(validateLoadPlan);
+    for (const range of experiment.timeRanges ?? []) {
+      if (!range.name || !Number.isFinite(range.start_s) || !Number.isFinite(range.end_s) ||
+          !(0 <= range.start_s && range.start_s < range.end_s))
+        throw new Error("time range requires name and 0 <= start_s < end_s");
+    }
     const resolved = resolveCases(experiment);
     this.#experiment = experiment;
     this.#runId = options.run_id ?? runId();
@@ -215,6 +221,7 @@ export class Engine {
         started_at: started.toISOString(),
         finished_at: "",
         windows: [],
+        phases: [],
         stop: {
           reason: "aborted",
           inflight_at_stop: 0,
@@ -228,12 +235,17 @@ export class Engine {
         requests: [],
         evaluations: {},
       };
+      const setupStart = performance.now();
+      let origin = setupStart;
+      let setupEnd: number | undefined;
       try {
         await this.#experiment.runner.setup?.(execution.runner);
         execution.runner.signal.throwIfAborted();
-        execution.enter("warmup");
         await this.#experiment.onArmStart?.(execution.runner, started);
         execution.runner.signal.throwIfAborted();
+        origin = performance.now();
+        setupEnd = origin;
+        execution.enter("warmup");
         await drive({
           state: execution.drive,
           judge: this.#experiment.judge ?? defaultJudge,
@@ -256,6 +268,13 @@ export class Engine {
           execution.record(error);
         }
       } finally {
+        const observationEnd = performance.now();
+        const cooldown = execution.drive.phases?.at(-1);
+        if (cooldown?.kind === "cooldown") cooldown.end_s = (observationEnd - origin) / 1000;
+        result.phases.push({id: "setup", name: "setup", kind: "setup", start_s: (setupStart-origin)/1000,
+          end_s: ((setupEnd ?? observationEnd)-origin)/1000, complete: setupEnd !== undefined});
+        execution.enter("cleanup");
+        const cleanupStart = performance.now();
         try {
           await this.#experiment.runner.cleanup?.(execution.runner);
         } catch (cleanupError) {
@@ -264,6 +283,8 @@ export class Engine {
             execution.cleanupAfterFatal = cleanupError;
           } else execution.record(cleanupError, "cleanup");
         }
+        result.phases.push({id: "cleanup", name: "cleanup", kind: "cleanup", start_s: (cleanupStart-origin)/1000,
+          end_s: (performance.now()-origin)/1000, complete: !execution.phaseErrors.some(e => e.phase === "cleanup")});
       }
       if (execution.hasFatalError) {
         if (execution.hasCleanupAfterFatal) {
@@ -281,8 +302,9 @@ export class Engine {
       arm_run.finished_at = finished.toISOString();
       arm_run.windows = buildWindows(
         arm_run,
-        execution.drive.measurement_end_s ?? 0,
+        execution.drive.load_end_s ?? 0,
         execution.drive,
+        this.#experiment.timeRanges,
       );
       arm_run.stop = execution.drive.stop;
       arm_run.phase_errors = execution.phaseErrors;
@@ -293,7 +315,7 @@ export class Engine {
       if (arm_run.phase_errors.length) break;
     }
     return {
-      schema: 9,
+      schema: 10,
       run_id: this.#runId,
       experiment: this.#experiment.name ?? "perf",
       created_at: created.toISOString(),

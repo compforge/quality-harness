@@ -42,7 +42,7 @@ report:
     - {title: 请求错误率, metric: request.error_rate.value}
     - title: 服务端平均耗时（秒）
       metric: 'prometheus_query.duration_mean_s{service="api",operation="operation:api/generate"}.value'
-      window: {kind: observation}
+      window: {kind: full}
 ```
 
 不需要认证时省略 `headers_env`。`timeout_ms` 默认 5000，限制单次查询的连接等待、响应头与
@@ -51,7 +51,8 @@ report:
 求值步长，不改变 Prometheus 的抓取间隔；设置更小的 step 不会产生更高分辨率的原始样本。
 
 `queries` 通过 `/api/v1/query_range` 获取趋势，`summaries` 通过 `/api/v1/query` 获取窗口单值。
-summary 的 `window` 默认 observation，也可选 measurement、hold、warmup、ramp 或 cooldown；
+summary 的 `window` 默认 `{kind: full}`；指定阶段用 `{kind: phase, phase: hold}`，
+也可选择 warmup/cooldown 或 `{kind: custom, name: steady}`；
 `$window` 替换为实际窗口长度，结果使用 `.value` 寻址。滚动均值的采样平均不等于整窗请求加权均值；
 整窗均值应使用各实例 sum/count 的 increase 聚合比值。指标、路由和环境过滤条件由项目声明。
 
@@ -63,8 +64,8 @@ transport 等自抓配置，改用顶层 prometheus 和 `name: prometheus_query`
 ## 时间窗口与证据边界
 
 每个 ArmRun 保存发压时钟对应的 Unix 时间；请求的相对时钟和 warmup/hold/cooldown 划分保持不变。
-指标查询在所有 Arm 的请求排空和 Runner cleanup 后执行，不占用 hold 时长。observation 窗口
-覆盖实际资源基线至观测结束，包括请求 drain 和额外 cooldown；它不是新的负载阶段。
+指标查询在所有 Arm 的请求排空和 Runner cleanup 后执行，不占用 hold 时长。full 窗口
+覆盖开始发压至 cooldown 结束，排除 setup/cleanup。统计窗口与执行阶段独立。
 
 查询开始边界向上取整到毫秒，结束边界取窗口结束之前最后一个毫秒。Prometheus 的 range query
 端点包含两端，PromQL range selector 仍遵守 Prometheus 自身语义。rate/increase 的滚动区间可能
@@ -84,7 +85,7 @@ CLI 在查询前先保存请求事实和查询计划，查询被中断也可独�
 `Engine.run(collect=False)` 先落盘，再调用 `Engine.collect_metrics(run)`；默认仍自动查询。
 
 Run 保存每条查询的表达式、来源地址、Unix 起止时间、step、Operation 绑定、原始返回结果、
-采集时间和错误。历史查询是 schema 9 的附加字段 `executions[].prometheus_observations`，
+采集时间和错误。历史查询是 schema 10 的附加字段 `executions[].prometheus_observations`，
 发压 Unix 起点为 `started_at_s`。趋势落入 timeseries.csv，汇总进入既有 MetricStore。
 
 ```bash
@@ -110,3 +111,21 @@ route 自动生成过滤条件；两者均不证明某次实际调用。详见 [
 Query 的 `labels` 必须明确声明返回维度，不能覆盖已绑定的 service/operation。按实例查询时保留
 instance 或 pod，服务级查询由 PromQL 显式聚合。Graph 中没有指标的节点仍是未知，不是零流量；
 报告不沿静态 calls 关系自动累加延迟或断言瓶颈。
+
+## 显式 Histogram summary
+
+已有 `_bucket` 指标可声明原始桶查询；输出只按 `le` 分组，不能预先执行 histogram_quantile：
+
+```yaml
+summaries:
+  - name: search_p95
+    promql: sum by (le) (increase(search_duration_seconds_bucket[$window]))
+    unit: s
+    histogram: {quantile: 0.95, scale: 1}
+    window: {kind: phase, phase: hold}
+```
+
+`scale` 在分位数计算后换算单位（毫秒转秒用 0.001）。HttpApiProbe 自动采用这一方式。
+有桶证据的溢出分位数保存并显示为 `+Inf`；任意 scalar 查询不会猜测桶上限。
+无样本仍显示缺失。`queries` 中普通 PromQL 趋势保留其查询本身的语义，
+包括 histogram_quantile 的有限桶上界行为；不要将趋势点当成整窗分位数。

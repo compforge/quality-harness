@@ -11,6 +11,7 @@ from perf_harness import (
     Runner,
     Service,
     Stage,
+    TimeRange,
 )
 from perf_harness.drive.load import Warmup
 
@@ -21,7 +22,7 @@ def test_ramp_uses_explicit_units_and_integrated_arrival_clock():
         request_rate=0,
         max_inflight=2,
         hold_s=3,
-        stages=(Stage(2, 20, 4, "ramp"), Stage(1, 20, 4)),
+        stages=(Stage(2, 20, 4, "warmup", shape="ramp"), Stage(1, 20, 4)),
     )
     assert load.target(1) == (10, 3)
     assert load.arrival_time(5) == pytest.approx(1)
@@ -61,18 +62,23 @@ async def test_downscale_drains_instead_of_cancelling_and_preserves_windows():
     arm = (
         await Engine(
             Experiment(
-                service=Service("mock"), runner=Slow(), resources=[ResourceProfile()], loads=[load]
+                service=Service("mock"),
+                runner=Slow(),
+                resources=[ResourceProfile()],
+                loads=[load],
+                time_ranges=[TimeRange("first step", 0, 0.02)],
             )
         ).run()
     ).arm_runs[0]
     assert peak == 4 and active == 0 and cancelled == 0
-    assert [w.id for w in arm.windows if w.kind == "hold"] == ["stage-0", "stage-1"]
+    assert [w.id for w in arm.windows if w.phase == "hold"] == ["hold"]
     assert len([r for r in arm.requests if r.dispatched_at < 0.02]) == 4
     assert not [r for r in arm.requests if 0.02 <= r.dispatched_at < 0.075]
-    first = next(w for w in arm.windows if w.id == "stage-0")
+    first = next(w for w in arm.windows if w.name == "first step")
     assert first.request.n == 4 and first.request.completed == 0 and first.request.inflight_end == 4
-    assert arm.measurement.request.n > arm.measurement.request.completed
-    assert next(w for w in arm.windows if w.kind == "cooldown").request.completed > 0
+    hold = next(w for w in arm.windows if w.phase == "hold")
+    assert hold.request.n > hold.request.completed
+    assert next(w for w in arm.windows if w.phase == "cooldown").request.completed > 0
 
 
 @pytest.mark.parametrize(

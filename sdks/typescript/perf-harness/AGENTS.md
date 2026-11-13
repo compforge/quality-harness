@@ -19,7 +19,7 @@ Prometheus、Kubernetes 等资源观测由消费方的观测编排完成，不�
 | `scheduler.ts` | 发压、熔断、并发上限与停止语义 |
 | `reduce.ts` | Outcome 到 Window/RequestStats 的归约 |
 | `engine.ts` | Experiment 与 Arm/ArmRun 编排 |
-| `runio.ts` | 跨语言 schema 9 对齐的 raw/model 产物 |
+| `runio.ts` | 跨语言 schema 10 对齐的 raw/model 产物 |
 
 ## 关键约定
 

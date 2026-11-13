@@ -67,7 +67,7 @@ Common `SSEOperation(name, service_name=..., method="POST", path=...)` 继承 Ht
 共享 HTTP 指标的 method/route 匹配，但用 `response_mode=sse` 区分流式响应。
 普通 HttpOperation 为 `response_mode=unary`，Operation ID 不受模式影响。
 `http_api` 的 operation 配置可写 `response_mode: sse`；省略时为 unary。
-自定义 Runner 可从 `operation(ctx)` 返回 SSEOperation；Run schema 9 重载会保留具体类型。
+自定义 Runner 可从 `operation(ctx)` 返回 SSEOperation；Run schema 10 重载会保留具体类型。
 OperationMetricBinding、callgraph.json 和节点详情保留响应模式；也可读取静态节点 properties 中明确声明的 response_mode；缺少声明时不推测模式。
 
 该类型声明不改变请求调度、timeout、Judge 或 histogram 计时口径。SSE 的 HTTP 200 不能
@@ -76,7 +76,7 @@ OperationMetricBinding、callgraph.json 和节点详情保留响应模式；也�
 
 ## 时间窗口与数据
 
-自动查询包括 QPS/p95 趋势和 measurement、observation、各 hold/ramp/warmup/cooldown 窗口汇总。
+自动查询包括 QPS/p95 趋势和 full、warmup/hold/cooldown 阶段与自定义范围汇总。
 趋势采用 `rate_interval` 滚动区间；`step_s` 只决定求值步长。整窗 QPS 使用该窗口长度的 rate，
 p95 先合并全部匹配实例的 histogram bucket，再计算 quantile；不能平均 Pod p95 或趋势 p95。
 `duration_unit: ms` 会将结果转换为秒。当前生成器适配 classic histogram，其他类型可用自定义查询。
@@ -94,14 +94,18 @@ Run 保存 graph 快照、case_ids、operation_metrics 指标地址，以及已�
 `report.html` 将原有汇总、吞吐和资源图表放在默认的 Report Tab，调用图放在独立 Callgraph Tab，使用页面全宽和随视口高度变化的画布。
 Callgraph 下方的「指标明细」默认折叠，与图共用 Arm/Window 选择，保留该窗口全部 Operation
 指标的统计、单位和来源；Report Tab 不再重复显示 API 观测表。
-无 graph 的报告保持原有 measurement API 观测表。Callgraph 只画 Operation 节点与 calls/may_call 边；Service 显示为分组背景、辅助文字
-和颜色。支持按 Arm/Window 切换、缩放、拖动画布、Fit、点击节点查看指标地址、PromQL 和查询错误。
+无 graph 的报告保持 full API 观测表。Callgraph 只画 Operation 节点与 call/may_call 边，Service 保留分组背景。
+圆形节点内居中显示短名称、QPS、p95，长名称自动换行；完整 Operation ID、Service、path、时间范围与指标来源在悬浮提示中展示。
+最小圆尺寸保证标签可读；当前窗口内有效 QPS 的最小值和最大值映射到可读的圆面积区间，尺寸每次切换窗口时重新计算。
+缺失值使用默认尺寸，不作为零参与范围计算；有效值全相同（包括全零）时使用统一默认尺寸。
+圆面积用于比较当前窗口的流量，不直接跨窗口比较大小；精确数值始终保留。
+支持按 Arm/Window 切换、缩放、拖动画布、Fit，悬浮详情可滚动，点击节点也可固定查看详情。
 图右下角的 0–100% 滑块调整缩放；100% 为原始大小，0 端使用最小倍率 0.1%，
 滚轮和 Fit 会同步更新百分比。隐藏页面首次打开时才按可见画布布局。
 「复制图片」将当前 Arm/Window 的完整图复制为白底 PNG，不受当前缩放和可见区域限制，最多 2 倍绘制、最长边 4096 像素；
 导出像素不再叠加屏幕 devicePixelRatio，避免 Retina 下生成超大剪贴板位图。
 浏览器不支持图片剪贴板或拒绝权限时显示失败原因，不会报告复制成功。
-默认选 measurement。`may_call` 下游节点出现流量是使用线索，不能在缺少 caller 维度时标记该边已执行。
+默认选 full；先选全程/阶段/自定义范围，再选具体范围。`may_call` 下游节点出现流量是使用线索，不能在缺少 caller 维度时标记该边已执行。
 
 使用 Cytoscape.js + Dagre 自动布局，资源与 ECharts 一并内置，生成及查看不依赖 CDN。
 `python -m perf_harness.cli report <run_dir>` 只消费落盘事实；指标补采继续使用 collect-metrics，
@@ -119,7 +123,7 @@ SDK 保存事实与可复现视图；Skill/分析者负责解释证据，不引�
 
 ## Call Graph Snapshot
 
-`callgraph.json` 是带指标的静态调用图派生产物（schema_version=1），不依赖 Cytoscape 格式。
+`callgraph.json` 是带指标的静态调用图派生产物（schema_version=2），不依赖 Cytoscape 格式。
 顶层保存 Run、环境、case、图来源/版本和声明的调用边；arms 保存负载、资源与时间窗口。
 每个窗口的 nodes 复用 Common Node，`properties.perf` 包含所属 service、HTTP method/path、
 QPS 计数口径以及 metrics。每个 metric 保存数值、单位、observed/missing/error、MetricStore

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from perf_harness.drive.load import LoadPlan
-from perf_harness.model import Window
+from perf_harness.model import PhaseRun
 
 
 class LoadController:
@@ -15,7 +15,7 @@ class LoadController:
         self.index = 0
         self.start_s = 0.0
         self.previous = (load.request_rate, load.max_inflight)
-        self.windows: list[Window] = []
+        self.phases: list[PhaseRun] = []
         self.hold_start_s: float | None = None
         self.end_s: float | None = None
         self._last_s = 0.0
@@ -38,11 +38,11 @@ class LoadController:
 
     def _open(self) -> None:
         stage = self.stages[self.index]
-        self.windows.append(
-            Window(
+        self.phases.append(
+            PhaseRun(
                 id=f"stage-{self.index}",
                 name=stage.label,
-                kind=stage.kind,
+                kind="hold" if stage.kind == "hold" else "warmup",
                 start_s=self.start_s,
                 end_s=self.start_s,
                 complete=False,
@@ -54,7 +54,7 @@ class LoadController:
 
     def target(self, at_s: float) -> tuple[float, int]:
         stage = self.stages[self.index]
-        if stage.kind != "ramp":
+        if stage.shape != "ramp":
             return stage.request_rate, stage.max_inflight
         fraction = min(1.0, max(0.0, at_s - self.start_s) / stage.duration_s)
         rate, cap = self.previous
@@ -68,9 +68,9 @@ class LoadController:
             stage = self.stages[self.index]
             end = min(at_s, self.deadline)
             if self._limited:
-                self.windows[-1].limited_s += max(0.0, end - self._last_s)
+                self.phases[-1].limited_s += max(0.0, end - self._last_s)
             self._last_s = end
-            self.windows[-1].end_s = end
+            self.phases[-1].end_s = end
             # spec: cap feedback can shorten warmup, never the requested hold duration.
             capped = (
                 at_s < self.deadline and stage.kind == "warmup" and inflight >= stage.max_inflight
@@ -88,7 +88,7 @@ class LoadController:
                     ),
                     len(self.stages),
                 )
-            window = self.windows[-1]
+            window = self.phases[-1]
             window.complete = True
             window.end_reason = (
                 "inflight_limit"
@@ -112,6 +112,6 @@ class LoadController:
 
     def abort(self, at_s: float) -> None:
         if not self.done:
-            self.windows[-1].end_s = min(at_s, self.deadline)
-            self.windows[-1].end_reason = "aborted"
-            self.end_s = self.windows[-1].end_s
+            self.phases[-1].end_s = min(at_s, self.deadline)
+            self.phases[-1].end_reason = "aborted"
+            self.end_s = self.phases[-1].end_s

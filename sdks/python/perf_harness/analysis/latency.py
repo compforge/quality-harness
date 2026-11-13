@@ -39,11 +39,11 @@ def _degradation(label: str, rs: list[ArmRun]) -> list[AnalysisNote]:
     rows = [
         {
             "level": r.arm.load.peak_level,
-            "p50_ms": round(r.measurement.request.p50_ms),
-            "p95_ms": round(r.measurement.request.p95_ms),
-            "p99_ms": round(r.measurement.request.p99_ms),
-            "tail_ratio": round(r.measurement.request.p99_ms / r.measurement.request.p50_ms, 2)
-            if r.measurement.request.p50_ms
+            "p50_ms": round(r.full.request.p50_ms),
+            "p95_ms": round(r.full.request.p95_ms),
+            "p99_ms": round(r.full.request.p99_ms),
+            "tail_ratio": round(r.full.request.p99_ms / r.full.request.p50_ms, 2)
+            if r.full.request.p50_ms
             else None,
         }
         for r in rs
@@ -88,11 +88,7 @@ def _ttft(label: str, rs: list[ArmRun], store: MetricStore) -> list[AnalysisNote
     mean = sum(v for _, v in vals) / len(vals)
     spread = (max(v for _, v in vals) - min(v for _, v in vals)) / mean if mean else 0
     top = rs[-1]
-    share = (
-        vals[-1][1] / top.measurement.request.p50_ms * 100
-        if top.measurement.request.p50_ms
-        else None
-    )
+    share = vals[-1][1] / top.full.request.p50_ms * 100 if top.full.request.p50_ms else None
     ev = {
         "ttft_p50_by_level": [(lv, round(v, 1)) for lv, v in vals],
         "spread_pct": round(spread * 100, 1),
@@ -121,7 +117,7 @@ def _ttft(label: str, rs: list[ArmRun], store: MetricStore) -> list[AnalysisNote
 def _adequacy(label: str, rs: list[ArmRun]) -> list[AnalysisNote]:
     out: list[AnalysisNote] = []
     for r in rs:
-        o = r.measurement.request
+        o = r.full.request
         lv = r.arm.load.peak_level
         if o.n and o.n < MIN_N_FOR_TAIL:
             out.append(
