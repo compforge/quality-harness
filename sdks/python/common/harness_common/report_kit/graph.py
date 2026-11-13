@@ -62,6 +62,8 @@ def render_graph(
     return (
         f'<div id="{ident}" class="graph-view"><b>{html.escape(view.title)}</b> '
         '<select aria-label="Graph view"></select> <button type="button" class="graph-fit">Fit</button>'
+        ' <button type="button" class="graph-copy">复制图片</button>'
+        ' <span class="graph-copy-status" role="status" aria-live="polite"></span>'
         '<div class="graph-viewport"><div class="graph-canvas"></div>'
         '<label class="graph-zoom">Zoom '
         '<input type="range" min="0" max="100" value="100" aria-label="Graph zoom" '

@@ -52,6 +52,7 @@ from perf_harness.model import ArmRun as ArmRun
 from perf_harness.model import ArmStop as ArmStop
 from perf_harness.model import Deployment as Deployment
 from perf_harness.model import Environment as Environment
+from perf_harness.model import OperationMetricBinding as OperationMetricBinding
 from perf_harness.model import Outcome as Outcome
 from perf_harness.model import ReportColumn as ReportColumn
 from perf_harness.model import RequestStats as RequestStats

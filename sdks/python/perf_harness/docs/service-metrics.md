@@ -84,7 +84,7 @@ CLI 在查询前先保存请求事实和查询计划，查询被中断也可独�
 `Engine.run(collect=False)` 先落盘，再调用 `Engine.collect_metrics(run)`；默认仍自动查询。
 
 Run 保存每条查询的表达式、来源地址、Unix 起止时间、step、Operation 绑定、原始返回结果、
-采集时间和错误。历史查询是 schema 7 的附加字段 `executions[].prometheus_observations`，
+采集时间和错误。历史查询是 schema 8 的附加字段 `executions[].prometheus_observations`，
 发压 Unix 起点为 `started_at_s`。趋势落入 timeseries.csv，汇总进入既有 MetricStore。
 
 ```bash

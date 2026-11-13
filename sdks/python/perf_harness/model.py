@@ -449,16 +449,30 @@ class ReportColumn:
 
 
 @dataclass(frozen=True)
-class ApiMetricBinding:
+class OperationMetricBinding:
     """Persisted metric addresses for one operation; topology is independent of metrics."""
 
     operation: str
     service: str
-    qps: str
+    qps: str | None = None
     p95: str | None = None
     method: str = ""
     path: str = ""
     qps_semantics: str = "completed"
+    descriptions: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # @spec QPS and p95 are independent scalar roles, not a paired source schema.
+        refs = {"qps": self.qps, "p95": self.p95}
+        if not any(ref is not None for ref in refs.values()):
+            raise ValueError("operation metric binding requires qps or p95")
+        if any(ref is not None and (not isinstance(ref, str) or not ref) for ref in refs.values()):
+            raise ValueError("operation metric references must be nonempty strings")
+        if any(
+            role not in refs or refs[role] is None or not isinstance(text, str)
+            for role, text in self.descriptions.items()
+        ):
+            raise ValueError("metric descriptions must belong to bound qps/p95 roles")
 
 
 @dataclass(frozen=True)
@@ -481,7 +495,7 @@ class Run(ExperimentRun):
     environment: str = ""
     report_columns: list[ReportColumn] = field(default_factory=list)
     graph: Graph | None = None
-    api_metrics: list[ApiMetricBinding] = field(default_factory=list)
+    operation_metrics: list[OperationMetricBinding] = field(default_factory=list)
     case_ids: list[str] = field(default_factory=list)
     connection_budget: ConnectionBudget | None = None
 

@@ -66,6 +66,8 @@ def section(
                     details.append(
                         (role, f"{_value(metric)} {metric['unit']} ({metric['status']})")
                     )
+                    if metric["description"]:
+                        details.append((role + " description", metric["description"]))
                     if metric["reason"]:
                         details.append((role + " reason", metric["reason"]))
                     if metric["metric_ref"]:

@@ -34,6 +34,7 @@ class CallGraphMetric:
     metric_ref: str | None
     reason: str | None = None
     queries: tuple[QueryEvidence, ...] = ()
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -121,10 +122,15 @@ class CallGraphSnapshot:
 
 
 def _metric(
-    store: MetricStore, arm: ArmRun, window: Window, address: str | None, unit: str
+    store: MetricStore,
+    arm: ArmRun,
+    window: Window,
+    address: str | None,
+    unit: str,
+    description: str = "",
 ) -> CallGraphMetric:
     if address is None:
-        return CallGraphMetric(None, unit, "missing", None, "unbound")
+        return CallGraphMetric(None, unit, "missing", None, "unbound", description=description)
     family, labels, _ = parse_ref(address)
     queries = [
         q
@@ -145,15 +151,21 @@ def _metric(
             q.error and not (q.data is not None and q.data.get("result") == [] and not q.warnings)
             for q in queries
         )
+        empty = bool(queries) and all(
+            q.data is not None and q.data.get("result") == [] and not q.warnings for q in queries
+        )
         return CallGraphMetric(
             None,
             unit,
             "error" if failed else "missing",
             address,
-            "query_error" if failed else value.reason,
+            "query_error" if failed else "no_samples" if empty else value.reason,
             evidence,
+            description,
         )
-    return CallGraphMetric(value, unit, "observed", address, queries=evidence)
+    return CallGraphMetric(
+        value, unit, "observed", address, queries=evidence, description=description
+    )
 
 
 def build_callgraph(run: Run) -> CallGraphSnapshot | None:
@@ -161,7 +173,7 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
     if run.graph is None:
         return None
     graph = run.graph
-    bindings = {binding.operation: binding for binding in run.api_metrics}
+    bindings = {binding.operation: binding for binding in run.operation_metrics}
     owners = {
         r.source: unquote(r.target.removeprefix("service:"))
         for r in graph.relations
@@ -180,10 +192,24 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
                 binding = bindings.get(node.id)
                 metrics = {
                     "qps": asdict(
-                        _metric(store, arm, window, binding.qps if binding else None, "rps")
+                        _metric(
+                            store,
+                            arm,
+                            window,
+                            binding.qps if binding else None,
+                            "rps",
+                            binding.descriptions.get("qps", "") if binding else "",
+                        )
                     ),
                     "p95": asdict(
-                        _metric(store, arm, window, binding.p95 if binding else None, "s")
+                        _metric(
+                            store,
+                            arm,
+                            window,
+                            binding.p95 if binding else None,
+                            "s",
+                            binding.descriptions.get("p95", "") if binding else "",
+                        )
                     ),
                 }
                 # Perf owns one property namespace; the source graph remains unchanged.
@@ -193,7 +219,7 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
                         "service": owners[node.id],
                         "method": binding.method if binding else "",
                         "path": binding.path if binding else "",
-                        "qps_semantics": binding.qps_semantics if binding else None,
+                        "qps_semantics": binding.qps_semantics if binding and binding.qps else None,
                         "metrics": metrics,
                     }
                 }

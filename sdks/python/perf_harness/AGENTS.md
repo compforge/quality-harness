@@ -80,7 +80,7 @@ perf_harness/
 
 ### 产物与运行
 
-- `Experiment` 扩展 common 的具名验证意图；`Run` 扩展 common `ExperimentRun`，`ArmRun` 是 common `Execution` 的 perf 子类，每次真实请求记录为 `OperationRun → Outcome`。`PerfReducer` 只读这些事实并把 Artifact 落到 `runs/<experiment>/<run_id>/`，累积不覆盖。落盘三层 raw（requests.jsonl / evaluations.json/timeseries.csv）→ 模型（run.json，schema 7 版本化，`load_run` 离线重建）→ 视图（report/CSV，纯下游）。
+- `Experiment` 扩展 common 的具名验证意图；`Run` 扩展 common `ExperimentRun`，`ArmRun` 是 common `Execution` 的 perf 子类，每次真实请求记录为 `OperationRun → Outcome`。`PerfReducer` 只读这些事实并把 Artifact 落到 `runs/<experiment>/<run_id>/`，累积不覆盖。落盘三层 raw（requests.jsonl / evaluations.json/timeseries.csv）→ 模型（run.json，schema 8 版本化，`load_run` 离线重建）→ 视图（report/CSV，纯下游）。
 - `verdict.json` 是跨 harness 契约（spec/verdict-schema.yaml，devloop 消费），改动需五家对齐。
 - 请求侧指标走客户端 Outcome；外部 Prometheus 指标归资源侧，缺失与错误不能伪造为零。
 

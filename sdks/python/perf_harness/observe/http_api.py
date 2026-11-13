@@ -127,7 +127,13 @@ class HttpApiProbe(PrometheusQueryProbe):
                 role,
                 promql,
                 unit={"qps": "rps", "p95": "s"}[role],
-                description=f"HTTP server {role}; see operation binding for counter semantics",
+                description=(
+                    f"HTTP request counter ({profile.qps_semantics}); matching service traffic, "
+                    "not isolated run traffic or SSE business completion"
+                    if role == "qps"
+                    else "HTTP duration histogram p95; matching service traffic; instrumentation "
+                    "boundary may differ from complete SSE duration"
+                ),
                 window=WindowSelector(kind=kind),
             )
             for kind in ("measurement", "observation", "hold", "ramp", "warmup", "cooldown")
@@ -149,6 +155,6 @@ class HttpApiProbe(PrometheusQueryProbe):
             queries=queries,
             summaries=summaries,
             step_s=step_s,
-            api_metrics={"qps": "qps", "p95": "p95"},
+            operation_metrics={"qps": "qps", "p95": "p95"},
             qps_semantics=profile.qps_semantics,
         )

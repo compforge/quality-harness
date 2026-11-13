@@ -44,7 +44,7 @@ test("completion classes partition event windows and remain independently rejudg
     writeRunData(run, directory);
     expect(serializeRequests(loadRun(directory))).toBe(raw);
     expect(serializeRun(run)).not.toHaveProperty("passed");
-    expect(serializeRun(run).schema).toBe(7);
+    expect(serializeRun(run).schema).toBe(8);
   } finally { rmSync(directory, { recursive: true }); }
 });
 

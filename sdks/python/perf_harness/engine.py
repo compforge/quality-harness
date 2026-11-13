@@ -141,9 +141,9 @@ class Experiment(BaseExperiment):
             self.request_transport, max(load.peak_inflight for load in self.loads)
         )
         bindings = [
-            p.api_metrics
+            p.operation_metrics
             for p in self.probes
-            if isinstance(p, PrometheusQueryProbe) and p.api_metrics is not None
+            if isinstance(p, PrometheusQueryProbe) and p.operation_metrics is not None
         ]
         if len({b.operation for b in bindings}) != len(bindings):
             raise ValueError("duplicate API metric binding for operation")
@@ -253,10 +253,10 @@ class Engine:
             environment=exp.service.environment.name,
             report_columns=list(exp.report_columns),
             graph=exp.graph,
-            api_metrics=[
-                p.api_metrics
+            operation_metrics=[
+                p.operation_metrics
                 for p in exp.probes
-                if isinstance(p, PrometheusQueryProbe) and p.api_metrics is not None
+                if isinstance(p, PrometheusQueryProbe) and p.operation_metrics is not None
             ],
             case_ids=[case.id for case in exp.cases],
             connection_budget=ConnectionBudget(

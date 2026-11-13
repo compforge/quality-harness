@@ -108,3 +108,20 @@ def test_graph_frame_tables_are_escaped_collapsed_and_not_duplicated_in_js():
     assert (
         '"table":' not in rendered
     )  # Tables are rendered once, not copied into JS payload.
+
+
+def test_wide_tab_uses_viewport_layout_without_widening_default_report():
+    from harness_common.report_kit import ReportTab
+
+    rendered = render_html(
+        Report(
+            "layout",
+            tabs=[
+                ReportTab("Report", [Section("summary")]),
+                ReportTab("Callgraph", [Section("graph")], wide=True),
+            ],
+        )
+    )
+    assert 'aria-labelledby="rk-tab-0" data-wide=' not in rendered
+    assert 'aria-labelledby="rk-tab-1" data-wide="true" hidden' in rendered
+    assert "height:max(600px, 78vh)" in rendered

@@ -49,8 +49,8 @@ def test_http_matching_scopes_service_method_and_route_and_escapes_values():
     p95 = next(q.promql for q in probe.summaries if q.name == "p95")
     assert "histogram_quantile(0.95, sum by (le) (rate(" in p95
     assert p95.endswith(" / 1000") and "$window" in p95
-    assert probe.api_metrics.operation == operation.id()
-    assert probe.api_metrics.path == "/faqs/{dataset_id}"
+    assert probe.operation_metrics.operation == operation.id()
+    assert probe.operation_metrics.path == "/faqs/{dataset_id}"
     assert metrics.selector(replace(operation, method="GET")) != metrics.selector(operation)
     assert profile().selector(replace(operation, service_name="other")) != profile().selector(
         operation
@@ -165,11 +165,13 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     paths = write_run(run, str(tmp_path / "runs"))
     (tmp_path / "case.graph.json").unlink()
     restored = load_run(paths["run_dir"])
-    assert restored.api_metrics == run.api_metrics and restored.case_ids == ["faq"]
+    assert restored.operation_metrics == run.operation_metrics and restored.case_ids == ["faq"]
     assert all("$window" not in q.expression for q in restored.arm_runs[0].prometheus_observations)
     if state in {"traffic", "zero"}:
         assert (
-            MetricStore(restored.arm_runs).query(restored.arm_runs[0], restored.api_metrics[0].p95)
+            MetricStore(restored.arm_runs).query(
+                restored.arm_runs[0], restored.operation_metrics[0].p95
+            )
             == 2.5
         )
         assert not restored.arm_runs[0].probe_errors
@@ -189,6 +191,8 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
         ]
     )
     props = payload["arms"][0]["windows"][0]["nodes"][1]["properties"]
+    if state == "missing":
+        assert metric["reason"] == "no_samples"
     assert props["team"] == "search"
     assert restored.graph.node("operation:kb/retrieve").properties == {"team": "search"}
     assert payload["topology_source"] == "declared"
@@ -236,27 +240,50 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
             assert all(row[0] == arm.id and row[1] == window.id for row in frame.table.rows)
 
 
-def test_middleware_qps_only_binding_round_trips_without_inventing_latency(tmp_path):
+@pytest.mark.parametrize("roles", [("qps",), ("p95",), ("qps", "p95")])
+def test_operation_roles_are_independent_and_preserve_meaning(tmp_path, roles):
     from harness_common import Operation
 
-    from perf_harness import Run
+    from perf_harness import OperationMetricBinding, Run
     from perf_harness.drive.load import LoadPlan
     from perf_harness.metric import ScalarSummary
-    from perf_harness.model import Arm, ArmRun, RequestStats, ResourceProfile, Window
+    from perf_harness.model import (
+        Arm,
+        ArmRun,
+        RequestStats,
+        ResourceProfile,
+        Window,
+    )
     from perf_harness.observe import PrometheusQueryProbe, WindowQuery
 
     operation = Operation("search", service_name="search-store")
+    meanings = {
+        "qps": "Completed requests from shared counter",
+        "p95": "Logged search took; excludes network",
+    }
+    expressions = {
+        "qps": "sum(rate(search_requests_total[$window]))",
+        "p95": "histogram_quantile(0.95, sum by (le) (increase(log_duration_bucket[$window])))",
+    }
     probe = PrometheusQueryProbe(
         data_source=PrometheusDataSource("http://prom"),
         operation=operation,
         service="search-store",
         summaries=[
-            WindowQuery("request_qps", "sum(rate(search_requests_total[$window]))", unit="rps")
+            WindowQuery(
+                role,
+                expressions[role],
+                unit={"qps": "rps", "p95": "s"}[role],
+                description=meanings[role],
+            )
+            for role in roles
         ],
-        api_metrics={"qps": "request_qps"},
+        operation_metrics={role: role for role in roles},
     )
-    binding = probe.api_metrics
-    assert binding.p95 is None and binding.method == binding.path == ""
+    binding = probe.operation_metrics
+    assert isinstance(binding, OperationMetricBinding)
+    assert binding.method == binding.path == ""
+    assert binding.descriptions == {role: meanings[role] for role in roles}
     graph = Graph(
         environment="qa",
         nodes=(
@@ -265,6 +292,7 @@ def test_middleware_qps_only_binding_round_trips_without_inventing_latency(tmp_p
         ),
         relations=(Relation(operation.id(), "service:search-store", RelationKind.BELONGS_TO),),
     )
+    values = {"qps": 3.5, "p95": 0.04}
     arm = ArmRun(
         id="arm",
         service="search-store",
@@ -279,7 +307,12 @@ def test_middleware_qps_only_binding_round_trips_without_inventing_latency(tmp_p
                 10,
                 True,
                 request=RequestStats(0, 0, 0, 0, 0, 0, 0, {}),
-                probe_metrics={binding.qps.removesuffix(".value"): ScalarSummary(3.5)},
+                probe_metrics={
+                    {"qps": binding.qps, "p95": binding.p95}[role].removesuffix(
+                        ".value"
+                    ): ScalarSummary(values[role])
+                    for role in roles
+                },
             )
         ],
         metrics={family.name: family for family in probe.describe()},
@@ -292,13 +325,52 @@ def test_middleware_qps_only_binding_round_trips_without_inventing_latency(tmp_p
         environment="qa",
         executions=[arm],
         graph=graph,
-        api_metrics=[binding],
+        operation_metrics=[binding],
     )
     paths = write_run(run, str(tmp_path))
     restored = load_run(paths["run_dir"])
-    assert restored.api_metrics == [binding]
+    assert restored.operation_metrics == [binding]
     snapshot = build_callgraph(restored)
-    metrics = snapshot.arms[0].windows[0].nodes[0].to_dict()["properties"]["perf"]["metrics"]
-    assert metrics["qps"]["value"] == 3.5
-    assert metrics["p95"]["value"] is None
-    assert metrics["p95"]["reason"] == "unbound"
+    props = snapshot.arms[0].windows[0].nodes[0].to_dict()["properties"]["perf"]
+    for role in ("qps", "p95"):
+        metric = props["metrics"][role]
+        if role in roles:
+            assert metric["value"] == values[role]
+            assert metric["description"] == meanings[role]
+            details = section(snapshot).blocks[-1].frames[0].nodes[0].details
+            assert (role + " description", meanings[role]) in details
+        else:
+            assert metric["value"] is None and metric["reason"] == "unbound"
+    if "qps" not in roles:
+        assert props["qps_semantics"] is None
+
+
+def test_operation_role_descriptions_cannot_change_between_windows():
+    from harness_common import Operation
+
+    from perf_harness.model import WindowSelector
+    from perf_harness.observe import PrometheusQueryProbe, WindowQuery
+
+    with pytest.raises(ValueError, match="descriptions must agree"):
+        PrometheusQueryProbe(
+            data_source=PrometheusDataSource("http://prom"),
+            operation=Operation("search", service_name="search-store"),
+            service="search-store",
+            operation_metrics={"p95": "latency"},
+            summaries=[
+                WindowQuery(
+                    "latency",
+                    "p95",
+                    unit="s",
+                    description="all requests",
+                    window=WindowSelector(kind="measurement"),
+                ),
+                WindowQuery(
+                    "latency",
+                    "p95",
+                    unit="s",
+                    description="success only",
+                    window=WindowSelector(kind="observation"),
+                ),
+            ],
+        )
