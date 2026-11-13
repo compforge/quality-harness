@@ -122,6 +122,7 @@ class GraphNode:
     tooltip: str = ""
     diameter: float | None = None
     importance: Literal["high", "medium", "low"] = "medium"
+    comparison_value: float | None = None
 
     def __post_init__(self) -> None:
         if self.importance not in {"high", "medium", "low"}:
@@ -160,6 +161,7 @@ class GraphView:
     table_title: str = "Details"
     group_filter_label: str = ""
     importance_filter: bool = False
+    comparison_filter_label: str = ""
 
 
 Block = Prose | Heading | KV | Table | Chart | GraphView

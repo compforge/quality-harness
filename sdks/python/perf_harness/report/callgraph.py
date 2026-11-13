@@ -92,6 +92,7 @@ def section(
                 props = node.to_dict()["properties"]["perf"]
                 metrics = props["metrics"]
                 qps, p95 = _value(metrics["qps"]), _value(metrics["p95"])
+                raw_qps = metrics["qps"]["value"]
                 error = metrics["error_rate"]["value"]
                 error_text = "N/A" if error is None else f"{error:.1%}"
                 details = [
@@ -136,6 +137,13 @@ def section(
                         tooltip="\n".join(f"{key}: {value}" for key, value in details),
                         diameter=diameters[node.id],
                         importance=props["importance"],
+                        comparison_value=(
+                            raw_qps
+                            if isinstance(raw_qps, (int, float))
+                            and math.isfinite(raw_qps)
+                            and raw_qps >= 0
+                            else None
+                        ),
                     )
                 )
             frames.append(
@@ -174,6 +182,7 @@ def section(
                 table_title="完整窗口指标明细",
                 group_filter_label="Service",
                 importance_filter=True,
+                comparison_filter_label="QPS",
             ),
         ],
     )

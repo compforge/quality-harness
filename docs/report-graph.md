@@ -55,3 +55,16 @@ then directed entry reachability is applied. A high descendant behind an exclude
 is hidden too, unless another allowed path reaches it. No intermediate context is retained.
 Entries remain pinned even if high is unchecked. Importance is shown in node details/hover;
 metric values and node size scaling are unaffected. Generic GraphViews opt in via importance_filter.
+
+The QPS multi-select has four groups: `= 0`, `N/A`, `< entry`, and `>= entry`.
+QPS is nonnegative; classify zero separately before relative comparisons so the groups do not
+overlap. All start selected. It intersects Service and Importance before
+entry reachability pruning. Entries stay pinned, and the reference is always the original selected
+window's entry value, never recalculated after filtering. Changing windows updates the reference
+while preserving selections. A zero entry value is valid: every positive value is in `>= entry`.
+
+Common uses GraphNode.comparison_value and GraphView.comparison_filter_label; Perf supplies QPS
+numeric observations, independently of formatted labels. Missing/invalid values enter N/A.
+If the entry value is missing or there is not exactly one entry, relative choices are disabled,
+positive nodes bypass the relative test, and a visible explanation is shown. Zero and N/A filters
+still apply. Multiple entry rates are never implicitly summed or chosen arbitrarily.

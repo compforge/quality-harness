@@ -96,3 +96,73 @@ def test_graph_node_rejects_unknown_importance():
 
     with pytest.raises(ValueError, match="importance"):
         GraphNode("api", "API", importance="urgent")
+
+
+@pytest.mark.parametrize(
+    "entry_value, selected, expected",
+    [
+        (2, ["= 0"], {"entry", "zero"}),
+        (2, ["N/A"], {"entry", "missing"}),
+        (2, ["< 入口"], {"entry", "small"}),
+        (2, ["≥ 入口"], {"entry", "equal", "large"}),
+        (2, ["< 入口", "≥ 入口"], {"entry", "small", "equal", "large", "leaf"}),
+        (
+            2,
+            ["= 0", "N/A", "< 入口", "≥ 入口"],
+            {"entry", "zero", "missing", "small", "equal", "large", "leaf"},
+        ),
+        (0, ["< 入口"], {"entry"}),
+        (0, ["≥ 入口"], {"entry", "small", "equal", "large", "leaf"}),
+        (None, [], {"entry", "small", "equal", "large", "leaf"}),
+    ],
+)
+def test_qps_filter_uses_original_entry_and_prunes_unreachable_descendants(
+    entry_value, selected, expected
+):
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is needed to execute the browser graph filter")
+    assets = files("harness_common.report_kit").joinpath("assets")
+    frame = {
+        "entry_ids": ["entry"],
+        "nodes": [
+            dict(id=name, group="service", importance="high", comparison_value=value)
+            for name, value in [
+                ("entry", entry_value),
+                ("zero", 0),
+                ("missing", None),
+                ("small", 1),
+                ("equal", 2),
+                ("large", 5),
+                ("leaf", 8),
+            ]
+        ],
+        "edges": [
+            dict(source="entry", target=name)
+            for name in ["zero", "missing", "small", "equal", "large"]
+        ]
+        + [dict(source="small", target="leaf")],
+    }
+    script = """
+const fs = require('fs'), vm = require('vm');
+vm.runInThisContext(fs.readFileSync(process.argv[1] + '/graph-filter.js', 'utf8'));
+const {frame, selected} = JSON.parse(fs.readFileSync(0, 'utf8'));
+const original = JSON.stringify(frame);
+const result = rkFilterGraph(frame, new Set(['service']), new Set(['high']), new Set(selected));
+const multiple = {...frame, entry_ids: ['entry', 'zero']};
+console.log(JSON.stringify({ids: result.nodes.map(n=>n.id), reference: rkEntryValue(frame),
+  multipleReference: rkEntryValue(multiple), unchanged: original === JSON.stringify(frame)}));
+"""
+    result = subprocess.run(
+        [node, "-e", script, str(assets)],
+        input=json.dumps(dict(frame=frame, selected=selected)),
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=True,
+    )
+    actual = json.loads(result.stdout)
+    assert set(actual["ids"]) == expected
+    assert actual["reference"] == entry_value
+    assert actual["multipleReference"] is None
+    assert actual["unchanged"]

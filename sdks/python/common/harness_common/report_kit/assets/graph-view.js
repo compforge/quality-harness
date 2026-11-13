@@ -34,6 +34,8 @@ function rkGraph(root, view) {
   const selectedGroups = new Set(serviceGroups);
   const importanceLevels = ['high', 'medium', 'low'];
   const selectedImportance = new Set(importanceLevels);
+  const valueGroups = ['= 0', 'N/A', '< 入口', '≥ 入口'];
+  const selectedValues = new Set(valueGroups);
   function createFilter(selector, title, choices, selected, enabled) {
     const element = root.querySelector(selector);
     element.hidden = !enabled;
@@ -65,9 +67,9 @@ function rkGraph(root, view) {
       inputs.forEach(input => { input.checked = true; });
       showFrame();
     });
-    return canFilter => {
+    return (canFilter, disabledChoices = new Set()) => {
       summary.textContent = `${title} (${selected.size}/${choices.length})`;
-      inputs.forEach(input => { input.disabled = !canFilter; });
+      inputs.forEach(input => { input.disabled = !canFilter || disabledChoices.has(input.value); });
       all.disabled = !canFilter;
     };
   }
@@ -75,6 +77,8 @@ function rkGraph(root, view) {
     serviceGroups, selectedGroups, !!view.group_filter_label);
   const updateImportanceFilter = createFilter('.graph-importance-filter', 'Importance',
     importanceLevels, selectedImportance, view.importance_filter);
+  const updateValueFilter = createFilter('.graph-comparison-filter', view.comparison_filter_label,
+    valueGroups, selectedValues, !!view.comparison_filter_label);
   const cy = cytoscape({ container: canvas, elements: [], minZoom: 0.001, maxZoom: 1,
     style: [
       { selector: 'node', style: { 'label': 'data(label)', 'shape': 'round-rectangle',
@@ -145,8 +149,13 @@ function rkGraph(root, view) {
       original.entry_ids.every(id => original.nodes.some(n => n.id === id));
     updateServiceFilter(canFilter);
     updateImportanceFilter(canFilter);
-    const filtering = view.group_filter_label || view.importance_filter;
-    const frame = filtering && canFilter ? rkFilterGraph(original, selectedGroups, selectedImportance) : original;
+    const reference = rkEntryValue(original);
+    updateValueFilter(canFilter, reference === null ? new Set(['< 入口', '≥ 入口']) : new Set());
+    root.querySelector('.graph-comparison-status').textContent = !view.comparison_filter_label ? '' :
+      reference === null ? `入口 ${view.comparison_filter_label} 缺失或入口不唯一；相对比较不可用，正值节点保留。` :
+      `入口 ${view.comparison_filter_label}: ${Number(reference.toPrecision(6))}`;
+    const filtering = view.group_filter_label || view.importance_filter || view.comparison_filter_label;
+    const frame = filtering && canFilter ? rkFilterGraph(original, selectedGroups, selectedImportance, selectedValues) : original;
     filterStatus.textContent = !filtering ? '' : canFilter
       ? `${frame.nodes.length}/${original.nodes.length} 个节点；入口始终保留，仅显示入口可达节点。`
       : '未指定有效入口，无法按可达性过滤。';
