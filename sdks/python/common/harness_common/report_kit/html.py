@@ -44,7 +44,7 @@ details:not([open]) > summary::before { content: "\\25B8"; }
 summary:hover { color: var(--accent); }
 .graph-filter-control > summary { font:inherit; margin:0; padding:1px 6px; border:1px solid #767676;
   border-radius:3px; background:#f5f5f5; white-space:nowrap; }
-.graph-filter-control > summary::before { content:none; }
+details.graph-filter-control > summary::before { content:none; }
 .graph-filter-control > summary::after { content:" ▾"; }
 
 /* nested sub-section (a Heading group, e.g. one service): h3-sized, no rule line */
