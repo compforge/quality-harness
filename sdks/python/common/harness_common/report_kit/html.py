@@ -29,6 +29,8 @@ _CSS = """
 * { box-sizing: border-box; }
 body { font: 14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
        color: var(--fg); margin: 0; padding: 2rem; max-width: 1200px; }
+body:has([role="tabpanel"][data-wide="true"]:not([hidden])) { max-width:none; }
+[role="tabpanel"][data-wide="true"] .graph-canvas { height:max(600px, 78vh); }
 h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
 h2 { font-size: 1.2rem; margin: 2rem 0 .75rem; padding-bottom: .3rem; border-bottom: 1px solid var(--line); }
 h3 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; }
@@ -303,8 +305,10 @@ def _tabs_html(tabs: list[ReportTab], chart_counter: list[int]) -> str:
         content = "".join(
             _section_html(section, chart_counter) for section in tab.sections
         )
+        wide_attr = ' data-wide="true"' if tab.wide else ""
         panels.append(
             f'<div role="tabpanel" id="{panel_id}" aria-labelledby="{tab_id}"'
+            f"{wide_attr}"
             f"{'' if active else ' hidden'}>{content}</div>"
         )
     return (

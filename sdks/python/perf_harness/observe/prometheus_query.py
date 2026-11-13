@@ -6,7 +6,7 @@ from harness_common import HttpOperation, Operation
 from harness_toolbox.prometheus import PrometheusDataSource
 
 from perf_harness.metric import series_id
-from perf_harness.model import ApiMetricBinding, ArmRun, PrometheusObservation
+from perf_harness.model import ArmRun, OperationMetricBinding, PrometheusObservation
 from perf_harness.observe.base import FamilySpec, ProbeContext
 from perf_harness.observe.prometheus import PrometheusQuery, WindowQuery, _PrometheusResultProbe
 
@@ -34,7 +34,7 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
         service: str | None = None,
         operation: Operation | None = None,
         step_s: float = 15,
-        api_metrics: dict[str, str] | None = None,
+        operation_metrics: dict[str, str] | None = None,
         qps_semantics: str = "completed",
     ) -> None:
         super().__init__(queries=queries or [], service=service, operation=operation)
@@ -61,36 +61,44 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
                 summary.unit, "scalar", summary.description, summary.labels
             )
 
-        self.api_metrics = None
-        if api_metrics is not None:
+        self.operation_metrics = None
+        if operation_metrics is not None:
             if (
                 operation is None
-                or not isinstance(api_metrics, dict)
-                or set(api_metrics) not in ({"qps"}, {"qps", "p95"})
+                or not isinstance(operation_metrics, dict)
+                or not operation_metrics
+                or set(operation_metrics) - {"qps", "p95"}
             ):
                 raise ValueError(
-                    "api_metrics requires operation and a qps summary; p95 is optional"
+                    "operation_metrics requires operation and qps and/or p95 summary names"
                 )
             if qps_semantics not in {"entered", "completed"}:
                 raise ValueError("qps_semantics must be entered or completed")
-            for role, name in api_metrics.items():
+            descriptions = {}
+            for role, name in operation_metrics.items():
                 summaries = [q for q in self.summaries if q.name == name]
                 if not summaries or any(
                     q.labels or q.unit != {"qps": "rps", "p95": "s"}[role] for q in summaries
                 ):
                     raise ValueError(
-                        "api_metrics must reference unlabeled window summaries in rps/seconds"
+                        "operation_metrics must reference unlabeled window summaries in rps/seconds"
                     )
-            self.api_metrics = ApiMetricBinding(
+                if len({query.description for query in summaries}) != 1:
+                    raise ValueError("operation metric descriptions must agree across windows")
+                descriptions[role] = summaries[0].description
+            self.operation_metrics = OperationMetricBinding(
                 operation.id(),
                 operation.service_name,
-                series_id(f"{self.family}.{api_metrics['qps']}", self.labels) + ".value",
-                (series_id(f"{self.family}.{api_metrics['p95']}", self.labels) + ".value")
-                if "p95" in api_metrics
+                (series_id(f"{self.family}.{operation_metrics['qps']}", self.labels) + ".value")
+                if "qps" in operation_metrics
+                else None,
+                (series_id(f"{self.family}.{operation_metrics['p95']}", self.labels) + ".value")
+                if "p95" in operation_metrics
                 else None,
                 operation.method if isinstance(operation, HttpOperation) else "",
                 operation.path if isinstance(operation, HttpOperation) else "",
                 qps_semantics,
+                descriptions,
             )
 
     async def sample(self, ctx: ProbeContext) -> dict[str, float]:

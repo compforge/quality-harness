@@ -657,6 +657,7 @@ def write_report(
                             },
                         )
                     ],
+                    wide=True,
                 ),
             ]
             doc.sections = []

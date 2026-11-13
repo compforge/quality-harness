@@ -52,8 +52,13 @@ HTTP 完成和 HTTP 200 也不能替代业务终态 Judge。
 
 Python 使用 `HttpMetricProfile` 和 `HttpApiProbe`，从 `perf_harness.observe` 导入。
 特殊协议或已有 PromQL 仍可使用 `PrometheusQueryProbe`，声明
-`api_metrics={"qps": "<summary name>", "p95": "<summary name>"}`：必须指向无额外结果 label 的
-WindowQuery，单位分别为 rps、s。p95 可省略，未绑定时显示 N/A。
+`operation_metrics={"qps": "<summary name>", "p95": "<summary name>"}`：必须指向无额外结果 label 的
+WindowQuery，单位分别为 rps、s。QPS/p95 均可独立省略，至少绑定一项，未绑定的角色显示 N/A。
+OperationMetricBinding 将角色引用和各自的口径说明关联到 Operation，使用 `operation_metrics` 配置/落盘字段。
+每个角色从对应 WindowQuery 的 description 继承口径，各窗口声明同一角色时说明须一致。
+例如 QPS 可以来自 Counter，p95 来自独立的日志 Histogram；来源不同是正常情况。
+说明应包含测量边界、统计范围及覆盖限制，随 Run、callgraph.json 和节点详情保存。
+不能把两种来源的计数差异直接解释成精确覆盖率或丢失率。
 中间件可用普通 Operation 归属于 Service，只绑定已有 QPS；不必虚构 HTTP method/path 或耗时分位数。多个互不重叠的窗口 kind 可复用同一个 summary 名。
 
 ## 时间窗口与数据
@@ -67,19 +72,21 @@ p95 先合并全部匹配实例的 histogram bucket，再计算 quantile；不�
 真实零计数速率显示 0。低流量下 histogram_quantile 可能是 NaN；边界 bucket 不足也会限制
 延迟估计，需要结合服务指标的 bucket 配置判断。
 
-Run 保存 graph 快照、case_ids、api_metrics 指标地址，以及已有的原始查询和结果。
+Run 保存 graph 快照、case_ids、operation_metrics 指标地址，以及已有的原始查询和结果。
 指标始终按 Operation ID 关联，图中未配置指标的节点仍保留为 N/A。共享环境中 metrics
 可能含其他流量；混合 case 的图明确显示 aggregate scope，不将聚合值分配给单个 case。
 
 ## 离线报告
 
-`report.html` 将原有汇总、吞吐和资源图表放在默认的 Report Tab，调用图放在独立 Callgraph Tab。
+`report.html` 将原有汇总、吞吐和资源图表放在默认的 Report Tab，调用图放在独立 Callgraph Tab，使用页面全宽和随视口高度变化的画布。
 Callgraph 下方的「指标明细」默认折叠，与图共用 Arm/Window 选择，保留该窗口全部 Operation
 指标的统计、单位和来源；Report Tab 不再重复显示 API 观测表。
 无 graph 的报告保持原有 measurement API 观测表。Callgraph 只画 Operation 节点与 calls/may_call 边；Service 显示为分组背景、辅助文字
 和颜色。支持按 Arm/Window 切换、缩放、拖动画布、Fit、点击节点查看指标地址、PromQL 和查询错误。
 图右下角的 0–100% 滑块调整缩放；100% 为原始大小，0 端使用最小倍率 0.1%，
 滚轮和 Fit 会同步更新百分比。隐藏页面首次打开时才按可见画布布局。
+「复制图片」将当前 Arm/Window 的完整图复制为白底 PNG，不受当前缩放和可见区域限制；
+浏览器不支持图片剪贴板或拒绝权限时显示失败原因，不会报告复制成功。
 默认选 measurement。`may_call` 下游节点出现流量是使用线索，不能在缺少 caller 维度时标记该边已执行。
 
 使用 Cytoscape.js + Dagre 自动布局，资源与 ECharts 一并内置，生成及查看不依赖 CDN。

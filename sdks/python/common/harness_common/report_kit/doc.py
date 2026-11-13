@@ -161,10 +161,11 @@ class Section:
 
 @dataclass
 class ReportTab:
-    """A named page of sections within a report."""
+    """A named page of sections within a report; wide views use the available viewport."""
 
     title: str
     sections: list[Section] = field(default_factory=list)
+    wide: bool = False
 
 
 @dataclass

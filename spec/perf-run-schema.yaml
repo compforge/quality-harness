@@ -14,7 +14,7 @@ required:
 properties:
   schema:
     type: integer
-    const: 7
+    const: 8
   run_id:
     type: string
     minLength: 1
@@ -38,19 +38,32 @@ properties:
   case_ids:
     type: array
     items: {type: string}
-  api_metrics:
+  operation_metrics:
     type: array
     items:
       type: object
-      required: [operation, service, qps]
+      required: [operation, service]
+      anyOf:
+      - required: [qps]
+        properties:
+          qps: {type: string, minLength: 1}
+      - required: [p95]
+        properties:
+          p95: {type: string, minLength: 1}
       properties:
         operation: {type: string}
         service: {type: string}
-        qps: {type: string}
+        qps: {type: [string, 'null']}
         p95: {type: [string, 'null']}
         method: {type: string}
         path: {type: string}
         qps_semantics: {enum: [entered, completed]}
+        descriptions:
+          type: object
+          properties:
+            qps: {type: string}
+            p95: {type: string}
+          additionalProperties: false
   connection_budget:
     type: [object, 'null']
     properties:

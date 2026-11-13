@@ -72,6 +72,28 @@ function rkGraph(root, view) {
   });
   select.addEventListener('change', showFrame);
   root.querySelector('.graph-fit').addEventListener('click', () => cy.fit(undefined, 30));
+  const copyButton = root.querySelector('.graph-copy');
+  const copyStatus = root.querySelector('.graph-copy-status');
+  copyButton.addEventListener('click', async () => {
+    copyStatus.textContent = '';
+    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+      copyStatus.textContent = '此浏览器或页面环境不支持复制图片。请用 Chrome 打开本地报告，或通过 HTTPS / localhost 访问。';
+      return;
+    }
+    copyButton.disabled = true;
+    try {
+      // @why Export the complete selected frame, independent of viewport/zoom.
+      // Pass the PNG promise directly to retain the click's clipboard permission.
+      const png = cy.png({full: true, scale: 2, bg: '#ffffff', output: 'blob-promise'});
+      await navigator.clipboard.write([new ClipboardItem({'image/png': png})]);
+      copyStatus.textContent = '完整图已复制，可直接粘贴。';
+    } catch (error) {
+      copyStatus.textContent = '复制失败，请允许浏览器访问剪贴板后重试。';
+      console.warn('Graph image copy failed', {frame: select.value, error});
+    } finally {
+      copyButton.disabled = false;
+    }
+  });
   cy.on('zoom', syncZoom);
   zoom.addEventListener('input', () => {
     cy.zoom({level: Math.max(cy.minZoom(), Number(zoom.value) / 100),
