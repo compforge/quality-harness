@@ -448,6 +448,25 @@ class ReportColumn:
     window: WindowSelector = field(default_factory=WindowSelector)
 
 
+@dataclass(frozen=True)
+class ApiMetricBinding:
+    """Persisted metric addresses for one operation; topology is independent of metrics."""
+
+    operation: str
+    service: str
+    qps: str
+    p95: str
+    method: str = ""
+    path: str = ""
+    qps_semantics: str = "completed"
+
+
+@dataclass(frozen=True)
+class ConnectionBudget:
+    configured_max_connections: int | None
+    effective_max_connections: int
+
+
 @dataclass
 class Run(ExperimentRun):
     """One execution of an Experiment — its identity plus the per-ArmRun results.
@@ -462,6 +481,9 @@ class Run(ExperimentRun):
     environment: str = ""
     report_columns: list[ReportColumn] = field(default_factory=list)
     graph: Graph | None = None
+    api_metrics: list[ApiMetricBinding] = field(default_factory=list)
+    case_ids: list[str] = field(default_factory=list)
+    connection_budget: ConnectionBudget | None = None
 
     def __post_init__(self) -> None:
         if self.graph is not None and self.graph.environment != self.environment:

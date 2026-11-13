@@ -15,6 +15,8 @@ from perf_harness.observe.base import Probe as Probe
 from perf_harness.observe.base import ProbeContext as ProbeContext
 from perf_harness.observe.base import ProbeStore as ProbeStore
 from perf_harness.observe.base import observe_loop as observe_loop
+from perf_harness.observe.http_api import HttpApiProbe as HttpApiProbe
+from perf_harness.observe.http_api import HttpMetricProfile as HttpMetricProfile
 from perf_harness.observe.k8s import KubectlTopProbe as KubectlTopProbe
 from perf_harness.observe.k8s import PerWorkerRSSProbe as PerWorkerRSSProbe
 from perf_harness.observe.k8s import PodCountProbe as PodCountProbe

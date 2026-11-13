@@ -48,7 +48,9 @@ def main(argv: list[str] | None = None) -> int:
         from perf_harness.report import write_report
 
         result = asyncio.run(recollect_metrics(args.run_dir, args.config))
-        paths = write_report(result.arm_runs, args.run_dir, columns=result.report_columns)
+        paths = write_report(
+            result.arm_runs, args.run_dir, columns=result.report_columns, run=result
+        )
         errors = sum(
             q.error is not None for arm in result.arm_runs for q in arm.prometheus_observations
         )
@@ -83,7 +85,11 @@ def main(argv: list[str] | None = None) -> int:
             )
         loaded = load_run(run_dir)
         paths = write_report(
-            loaded.arm_runs, str(run_dir), facet_order=facet_order, columns=loaded.report_columns
+            loaded.arm_runs,
+            str(run_dir),
+            facet_order=facet_order,
+            columns=loaded.report_columns,
+            run=loaded,
         )
         print(f"re-rendered from model layer: {paths['report']}")
         print(f"  html: {paths['report_html']}")
@@ -118,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
                 paths["run_dir"],
                 facet_order=experiment.facet_order,
                 columns=run_result.report_columns,
+                run=run_result,
             )
         )
 

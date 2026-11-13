@@ -17,3 +17,8 @@ from harness_common.report_kit.doc import Report as Report
 from harness_common.report_kit.doc import Section as Section
 from harness_common.report_kit.doc import Table as Table
 from harness_common.report_kit.html import render_html as render_html
+
+from harness_common.report_kit.doc import GraphNode as GraphNode
+from harness_common.report_kit.doc import GraphEdge as GraphEdge
+from harness_common.report_kit.doc import GraphFrame as GraphFrame
+from harness_common.report_kit.doc import GraphView as GraphView

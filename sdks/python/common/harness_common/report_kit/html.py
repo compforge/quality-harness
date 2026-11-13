@@ -1,10 +1,7 @@
 """Render a ``common.common.report_kit.doc.Report`` to a single self-contained HTML string.
 
 One file, no build step. CSS is inlined; tables are fully server-rendered (sort is a
-tiny vanilla-JS helper, score heat is computed here, so tables work offline). Only a
-``Chart`` pulls a charting lib from CDN — a chart-free report (e.g. eval's) renders
-with zero network. The CDN trade-off (no charts offline / on an air-gapped intranet)
-is a deliberate choice for the perf timeseries plots, which markdown can't carry.
+tiny vanilla-JS helper, score heat is computed here, so tables work offline). Charts and graphs use pinned, packaged browser assets; rendering and viewing need no network.
 """
 
 from __future__ import annotations
@@ -14,6 +11,7 @@ import json
 
 from harness_common.report_kit.doc import (
     Chart,
+    GraphView,
     Heading,
     KV,
     LineSeries,
@@ -23,7 +21,7 @@ from harness_common.report_kit.doc import (
     Table,
 )
 
-ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"
+from harness_common.report_kit.graph import asset_script, graph_scripts, render_graph
 
 _CSS = """
 :root { --fg:#1f2328; --muted:#656d76; --line:#d0d7de; --accent:#0969da; --zebra:#f6f8fa; }
@@ -240,6 +238,10 @@ def _block_html(block: object, chart_counter: list[int]) -> str:
         return f'<dl class="kv">{items}</dl>'
     if isinstance(block, Table):
         return _table_html(block)
+    if isinstance(block, GraphView):
+        idx = chart_counter[0]
+        chart_counter[0] += 1
+        return render_graph(block, idx)
     if isinstance(block, Chart):
         idx = chart_counter[0]
         chart_counter[0] += 1
@@ -281,7 +283,9 @@ def render_html(report: Report) -> str:
 
     head_extra = ""
     if report.has_charts():
-        head_extra = f'<script src="{ECHARTS_CDN}"></script>'
+        head_extra = asset_script("echarts.min.js")
+    if report.has_graphs():
+        head_extra += graph_scripts()
 
     # Apply each table's default sort once the DOM + sort helper are ready.
     init = (

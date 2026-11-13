@@ -174,13 +174,15 @@ observe:
     def handler(request):
         form = parse_qs(request.content.decode())
         value = "10" if form["query"] == ["search_latency"] else "20"
+        # Observation includes a baseline before measurement; avoid its boundary.
+        timestamp = (float(form["start"][0]) + float(form["end"][0])) / 2
         return httpx.Response(
             200,
             json={
                 "status": "success",
                 "data": {
                     "resultType": "matrix",
-                    "result": [{"metric": {}, "values": [[float(form["start"][0]), value]]}],
+                    "result": [{"metric": {}, "values": [[timestamp, value]]}],
                 },
             },
         )

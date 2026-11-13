@@ -3,9 +3,52 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+import math
+from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Iterable, Self
+from typing import Iterable, Self, Mapping
+from types import MappingProxyType
+
+
+def _freeze_property(value: object, ancestors: frozenset[int] = frozenset()) -> object:
+    """Copy JSON data into an immutable snapshot; attributes never change graph identity."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    if id(value) in ancestors:
+        raise ValueError("graph properties must not contain cycles")
+    parents = ancestors | {id(value)}
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise ValueError("graph property keys must be strings")
+        return MappingProxyType(
+            {key: _freeze_property(item, parents) for key, item in value.items()}
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_property(item, parents) for item in value)
+    raise ValueError("graph properties must contain finite JSON values")
+
+
+def _properties(value: Mapping[str, object]) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError("graph properties must be a JSON object")
+    if any(not isinstance(key, str) for key in value):
+        raise ValueError("graph property keys must be strings")
+    return MappingProxyType(
+        {
+            key: _freeze_property(item, frozenset({id(value)}))
+            for key, item in value.items()
+        }
+    )
+
+
+def _plain_property(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _plain_property(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_plain_property(item) for item in value]
+    return value
 
 
 class _OpenKind(StrEnum):
@@ -32,16 +75,32 @@ class RelationKind(_OpenKind):
 
     BELONGS_TO = "belongs_to"
     CALLS = "calls"
+    MAY_CALL = "may_call"
 
 
 @dataclass(frozen=True, slots=True)
 class Node:
     id: str
     kind: NodeKind
+    properties: Mapping[str, object] = field(
+        default_factory=dict, kw_only=True, hash=False
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, NodeKind):
             raise TypeError("node kind must be NodeKind")
+        object.__setattr__(self, "properties", _properties(self.properties))
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "kind": self.kind,
+            **(
+                {"properties": _plain_property(self.properties)}
+                if self.properties
+                else {}
+            ),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,11 +113,15 @@ class Relation:
     source: str
     target: str
     kind: RelationKind
+    properties: Mapping[str, object] = field(
+        default_factory=dict, kw_only=True, hash=False
+    )
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, RelationKind):
             raise TypeError("relation kind must be RelationKind")
+        object.__setattr__(self, "properties", _properties(self.properties))
         if any(
             not isinstance(value, str) or not value
             for value in (self.source, self.target, self.kind)
@@ -73,6 +136,19 @@ class Relation:
                 separators=(",", ":"),
             ),
         )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "source": self.source,
+            "target": self.target,
+            "kind": self.kind,
+            **(
+                {"properties": _plain_property(self.properties)}
+                if self.properties
+                else {}
+            ),
+        }
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -122,11 +198,16 @@ class Graph:
             if relation.source not in nodes or relation.target not in nodes:
                 raise ValueError(f"unknown relation endpoint: {relation.id}")
             source, target = nodes[relation.source], nodes[relation.target]
-            if relation.kind == RelationKind.CALLS and (source.kind, target.kind) != (
+            if relation.kind in (RelationKind.CALLS, RelationKind.MAY_CALL) and (
+                source.kind,
+                target.kind,
+            ) != (
                 NodeKind.OPERATION,
                 NodeKind.OPERATION,
             ):
-                raise ValueError(f"calls requires operation endpoints: {relation.id}")
+                raise ValueError(
+                    f"{relation.kind} requires operation endpoints: {relation.id}"
+                )
             if relation.kind == RelationKind.BELONGS_TO:
                 if (source.kind, target.kind) != (NodeKind.OPERATION, NodeKind.SERVICE):
                     raise ValueError(
@@ -138,6 +219,15 @@ class Graph:
         for node in self.nodes:
             if node.kind == NodeKind.OPERATION and node.id not in owners:
                 raise ValueError(f"operation has no service: {node.id}")
+
+    @property
+    def calls(self) -> tuple[Relation, ...]:
+        """Operation edges: required calls and conditional may_call, without ownership."""
+        return tuple(
+            r
+            for r in self.relations
+            if r.kind in (RelationKind.CALLS, RelationKind.MAY_CALL)
+        )
 
     def node(self, node_id: str) -> Node | None:
         return next((node for node in self.nodes if node.id == node_id), None)
@@ -206,8 +296,8 @@ class Graph:
         result = {
             "schema_version": 1,
             "environment": self.environment,
-            "nodes": [asdict(n) for n in self.nodes],
-            "relations": [asdict(r) for r in self.relations],
+            "nodes": [n.to_dict() for n in self.nodes],
+            "relations": [r.to_dict() for r in self.relations],
         }
         if self.source is not None:
             result["source"] = self.source
@@ -239,6 +329,7 @@ class Graph:
                 source=item.get("source"),
                 target=item.get("target"),
                 kind=RelationKind(item.get("kind")),
+                properties=item.get("properties", {}),
             )
             if item.get("id") != relation.id:
                 raise ValueError(
@@ -250,7 +341,11 @@ class Graph:
             source=value.get("source"),
             version=value.get("version"),
             nodes=tuple(
-                Node(id=n.get("id"), kind=NodeKind(n.get("kind")))
+                Node(
+                    id=n.get("id"),
+                    kind=NodeKind(n.get("kind")),
+                    properties=n.get("properties", {}),
+                )
                 for n in value["nodes"]
             ),
             relations=tuple(relations),

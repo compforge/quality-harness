@@ -485,6 +485,7 @@ def write_run(
             str(run_dir),
             facet_order=facet_order,
             columns=run.report_columns,
+            run=run,
         )
     )
 
@@ -497,6 +498,7 @@ def write_report(
     *,
     facet_order: dict[str, list[str]] | None = None,
     columns: list[ReportColumn] | None = None,
+    run: Run | None = None,
 ) -> dict[str, str]:
     """Write summary.csv + by_facet.csv + timeseries.csv + report.md; return the paths."""
     out = Path(outdir)
@@ -604,10 +606,38 @@ def write_report(
     md_path.write_text(_render_md(results, metric_keys, facet_order, columns))
 
     # HTML companion: mirrors report.md, but §3 actually plots the Probe timeseries
-    # (the md only points at timeseries.csv). Tables render offline; only the charts
-    # pull ECharts from CDN.
+    # (the md only points at timeseries.csv). Browser assets are packaged for offline use.
     html_path = out / "report.html"
     doc = _build_doc(results, metric_keys, facet_order, columns)
+    graph_paths = {}
+    if run is not None:
+        from perf_harness.callgraph import build_callgraph
+        from perf_harness.report.callgraph import section as callgraph_section
+
+        if run.connection_budget is not None:
+            budget = run.connection_budget
+            doc.meta.extend(
+                [
+                    ("configured max connections", str(budget.configured_max_connections)),
+                    ("effective max connections", str(budget.effective_max_connections)),
+                ]
+            )
+        snapshot = build_callgraph(run)
+        if snapshot is not None:
+            graph_path = out / "callgraph.json"
+            graph_path.write_text(
+                json.dumps(snapshot.to_dict(), ensure_ascii=False, allow_nan=False, indent=2),
+                encoding="utf-8",
+            )
+            graph_paths["callgraph"] = str(graph_path)
+            doc.sections.insert(2, callgraph_section(snapshot))
+            with md_path.open("a") as stream:
+                stream.write(
+                    "\n## Call Graph\n\nInteractive operation graph with window-aligned QPS/p95: "
+                    "[report.html](report.html). "
+                    "Service is auxiliary information; "
+                    "node traffic does not prove an edge executed.\n"
+                )
     html_path.write_text(render_html(doc), encoding="utf-8")
 
     return {
@@ -617,6 +647,7 @@ def write_report(
         "timeseries": str(ts_path),
         "report": str(md_path),
         "report_html": str(html_path),
+        **graph_paths,
     }
 
 

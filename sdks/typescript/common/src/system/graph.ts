@@ -1,14 +1,23 @@
+import { immutableJsonObject, type JsonObject } from "../json.js";
+
 /** Known names provide completion; arbitrary nonempty string kinds remain valid. */
 export const NodeKind = Object.freeze({ Service: "service", Operation: "operation" } as const);
 export type NodeKind = typeof NodeKind[keyof typeof NodeKind] | (string & {});
 
-export const RelationKind = Object.freeze({ BelongsTo: "belongs_to", Calls: "calls" } as const);
+export const RelationKind = Object.freeze({ BelongsTo: "belongs_to", Calls: "calls", MayCall: "may_call" } as const);
 export type RelationKind = typeof RelationKind[keyof typeof RelationKind] | (string & {});
+
+function propertiesField(properties: JsonObject | undefined): { properties?: JsonObject } {
+  if (properties === undefined) return {};
+  const value = immutableJsonObject(properties, "graph properties");
+  return Object.keys(value).length ? { properties: value } : {};
+}
 
 /** Offline topology. Collection, metrics and diagnosis remain consumer-owned. */
 export interface Node {
   readonly id: string;
   readonly kind: NodeKind;
+  readonly properties?: JsonObject;
 }
 
 export interface Relation {
@@ -16,6 +25,7 @@ export interface Relation {
   readonly source: string;
   readonly target: string;
   readonly kind: RelationKind;
+  readonly properties?: JsonObject;
 }
 
 export interface GraphSnapshot {
@@ -28,11 +38,11 @@ export interface GraphSnapshot {
 }
 
 /** @spec Identity is source/kind/target; repeated calls share a static edge. */
-export function createRelation(source: string, target: string, kind: RelationKind): Relation {
+export function createRelation(source: string, target: string, kind: RelationKind, properties?: JsonObject): Relation {
   if ([source, target, kind].some(value => typeof value !== "string" || !value)) {
     throw new Error("relation endpoints and kind must be nonempty strings");
   }
-  return { id: JSON.stringify([source, kind, target]), source, target, kind };
+  return { id: JSON.stringify([source, kind, target]), source, target, kind, ...propertiesField(properties) };
 }
 
 /**
@@ -57,8 +67,8 @@ export class Graph {
     this.environment = input.environment;
     this.source = input.source;
     this.version = input.version;
-    this.nodes = Object.freeze(input.nodes.map(n => Object.freeze({ id: n.id, kind: n.kind })));
-    this.relations = Object.freeze(input.relations.map(r => Object.freeze({ id: r.id, source: r.source, target: r.target, kind: r.kind })));
+    this.nodes = Object.freeze(input.nodes.map(n => Object.freeze({ id: n.id, kind: n.kind, ...propertiesField(n.properties) })));
+    this.relations = Object.freeze(input.relations.map(r => Object.freeze({ id: r.id, source: r.source, target: r.target, kind: r.kind, ...propertiesField(r.properties) })));
     const nodes = new Map<string, Node>();
     for (const node of this.nodes) {
       if (typeof node.id !== "string" || !node.id || typeof node.kind !== "string" || !node.kind) throw new Error("node id and kind must be nonempty strings");
@@ -74,7 +84,7 @@ export class Graph {
       ids.add(relation.id);
       const source = nodes.get(relation.source), target = nodes.get(relation.target);
       if (!source || !target) throw new Error(`unknown relation endpoint: ${relation.id}`);
-      if (relation.kind === RelationKind.Calls && (source.kind !== NodeKind.Operation || target.kind !== NodeKind.Operation)) throw new Error(`calls requires operation endpoints: ${relation.id}`);
+      if ((relation.kind === RelationKind.Calls || relation.kind === RelationKind.MayCall) && (source.kind !== NodeKind.Operation || target.kind !== NodeKind.Operation)) throw new Error(`${relation.kind} requires operation endpoints: ${relation.id}`);
       if (relation.kind === RelationKind.BelongsTo) {
         if (source.kind !== NodeKind.Operation || target.kind !== NodeKind.Service) throw new Error(`belongs_to requires operation -> service: ${relation.id}`);
         if (owners.has(source.id)) throw new Error(`operation has multiple services: ${source.id}`);
@@ -85,6 +95,11 @@ export class Graph {
       if (node.kind === NodeKind.Operation && !owners.has(node.id)) throw new Error(`operation has no service: ${node.id}`);
     }
     Object.freeze(this);
+  }
+
+  /** Operation edges, including conditional calls, without ownership edges. */
+  get calls(): readonly Relation[] {
+    return this.relations.filter(r => r.kind === RelationKind.Calls || r.kind === RelationKind.MayCall);
   }
 
   node(id: string): Node | undefined { return this.nodes.find(node => node.id === id); }
@@ -133,7 +148,8 @@ export class Graph {
     return { schema_version: 1, environment: this.environment,
       ...(this.source === undefined ? {} : { source: this.source }),
       ...(this.version === undefined ? {} : { version: this.version }),
-      nodes: this.nodes.map(n => ({ ...n })), relations: this.relations.map(r => ({ ...r })),
+      nodes: this.nodes.map(n => JSON.parse(JSON.stringify(n)) as Node),
+      relations: this.relations.map(r => JSON.parse(JSON.stringify(r)) as Relation),
     };
   }
 

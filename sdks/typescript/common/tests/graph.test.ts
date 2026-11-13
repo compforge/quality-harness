@@ -92,3 +92,30 @@ test("open kind constants and extensions retain wire identity and validation", (
   expect(Object.isFrozen(RelationKind)).toBe(true);
   expect(() => new Graph({ environment: "qa", nodes, relations: [...relations, createRelation("s", "o", RelationKind.Calls)] })).toThrow("calls requires");
 });
+
+
+test("conditional calls have operation endpoints and join the call projection", () => {
+  const original = Graph.fromJSON(fixture.graph);
+  const optional = createRelation("operation:chat/ask", "operation:a/unrelated", RelationKind.MayCall);
+  const graph = new Graph({ ...original.toJSON(), relations: [...original.relations, optional] });
+  expect(graph.calls).toContainEqual(optional);
+  expect(graph.calls.every(r => r.kind === "calls" || r.kind === "may_call")).toBe(true);
+  expect(Graph.fromJSON(graph.toJSON()).toJSON()).toEqual(graph.toJSON());
+  expect(() => new Graph({ ...graph.toJSON(), relations: [...graph.relations,
+    createRelation("operation:chat/ask", "service:a", RelationKind.MayCall)] })).toThrow("may_call requires operation endpoints");
+});
+
+
+test("property graph snapshots detach JSON attributes without changing relation identity", () => {
+  const properties = { http: { path: "/items/{id}" }, values: [1, 2.5, null, true] };
+  const relation = createRelation("s", "s", "related", { weight: 1.5 });
+  const graph = new Graph({environment: "qa", nodes: [{id: "s", kind: "service", properties}], relations: [relation]});
+  properties.http.path = "mutated";
+  expect(graph.nodes[0].properties?.http).toEqual({path: "/items/{id}"});
+  expect(Object.isFrozen(graph.nodes[0].properties?.http)).toBe(true);
+  const wire = graph.toJSON();
+  expect(Graph.fromJSON(wire).toJSON()).toEqual(wire);
+  expect(wire.nodes[0].properties).not.toBe(graph.nodes[0].properties);
+  expect(relation.id).toBe(createRelation("s", "s", "related").id);
+  expect(() => new Graph({environment: "qa", nodes: [{id: "s", kind: "service", properties: {value: NaN}}], relations: []})).toThrow("finite JSON");
+});

@@ -33,7 +33,10 @@ class Operation(Identity):
 
 @dataclass(frozen=True, slots=True)
 class HttpOperation(Operation):
-    """An Operation exposed through an HTTP method and path."""
+    """An HTTP capability; path is its route template, e.g. /users/{id}.
+
+    @rule Metrics match service + method + route; concrete request URLs are execution data.
+    """
 
     method: str
     path: str

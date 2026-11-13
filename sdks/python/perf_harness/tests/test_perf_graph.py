@@ -73,7 +73,10 @@ async def test_graph_and_operation_metrics_survive_offline_reload(monkeypatch, t
     (tmp_path / "product.graph.json").unlink()
 
     def handler(request):
-        start = float(parse_qs(request.content.decode())["start"][0])
+        params = parse_qs(request.content.decode())
+        # Keep this fixture inside both observation and measurement windows;
+        # a sample at the rounded observation boundary can precede measurement.
+        start = (float(params["start"][0]) + float(params["end"][0])) / 2
         return httpx.Response(
             200,
             json={

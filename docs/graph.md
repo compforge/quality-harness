@@ -9,18 +9,31 @@ consumers can introduce additional kinds without introducing node subclasses.
 
 `NodeKind` and `RelationKind` expose built-in names while accepting custom nonempty
 strings. Python uses open `StrEnum` values: `NodeKind.SERVICE`, `NodeKind.OPERATION`,
-`RelationKind.BELONGS_TO`, `RelationKind.CALLS`; `NodeKind("model")` and
+`RelationKind.BELONGS_TO`, `RelationKind.CALLS`, `RelationKind.MAY_CALL`; `NodeKind("model")` and
 `RelationKind("uses")` preserve unknown values without registering new members.
 Python Node/Relation constructors require the corresponding enum type. JSON decoding
 constructs enum values at the boundary, including unknown custom kinds.
 
 TypeScript exports frozen constants `NodeKind.Service`, `NodeKind.Operation`,
-`RelationKind.BelongsTo`, `RelationKind.Calls` and same-named open string types.
+`RelationKind.BelongsTo`, `RelationKind.Calls`, `RelationKind.MayCall` and same-named open string types.
 Their literal-plus-string unions retain editor completion while allowing custom kinds.
 
 Both languages serialize kinds as the same plain strings. Unknown kinds roundtrip
 unchanged, and known strings/constants follow identical validation rules. No enum
 registration or wire schema change is required to extend the vocabulary.
+
+## Properties
+
+Node and Relation accept optional `properties` JSON objects. Attributes do not participate in
+IDs; changing an observation does not create a different operation or relationship. Common
+validates finite JSON values, copies them into immutable snapshots, and returns detached data
+from serialization. Empty properties are omitted, preserving existing graph files.
+
+Python uses `Node(id, kind, properties={...})` and `Relation(source, target, kind, properties={...})`.
+TypeScript accepts `properties` on nodes/relations and as the optional fourth `createRelation`
+argument. Domain consumers own property names and semantics; Common does not interpret HTTP,
+metrics or confidence. Perf enriches copied nodes under `properties.perf` in its run snapshot;
+static declarations remain unchanged.
 
 ## Scope and identity
 
@@ -57,7 +70,15 @@ operation; it is not duplicated inside the operation payload.
 | Kind | Direction | Contract |
 | --- | --- | --- |
 | `belongs_to` | operation → service | Every operation has exactly one owner. |
-| `calls` | operation → operation | Declared possible call; cycles and shared callees are allowed. |
+| `calls` | operation → operation | Required call on the declared normal execution path. |
+| `may_call` | operation → operation | Conditional call within the declared scope. |
+
+Both call kinds allow cycles and shared callees. Required describes the normal path,
+not a guarantee that a failed or cancelled request reached the callee. Projects declare
+scope through their experiment/case binding; Common does not infer business branches.
+When adopting these semantics, review older graphs whose `calls` meant all possible
+calls and mark conditional edges explicitly. The wire spelling `calls` is retained;
+reports display it as `call`.
 
 Node IDs must be unique; relation endpoints must exist. Relations are unique by
 `(source, kind, target)`. The relation ID is the compact JSON encoding of that triple,
@@ -108,7 +129,9 @@ input collections and retain immutable nodes/relations; serialized results are d
 Queries preserve declaration order. Reachability includes the root, visits each node
 once and terminates on cycles. A missing root or requested subgraph node is an error;
 a missing node lookup returns None/undefined, and missing-node adjacency is empty.
-Filter by `calls` to follow API dependencies without following ownership edges.
+The `calls` property returns both `calls` and `may_call` operation edges, excluding
+ownership and custom relations. Single-kind traversal remains available with
+`reachable_from(..., kind=...)` / `reachableFrom(..., kind)`.
 `subgraph` includes selected operations' service owners and all edges between retained
 nodes, without pulling in unrelated operations belonging to those services.
 

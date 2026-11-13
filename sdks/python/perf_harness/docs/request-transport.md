@@ -1,7 +1,7 @@
 # 请求连接通道
 
 默认直连 `service.base_url`，忽略 shell 中的代理环境变量。`request_transport` 可显式选择
-通道；它只影响 Runner 使用的 HTTP client，观测和 `/metrics` 的通道独立配置。
+通道；它只影响 Runner 使用的 HTTP client，Prometheus 等观测客户端独立配置。
 
 ```yaml
 service:
@@ -21,7 +21,6 @@ request_transport:
     container: app
   startup_timeout_s: 30
   connect_timeout_s: 10
-  max_connections: 128
   max_targets: 16
   max_candidate_pods: 3
   heartbeat_s: 5
@@ -32,7 +31,17 @@ load: {request_rate: 8, max_inflight: 100, hold_s: 60}
 以上是连接配置片段，Case、Runner、资源和观测使用项目已有声明。压力机须能通过本机
 kubeconfig 访问 Kubernetes API，并安装 `kubectl` 与 `quality-harness[kube]`。relay 使用
 显式 Workload 中已有的 Running/Ready 容器，要求 Python >=3.8，不创建额外 Pod。
-`max_connections` 必须覆盖所有 LoadPlan/Stage 的峰值 `max_inflight`。
+执行前统一求值：
+
+```text
+effective_max_connections = max(128, 显式 max_connections, 所有 LoadPlan/Stage 的 peak_max_inflight)
+```
+
+加压 HTTP pool、本机 SOCKS proxy 和 Pod relay 使用同一 effective 值；原始配置不修改。
+`max_connections` 是可选容量下限，通常只配置 `max_inflight` 即可。Run 的 `connection_budget`
+保存配置值和 effective 值，报告也展示它们。省略 Pod relay 容量时配置对象携带默认 128；
+直连没有显式容量，记录为 null。自定义 Transport 的内部限制仍由其实现负责。
+QPS、超时、租约、目标数量和观测连接池不会随并发自动放大。
 
 路径为 `压力机 → 本次 Run 拥有的 port-forward → Pod relay → Service ClusterIP`。
 `service.base_url` 保持业务逻辑地址，不能替换成某个 Chat Pod 的 loopback 地址；连接层由

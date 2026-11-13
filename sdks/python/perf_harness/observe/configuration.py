@@ -4,7 +4,7 @@ import math
 import os
 from typing import get_args
 
-from harness_common import Operation
+from harness_common import HttpOperation, Operation
 from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
 
 from perf_harness.model import ReportColumn, Service, WindowKind, WindowSelector
@@ -78,6 +78,8 @@ def parse_prometheus_probe(
     if operation_name is not None and (not isinstance(operation_name, str) or not operation_name):
         raise ValueError("metric operation must be a nonempty name")
     operation = Operation(operation_name, service_name=service.name) if operation_name else None
+    api_metrics = options.pop("api_metrics", None)
+    qps_semantics = options.pop("qps_semantics", "completed")
     query_raw = options.pop("queries", [])
     queries = parse_queries(query_raw, service.name) if query_raw else []
     summaries = []
@@ -103,6 +105,8 @@ def parse_prometheus_probe(
         queries=queries,
         summaries=summaries,
         step_s=step_s,
+        api_metrics=api_metrics,
+        qps_semantics=qps_semantics,
     )
 
 
@@ -181,3 +185,36 @@ def parse_columns(raw: dict | None) -> list[ReportColumn]:
             )
         )
     return columns
+
+
+def parse_http_api_probe(
+    options: dict,
+    service: Service,
+    profile: dict | None,
+    source: PrometheusDataSource | None,
+    step_s: float,
+) -> PrometheusQueryProbe:
+    from perf_harness.observe.http_api import HttpApiProbe, HttpMetricProfile
+
+    if source is None:
+        raise ValueError("http_api requires experiment prometheus.url")
+    if not isinstance(profile, dict):
+        raise ValueError("http_api requires observe[].http_metrics")
+    if set(options) - {"operation", "metric_route"}:
+        raise ValueError("http_api supports only operation and metric_route")
+    operation = options.get("operation")
+    if not isinstance(operation, dict) or set(operation) != {"name", "method", "path"}:
+        raise ValueError("http_api operation requires name, method and path (route template)")
+    if any(not isinstance(value, str) or not value for value in operation.values()):
+        raise ValueError("HTTP operation name, method and path must be nonempty strings")
+    try:
+        metrics = HttpMetricProfile(**profile)
+    except TypeError as exc:
+        raise ValueError("http_metrics contains missing or unknown profile fields") from exc
+    return HttpApiProbe(
+        operation=HttpOperation(service_name=service.name, **operation),
+        profile=metrics,
+        data_source=source,
+        step_s=step_s,
+        metric_route=options.get("metric_route"),
+    )

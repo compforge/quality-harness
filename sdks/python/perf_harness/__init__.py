@@ -20,6 +20,8 @@ from __future__ import annotations
 from harness_common import Deployer as Deployer
 from spec_case.model import Case as Case  # canonical case, shared across e2e / eval / perf
 
+from perf_harness.callgraph import CallGraphSnapshot as CallGraphSnapshot
+from perf_harness.callgraph import build_callgraph as build_callgraph
 from perf_harness.config import load_experiment as load_experiment
 from perf_harness.deploy import HelmDeployer as HelmDeployer
 from perf_harness.drive.load import LoadPlan as LoadPlan

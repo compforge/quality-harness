@@ -35,6 +35,27 @@ properties:
       environment: {type: string, minLength: 1}
       nodes: {type: array}
       relations: {type: array}
+  case_ids:
+    type: array
+    items: {type: string}
+  api_metrics:
+    type: array
+    items:
+      type: object
+      required: [operation, service, qps, p95]
+      properties:
+        operation: {type: string}
+        service: {type: string}
+        qps: {type: string}
+        p95: {type: string}
+        method: {type: string}
+        path: {type: string}
+        qps_semantics: {enum: [entered, completed]}
+  connection_budget:
+    type: [object, 'null']
+    properties:
+      configured_max_connections: {type: [integer, 'null'], minimum: 1}
+      effective_max_connections: {type: integer, minimum: 1}
   report_columns:
     type: array
     items:

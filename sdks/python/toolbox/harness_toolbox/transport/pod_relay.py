@@ -21,6 +21,7 @@ from harness_toolbox.transport.kubernetes import KubernetesAccess
 from harness_toolbox.transport.port_forward import PortForwardTransport, _PortForward
 
 LOG = logging.getLogger(__name__)
+DEFAULT_MAX_CONNECTIONS = 128
 
 
 @dataclass(frozen=True)
@@ -38,7 +39,7 @@ class PodRelayTransport:
     workload: KubernetesWorkload
     startup_timeout_s: float = 30
     connect_timeout_s: float = 10
-    max_connections: int = 128
+    max_connections: int = DEFAULT_MAX_CONNECTIONS
     max_targets: int = 16
     max_candidate_pods: int = 3
     heartbeat_s: float = 5

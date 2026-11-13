@@ -91,8 +91,7 @@ class LineSeries:
 class Chart:
     """A line chart — multiple same-scale signals over a shared x axis.
 
-    The renderer draws this with a charting lib (CDN); it is the one block kind that
-    needs JS, so a document with no Chart renders fully offline. Keep series on the
+    The renderer uses packaged browser assets, so charts remain available offline. Keep series on the
     chart same-scale (group by unit) — mixing cpu% and bytes on one axis misleads.
 
     ``right_series`` (optional) draws on a SECOND y axis (``y2_label``), dashed — for
@@ -113,7 +112,42 @@ class Chart:
     y2_label: str = ""
 
 
-Block = Prose | Heading | KV | Table | Chart
+@dataclass
+class GraphNode:
+    id: str
+    label: str
+    group: str = ""
+    details: list[tuple[str, str]] = field(default_factory=list)
+    color: str = "#dbeafe"
+
+
+@dataclass
+class GraphEdge:
+    id: str
+    source: str
+    target: str
+    label: str = ""
+    dashed: bool = False
+
+
+@dataclass
+class GraphFrame:
+    """One selectable view; domain reducers prepare all values before rendering."""
+
+    label: str
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+
+
+@dataclass
+class GraphView:
+    """Neutral directed graph with optional view selection and node details."""
+
+    title: str
+    frames: list[GraphFrame]
+
+
+Block = Prose | Heading | KV | Table | Chart | GraphView
 
 
 @dataclass
@@ -132,3 +166,6 @@ class Report:
 
     def has_charts(self) -> bool:
         return any(isinstance(b, Chart) for s in self.sections for b in s.blocks)
+
+    def has_graphs(self) -> bool:
+        return any(isinstance(b, GraphView) for s in self.sections for b in s.blocks)

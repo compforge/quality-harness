@@ -2,10 +2,11 @@
 
 import math
 
-from harness_common import Operation
+from harness_common import HttpOperation, Operation
 from harness_toolbox.prometheus import PrometheusDataSource
 
-from perf_harness.model import ArmRun, PrometheusObservation
+from perf_harness.metric import series_id
+from perf_harness.model import ApiMetricBinding, ArmRun, PrometheusObservation
 from perf_harness.observe.base import FamilySpec, ProbeContext
 from perf_harness.observe.prometheus import PrometheusQuery, WindowQuery, _PrometheusResultProbe
 
@@ -33,6 +34,8 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
         service: str | None = None,
         operation: Operation | None = None,
         step_s: float = 15,
+        api_metrics: dict[str, str] | None = None,
+        qps_semantics: str = "completed",
     ) -> None:
         super().__init__(queries=queries or [], service=service, operation=operation)
         if not math.isfinite(step_s) or step_s <= 0:
@@ -42,13 +45,48 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
         self.summaries = list(summaries or [])
         if not self.queries and not self.summaries:
             raise ValueError("prometheus_query requires queries or summaries")
-        for summary in self.summaries:
+        for index, summary in enumerate(self.summaries):
             if set(summary.labels) & set(self.labels):
                 raise ValueError("summary labels cannot override the observation binding")
-            if summary.name in self.families or summary.name == "up":
+            if summary.name in {q.name for q in self.queries} or summary.name == "up":
                 raise ValueError("Prometheus query names must be unique and cannot use up")
+            previous = [q for q in self.summaries[:index] if q.name == summary.name]
+            if any(
+                q.window.kind == summary.window.kind
+                or (q.unit, q.labels) != (summary.unit, summary.labels)
+                for q in previous
+            ):
+                raise ValueError("duplicate or inconsistent Prometheus window summary")
             self.families[summary.name] = FamilySpec(
                 summary.unit, "scalar", summary.description, summary.labels
+            )
+
+        self.api_metrics = None
+        if api_metrics is not None:
+            if (
+                operation is None
+                or not isinstance(api_metrics, dict)
+                or set(api_metrics) != {"qps", "p95"}
+            ):
+                raise ValueError("api_metrics requires operation and qps/p95 summary names")
+            if qps_semantics not in {"entered", "completed"}:
+                raise ValueError("qps_semantics must be entered or completed")
+            for role, name in api_metrics.items():
+                summaries = [q for q in self.summaries if q.name == name]
+                if not summaries or any(
+                    q.labels or q.unit != {"qps": "rps", "p95": "s"}[role] for q in summaries
+                ):
+                    raise ValueError(
+                        "api_metrics must reference unlabeled window summaries in rps/seconds"
+                    )
+            self.api_metrics = ApiMetricBinding(
+                operation.id(),
+                operation.service_name,
+                series_id(f"{self.family}.{api_metrics['qps']}", self.labels) + ".value",
+                series_id(f"{self.family}.{api_metrics['p95']}", self.labels) + ".value",
+                operation.method if isinstance(operation, HttpOperation) else "",
+                operation.path if isinstance(operation, HttpOperation) else "",
+                qps_semantics,
             )
 
     async def sample(self, ctx: ProbeContext) -> dict[str, float]:
