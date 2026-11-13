@@ -217,6 +217,23 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     assert html.index("执行状态</summary>") < html.index('id="rk-panel-1"')
     assert html.index('id="rk-panel-1"') < html.index("Call Graph</summary>")
     assert "<script src=" not in html
+    assert "API 观测（measurement）</summary>" not in html
+    assert '<details class="graph-table"><summary>指标明细</summary>' in html
+    from perf_harness.report.render import _api_observations
+
+    tables = {
+        (arm.id, window.id): _api_observations([arm], window.id)
+        for arm in restored.arm_runs
+        for window in arm.windows
+    }
+    frames = section(snapshot, tables).blocks[-1].frames
+    for arm in snapshot.arms:
+        for window in arm.windows:
+            frame = next(
+                f for f in frames if f.label == f"{arm.arm_id} / {window.id} ({window.kind})"
+            )
+            assert frame.table is tables[arm.id, window.id]
+            assert all(row[0] == arm.id and row[1] == window.id for row in frame.table.rows)
 
 
 def test_middleware_qps_only_binding_round_trips_without_inventing_latency(tmp_path):

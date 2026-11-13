@@ -81,3 +81,30 @@ def test_report_without_tabs_keeps_flat_sections():
     rendered = render_html(Report("flat", sections=[Section("summary")]))
     assert 'role="tablist"' not in rendered
     assert "<details open><summary>summary</summary>" in rendered
+
+
+def test_graph_frame_tables_are_escaped_collapsed_and_not_duplicated_in_js():
+    from harness_common.report_kit import GraphFrame, GraphView, Table
+
+    view = GraphView(
+        "calls",
+        [
+            GraphFrame("measurement", [], [], Table(["window"], [["<measurement>"]])),
+            GraphFrame("observation", [], [], Table(["window"], [["observation"]])),
+            GraphFrame("empty", [], []),
+        ],
+        table_title="指标明细",
+    )
+    rendered = render_html(Report("test", sections=[Section("graph", [view])]))
+    assert '<details class="graph-table"><summary>指标明细</summary>' in rendered
+    assert '<div data-graph-frame="0"><table' in rendered
+    assert '<div data-graph-frame="1" hidden><table' in rendered
+    assert (
+        '<div data-graph-frame="2" hidden><p>No observations in this view.</p>'
+        in rendered
+    )
+    assert "&lt;measurement&gt;" in rendered
+    assert "<measurement>" not in rendered
+    assert (
+        '"table":' not in rendered
+    )  # Tables are rendered once, not copied into JS payload.

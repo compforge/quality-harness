@@ -74,7 +74,9 @@ Run 保存 graph 快照、case_ids、api_metrics 指标地址，以及已有的�
 ## 离线报告
 
 `report.html` 将原有汇总、吞吐和资源图表放在默认的 Report Tab，调用图放在独立 Callgraph Tab。
-无 graph 的报告保持原有布局。Callgraph 只画 Operation 节点与 calls/may_call 边；Service 显示为分组背景、辅助文字
+Callgraph 下方的「指标明细」默认折叠，与图共用 Arm/Window 选择，保留该窗口全部 Operation
+指标的统计、单位和来源；Report Tab 不再重复显示 API 观测表。
+无 graph 的报告保持原有 measurement API 观测表。Callgraph 只画 Operation 节点与 calls/may_call 边；Service 显示为分组背景、辅助文字
 和颜色。支持按 Arm/Window 切换、缩放、拖动画布、Fit、点击节点查看指标地址、PromQL 和查询错误。
 图右下角的 0–100% 滑块调整缩放；100% 为原始大小，0 端使用最小倍率 0.1%，
 滚轮和 Fit 会同步更新百分比。隐藏页面首次打开时才按可见画布布局。

@@ -137,6 +137,8 @@ class GraphFrame:
     label: str
     nodes: list[GraphNode]
     edges: list[GraphEdge]
+    # @spec A frame owns both topology and its optional detail table; selection is shared.
+    table: Table | None = None
 
 
 @dataclass
@@ -145,6 +147,7 @@ class GraphView:
 
     title: str
     frames: list[GraphFrame]
+    table_title: str = "Details"
 
 
 Block = Prose | Heading | KV | Table | Chart | GraphView

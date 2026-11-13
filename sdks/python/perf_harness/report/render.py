@@ -280,11 +280,16 @@ def _display_metric_cells(stats: RequestStats, keys: list[str]) -> list[str]:
     return out
 
 
-def _api_observations(results: list[ArmRun]) -> Table:
+def _api_observations(results: list[ArmRun], window_id: str | None = None) -> Table:
     """Keep API-bound observations visible even with a single load level."""
     rows: list[list[str]] = []
     for run in results:
-        for sid, summary in run.measurement.probe_metrics.items():
+        window = (
+            run.measurement
+            if window_id is None
+            else next(w for w in run.windows if w.id == window_id)
+        )
+        for sid, summary in window.probe_metrics.items():
             name, labels = split_series(sid)
             if "operation" not in labels:
                 continue
@@ -293,7 +298,7 @@ def _api_observations(results: list[ArmRun]) -> Table:
             rows.append(
                 [
                     run.id,
-                    "measurement",
+                    window.id,
                     sid,
                     ", ".join(
                         f"{key.rsplit('.', 1)[1]}={_fmt(value)}" for key, value in stats.items()
@@ -608,7 +613,13 @@ def write_report(
     # HTML companion: mirrors report.md, but §3 actually plots the Probe timeseries
     # (the md only points at timeseries.csv). Browser assets are packaged for offline use.
     html_path = out / "report.html"
-    doc = _build_doc(results, metric_keys, facet_order, columns)
+    doc = _build_doc(
+        results,
+        metric_keys,
+        facet_order,
+        columns,
+        include_api_observations=run is None or run.graph is None,
+    )
     graph_paths = {}
     if run is not None:
         from perf_harness.callgraph import build_callgraph
@@ -634,7 +645,19 @@ def write_report(
 
             doc.tabs = [
                 ReportTab("Report", doc.sections),
-                ReportTab("Callgraph", [callgraph_section(snapshot)]),
+                ReportTab(
+                    "Callgraph",
+                    [
+                        callgraph_section(
+                            snapshot,
+                            {
+                                (arm.id, window.id): _api_observations([arm], window.id)
+                                for arm in results
+                                for window in arm.windows
+                            },
+                        )
+                    ],
+                ),
             ]
             doc.sections = []
             with md_path.open("a") as stream:
@@ -662,6 +685,8 @@ def _build_doc(
     metric_keys: list[str],
     facet_order: dict[str, list[str]] | None,
     columns: list[ReportColumn] | None = None,
+    *,
+    include_api_observations: bool = True,
 ) -> Report:
     """Map ArmRuns into the neutral report IR — same content/order as ``_render_md``,
     but §3 carries plotted Probe series instead of a pointer to timeseries.csv."""
@@ -754,7 +779,7 @@ def _build_doc(
     report.sections.append(sec1)
     report.sections.append(lifecycle.section(results))
     api = _api_observations(results)
-    if api.rows:
+    if include_api_observations and api.rows:
         report.sections.append(Section("API 观测（measurement）", [api]))
 
     # (no per-service resource TABLE: §3's response curves + §4's timeseries carry the
