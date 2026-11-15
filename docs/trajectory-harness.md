@@ -117,7 +117,7 @@ Trajectory 是执行轨迹这一概念；ATIF 是本 Harness 采用的业界轨�
 定义的观测读模型，主要服务渲染与人的监督；TUI / Web 是展示层。三者不是同一种格式的不同名字。
 
 ```text
-一次模型调用的 message list -----------------------> Context View
+一次模型调用的 message list -----------------------> Prompt View
 一次 loop execution -> ATIF Trajectory ------------> SessionView -> TUI / Web
                             └-> 评估器 -> 独立评分结果
 一个业务目标的执行经过（一个或多个 loop + 确定性操作） -> JobView
@@ -125,11 +125,11 @@ Trajectory 是执行轨迹这一概念；ATIF 是本 Harness 采用的业界轨�
 
 | 视角 | 组织对象 | 主要回答 |
 |---|---|---|
-| Context View | 一次模型调用实际收到的消息列表及工具定义 | 当时给了什么上下文，如何组织，有什么缺口？ |
+| Prompt View | 一次模型调用实际收到的消息列表及工具定义 | 当时给了什么上下文，如何组织，有什么缺口？ |
 | SessionView | 一个 Agent Session 中的输入、调用与执行关系 | Agent 如何决策、行动、接收反馈并继续执行？ |
 | JobView | 一个业务目标及参与它的调用、loop、确定性操作与结果 | 业务经过哪些工作、交接与交付，目标是否完成？ |
 
-Context View 按 message 的真实顺序、role 和内部章节组织；消息列表本身不等于完整请求，工具定义
+Prompt View 按 message 的真实顺序、role 和内部章节组织；消息列表本身不等于完整请求，工具定义
 等可能位于消息之外。缺少原始请求时必须标明重建或缺失，不能从输出补造 prompt。
 
 这里的 loop 是一次实际 execution，不是 loop 算法或进程。以 CCR 为例，可把 R1 / R2 的每次

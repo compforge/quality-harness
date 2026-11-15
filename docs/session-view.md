@@ -18,13 +18,13 @@ connect through evidence references: people can drill down from a result or iden
 current evaluator coverage. Viewing need not run evaluation, and evaluation need not render a view.
 
 ```text
-actual model request messages --------------------------> Context View
+actual model request messages --------------------------> Prompt View
 loop execution -> ATIF Trajectory -----------------------> SessionView -> text/TUI/Web
                        └-> evaluators -> separate results
 business goal and its work across loops/operations ------> JobView
 ```
 
-Context View organizes the actual message list by order, role and internal sections, with tool
+Prompt View organizes the actual message list by order, role and internal sections, with tool
 definitions and other request context at their recorded location. A message list alone may not
 contain the whole request. A project may choose one loop execution per ATIF document; one Session
 can contain several such documents. A business Job can span Sessions or select only some calls
