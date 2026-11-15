@@ -4,7 +4,7 @@ Consume standard ATIF v1.8 agent trajectories, adapt other recordings to ATIF, d
 measurements, discover patterns, verify criteria, aggregate dataset-level metrics, and render
 comparable reports.
 
-Recorded execution facts support two paths: Job/Session/Context views make the process visible to
+Recorded execution facts support two paths: Job/Session/Prompt views make the process visible to
 people for observation and supervision; Good/Fast/Cheap evaluation selects optimization candidates
 for diagnosis, an authorized change and controlled re-evaluation on new executions. Low scores are
 one selection method, not a diagnosis. The trajectory skill provides overall guidance, this SDK
@@ -25,7 +25,7 @@ dimensions: `category="cost" | "effect"` and `rule_type="hard" | "soft"`.
 ATIF Trajectory is the standardized fact and evaluation input; SessionView is an observation
 read model projected from it, and TUI/Web render that view. Multiple trajectory documents can
 contribute to one explicitly attributed Session. The complementary views follow different subjects:
-actual request messages → Context View; loop execution → ATIF Trajectory → SessionView;
+actual request messages → Prompt View; loop execution → ATIF Trajectory → SessionView;
 business work across loops and operations → JobView. SessionView may also come directly from other
 recordings; it does not replace ATIF storage. Scores remain separate, with trajectory/step evidence.
 See [facts and views](../../../docs/trajectory-harness.md#事实来源与视图投影) for identities and boundaries.
