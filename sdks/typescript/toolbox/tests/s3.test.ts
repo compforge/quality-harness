@@ -234,7 +234,7 @@ test("bounded S3 PUT/GET/DELETE preserves bytes, signing and the uploaded versio
     if (req.method === "PUT") {
       const chunks: Buffer[] = [];
       req.on("data", chunk => chunks.push(chunk));
-      req.on("end", () => { stored = Buffer.concat(chunks); res.writeHead(200, { "x-amz-version-id": "v/1+", etag: '"etag"' }); res.end(); });
+      req.on("end", () => { stored = Buffer.concat(chunks); res.writeHead(200, { "x-amz-version-id": "v/1+", "x-amz-request-id": "upload-1", "x-amz-id-2": "host-1", etag: '"etag"' }); res.end(); });
     } else if (req.method === "GET") {
       expect(url.searchParams.get("versionId")).toBe("v/1+");
       res.writeHead(200, { "content-length": String(stored.length) }); res.end(stored);
@@ -250,7 +250,8 @@ test("bounded S3 PUT/GET/DELETE preserves bytes, signing and the uploaded versio
     const bytes = new TextEncoder().encode("hello world");
     expect(() => client.putObject("bucket", "probe/hello.txt", bytes, { maxBytes: 10 })).toThrow("maxBytes");
     const uploaded = await client.putObject("bucket", "probe/hello.txt", bytes, { maxBytes: 11, contentType: "text/plain" });
-    expect(uploaded).toEqual({ etag: '"etag"', versionId: "v/1+" });
+    expect(uploaded).toEqual({ etag: '"etag"', versionId: "v/1+",
+      response: { httpStatusCode: 200, requestId: "upload-1", extendedRequestId: "host-1", attempts: 1 } });
     expect(stored.toString()).toBe("hello world");
     expect(calls).toHaveLength(1);
     const read = await client.readObject("bucket", "probe/hello.txt", { maxBytes: 12, versionId: uploaded.versionId });
@@ -270,4 +271,65 @@ test("S3 mutations preserve AccessDenied and never retry failed writes", async (
     await expect(client.deleteObject("bucket", "own-key")).rejects.toMatchObject({ name: "AccessDenied" });
     expect(calls).toEqual(["PUT", "DELETE"]);
   } finally { await manager.dispose(); await fixture.close(); }
+});
+
+test("presigned GET downloads without Authorization and signs the encoded key, version and temporary token", async () => {
+  const { createHash, createHmac } = await import("node:crypto");
+  const { HttpClient } = await import("../src/http");
+  let calls = 0;
+  const fixture = await server((req, res) => {
+    calls++;
+    const url = new URL(req.url!, fixture.endpoint);
+    const query = url.searchParams;
+    expect(req.headers.authorization).toBeUndefined();
+    expect(decodeURIComponent(url.pathname)).toBe("/bucket/a b/中文+?#%.txt");
+    expect(query.get("versionId")).toBe("v+/=1");
+    expect(query.get("X-Amz-Expires")).toBe("60");
+    expect(query.get("X-Amz-Security-Token")).toBe(credentials.sessionToken);
+    expect(query.get("X-Amz-SignedHeaders")).toBe("host");
+    // Verify the signature independently using the actual HTTP request's canonical form.
+    const encode = (value: string) => encodeURIComponent(value).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+    const canonicalQuery = [...query].filter(([key]) => key !== "X-Amz-Signature")
+      .map(([key, value]) => [encode(key), encode(value)]).sort(([a], [b]) => a! < b! ? -1 : a! > b! ? 1 : 0)
+      .map(([key, value]) => `${key}=${value}`).join("&");
+    const canonical = ["GET", url.pathname, canonicalQuery, `host:${req.headers.host}\n`, "host", "UNSIGNED-PAYLOAD"].join("\n");
+    const [accessKey, date, region, service, terminal] = query.get("X-Amz-Credential")!.split("/");
+    expect(accessKey).toBe(credentials.accessKeyId);
+    expect([region, service, terminal]).toEqual(["us-east-1", "s3", "aws4_request"]);
+    let signingKey: Buffer = Buffer.from(`AWS4${credentials.secretAccessKey}`);
+    for (const part of [date!, region!, service!, terminal!]) signingKey = createHmac("sha256", signingKey).update(part).digest();
+    const message = ["AWS4-HMAC-SHA256", query.get("X-Amz-Date"), `${date}/${region}/${service}/${terminal}`,
+      createHash("sha256").update(canonical).digest("hex")].join("\n");
+    expect(query.get("X-Amz-Signature")).toBe(createHmac("sha256", signingKey).update(message).digest("hex"));
+    res.end("hello world");
+  });
+  const client = new S3Client(target(fixture.endpoint), new ManagedTransport([new DirectTransport()]), limits);
+  const http = new HttpClient({ endpoint: fixture.endpoint }, new ManagedTransport([new DirectTransport()]), { ...limits, maxResponseBytes: 12 });
+  try {
+    await client.initialize();
+    const url = await client.presignGetObject("bucket", "a b/中文+?#%.txt", { expiresIn: 60, versionId: "v+/=1" });
+    expect(calls).toBe(0);
+    const response = await http.request(url);
+    expect(response.status).toBe(200);
+    expect(Buffer.from(response.body).toString()).toBe("hello world");
+    expect(calls).toBe(1);
+    for (const expiresIn of [0, -1, 604801, 1.5, Infinity]) {
+      expect(() => client.presignGetObject("bucket", "key", { expiresIn })).toThrow("expiresIn");
+    }
+    const abort = AbortSignal.abort(new Error("cancelled presign"));
+    await expect(client.presignGetObject("bucket", "key", { expiresIn: 60, signal: abort })).rejects.toThrow();
+    expect(calls).toBe(1);
+  } finally { await client.dispose(); await http.dispose(); await fixture.close(); }
+});
+
+test("presigning retains the logical host through a mapped route", async () => {
+  const client = new S3Client(target("https://s3.internal:9443"), new ManagedTransport([
+    new PortForwardTransport(async () => ({ host: "127.0.0.1", port: 12345 })),
+  ]), limits);
+  try {
+    await client.initialize();
+    const url = new URL(await client.presignGetObject("bucket", "hello.txt", { expiresIn: 60 }));
+    expect(url.origin).toBe("https://s3.internal:9443");
+    expect(url.pathname).toBe("/bucket/hello.txt");
+  } finally { await client.dispose(); }
 });

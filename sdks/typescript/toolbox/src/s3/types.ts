@@ -46,3 +46,11 @@ export interface S3ObjectRead extends S3ObjectMetadata {
   bytes: Uint8Array;
   truncated: boolean;
 }
+
+/** Safe S3 response identifiers; request headers, credentials and signed URLs are excluded. */
+export interface S3ResponseMetadata {
+  httpStatusCode?: number;
+  requestId?: string;
+  extendedRequestId?: string;
+  attempts?: number;
+}

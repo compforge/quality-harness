@@ -108,7 +108,7 @@ test("published S3 entry performs bounded signed reads through a mapped route in
     cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const require = createRequire(import.meta.url);
-    for (const dependency of ["@aws-sdk/client-s3", "@smithy/node-http-handler"]) {
+    for (const dependency of ["@aws-sdk/client-s3", "@aws-sdk/s3-request-presigner", "@smithy/node-http-handler"]) {
       const link = join(root, "node_modules", dependency);
       mkdirSync(dirname(link), { recursive: true });
       symlinkSync(dirname(require.resolve(`${dependency}/package.json`)), link, "dir");
@@ -132,6 +132,11 @@ test("published S3 entry performs bounded signed reads through a mapped route in
           {concurrency:1,connectTimeoutMs:500,requestTimeoutMs:1000},
           {key:'fixture',transport:new PortForwardTransport(async () => ({host:'127.0.0.1',port:server.address().port}))});
         const client = await manager.get(source);
+        const signed = new URL(await client.presignGetObject('bucket','key',{expiresIn:60,versionId:'v1'}));
+        assert.equal(signed.host,'s3.internal:9000');
+        assert.equal(signed.searchParams.get('versionId'),'v1');
+        assert.equal(signed.searchParams.get('X-Amz-Expires'),'60');
+        assert.ok(signed.searchParams.get('X-Amz-Signature'));
         const value = await client.readObject('bucket','key',{maxBytes:3});
         assert.equal(Buffer.from(value.bytes).toString(),'abc');
         assert.equal(value.truncated,true);

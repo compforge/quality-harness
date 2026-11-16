@@ -2,13 +2,15 @@ import {
   S3Client as AwsS3Client, HeadBucketCommand, HeadObjectCommand, ListBucketsCommand,
   ListObjectsV2Command, GetBucketVersioningCommand, GetObjectCommand, PutObjectCommand, DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { raceSignal } from "race-signal";
 import { Readable } from "node:stream";
 import type { Client } from "../client";
 import { ConcurrencyPool } from "../concurrency";
 import type { ClientLifecycle } from "../datasource";
 import { Transport, isConnectionNetworkError } from "../transport";
 import { s3Handler } from "./handler";
-import type { S3Target, S3Limits, S3RequestOptions, S3ObjectMetadata, S3ObjectPage, S3BucketPage, S3ObjectRead } from "./types";
+import type { S3Target, S3Limits, S3RequestOptions, S3ObjectMetadata, S3ObjectPage, S3BucketPage, S3ObjectRead, S3ResponseMetadata } from "./types";
 
 function positive(value: number, name: string, maximum = Number.MAX_SAFE_INTEGER): void {
   if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
@@ -140,14 +142,17 @@ export class S3Client implements Client {
   /** A single bounded PUT; callers own authorization, key ownership and cleanup. No multipart or retry. */
   putObject(bucket: string, key: string, bytes: Uint8Array, options: S3RequestOptions & {
     maxBytes: number; contentType?: string;
-  }): Promise<{ etag?: string; versionId?: string }> {
+  }): Promise<{ etag?: string; versionId?: string; response?: S3ResponseMetadata }> {
     positive(options.maxBytes, "maxBytes");
     if (bytes.byteLength > options.maxBytes) throw new Error("S3 upload exceeds maxBytes");
     const body = Buffer.from(bytes);
     return this.#run(options, async (sdk, signal) => {
       const result = await sdk.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body,
         ContentLength: body.byteLength, ContentType: options.contentType }), { abortSignal: signal });
-      return { etag: result.ETag, versionId: result.VersionId };
+      return { etag: result.ETag, versionId: result.VersionId, response: {
+        httpStatusCode: result.$metadata.httpStatusCode, requestId: result.$metadata.requestId,
+        extendedRequestId: result.$metadata.extendedRequestId, attempts: result.$metadata.attempts,
+      } };
     });
   }
 
@@ -155,6 +160,21 @@ export class S3Client implements Client {
   deleteObject(bucket: string, key: string, options: S3RequestOptions & { versionId?: string } = {}): Promise<void> {
     return this.#run(options, async (sdk, signal) => {
       await sdk.send(new DeleteObjectCommand({ Bucket: bucket, Key: key, VersionId: options.versionId }), { abortSignal: signal });
+    });
+  }
+
+  /**
+   * @spec Presigning performs no S3 request and retains the logical endpoint, object version and temporary credentials.
+   * @why The returned URL is a bearer credential; callers must not put it in logs or durable evidence.
+   */
+  presignGetObject(bucket: string, key: string, options: S3RequestOptions & {
+    expiresIn: number; versionId?: string;
+  }): Promise<string> {
+    positive(options.expiresIn, "expiresIn", 604_800);
+    return this.#run(options, async (sdk, signal) => {
+      signal.throwIfAborted();
+      return raceSignal(getSignedUrl(sdk, new GetObjectCommand({ Bucket: bucket, Key: key,
+        VersionId: options.versionId }), { expiresIn: options.expiresIn }), signal);
     });
   }
 
