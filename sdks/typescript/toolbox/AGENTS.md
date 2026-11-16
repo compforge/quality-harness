@@ -24,7 +24,7 @@ toolbox/
 ├── src/opensearch/      # OpenSearch 访问
 ├── src/http/            # 有界 HTTP 请求、Host/TLS 身份与共享 HTTP handler
 ├── src/prometheus/      # 借用有界 HttpApi 查询外部 Prometheus/VM；不拥有 scraper
-├── src/s3/              # S3-compatible 只读访问、分页与有界对象读取
+├── src/s3/              # S3-compatible 访问、分页与有界对象读写
 ├── src/process/         # Node-compatible 进程原语
 ├── scripts/build.ts     # 保留共享模块身份的多入口 ESM 构建
 └── tests/               # 生命周期、访问契约及独立 Node 包验证

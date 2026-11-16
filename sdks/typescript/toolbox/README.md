@@ -266,7 +266,7 @@ limits. Temporary capture files live until client disposal.
 
 See [toolbox contracts](../../../docs/toolbox.md) for ownership and cross-language semantics.
 
-## Read S3 objects
+## Access S3 objects
 
 S3 uses the official AWS SDK behind the same managed lifecycle. Supply resolved connection
 settings and explicit limits; the package does not discover business configuration or credentials.
@@ -293,7 +293,12 @@ try {
 callers own traversal and total scan budgets. Bucket HEAD and versioning are also available.
 Errors preserve SDK status/code: a failed HEAD is not converted to `exists=false`. Reads stop at
 the byte cap and close the body; request deadlines include queueing and body consumption.
-No write operations, automatic retries or implicit region redirects are exposed.
+No automatic retries or implicit region redirects are exposed.
+
+S3 `putObject` accepts a bounded byte buffer (`maxBytes` is required) and returns the ETag and
+version ID. `deleteObject` accepts that version ID for exact cleanup in versioned buckets.
+Both reuse the client concurrency, timeout, cancellation and single-attempt transport policy;
+authorization, unique object keys and test-object cleanup belong to the caller.
 
 For a mapped TCP transport, pass `{ key: "cluster/context identity", transport }` as the third
 DataSource argument. The caller owns that transport's lifetime. Path-style addressing is required

@@ -222,3 +222,52 @@ test("S3 mapped virtual-host addressing is rejected rather than silently changin
   try { await expect(client.initialize()).rejects.toThrow("path-style"); }
   finally { await client.dispose(); }
 });
+
+test("bounded S3 PUT/GET/DELETE preserves bytes, signing and the uploaded version without listing", async () => {
+  const calls: string[] = [];
+  let stored = Buffer.alloc(0);
+  const fixture = await server((req, res) => {
+    calls.push(req.method!);
+    expect(req.headers.authorization).toContain("AWS4-HMAC-SHA256");
+    const url = new URL(req.url!, "http://localhost");
+    expect(decodeURIComponent(url.pathname)).toBe("/bucket/probe/hello.txt");
+    if (req.method === "PUT") {
+      const chunks: Buffer[] = [];
+      req.on("data", chunk => chunks.push(chunk));
+      req.on("end", () => { stored = Buffer.concat(chunks); res.writeHead(200, { "x-amz-version-id": "v/1+", etag: '"etag"' }); res.end(); });
+    } else if (req.method === "GET") {
+      expect(url.searchParams.get("versionId")).toBe("v/1+");
+      res.writeHead(200, { "content-length": String(stored.length) }); res.end(stored);
+    } else {
+      expect(req.method).toBe("DELETE");
+      expect(url.searchParams.get("versionId")).toBe("v/1+");
+      res.writeHead(204); res.end();
+    }
+  });
+  const manager = new ClientManager();
+  try {
+    const client = await manager.get(new S3DataSource(target(fixture.endpoint), limits));
+    const bytes = new TextEncoder().encode("hello world");
+    expect(() => client.putObject("bucket", "probe/hello.txt", bytes, { maxBytes: 10 })).toThrow("maxBytes");
+    const uploaded = await client.putObject("bucket", "probe/hello.txt", bytes, { maxBytes: 11, contentType: "text/plain" });
+    expect(uploaded).toEqual({ etag: '"etag"', versionId: "v/1+" });
+    expect(stored.toString()).toBe("hello world");
+    expect(calls).toHaveLength(1);
+    const read = await client.readObject("bucket", "probe/hello.txt", { maxBytes: 12, versionId: uploaded.versionId });
+    expect(new TextDecoder().decode(read.bytes)).toBe("hello world");
+    await client.deleteObject("bucket", "probe/hello.txt", { versionId: uploaded.versionId });
+    expect(calls).toEqual(["PUT", "GET", "DELETE"]);
+  } finally { await manager.dispose(); await fixture.close(); }
+});
+
+test("S3 mutations preserve AccessDenied and never retry failed writes", async () => {
+  const calls: string[] = [];
+  const fixture = await server((req, res) => { calls.push(req.method!); res.writeHead(403, { "content-type": "application/xml" }); res.end("<Error><Code>AccessDenied</Code><Message>denied</Message><RequestId>r1</RequestId></Error>"); });
+  const manager = new ClientManager();
+  try {
+    const client = await manager.get(new S3DataSource(target(fixture.endpoint), limits));
+    await expect(client.putObject("bucket", "own-key", new Uint8Array([1]), { maxBytes: 1 })).rejects.toMatchObject({ name: "AccessDenied", $metadata: { httpStatusCode: 403 } });
+    await expect(client.deleteObject("bucket", "own-key")).rejects.toMatchObject({ name: "AccessDenied" });
+    expect(calls).toEqual(["PUT", "DELETE"]);
+  } finally { await manager.dispose(); await fixture.close(); }
+});
