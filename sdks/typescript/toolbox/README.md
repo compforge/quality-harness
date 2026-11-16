@@ -520,3 +520,26 @@ ServiceAccount impersonation with `create --dry-run=server`; it never persists a
 `allowed`, `denied` (explicit AppArmor Unconfined admission rejection), or `unknown` (including generic
 RBAC, impersonation, timeout and transport failures). Acceptance does not verify Node runtime support.
 The caller owns permissions, Service semantics, scheduling and borrowed client/executor cleanup.
+
+### S3 read/write probe
+
+`probeS3ReadWrite` from `@compforge/harness-toolbox/s3` performs a bounded PUT,
+presigned GET, byte-for-byte validation and exact-version DELETE of a unique
+`hello.txt` object containing `hello world`. The caller supplies the client,
+bounded HTTP download function, cancellation signal, presign expiry, cleanup
+timeout and optional key prefix. It must obtain authorization before invoking
+the probe and keep the client alive through cleanup. The toolbox has no CLI,
+Service or Health scope policy.
+
+Results preserve step timing, safe response headers, RequestId, version and bounded
+redacted response bodies. Confirmed uploads are cleaned up with an independent
+deadline after download failure or cancellation. An uncertain upload retains its
+key without assuming no object exists. No customer object is read or overwritten.
+
+### OpenSearch health snapshot
+
+`@compforge/harness-toolbox/opensearch/health` exports `probeOpenSearchHealth`. It accepts an already prepared
+read-only client and a cancellation/deadline budget. It reads cluster health, allocation, disk watermarks,
+index write blocks, shard state and cluster statistics, retaining independent acquisition gaps and
+protocol-level warnings. It neither discovers application configuration nor registers Doctor checks.
+Consumers choose whether a warning fails their check and attach their own evidence provenance.
