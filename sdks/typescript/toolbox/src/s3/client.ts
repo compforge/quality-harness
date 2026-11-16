@@ -2,6 +2,8 @@ import {
   S3Client as AwsS3Client, HeadBucketCommand, HeadObjectCommand, ListBucketsCommand,
   ListObjectsV2Command, GetBucketVersioningCommand, GetObjectCommand, PutObjectCommand, DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { raceSignal } from "race-signal";
 import { Readable } from "node:stream";
 import type { Client } from "../client";
 import { ConcurrencyPool } from "../concurrency";
@@ -155,6 +157,21 @@ export class S3Client implements Client {
   deleteObject(bucket: string, key: string, options: S3RequestOptions & { versionId?: string } = {}): Promise<void> {
     return this.#run(options, async (sdk, signal) => {
       await sdk.send(new DeleteObjectCommand({ Bucket: bucket, Key: key, VersionId: options.versionId }), { abortSignal: signal });
+    });
+  }
+
+  /**
+   * @spec Presigning performs no S3 request and retains the logical endpoint, object version and temporary credentials.
+   * @why The returned URL is a bearer credential; callers must not put it in logs or durable evidence.
+   */
+  presignGetObject(bucket: string, key: string, options: S3RequestOptions & {
+    expiresIn: number; versionId?: string;
+  }): Promise<string> {
+    positive(options.expiresIn, "expiresIn", 604_800);
+    return this.#run(options, async (sdk, signal) => {
+      signal.throwIfAborted();
+      return raceSignal(getSignedUrl(sdk, new GetObjectCommand({ Bucket: bucket, Key: key,
+        VersionId: options.versionId }), { expiresIn: options.expiresIn }), signal);
     });
   }
 
