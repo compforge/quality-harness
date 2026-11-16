@@ -9,6 +9,7 @@ import type { Client } from "../client";
 import { ConcurrencyPool } from "../concurrency";
 import type { ClientLifecycle } from "../datasource";
 import { Transport, isConnectionNetworkError } from "../transport";
+import { S3Error } from "./error";
 import { s3Handler } from "./handler";
 import type { S3Target, S3Limits, S3RequestOptions, S3ObjectMetadata, S3ObjectPage, S3BucketPage, S3ObjectRead, S3ResponseMetadata } from "./types";
 
@@ -88,7 +89,12 @@ export class S3Client implements Client {
     const timer = setTimeout(() => timeout.abort(new Error("S3 request deadline exceeded")), this.limits.requestTimeoutMs);
     timer.unref();
     const signal = AbortSignal.any([this.signal, timeout.signal, ...(options.signal ? [options.signal] : [])]);
-    const pending = this.#pool.run(() => operation(sdk, signal), signal).finally(() => clearTimeout(timer));
+    const pending = this.#pool.run(() => operation(sdk, signal), signal).catch(error => {
+      // Caller/root cancellation preserves identity; local request deadlines are S3 timeout failures.
+      options.signal?.throwIfAborted();
+      this.signal.throwIfAborted();
+      throw timeout.signal.aborted ? new S3Error({ code: "ETIMEDOUT", cause: error }) : S3Error.from(error);
+    }).finally(() => clearTimeout(timer));
     this.#operations.add(pending);
     void pending.then(() => this.#operations.delete(pending), () => this.#operations.delete(pending));
     return pending;

@@ -117,7 +117,9 @@ test("published S3 entry performs bounded signed reads through a mapped route in
       import assert from 'node:assert/strict';
       import { createServer } from 'node:http';
       import { ClientManager } from '@compforge/harness-toolbox';
-      import { S3DataSource } from '@compforge/harness-toolbox/s3';
+      import { S3DataSource, S3Error } from '@compforge/harness-toolbox/s3';
+      import { ToolboxError } from '@compforge/harness-toolbox/errors';
+      assert.ok(S3Error.from(new Error('native')) instanceof ToolboxError);
       import { PortForwardTransport } from '@compforge/harness-toolbox/transport';
       let headers;
       const server = createServer((req,res) => {
