@@ -14,6 +14,7 @@
 quality-harness/
 ├── VERSION              # 仓库整体版本，各 SDK 包版本独立管理
 ├── scripts/             # 仓库维护脚本
+├── report-kit/          # 跨语言共享的离线报告浏览器组件、vendor 与测试
 ├── sdks/                # 按语言组织的独立工程
 │   ├── python/          # 五类领域 SDK 与中立共享包
 │   ├── go/              # e2e SDK 与平台工具箱

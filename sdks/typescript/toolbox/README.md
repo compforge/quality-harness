@@ -543,3 +543,14 @@ read-only client and a cancellation/deadline budget. It reads cluster health, al
 index write blocks, shard state and cluster statistics, retaining independent acquisition gaps and
 protocol-level warnings. It neither discovers application configuration nor registers Doctor checks.
 Consumers choose whether a warning fails their check and attach their own evidence provenance.
+
+## Public entry points
+
+Only subpaths declared in `package.json` exports are supported. Client/protocol capabilities have
+explicit entries; implementation helpers are private, independent of source file layout.
+
+`@compforge/harness-toolbox/opensearch/health` exports `probeOpenSearchHealth`,
+`groupOpenSearchObservations`, `analyzeOpenSearch`, `openSearchCapacityConclusion` and their
+OpenSearch types. Collection returns observations and individual failures; analysis can be repeated
+on a recorded `OpenSearchSnapshot` without I/O. Observation IDs use `opensearch-`, finding kinds
+use `opensearch.`. Consumers own service identity, scope and business verdicts.

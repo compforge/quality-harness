@@ -30,7 +30,6 @@ _CSS = """
 body { font: 14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
        color: var(--fg); margin: 0; padding: 2rem; max-width: 1200px; }
 body:has([role="tabpanel"][data-wide="true"]:not([hidden])) { max-width:none; }
-[role="tabpanel"][data-wide="true"] .graph-canvas { height:max(600px, 78vh); }
 h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
 h2 { font-size: 1.2rem; margin: 2rem 0 .75rem; padding-bottom: .3rem; border-bottom: 1px solid var(--line); }
 h3 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; }
@@ -42,10 +41,6 @@ summary::-webkit-details-marker { display: none; }
 summary::before { content: "\\25BE"; color: var(--muted); font-size: .85em; margin-right: .45rem; }
 details:not([open]) > summary::before { content: "\\25B8"; }
 summary:hover { color: var(--accent); }
-.graph-filter-control > summary { font:inherit; margin:0; padding:1px 6px; border:1px solid #767676;
-  border-radius:3px; background:#f5f5f5; white-space:nowrap; }
-details.graph-filter-control > summary::before { content:none; }
-.graph-filter-control > summary::after { content:" ▾"; }
 
 /* nested sub-section (a Heading group, e.g. one service): h3-sized, no rule line */
 details.sub { margin: 0 0 .25rem .25rem; }
@@ -86,14 +81,6 @@ tr.knee   { background: #fff1e5 !important; }
   border-bottom:3px solid transparent; font:inherit; cursor:pointer; color:var(--muted); }
 .report-tabs [aria-selected="true"] { color:var(--accent); border-color:var(--accent); font-weight:600; }
 .report-tabs [role="tab"]:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-.graph-table > [data-graph-frame] { overflow-x:auto; }
-.graph-viewport { position:relative; margin-top:.5rem; }
-.graph-canvas { height:600px; border:1px solid var(--line); }
-.graph-zoom { position:absolute; bottom:12px; right:12px; display:flex; align-items:center;
-  gap:.5rem; padding:.45rem .65rem; background:white; border:1px solid var(--line);
-  border-radius:6px; box-shadow:0 2px 6px #0001; }
-.graph-zoom input { width:140px; }
-.graph-zoom output { min-width:3.5em; text-align:right; font-variant-numeric:tabular-nums; }
 p { margin: .5rem 0; }
 code { background: var(--zebra); padding: .1rem .3rem; border-radius: 3px; font-size: .85em; }
 """
@@ -368,7 +355,7 @@ def render_html(report: Report) -> str:
 
     head_extra = ""
     if report.has_charts():
-        head_extra = asset_script("echarts.min.js")
+        head_extra = asset_script("vendor/echarts.min.js")
     if report.has_graphs():
         head_extra += graph_scripts()
 

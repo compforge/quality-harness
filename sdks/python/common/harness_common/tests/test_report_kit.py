@@ -1,3 +1,5 @@
+import pytest
+
 from harness_common.report_kit import Chart, LineSeries, Report, Section, render_html
 
 
@@ -111,17 +113,26 @@ def test_graph_frame_tables_are_escaped_collapsed_and_not_duplicated_in_js():
 
 
 def test_wide_tab_uses_viewport_layout_without_widening_default_report():
-    from harness_common.report_kit import ReportTab
+    from harness_common.report_kit import GraphView, ReportTab
 
     rendered = render_html(
         Report(
             "layout",
             tabs=[
                 ReportTab("Report", [Section("summary")]),
-                ReportTab("Callgraph", [Section("graph")], wide=True),
+                ReportTab(
+                    "Callgraph", [Section("graph", [GraphView("calls", [])])], wide=True
+                ),
             ],
         )
     )
     assert 'aria-labelledby="rk-tab-0" data-wide=' not in rendered
     assert 'aria-labelledby="rk-tab-1" data-wide="true" hidden' in rendered
     assert "height:max(600px, 78vh)" in rendered
+
+
+def test_graph_node_rejects_unknown_importance():
+    from harness_common.report_kit import GraphNode
+
+    with pytest.raises(ValueError, match="importance"):
+        GraphNode("api", "API", importance="urgent")

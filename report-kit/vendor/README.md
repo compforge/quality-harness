@@ -8,4 +8,4 @@ Pinned browser distributions for offline reports. No runtime CDN or package inst
 
 - echarts 5.6.0: https://registry.npmjs.org/echarts/-/echarts-5.6.0.tgz; file `echarts.min.js`; SHA256 `bf4a223524e40b77c304bec67e1222cf551f14880cf42c69dc046558e11c07b1`.
 
-`graph-layout.js` owns neutral grouped placement; `graph-view.js` owns rendering and interaction.
+Browser component sources and tests live in the adjacent `graph/` and `tests/` directories.

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { probeOpenSearchHealth } from "../src/opensearch/health";
+import { probeOpenSearchHealth, groupOpenSearchObservations, analyzeOpenSearch } from "../src/opensearch/health";
 import type { OpenSearchReadApi } from "../src/opensearch/client";
 function fixture(percent = 93) {
   const calls: string[] = [];
@@ -24,8 +24,8 @@ function fixture(percent = 93) {
 
 test("low watermark warns before high watermark is reached", async () => {
   const health = await probeOpenSearchHealth({ search: fixture(86).search });
-  expect(health.findings.map(finding => finding.kind)).toContain("vdb.disk-capacity-low");
-  expect(health.findings.map(finding => finding.kind)).not.toContain("vdb.disk-capacity-high");
+  expect(health.findings.map(finding => finding.kind)).toContain("opensearch.disk-capacity-low");
+  expect(health.findings.map(finding => finding.kind)).not.toContain("opensearch.disk-capacity-high");
 });
 
 test("permissions and malformed responses remain evidence gaps while sibling probes succeed", async () => {
@@ -40,7 +40,7 @@ test("permissions and malformed responses remain evidence gaps while sibling pro
   expect(health.status).toBe("partial");
   expect(health.probes.find(probe => probe.id === "cluster-settings")?.reason).toContain("403");
   expect(health.observations.some(item => item.kind === "opensearch-health")).toBe(false);
-  expect(health.findings.find(item => item.kind === "vdb.disk-capacity-high")?.confidence).toBe("medium");
+  expect(health.findings.find(item => item.kind === "opensearch.disk-capacity-high")?.confidence).toBe("medium");
 });
 
 test("deadline stops subsequent requests and preserves unavailable outcomes", async () => {
@@ -63,6 +63,22 @@ test("missing watermarks are unknown, never parsed as zero; unrelated settings a
   expect(health.status).toBe("partial");
   expect(health.summary).toContain("未取得实时水位");
   expect(health.summary).toContain("90%");
-  expect(health.findings.some(finding => finding.kind.startsWith("vdb.disk-capacity"))).toBe(false);
+  expect(health.findings.some(finding => finding.kind.startsWith("opensearch.disk-capacity"))).toBe(false);
   expect(JSON.stringify(health)).not.toContain("must-not-be-persisted");
+});
+
+// @case Recorded observations can be reanalyzed without a client or new protocol requests.
+test("reanalysis preserves finding evidence and leaves recorded observations untouched", async () => {
+  const {search, calls} = fixture();
+  const result = await probeOpenSearchHealth({search});
+  const snapshot = groupOpenSearchObservations(JSON.parse(JSON.stringify(result.observations)));
+  const original = structuredClone(snapshot);
+  const findings = analyzeOpenSearch(snapshot);
+  expect(findings).toEqual(result.findings);
+  expect(snapshot).toEqual(original);
+  expect(calls).toHaveLength(6);
+  const ids = new Set(result.observations.map(item => item.id));
+  for (const finding of findings) for (const evidence of finding.evidence) {
+    expect(ids.has(evidence.observationId as typeof result.observations[number]["id"])).toBe(true);
+  }
 });

@@ -1,6 +1,6 @@
 {
   "name": "@compforge/perf-harness",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "TypeScript load scheduling and request-side performance evidence harness",
   "type": "module",
   "scripts": {
@@ -22,7 +22,7 @@
   "dependencies": {
     "@compforge/spec-case": "^0.0.4",
     "@compforge/harness-common": "^0.7.0",
-    "@compforge/harness-toolbox": "^0.7.1"
+    "@compforge/harness-toolbox": "^0.8.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.7.5",
+  "version": "0.8.0",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -33,45 +33,21 @@
       "types": "./dist/process/index.d.ts",
       "import": "./dist/process/index.js"
     },
-    "./process/index": {
-      "types": "./dist/process/index.d.ts",
-      "import": "./dist/process/index.js"
-    },
-    "./kubernetes/*": {
-      "types": "./dist/kubernetes/*.d.ts",
-      "import": "./dist/kubernetes/*.js"
-    },
     "./mysql": {
       "types": "./dist/mysql/index.d.ts",
       "import": "./dist/mysql/index.js"
-    },
-    "./mysql/*": {
-      "types": "./dist/mysql/*.d.ts",
-      "import": "./dist/mysql/*.js"
     },
     "./redis": {
       "types": "./dist/redis/index.d.ts",
       "import": "./dist/redis/index.js"
     },
-    "./redis/*": {
-      "types": "./dist/redis/*.d.ts",
-      "import": "./dist/redis/*.js"
-    },
     "./opensearch": {
       "types": "./dist/opensearch/index.d.ts",
       "import": "./dist/opensearch/index.js"
     },
-    "./opensearch/*": {
-      "types": "./dist/opensearch/*.d.ts",
-      "import": "./dist/opensearch/*.js"
-    },
     "./s3": {
       "types": "./dist/s3/index.d.ts",
       "import": "./dist/s3/index.js"
-    },
-    "./s3/*": {
-      "types": "./dist/s3/*.d.ts",
-      "import": "./dist/s3/*.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",
@@ -110,8 +86,104 @@
       "import": "./dist/prometheus/index.js"
     },
     "./opensearch/health": {
-      "types": "./dist/opensearch/health/index.d.ts",
-      "import": "./dist/opensearch/health/index.js"
+      "types": "./dist/opensearch/health.d.ts",
+      "import": "./dist/opensearch/health.js"
+    },
+    "./kubernetes/apparmor": {
+      "types": "./dist/kubernetes/apparmor.d.ts",
+      "import": "./dist/kubernetes/apparmor.js"
+    },
+    "./kubernetes/client": {
+      "types": "./dist/kubernetes/client.d.ts",
+      "import": "./dist/kubernetes/client.js"
+    },
+    "./kubernetes/compute": {
+      "types": "./dist/kubernetes/compute.d.ts",
+      "import": "./dist/kubernetes/compute.js"
+    },
+    "./kubernetes/environment": {
+      "types": "./dist/kubernetes/environment.d.ts",
+      "import": "./dist/kubernetes/environment.js"
+    },
+    "./kubernetes/environment-inspection": {
+      "types": "./dist/kubernetes/environment-inspection.d.ts",
+      "import": "./dist/kubernetes/environment-inspection.js"
+    },
+    "./kubernetes/exec-transport": {
+      "types": "./dist/kubernetes/exec-transport.d.ts",
+      "import": "./dist/kubernetes/exec-transport.js"
+    },
+    "./kubernetes/executor": {
+      "types": "./dist/kubernetes/executor.d.ts",
+      "import": "./dist/kubernetes/executor.js"
+    },
+    "./kubernetes/log-capture-plan": {
+      "types": "./dist/kubernetes/log-capture-plan.d.ts",
+      "import": "./dist/kubernetes/log-capture-plan.js"
+    },
+    "./kubernetes/pod": {
+      "types": "./dist/kubernetes/pod.d.ts",
+      "import": "./dist/kubernetes/pod.js"
+    },
+    "./kubernetes/pod-log": {
+      "types": "./dist/kubernetes/pod-log.d.ts",
+      "import": "./dist/kubernetes/pod-log.js"
+    },
+    "./kubernetes/pod-log-datasource": {
+      "types": "./dist/kubernetes/pod-log-datasource.d.ts",
+      "import": "./dist/kubernetes/pod-log-datasource.js"
+    },
+    "./kubernetes/resources": {
+      "types": "./dist/kubernetes/resources.d.ts",
+      "import": "./dist/kubernetes/resources.js"
+    },
+    "./kubernetes/secret-datasource": {
+      "types": "./dist/kubernetes/secret-datasource.d.ts",
+      "import": "./dist/kubernetes/secret-datasource.js"
+    },
+    "./kubernetes/service": {
+      "types": "./dist/kubernetes/service.d.ts",
+      "import": "./dist/kubernetes/service.js"
+    },
+    "./kubernetes/service-port-forward": {
+      "types": "./dist/kubernetes/service-port-forward.d.ts",
+      "import": "./dist/kubernetes/service-port-forward.js"
+    },
+    "./kubernetes/workload": {
+      "types": "./dist/kubernetes/workload.d.ts",
+      "import": "./dist/kubernetes/workload.js"
+    },
+    "./mysql/pod": {
+      "types": "./dist/mysql/pod.d.ts",
+      "import": "./dist/mysql/pod.js"
+    },
+    "./mysql/target": {
+      "types": "./dist/mysql/target.d.ts",
+      "import": "./dist/mysql/target.js"
+    },
+    "./mysql/types": {
+      "types": "./dist/mysql/types.d.ts",
+      "import": "./dist/mysql/types.js"
+    },
+    "./redis/topology": {
+      "types": "./dist/redis/topology.d.ts",
+      "import": "./dist/redis/topology.js"
+    },
+    "./redis/key-stats": {
+      "types": "./dist/redis/key-stats.d.ts",
+      "import": "./dist/redis/key-stats.js"
+    },
+    "./opensearch/endpoint": {
+      "types": "./dist/opensearch/endpoint.d.ts",
+      "import": "./dist/opensearch/endpoint.js"
+    },
+    "./opensearch/search-after": {
+      "types": "./dist/opensearch/search-after.d.ts",
+      "import": "./dist/opensearch/search-after.js"
+    },
+    "./kubernetes/port-forward": {
+      "types": "./dist/kubernetes/port-forward.d.ts",
+      "import": "./dist/kubernetes/port-forward.js"
     }
   },
   "files": [

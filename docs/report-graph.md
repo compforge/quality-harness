@@ -1,6 +1,9 @@
 # Report Graph layout
 
-Common report_kit renders already reduced GraphView data using offline Cytoscape and bundled
+Python and TypeScript adapters prepare payloads and host containers. Both package the same component
+DOM, styles, layout and filtering from `report-kit/`; algorithm tests live in `report-kit/tests/`.
+
+Repository-owned `report-kit/graph/` renders already reduced GraphView data using offline Cytoscape and bundled
 ELK 0.12.1. It does not query services or calculate domain metrics. Rendering keeps every node,
 edge, label, group, detail and QPS-derived size supplied by the domain view.
 
@@ -25,7 +28,7 @@ or selection. Other edge labels remain visible. Layout changes do not alter JSON
 metric identities, and do not prove execution of a static path.
 
 The ELK bundle runs in-process without a remote worker, CDN or runtime package install. Its pinned
-source, checksum and license are recorded in the assets README. This replaces the prior Dagre bundle.
+source, checksum and license are recorded in `report-kit/vendor/README.md`.
 
 Callgraphs opt into group filtering with GraphView.group_filter_label="Service". Each frame declares
 entry_ids before filtering; Perf uses the source Operations of the original directed topology
