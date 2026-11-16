@@ -110,7 +110,7 @@ test("presign failure is separate from download and still cleans up the upload",
 });
 
 for (const status of [301, 307]) test(`S3 HTTP ${status} evidence retains Location but redacts signing parameters`, async () => {
-  const { captureS3HttpResponse } = await import("../src/s3/probe-response");
+  const { captureS3HttpResponse } = await import("../src/s3/probe");
   const response = captureS3HttpResponse({ status, headers: {
     location: "https://store/key?X-Amz-Signature=signature-secret&X-Amz-Credential=access-secret&X-Amz-Security-Token=session-secret",
   }, body: Buffer.from("") }, []);
@@ -124,7 +124,7 @@ for (const status of [301, 307]) test(`S3 HTTP ${status} evidence retains Locati
 });
 
 test("S3 response evidence retains diagnostics and removes credentials before truncation", async () => {
-  const { captureS3HttpResponse, captureS3ErrorResponse } = await import("../src/s3/probe-response");
+  const { captureS3HttpResponse, captureS3ErrorResponse } = await import("../src/s3/probe");
   const body = '<Error><Code>SignatureDoesNotMatch</Code><Message>wrong region</Message><Region>eu-west-1</Region>'
     + '<CanonicalRequest>GET /private key</CanonicalRequest><AWSAccessKeyId>access-secret</AWSAccessKeyId>'
     + '<SignatureProvided>signature-secret</SignatureProvided><StringToSignBytes>binary-secret</StringToSignBytes>'
