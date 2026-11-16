@@ -128,18 +128,18 @@ Reader 必须恢复原始关联与完整请求记录；支持当前 schema 的�
 
 ## 可选服务指标报告
 
-Python 的 PrometheusQueryProbe 在压测后查询外部 Prometheus，不自行抓取服务 /metrics。
+Python 的 PrometheusQueryProbe 与 TypeScript 的 planMetrics/collectMetrics 在压测后查询外部 Prometheus，不自行抓取服务 /metrics。
 可选 started_at_s 保存 ArmRun 发压 Unix 起点，prometheus_observations 保存可重放查询及原始结果；
-report_columns 保存指标与窗口选择。这些是 schema 12 的附加字段，目前由 Python 实现。
+这些是 schema 12 的附加字段，两种 SDK 共享；Python 的 report_columns 另保存报告列选择。
 历史查询可独立补采，不重发负载、不改写请求结果；报告重渲染只读取已保存结果。
 
 可选 `graph` 保存实际使用的 Common Graph 完整快照（含 environment/source/version），不保存本机路径。
-这是 schema 12 的附加字段，目前 Python 支持加载配置、绑定校验与离线重载。
+这是 schema 12 的附加字段，两种 SDK 均支持绑定校验与离线重载；配置入口各自适配。
 其 environment 必须与 Run 一致；声明 Operation 绑定的 Probe 必须引用图中的 Operation 及其 Service。
 指标仍通过 operation label 关联；图中节点没有指标不表示零流量，静态 calls 不证明某次实际调用或因果。
 
 
-### HTTP operation observations and call graph (Python)
+### HTTP operation observations and call graph
 
 HTTP server observations match service scope, method and route template. The operation's
 stable ID remains the join key; metric-label spelling is a project-owned profile.
@@ -166,7 +166,9 @@ executed or isolate case traffic. Missing values and collection errors cannot be
 one capacity before execution as max(default, configured, all LoadPlan/Stage peak inflight),
 then passes it to the load HTTP pool/local proxy/Pod relay. Observers and timeouts remain
 independent. Graph structure and built-in relation constraints are shared across languages;
-HTTP profile and interactive report coverage are currently Python capabilities.
+Both SDKs derive schema 2 Callgraph snapshots and offline interactive reports. TypeScript currently
+collects unlabeled instant Operation summaries; Python additionally supplies HTTP profile generation,
+range-series projection and Kubernetes probes. Unsupported saved queries fail before collection.
 
 HTTP Operation 在 requests.jsonl 中保存 `response_mode=unary|sse`。SSEOperation 继承
 HttpOperation，身份仍只由 Service 和 Operation name 决定；流式响应不自动定义业务成功。

@@ -1,3 +1,4 @@
+import { Operation } from "@compforge/harness-common";
 import { LoadController } from "./controller";
 import type {
   Arm,
@@ -24,6 +25,7 @@ export interface DriveState {
 
 export async function drive(options: {
   state: DriveState;
+  origin?: number;
   runner: Runner;
   judge: Judge;
   context: ArmContext;
@@ -48,8 +50,9 @@ export async function drive(options: {
   const signal = externalSignal
     ? AbortSignal.any([context.signal, externalSignal])
     : context.signal;
-  const start = performance.now(),
+  const start = options.origin ?? performance.now(),
     now = () => (performance.now() - start) / 1000;
+  execution.started_at_s = (performance.timeOrigin + start) / 1000;
   const active = new Map<Promise<void>, AbortController>();
   // Request cancellation can finish calls before the scheduler resumes; retain the boundary census.
   let inflightAtCancellation: number | undefined;
@@ -104,7 +107,7 @@ export async function drive(options: {
           case: item,
           signal: requestSignal,
         };
-        let operation = { name: runner.name };
+        let operation = new Operation({ name: runner.name, serviceName: context.service.name });
         try {
           operation = runner.operation?.(fireContext) ?? operation;
           requestSignal.throwIfAborted();

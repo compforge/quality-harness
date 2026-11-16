@@ -6,6 +6,8 @@ deps:
 	bun install --frozen-lockfile
 	$(MAKE) -C common build
 	cd toolbox && bun install --frozen-lockfile
+	$(MAKE) -C toolbox build
+	bun install --frozen-lockfile
 	cd trace-harness && bun install --frozen-lockfile
 
 # Workspace checks always cover every package; file paths are package-relative below.

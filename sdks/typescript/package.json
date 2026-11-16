@@ -4,5 +4,8 @@
   "workspaces": [
     "common",
     "perf-harness"
-  ]
+  ],
+  "overrides": {
+    "@compforge/harness-toolbox": "file:./toolbox"
+  }
 }

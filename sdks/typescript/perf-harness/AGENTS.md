@@ -6,8 +6,9 @@
 Python runtime 的环境中制造受控负载并保存请求侧性能事实。Python 与 TypeScript 是并列实现；
 公开名词、调度语义和 `run.json` / `requests.jsonl / evaluations.json` 字段共同遵守 `spec/` 契约。
 
-第一阶段只拥有负载调度、Runner 扩展、请求侧 Outcome、Window 归约和 raw/model 落盘。
-Prometheus、Kubernetes 等资源观测由消费方的观测编排完成，不进入本包；本包不抓取服务 /metrics。
+本包拥有负载调度、Runner、请求侧 Outcome、Window 归约，以及外部 Prometheus 历史查询计划、
+Operation 指标投影和离线 Callgraph。HTTP 通道、凭据与生命周期由宿主通过 toolbox 提供；
+Kubernetes 资源采集仍由消费方编排。本包不抓取服务 /metrics，也不启动 scraper 或时序存储。
 
 ## 代码地图
 
@@ -20,6 +21,9 @@ Prometheus、Kubernetes 等资源观测由消费方的观测编排完成，不�
 | `reduce.ts` | Outcome 到 Window/RequestStats 的归约 |
 | `engine.ts` | Experiment 与 Arm/ArmRun 编排 |
 | `runio.ts` | 跨语言 schema 12 对齐的 raw/model 产物 |
+| `observe/` | 冻结查询、外部历史采集、窗口指标与独立补采 |
+| `callgraph.ts` | 从保存的事实派生 schema 2 Operation 图 |
+| `report/` | 离线 HTML；构建时内嵌共享 browser assets |
 
 ## 关键约定
 
@@ -30,6 +34,10 @@ Prometheus、Kubernetes 等资源观测由消费方的观测编排完成，不�
 5. 通用包不写业务 SSE 语义；业务 Plugin/consumer 实现 Runner。
 6. Case/CaseSet 归 spec-case；Perf Experiment 只通过 `caseMix` 选择 id 和设置 weight。
 7. 证据与复评：Outcome 是 request Observation；request、window、run 是不同 Unit grain，必须区分分析粒度。raw/model Run facts 可由不同 独立 Judge 和 analysis 组件离线复评，当前请求判定保存为独立 evaluations 表，不得因换判定口径重新发压；详见 `../../../docs/evaluation-data.md#dataset-与反复评估`。
+
+8. 历史查询只读冻结的 source URL、backend kind、PromQL 与时间窗；补采先验证来源，再清除本次负责的旧投影。
+9. 查询原始结果、warnings、错误和采集时间均保存；缺失不补零，显式 histogram overflow 保留 `+Inf`。
+10. Graph 不承载观测事实，多 Case 指标保持 aggregate scope。HTML 与 JSON 使用同一 Callgraph snapshot。
 
 ## 开发与测试
 
@@ -48,3 +56,5 @@ make build
 - `../../../spec/perf-run-schema.yaml` / `perf-request-schema.yaml` — 落盘 schema
 - `../../python/perf_harness/docs/load-model-redesign.md` — 加压模型
 - `../../../spec/conventions.md` — 跨 harness 对齐键与产物布局
+
+- [外部指标与离线报告](docs/observations.md) — 宿主接入、补采、覆盖范围与资源生命周期

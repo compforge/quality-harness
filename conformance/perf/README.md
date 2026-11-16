@@ -16,3 +16,8 @@ OperationRun/Outcome；`basic.evaluations.json` 单独保存判定。
 取消处理刻意延迟，以验证清理耗时不会进入 hold。
 
 `phased-load.json` 由两种语言共同验证未触顶升速、提前触顶后按目标速率补位，以及实际 hold 时长。
+
+`fixtures/operation-metrics/` is a shared schema 12 Run and expected schema 2 Callgraph. It covers
+mixed Cases, declared/conditional edges, preserved graph properties, genuine zero, empty samples,
+query errors, unbound metrics, SSE metadata and histogram overflow. Both SDKs compare the complete
+derived snapshot; no target or Prometheus access is needed.

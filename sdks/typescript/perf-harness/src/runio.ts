@@ -1,3 +1,4 @@
+import { Graph, Operation, HttpOperation, SSEOperation } from "@compforge/harness-common";
 import { validateEvaluation } from "./judge";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,8 +14,15 @@ export function serializeRun(run: Run): Record<string, unknown> {
     service: run.service,
     status: run.status,
     environment: run.environment,
+    ...(run.graph ? {graph: run.graph} : {}),
+    case_ids: run.case_ids ?? [],
+    observation_bindings: run.observation_bindings ?? [],
     executions: run.executions.map((e) => ({
       id: e.id,
+      started_at: e.started_at,
+      finished_at: e.finished_at,
+      started_at_s: e.started_at_s ?? null,
+      prometheus_observations: e.prometheus_observations ?? [],
       service: e.service,
       arm: {
         id: e.arm.id,
@@ -41,6 +49,7 @@ export function serializeRequests(run: Run): string {
       const operation_run = call
         ? {
             ...call,
+            operation: Object.fromEntries(Object.entries(call.operation).filter(([key]) => key !== "serviceName")),
             service: {
               name: call.service.name,
               component: call.service.component,
@@ -118,6 +127,11 @@ export function loadRun(directory: string): Run {
   const data = JSON.parse(readFileSync(join(directory, "run.json"), "utf8"));
   if (data.schema !== 12)
     throw new Error(`unsupported perf schema ${data.schema}`);
+  if (data.graph) {
+    const graph = Graph.fromJSON(data.graph);
+    if (graph.environment !== data.environment) throw new Error("Graph environment must match Run");
+    data.graph = graph.toJSON();
+  }
   const evaluations = JSON.parse(
     readFileSync(join(directory, "evaluations.json"), "utf8"),
   );
@@ -166,7 +180,15 @@ export function loadRun(directory: string): Run {
       if (record[key] === null) delete record[key];
     }
     e.requests.push(record);
-    if (row.operation_run) e.operation_runs.push(row.operation_run);
+    if (row.operation_run) {
+      const call = row.operation_run, declaration = call.operation;
+      const value = {...declaration, serviceName: call.service.name};
+      if (declaration.method !== undefined) {
+        if (!["unary","sse"].includes(declaration.response_mode)) throw new Error("Unsupported HTTP response mode");
+        call.operation = declaration.response_mode === "sse" ? new SSEOperation(value) : new HttpOperation(value);
+      } else call.operation = new Operation(value);
+      e.operation_runs.push(call);
+    }
   }
   return {
     ...data,

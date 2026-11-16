@@ -48,7 +48,7 @@ function evaluates raw Outcomes; the default checks transport/status, not busine
 ArmRuns; each actual invocation owns one OperationRun/Outcome. Dispatch-cohort latency includes drained
 responses, while completion throughput uses actual completion timestamps.
 
-Schema 7 artifacts: `run.json`, `requests.jsonl`, `evaluations.json`, `timeseries.csv`, `verdict.json`.
+Schema 12 artifacts: `run.json`, `requests.jsonl`, `evaluations.json`, `timeseries.csv`, `verdict.json`.
 `loadRun` reads them offline. Run.status is completed/stopped/error and describes execution only.
 RequestEvaluation.code is an open nonempty string; only "success" denotes success.
 completed_by_code and throughput_by_code group completion events by code; missing judgments remain
@@ -56,7 +56,9 @@ separate in unjudged/unjudged_rps. The default Judge uses http_<status> for non-
 for timeout exceptions, transport_error for other exceptions and unknown when no status is available.
 These five mutually exclusive completion rates sum to throughput_rps. Interrupted calls are separate.
 The SDK does not provide business acceptance gates. verdict.json is error for execution failures and
-skipped otherwise. Python also provides resource/API observation and rendered reports.
+skipped otherwise. Optional external Prometheus observations produce a window-aligned
+`callgraph.json` and self-contained `report.html`. Query planning, recollection and rendering
+are separate from load; see [observations and offline reports](docs/observations.md).
 
 
 Development from `sdks/typescript`: `bun install --frozen-lockfile`, then build `common` before

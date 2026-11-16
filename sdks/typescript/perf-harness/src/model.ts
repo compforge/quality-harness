@@ -1,3 +1,5 @@
+import type { GraphSnapshot } from "@compforge/harness-common";
+import type { ScalarSummary, ObservationBinding, PrometheusObservation } from "./observe/model";
 import type { LoadPlan } from "./load";
 export type { Case, CaseSet } from "@compforge/spec-case/model";
 
@@ -22,6 +24,7 @@ import type {
 export type {
   Operation,
   HttpOperation,
+  SSEOperation,
   OperationRun,
   Environment,
   Component,
@@ -127,7 +130,7 @@ export interface Window {
   request?: RequestStats;
   by_case: Record<string, RequestStats>;
   by_facet: Record<string, Record<string, RequestStats>>;
-  probe_metrics: Record<string, never>;
+  probe_metrics: Record<string, ScalarSummary>;
 }
 
 export interface StopSnapshot {
@@ -169,6 +172,8 @@ export interface RequestRecord {
 }
 
 export interface ArmRun extends Execution<Outcome> {
+  started_at_s?: number | null;
+  prometheus_observations?: PrometheusObservation[];
   id: string;
   service: string;
   arm: Arm;
@@ -185,6 +190,9 @@ export interface ArmRun extends Execution<Outcome> {
 }
 
 export interface Run extends ExperimentRun<ArmRun> {
+  graph?: GraphSnapshot;
+  observation_bindings?: ObservationBinding[];
+  case_ids?: string[];
   schema: 12;
   service: string;
   status: "completed" | "stopped" | "error";

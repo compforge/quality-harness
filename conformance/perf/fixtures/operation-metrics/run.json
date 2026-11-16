@@ -1,0 +1,811 @@
+{
+  "schema": 12,
+  "run_id": "run",
+  "experiment": "fixture",
+  "created_at": "2026-09-17T00:00:00Z",
+  "service": "mock",
+  "executions": [
+    {
+      "id": "run:one",
+      "service": "mock",
+      "arm": {
+        "id": "one",
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "workers": null,
+          "replicas": 1,
+          "extra": {},
+          "label": "default"
+        },
+        "load": {
+          "request_rate": "inf",
+          "max_inflight": 1,
+          "stages": [],
+          "arrival": "constant",
+          "seed": 0,
+          "abort_on_error_rate": null,
+          "breaker_min_n": 20,
+          "cooldown_timeout_s": 30.0,
+          "hold_s": 1,
+          "warmup": {
+            "step_s": 0
+          }
+        }
+      },
+      "stop": {
+        "reason": "deadline",
+        "inflight_at_stop": 0,
+        "interrupted": 0,
+        "force_cancelled": false
+      },
+      "registry": {
+        "request.duration_ms": {
+          "unit": "ms",
+          "side": "request",
+          "value_kind": "distribution",
+          "source": "client",
+          "description": "end-to-end request latency, client-observed",
+          "labels": []
+        },
+        "request.error_rate": {
+          "unit": "ratio",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "judged failures \u00f7 sent requests (Judge)",
+          "labels": []
+        },
+        "request.throughput_rps": {
+          "unit": "rps",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "completed requests \u00f7 steady window",
+          "labels": []
+        },
+        "request.drop_rate": {
+          "unit": "ratio",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "open-loop client_saturated drops \u00f7 offered (not latency samples)",
+          "labels": []
+        },
+        "request.arrived": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.dispatched": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.completed": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.succeeded": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.n_interrupted": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.inflight_peak": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.inflight_end": {
+          "unit": "count",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.arrival_rps": {
+          "unit": "rps",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.dispatch_rps": {
+          "unit": "rps",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "request.success_rps": {
+          "unit": "rps",
+          "side": "request",
+          "value_kind": "scalar",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "scheduler_lag_ms": {
+          "unit": "ms",
+          "side": "request",
+          "value_kind": "distribution",
+          "source": "client",
+          "description": "",
+          "labels": []
+        },
+        "prometheus_query.qps": {
+          "unit": "rps",
+          "side": "resource",
+          "value_kind": "scalar",
+          "source": "prometheus_query",
+          "description": "qps measured on the server",
+          "labels": [
+            "operation",
+            "service"
+          ]
+        },
+        "prometheus_query.p95": {
+          "unit": "s",
+          "side": "resource",
+          "value_kind": "scalar",
+          "source": "prometheus_query",
+          "description": "p95 measured on the server",
+          "labels": [
+            "operation",
+            "service"
+          ]
+        },
+        "prometheus_query.error_rate": {
+          "unit": "ratio",
+          "side": "resource",
+          "value_kind": "scalar",
+          "source": "prometheus_query",
+          "description": "error_rate measured on the server",
+          "labels": [
+            "operation",
+            "service"
+          ]
+        }
+      },
+      "windows": [
+        {
+          "id": "full",
+          "name": "Full observation",
+          "kind": "full",
+          "start_s": 0.0,
+          "end_s": 2.000000000001,
+          "complete": true,
+          "target_level": null,
+          "request": {
+            "n": 1,
+            "n_ok": 1,
+            "throughput_rps": 0.49999999999975,
+            "p50_ms": 2000,
+            "p95_ms": 2000,
+            "p99_ms": 2000,
+            "error_rate": 0.0,
+            "error_breakdown": {},
+            "arrived": 2,
+            "dispatched": 1,
+            "completed": 1,
+            "succeeded": 1,
+            "completed_by_code": {
+              "success": 1
+            },
+            "throughput_by_code": {
+              "success": 0.49999999999975
+            },
+            "unjudged": 0,
+            "interrupted": 0,
+            "n_judged": 1,
+            "n_interrupted": 0,
+            "n_pending": 0,
+            "arrival_rps": 0.9999999999995,
+            "dispatch_rps": 0.49999999999975,
+            "success_rps": 0.49999999999975,
+            "unjudged_rps": 0.0,
+            "inflight_peak": 1,
+            "inflight_end": 0,
+            "n_dropped": 1,
+            "mean_ms": 2000.0,
+            "metrics": {
+              "scheduler_lag_ms": {
+                "kind": "distribution",
+                "n": 2,
+                "mean": 0.0,
+                "p50": 0,
+                "p95": 0.0,
+                "p99": 0.0,
+                "caveats": [
+                  "co_biased",
+                  "few_samples",
+                  "high_drop"
+                ]
+              }
+            },
+            "caveats": [
+              "co_biased",
+              "few_samples",
+              "high_drop"
+            ]
+          },
+          "by_case": {
+            "hello": {
+              "n": 1,
+              "n_ok": 1,
+              "throughput_rps": 0.49999999999975,
+              "p50_ms": 2000,
+              "p95_ms": 2000,
+              "p99_ms": 2000,
+              "error_rate": 0.0,
+              "error_breakdown": {},
+              "arrived": 2,
+              "dispatched": 1,
+              "completed": 1,
+              "succeeded": 1,
+              "completed_by_code": {
+                "success": 1
+              },
+              "throughput_by_code": {
+                "success": 0.49999999999975
+              },
+              "unjudged": 0,
+              "interrupted": 0,
+              "n_judged": 1,
+              "n_interrupted": 0,
+              "n_pending": 0,
+              "arrival_rps": 0.9999999999995,
+              "dispatch_rps": 0.49999999999975,
+              "success_rps": 0.49999999999975,
+              "unjudged_rps": 0.0,
+              "inflight_peak": 1,
+              "inflight_end": 0,
+              "n_dropped": 1,
+              "mean_ms": 2000.0,
+              "metrics": {
+                "scheduler_lag_ms": {
+                  "kind": "distribution",
+                  "n": 2,
+                  "mean": 0.0,
+                  "p50": 0,
+                  "p95": 0.0,
+                  "p99": 0.0,
+                  "caveats": [
+                    "co_biased",
+                    "few_samples",
+                    "high_drop"
+                  ]
+                }
+              },
+              "caveats": [
+                "co_biased",
+                "few_samples",
+                "high_drop"
+              ]
+            }
+          },
+          "by_facet": {},
+          "probe_metrics": {
+            "prometheus_query.qps{operation=\"operation:mock/chat\",service=\"mock\"}": {
+              "kind": "scalar",
+              "value": 0,
+              "caveats": [],
+              "histogram": null
+            },
+            "prometheus_query.p95{operation=\"operation:mock/chat\",service=\"mock\"}": {
+              "kind": "scalar",
+              "value": "+Inf",
+              "caveats": [],
+              "histogram": {
+                "quantile": 0.95,
+                "sample_count": 10,
+                "max_finite_bucket": 1,
+                "overflow": true
+              }
+            },
+            "prometheus_query.error_rate{operation=\"operation:mock/chat\",service=\"mock\"}": {
+              "kind": "scalar",
+              "value": 0.2,
+              "caveats": [],
+              "histogram": null
+            },
+            "prometheus_query.qps{operation=\"operation:mock/search\",service=\"mock\"}": {
+              "kind": "scalar",
+              "value": 2,
+              "caveats": [],
+              "histogram": null
+            }
+          }
+        }
+      ],
+      "probe_errors": {},
+      "phase_errors": [],
+      "phases": [
+        {
+          "id": "setup",
+          "name": "setup",
+          "kind": "setup",
+          "start_s": 0,
+          "end_s": 0,
+          "complete": true
+        },
+        {
+          "id": "hold",
+          "name": "hold",
+          "start_s": 0.0,
+          "end_s": 1.0,
+          "complete": true,
+          "kind": "hold"
+        },
+        {
+          "id": "cooldown",
+          "name": "cooldown",
+          "start_s": 1,
+          "end_s": 2.000000000001,
+          "complete": true,
+          "kind": "cooldown"
+        },
+        {
+          "id": "cleanup",
+          "name": "cleanup",
+          "kind": "cleanup",
+          "start_s": 2.000000000001,
+          "end_s": 2.000000000001,
+          "complete": true
+        }
+      ],
+      "started_at_s": 1000.125,
+      "prometheus_observations": [
+        {
+          "probe": "prometheus_query.mock.operation:mock/chat",
+          "metric": "prometheus_query.qps",
+          "expression": "sum(rate(qps{route=\"/chat\"}[1000ms]))",
+          "source_url": "http://metrics",
+          "datasource_kind": "prometheus",
+          "start_s": 1000.125,
+          "end_s": 1001.124,
+          "step_s": null,
+          "labels": {
+            "operation": "operation:mock/chat",
+            "service": "mock"
+          },
+          "result_labels": [],
+          "window_id": "full",
+          "data": {
+            "resultType": "vector",
+            "result": [
+              {
+                "metric": {},
+                "value": [
+                  1001.124,
+                  "0"
+                ]
+              }
+            ]
+          },
+          "warnings": [],
+          "infos": [],
+          "error": null,
+          "collected_at_s": 1002.0,
+          "histogram": null
+        },
+        {
+          "probe": "prometheus_query.mock.operation:mock/chat",
+          "metric": "prometheus_query.p95",
+          "expression": "sum(rate(p95{route=\"/chat\"}[1000ms]))",
+          "source_url": "http://metrics",
+          "datasource_kind": "prometheus",
+          "start_s": 1000.125,
+          "end_s": 1001.124,
+          "step_s": null,
+          "labels": {
+            "operation": "operation:mock/chat",
+            "service": "mock"
+          },
+          "result_labels": [],
+          "window_id": "full",
+          "data": {
+            "resultType": "vector",
+            "result": [
+              {
+                "metric": {
+                  "le": "1"
+                },
+                "value": [
+                  1001.124,
+                  "3"
+                ]
+              },
+              {
+                "metric": {
+                  "le": "+Inf"
+                },
+                "value": [
+                  1001.124,
+                  "10"
+                ]
+              }
+            ]
+          },
+          "warnings": [],
+          "infos": [],
+          "error": null,
+          "collected_at_s": 1002.0,
+          "histogram": {
+            "quantile": 0.95,
+            "scale": 1.0
+          }
+        },
+        {
+          "probe": "prometheus_query.mock.operation:mock/chat",
+          "metric": "prometheus_query.error_rate",
+          "expression": "sum(rate(error_rate{route=\"/chat\"}[1000ms]))",
+          "source_url": "http://metrics",
+          "datasource_kind": "prometheus",
+          "start_s": 1000.125,
+          "end_s": 1001.124,
+          "step_s": null,
+          "labels": {
+            "operation": "operation:mock/chat",
+            "service": "mock"
+          },
+          "result_labels": [],
+          "window_id": "full",
+          "data": {
+            "resultType": "vector",
+            "result": [
+              {
+                "metric": {},
+                "value": [
+                  1001.124,
+                  "0.2"
+                ]
+              }
+            ]
+          },
+          "warnings": [],
+          "infos": [],
+          "error": null,
+          "collected_at_s": 1002.0,
+          "histogram": null
+        },
+        {
+          "probe": "prometheus_query.mock.operation:mock/search",
+          "metric": "prometheus_query.qps",
+          "expression": "sum(rate(qps{route=\"/search\"}[1000ms]))",
+          "source_url": "http://metrics",
+          "datasource_kind": "prometheus",
+          "start_s": 1000.125,
+          "end_s": 1001.124,
+          "step_s": null,
+          "labels": {
+            "operation": "operation:mock/search",
+            "service": "mock"
+          },
+          "result_labels": [],
+          "window_id": "full",
+          "data": {
+            "resultType": "vector",
+            "result": [
+              {
+                "metric": {},
+                "value": [
+                  1001.124,
+                  "2"
+                ]
+              }
+            ]
+          },
+          "warnings": [],
+          "infos": [],
+          "error": null,
+          "collected_at_s": 1002.0,
+          "histogram": null
+        },
+        {
+          "probe": "prometheus_query.mock.operation:mock/empty",
+          "metric": "prometheus_query.qps",
+          "expression": "sum(rate(qps{route=\"/empty\"}[1000ms]))",
+          "source_url": "http://metrics",
+          "datasource_kind": "prometheus",
+          "start_s": 1000.125,
+          "end_s": 1001.124,
+          "step_s": null,
+          "labels": {
+            "operation": "operation:mock/empty",
+            "service": "mock"
+          },
+          "result_labels": [],
+          "window_id": "full",
+          "data": {
+            "resultType": "vector",
+            "result": []
+          },
+          "warnings": [],
+          "infos": [],
+          "error": null,
+          "collected_at_s": 1002.0,
+          "histogram": null
+        },
+        {
+          "probe": "prometheus_query.mock.operation:mock/failed",
+          "metric": "prometheus_query.qps",
+          "expression": "sum(rate(qps{route=\"/failed\"}[1000ms]))",
+          "source_url": "http://metrics",
+          "datasource_kind": "prometheus",
+          "start_s": 1000.125,
+          "end_s": 1001.124,
+          "step_s": null,
+          "labels": {
+            "operation": "operation:mock/failed",
+            "service": "mock"
+          },
+          "result_labels": [],
+          "window_id": "full",
+          "data": null,
+          "warnings": [],
+          "infos": [],
+          "error": "Prometheus HTTP 503",
+          "collected_at_s": 1002.0,
+          "histogram": null
+        }
+      ]
+    }
+  ],
+  "status": "completed",
+  "environment": "qa",
+  "case_ids": [
+    "greeting",
+    "tool-use"
+  ],
+  "graph": {
+    "schema_version": 1,
+    "environment": "qa",
+    "source": "fixture",
+    "version": "v1",
+    "nodes": [
+      {
+        "id": "service:mock",
+        "kind": "service"
+      },
+      {
+        "id": "operation:mock/chat",
+        "kind": "operation",
+        "properties": {
+          "path": "/chat",
+          "method": "POST",
+          "response_mode": "sse",
+          "note": "preserved"
+        }
+      },
+      {
+        "id": "operation:mock/search",
+        "kind": "operation",
+        "properties": {
+          "path": "/search",
+          "method": "POST",
+          "response_mode": "unary",
+          "note": "preserved"
+        }
+      },
+      {
+        "id": "operation:mock/empty",
+        "kind": "operation",
+        "properties": {
+          "path": "/empty",
+          "method": "POST",
+          "response_mode": "unary",
+          "note": "preserved"
+        }
+      },
+      {
+        "id": "operation:mock/failed",
+        "kind": "operation",
+        "properties": {
+          "path": "/failed",
+          "method": "POST",
+          "response_mode": "unary",
+          "note": "preserved"
+        }
+      },
+      {
+        "id": "operation:mock/unbound",
+        "kind": "operation",
+        "properties": {
+          "path": "/unbound",
+          "method": "POST",
+          "response_mode": "unary",
+          "note": "preserved"
+        }
+      }
+    ],
+    "relations": [
+      {
+        "id": "[\"operation:mock/chat\",\"belongs_to\",\"service:mock\"]",
+        "source": "operation:mock/chat",
+        "target": "service:mock",
+        "kind": "belongs_to",
+        "properties": {
+          "note": "declared"
+        }
+      },
+      {
+        "id": "[\"operation:mock/search\",\"belongs_to\",\"service:mock\"]",
+        "source": "operation:mock/search",
+        "target": "service:mock",
+        "kind": "belongs_to",
+        "properties": {
+          "note": "declared"
+        }
+      },
+      {
+        "id": "[\"operation:mock/chat\",\"calls\",\"operation:mock/search\"]",
+        "source": "operation:mock/chat",
+        "target": "operation:mock/search",
+        "kind": "calls",
+        "properties": {
+          "note": "declared"
+        }
+      },
+      {
+        "id": "[\"operation:mock/empty\",\"belongs_to\",\"service:mock\"]",
+        "source": "operation:mock/empty",
+        "target": "service:mock",
+        "kind": "belongs_to",
+        "properties": {
+          "note": "declared"
+        }
+      },
+      {
+        "id": "[\"operation:mock/chat\",\"may_call\",\"operation:mock/empty\"]",
+        "source": "operation:mock/chat",
+        "target": "operation:mock/empty",
+        "kind": "may_call",
+        "properties": {
+          "note": "declared"
+        }
+      },
+      {
+        "id": "[\"operation:mock/failed\",\"belongs_to\",\"service:mock\"]",
+        "source": "operation:mock/failed",
+        "target": "service:mock",
+        "kind": "belongs_to",
+        "properties": {
+          "note": "declared"
+        }
+      },
+      {
+        "id": "[\"operation:mock/chat\",\"calls\",\"operation:mock/failed\"]",
+        "source": "operation:mock/chat",
+        "target": "operation:mock/failed",
+        "kind": "calls",
+        "properties": {
+          "note": "declared"
+        }
+      },
+      {
+        "id": "[\"operation:mock/unbound\",\"belongs_to\",\"service:mock\"]",
+        "source": "operation:mock/unbound",
+        "target": "service:mock",
+        "kind": "belongs_to",
+        "properties": {
+          "note": "declared"
+        }
+      },
+      {
+        "id": "[\"operation:mock/chat\",\"calls\",\"operation:mock/unbound\"]",
+        "source": "operation:mock/chat",
+        "target": "operation:mock/unbound",
+        "kind": "calls",
+        "properties": {
+          "note": "declared"
+        }
+      }
+    ]
+  },
+  "observation_bindings": [
+    {
+      "target": "operation:mock/chat",
+      "service": "mock",
+      "metrics": {
+        "qps": {
+          "metric": "prometheus_query.qps{operation=\"operation:mock/chat\",service=\"mock\"}.value",
+          "unit": "rps",
+          "description": "qps measured on the server",
+          "semantics": "completed"
+        },
+        "p95": {
+          "metric": "prometheus_query.p95{operation=\"operation:mock/chat\",service=\"mock\"}.value",
+          "unit": "s",
+          "description": "p95 measured on the server",
+          "semantics": ""
+        },
+        "error_rate": {
+          "metric": "prometheus_query.error_rate{operation=\"operation:mock/chat\",service=\"mock\"}.value",
+          "unit": "ratio",
+          "description": "error_rate measured on the server",
+          "semantics": ""
+        }
+      },
+      "workload": null,
+      "method": "POST",
+      "path": "/chat",
+      "response_mode": "sse"
+    },
+    {
+      "target": "operation:mock/search",
+      "service": "mock",
+      "metrics": {
+        "qps": {
+          "metric": "prometheus_query.qps{operation=\"operation:mock/search\",service=\"mock\"}.value",
+          "unit": "rps",
+          "description": "qps measured on the server",
+          "semantics": "completed"
+        }
+      },
+      "workload": null,
+      "method": "POST",
+      "path": "/search",
+      "response_mode": "unary"
+    },
+    {
+      "target": "operation:mock/empty",
+      "service": "mock",
+      "metrics": {
+        "qps": {
+          "metric": "prometheus_query.qps{operation=\"operation:mock/empty\",service=\"mock\"}.value",
+          "unit": "rps",
+          "description": "qps measured on the server",
+          "semantics": "completed"
+        }
+      },
+      "workload": null,
+      "method": "POST",
+      "path": "/empty",
+      "response_mode": "unary"
+    },
+    {
+      "target": "operation:mock/failed",
+      "service": "mock",
+      "metrics": {
+        "qps": {
+          "metric": "prometheus_query.qps{operation=\"operation:mock/failed\",service=\"mock\"}.value",
+          "unit": "rps",
+          "description": "qps measured on the server",
+          "semantics": "completed"
+        }
+      },
+      "workload": null,
+      "method": "POST",
+      "path": "/failed",
+      "response_mode": "unary"
+    }
+  ]
+}
