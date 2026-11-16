@@ -1,6 +1,6 @@
 import {
   S3Client as AwsS3Client, HeadBucketCommand, HeadObjectCommand, ListBucketsCommand,
-  ListObjectsV2Command, GetBucketVersioningCommand, GetObjectCommand,
+  ListObjectsV2Command, GetBucketVersioningCommand, GetObjectCommand, PutObjectCommand, DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { Readable } from "node:stream";
 import type { Client } from "../client";
@@ -23,7 +23,7 @@ function metadata(value: { ContentLength?: number; ETag?: string; LastModified?:
 }
 
 /**
- * @spec Read-only S3 operations share a bounded pool; no failed protocol operation is replayed.
+ * @spec S3 operations share a bounded pool; no failed protocol operation is replayed.
  * @spec HTTP errors retain SDK status/code, including ambiguous HEAD 403/404 responses.
  * @why Initialization prepares a route without requiring account-wide bucket-list permission.
  */
@@ -75,7 +75,7 @@ export class S3Client implements Client {
     this.#sdk = new AwsS3Client({ endpoint: target.endpoint, region: target.region,
       credentials: target.credentials, forcePathStyle: target.forcePathStyle ?? true,
       requestHandler: this.#http.handler, maxAttempts: 1, followRegionRedirects: false,
-      responseChecksumValidation: "WHEN_REQUIRED" });
+      requestChecksumCalculation: "WHEN_REQUIRED", responseChecksumValidation: "WHEN_REQUIRED" });
   }
 
   #run<T>(options: S3RequestOptions, operation: (sdk: AwsS3Client, signal: AbortSignal) => Promise<T>): Promise<T> {
@@ -134,6 +134,27 @@ export class S3Client implements Client {
       const result = await sdk.send(new GetBucketVersioningCommand({ Bucket: bucket }), { abortSignal: signal });
       if (result.Status === "Enabled") return "enabled";
       return result.Status === "Suspended" ? "suspended" : "disabled";
+    });
+  }
+
+  /** A single bounded PUT; callers own authorization, key ownership and cleanup. No multipart or retry. */
+  putObject(bucket: string, key: string, bytes: Uint8Array, options: S3RequestOptions & {
+    maxBytes: number; contentType?: string;
+  }): Promise<{ etag?: string; versionId?: string }> {
+    positive(options.maxBytes, "maxBytes");
+    if (bytes.byteLength > options.maxBytes) throw new Error("S3 upload exceeds maxBytes");
+    const body = Buffer.from(bytes);
+    return this.#run(options, async (sdk, signal) => {
+      const result = await sdk.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body,
+        ContentLength: body.byteLength, ContentType: options.contentType }), { abortSignal: signal });
+      return { etag: result.ETag, versionId: result.VersionId };
+    });
+  }
+
+  /** Supplying the uploaded version removes that object version rather than adding a delete marker. */
+  deleteObject(bucket: string, key: string, options: S3RequestOptions & { versionId?: string } = {}): Promise<void> {
+    return this.#run(options, async (sdk, signal) => {
+      await sdk.send(new DeleteObjectCommand({ Bucket: bucket, Key: key, VersionId: options.versionId }), { abortSignal: signal });
     });
   }
 
