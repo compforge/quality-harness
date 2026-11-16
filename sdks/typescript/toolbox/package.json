@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -108,6 +108,10 @@
     "./prometheus": {
       "types": "./dist/prometheus/index.d.ts",
       "import": "./dist/prometheus/index.js"
+    },
+    "./opensearch/health": {
+      "types": "./dist/opensearch/health/index.d.ts",
+      "import": "./dist/opensearch/health/index.js"
     }
   },
   "files": [

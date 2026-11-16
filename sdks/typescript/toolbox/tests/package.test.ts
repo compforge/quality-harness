@@ -115,6 +115,13 @@ test("published S3 entry performs bounded signed reads through a mapped route in
     }
     const result = spawnSync("node", ["--input-type=module", "-e", `
       import assert from 'node:assert/strict';
+      import { probeS3ReadWrite } from '@compforge/harness-toolbox/s3';
+      import { probeOpenSearchHealth } from '@compforge/harness-toolbox/opensearch/health';
+      assert.equal(typeof probeS3ReadWrite, 'function');
+      const cancelled = await probeS3ReadWrite({bucket:'fixture',signal:AbortSignal.abort(),client:{},download:async()=>{throw Error('not reached')},cleanupTimeoutMs:100,presignExpiresInSeconds:60});
+      assert.equal(cancelled.status,'cancelled');
+      const noCluster = await probeOpenSearchHealth({search:{count:async()=>0,search:async()=>({})},timeoutMs:100});
+      assert.equal(noCluster.status,'unavailable');
       import { createServer } from 'node:http';
       import { ClientManager } from '@compforge/harness-toolbox';
       import { S3DataSource, S3Error } from '@compforge/harness-toolbox/s3';
