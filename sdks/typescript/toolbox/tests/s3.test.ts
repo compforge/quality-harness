@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { createServer as createTlsServer } from "node:https";
 import { readFileSync } from "node:fs";
 import { ClientManager } from "../src/client-manager";
-import { S3Client, S3DataSource, type S3Target } from "../src/s3";
+import { S3Client, S3DataSource, S3Error, type S3Target } from "../src/s3";
 import { DirectTransport, PortForwardTransport } from "../src/transport";
 
 const limits = { concurrency: 2, connectTimeoutMs: 500, requestTimeoutMs: 2000 };
@@ -126,9 +126,10 @@ test("S3 deadlines cover queued requests and response bodies; aborted queue entr
     await received;
     const abort = new AbortController();
     const queued = client.headBucket("bucket", { signal: abort.signal });
-    abort.abort(new Error("cancel queued"));
-    await expect(queued).rejects.toThrow("cancel queued");
-    expect(await first).toBeInstanceOf(Error);
+    const cancellation = new Error("cancel queued");
+    abort.abort(cancellation);
+    await expect(queued).rejects.toBe(cancellation);
+    expect(await first).toMatchObject({ name: "S3Error", kind: "timeout", code: "ETIMEDOUT" });
     expect(calls).toBe(1);
   } finally { await manager.dispose(); await fixture.close(); }
 });
@@ -267,8 +268,8 @@ test("S3 mutations preserve AccessDenied and never retry failed writes", async (
   const manager = new ClientManager();
   try {
     const client = await manager.get(new S3DataSource(target(fixture.endpoint), limits));
-    await expect(client.putObject("bucket", "own-key", new Uint8Array([1]), { maxBytes: 1 })).rejects.toMatchObject({ name: "AccessDenied", $metadata: { httpStatusCode: 403 } });
-    await expect(client.deleteObject("bucket", "own-key")).rejects.toMatchObject({ name: "AccessDenied" });
+    await expect(client.putObject("bucket", "own-key", new Uint8Array([1]), { maxBytes: 1 })).rejects.toMatchObject({ name: "S3Error", code: "AccessDenied", kind: "permission_denied", $metadata: { httpStatusCode: 403 } });
+    await expect(client.deleteObject("bucket", "own-key")).rejects.toMatchObject({ name: "S3Error", code: "AccessDenied" });
     expect(calls).toEqual(["PUT", "DELETE"]);
   } finally { await manager.dispose(); await fixture.close(); }
 });
@@ -332,4 +333,32 @@ test("presigning retains the logical host through a mapped route", async () => {
     expect(url.origin).toBe("https://s3.internal:9443");
     expect(url.pathname).toBe("/bucket/hello.txt");
   } finally { await client.dispose(); }
+});
+
+test("S3Error normalizes protocol facts without serializing its native cause", async () => {
+  const { ToolboxError } = await import("../src/errors");
+  const native = Object.assign(new Error("https://store/key?X-Amz-Signature=SECRET"), {
+    name: "SignatureDoesNotMatch", $metadata: { httpStatusCode: 403, requestId: "r1", extendedRequestId: "host-1", attempts: 1 },
+  });
+  const error = S3Error.from(native);
+  expect(error).toBeInstanceOf(ToolboxError);
+  expect(error.cause).toBe(native);
+  expect(S3Error.from(error)).toBe(error);
+  expect(error.toJSON()).toMatchObject({ code: "SignatureDoesNotMatch", kind: "authentication_failed", httpStatus: 403,
+    requestId: "r1", extendedRequestId: "host-1" });
+  expect(error.$metadata.attempts).toBe(1);
+  expect(JSON.stringify(error)).not.toContain("SECRET");
+  expect(error.message).not.toContain("SECRET");
+  expect(S3Error.from({ name: "https://store/?secret=SECRET", $metadata: { httpStatusCode: 999, requestId: "bad\nSECRET" } }).toJSON())
+    .toMatchObject({ code: "S3Error", httpStatus: undefined, requestId: undefined });
+});
+
+for (const [code, status, kind] of [
+  ["AccessDenied", 403, "permission_denied"], ["NotFound", 404, "resource_not_found"],
+  ["NoSuchBucket", 404, "resource_not_found"], ["ExpiredToken", 400, "authentication_failed"],
+  ["SlowDown", 503, "limit_exceeded"], ["RequestTimeout", 400, "timeout"],
+  ["ENOTFOUND", undefined, "connection_failed"], ["ECONNRESET", undefined, "connection_lost"],
+  ["ERR_TLS_CERT_ALTNAME_INVALID", undefined, "tls_verification_failed"],
+] as const) test(`S3Error classifies ${code}`, () => {
+  expect(S3Error.from({ code, $metadata: { httpStatusCode: status } }).kind).toBe(kind);
 });

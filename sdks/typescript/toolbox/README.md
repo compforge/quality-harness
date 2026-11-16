@@ -307,6 +307,12 @@ identity remain the logical endpoint, not the forwarded address. Private CAs may
 explicitly with `ca`; certificate verification stays enabled. Initialization prepares the client
 and route without listing buckets or claiming that credentials have been validated.
 
+S3 request failures are `S3Error` (a `ToolboxError`), with `kind`, protocol `code`, HTTP status,
+request IDs and safe `toJSON()` details. The original SDK/network error remains in `cause` for
+explicit diagnostic processing; do not serialize it without redaction. Caller/root cancellation
+retains its original reason; client request deadlines become `S3Error` with kind `timeout`.
+SDK `$metadata` remains available, but use `code` instead of the native SDK error `name`.
+
 `putObject` also returns safe `response` metadata: HTTP status, RequestId, extended RequestId and attempts.
 
 `presignGetObject(bucket, key, { expiresIn, versionId?, signal? })` returns a GET URL using
