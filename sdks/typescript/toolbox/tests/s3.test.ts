@@ -234,7 +234,7 @@ test("bounded S3 PUT/GET/DELETE preserves bytes, signing and the uploaded versio
     if (req.method === "PUT") {
       const chunks: Buffer[] = [];
       req.on("data", chunk => chunks.push(chunk));
-      req.on("end", () => { stored = Buffer.concat(chunks); res.writeHead(200, { "x-amz-version-id": "v/1+", etag: '"etag"' }); res.end(); });
+      req.on("end", () => { stored = Buffer.concat(chunks); res.writeHead(200, { "x-amz-version-id": "v/1+", "x-amz-request-id": "upload-1", "x-amz-id-2": "host-1", etag: '"etag"' }); res.end(); });
     } else if (req.method === "GET") {
       expect(url.searchParams.get("versionId")).toBe("v/1+");
       res.writeHead(200, { "content-length": String(stored.length) }); res.end(stored);
@@ -250,7 +250,8 @@ test("bounded S3 PUT/GET/DELETE preserves bytes, signing and the uploaded versio
     const bytes = new TextEncoder().encode("hello world");
     expect(() => client.putObject("bucket", "probe/hello.txt", bytes, { maxBytes: 10 })).toThrow("maxBytes");
     const uploaded = await client.putObject("bucket", "probe/hello.txt", bytes, { maxBytes: 11, contentType: "text/plain" });
-    expect(uploaded).toEqual({ etag: '"etag"', versionId: "v/1+" });
+    expect(uploaded).toEqual({ etag: '"etag"', versionId: "v/1+",
+      response: { httpStatusCode: 200, requestId: "upload-1", extendedRequestId: "host-1", attempts: 1 } });
     expect(stored.toString()).toBe("hello world");
     expect(calls).toHaveLength(1);
     const read = await client.readObject("bucket", "probe/hello.txt", { maxBytes: 12, versionId: uploaded.versionId });

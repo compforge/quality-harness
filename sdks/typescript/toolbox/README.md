@@ -307,6 +307,8 @@ identity remain the logical endpoint, not the forwarded address. Private CAs may
 explicitly with `ca`; certificate verification stays enabled. Initialization prepares the client
 and route without listing buckets or claiming that credentials have been validated.
 
+`putObject` also returns safe `response` metadata: HTTP status, RequestId, extended RequestId and attempts.
+
 `presignGetObject(bucket, key, { expiresIn, versionId?, signal? })` returns a GET URL using
 that client's endpoint, region and credentials. `expiresIn` is an explicit integer in seconds
 (1–604800); temporary credentials may expire earlier. Signing performs no S3 request and

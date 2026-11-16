@@ -10,7 +10,7 @@ import { ConcurrencyPool } from "../concurrency";
 import type { ClientLifecycle } from "../datasource";
 import { Transport, isConnectionNetworkError } from "../transport";
 import { s3Handler } from "./handler";
-import type { S3Target, S3Limits, S3RequestOptions, S3ObjectMetadata, S3ObjectPage, S3BucketPage, S3ObjectRead } from "./types";
+import type { S3Target, S3Limits, S3RequestOptions, S3ObjectMetadata, S3ObjectPage, S3BucketPage, S3ObjectRead, S3ResponseMetadata } from "./types";
 
 function positive(value: number, name: string, maximum = Number.MAX_SAFE_INTEGER): void {
   if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
@@ -142,14 +142,17 @@ export class S3Client implements Client {
   /** A single bounded PUT; callers own authorization, key ownership and cleanup. No multipart or retry. */
   putObject(bucket: string, key: string, bytes: Uint8Array, options: S3RequestOptions & {
     maxBytes: number; contentType?: string;
-  }): Promise<{ etag?: string; versionId?: string }> {
+  }): Promise<{ etag?: string; versionId?: string; response?: S3ResponseMetadata }> {
     positive(options.maxBytes, "maxBytes");
     if (bytes.byteLength > options.maxBytes) throw new Error("S3 upload exceeds maxBytes");
     const body = Buffer.from(bytes);
     return this.#run(options, async (sdk, signal) => {
       const result = await sdk.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body,
         ContentLength: body.byteLength, ContentType: options.contentType }), { abortSignal: signal });
-      return { etag: result.ETag, versionId: result.VersionId };
+      return { etag: result.ETag, versionId: result.VersionId, response: {
+        httpStatusCode: result.$metadata.httpStatusCode, requestId: result.$metadata.requestId,
+        extendedRequestId: result.$metadata.extendedRequestId, attempts: result.$metadata.attempts,
+      } };
     });
   }
 
