@@ -1,0 +1,27 @@
+{
+  "operations": [
+    {
+      "name": "chat",
+      "service": "front",
+      "calls": [
+        "operation:worker/run"
+      ],
+      "mayCalls": [],
+      "metrics": {
+        "qps": {
+          "unit": "rps",
+          "expression": "sum(rate(requests[$window]))"
+        }
+      }
+    },
+    {
+      "name": "run",
+      "service": "worker",
+      "calls": [],
+      "mayCalls": [
+        "operation:front/chat"
+      ],
+      "metrics": {}
+    }
+  ]
+}

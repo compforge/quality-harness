@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from urllib.parse import quote
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from harness_common.execution.operation import Operation
 
 from harness_common.identity import Identity
 
@@ -33,6 +37,7 @@ class Service(Identity):
     concepts: str | None = field(default=None, kw_only=True, compare=False)
     workflows: str | None = field(default=None, kw_only=True, compare=False)
     workloads: tuple[Workload, ...] = field(default=(), kw_only=True, compare=False)
+    operations: tuple[Operation, ...] = field(default=(), kw_only=True, compare=False)
 
     def id(self) -> str:
         """Name-based identity within one environment's service catalog.

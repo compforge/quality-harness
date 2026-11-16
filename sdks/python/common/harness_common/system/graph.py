@@ -6,8 +6,12 @@ import json
 import math
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Iterable, Self, Mapping
+from typing import TYPE_CHECKING, Iterable, Self, Mapping
 from types import MappingProxyType
+
+
+if TYPE_CHECKING:
+    from harness_common.system.service import Service
 
 
 def _freeze_property(value: object, ancestors: frozenset[int] = frozenset()) -> object:
@@ -350,3 +354,60 @@ class Graph:
             ),
             relations=tuple(relations),
         )
+
+
+def graph_from_services(
+    services: Iterable[Service],
+    *,
+    source: str | None = None,
+    version: str | None = None,
+) -> Graph:
+    """Build topology from declarations without I/O; cycles do not imply actual traffic."""
+    from harness_common.execution.operation import HttpOperation
+
+    services = tuple(services)
+    environment = services[0].environment.name if services else None
+    if not environment or any(s.environment.name != environment for s in services):
+        raise ValueError("Graph services must share one environment")
+    nodes, relations = [], []
+    for service in services:
+        nodes.append(Node(service.id(), NodeKind.SERVICE))
+        for operation in service.operations:
+            if operation.service_name != service.name:
+                raise ValueError(
+                    f"Operation owner differs from Service: {operation.id()}"
+                )
+            calls, conditional = operation.calls or (), operation.may_calls or ()
+            if set(calls) & set(conditional):
+                raise ValueError(f"Conflicting calls/mayCalls: {operation.id()}")
+            properties = {}
+            if operation.description:
+                properties["description"] = operation.description
+            if operation.importance:
+                properties["importance"] = operation.importance
+            if isinstance(operation, HttpOperation):
+                properties.update(
+                    method=operation.method,
+                    path=operation.path,
+                    response_mode=operation.response_mode,
+                )
+            nodes.append(
+                Node(operation.id(), NodeKind.OPERATION, properties=properties)
+            )
+            relations.append(
+                Relation(operation.id(), service.id(), RelationKind.BELONGS_TO)
+            )
+            relations.extend(
+                Relation(operation.id(), target, RelationKind.CALLS) for target in calls
+            )
+            relations.extend(
+                Relation(operation.id(), target, RelationKind.MAY_CALL)
+                for target in conditional
+            )
+    return Graph(
+        environment=environment,
+        nodes=tuple(nodes),
+        relations=tuple(relations),
+        source=source,
+        version=version,
+    )

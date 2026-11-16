@@ -165,3 +165,34 @@ export class Graph {
     return new Graph(data as unknown as GraphSnapshot);
   }
 }
+
+/**
+ * @spec Service declarations are the topology authority; no I/O or observation is performed.
+ * @rule Calls declare normal-path relationships, not actual traffic. Cycles are valid.
+ */
+export function graphFromServices(services: readonly import("./service.js").Service[], metadata: {source?: string; version?: string} = {}): Graph {
+  const environment = services[0]?.environment.name;
+  if (!environment || services.some(service => service.environment.name !== environment))
+    throw new Error("Graph services must share one environment");
+  const nodes: Node[] = [], relations: Relation[] = [];
+  for (const service of services) {
+    nodes.push({id: service.id(), kind: NodeKind.Service});
+    for (const operation of service.operations ?? []) {
+      if (operation.serviceName !== service.name) throw new Error(`Operation owner differs from Service: ${operation.id()}`);
+      const calls = operation.calls ?? [], conditional = operation.mayCalls ?? [];
+      if (calls.some(target => conditional.includes(target))) throw new Error(`Conflicting calls/mayCalls: ${operation.id()}`);
+      const protocol = operation as typeof operation & {method?: string; path?: string; response_mode?: string};
+      nodes.push({id: operation.id(), kind: NodeKind.Operation, properties: {
+        ...(operation.description ? {description: operation.description} : {}),
+        ...(operation.importance ? {importance: operation.importance} : {}),
+        ...(protocol.method ? {method: protocol.method} : {}),
+        ...(protocol.path ? {path: protocol.path} : {}),
+        ...(protocol.response_mode ? {response_mode: protocol.response_mode} : {}),
+      }});
+      relations.push(createRelation(operation.id(), service.id(), RelationKind.BelongsTo));
+      for (const target of calls) relations.push(createRelation(operation.id(), target, RelationKind.Calls));
+      for (const target of conditional) relations.push(createRelation(operation.id(), target, RelationKind.MayCall));
+    }
+  }
+  return new Graph({environment, ...metadata, nodes, relations});
+}

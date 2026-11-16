@@ -1,3 +1,4 @@
+import { Operation } from "@compforge/harness-common";
 import { expect, test } from "bun:test";
 import { readFileSync, mkdtempSync, copyFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -78,4 +79,20 @@ test("open codes preserve prototype-like names and distinguish missing judgments
   }
   for (const code of ["", "   ", null, 0])
     expect(() => validateEvaluation({code})).toThrow("nonempty string");
+});
+
+/** @case id=operation_request_identity,desc=`Static probes on Operation`,expect=`Requests retain identity without repeating topology or query declarations` */
+test("request serialization does not duplicate static Operation declarations", () => {
+  const directory = mkdtempSync(join(tmpdir(), "perf-operation-"));
+  try {
+    for (const [source, target] of [["basic.run.json", "run.json"], ["basic.requests.jsonl", "requests.jsonl"], ["basic.evaluations.json", "evaluations.json"]])
+      copyFileSync(new URL(source!, fixtures), join(directory, target!));
+    const run = loadRun(directory), arm = run.executions[0]!, call = arm.operation_runs[0]!;
+    arm.operation_runs[0] = {...call, operation: new Operation({...call.operation,
+      calls: ["operation:worker/run"], probes: [{type: "prometheus", metrics: {qps: {unit: "rps", expression: "expensive_query"}}}]})};
+    const serialized = serializeRequests(run);
+    expect(serialized).not.toContain("expensive_query");
+    expect(serialized).not.toContain('"calls"');
+    expect(JSON.parse(serialized.split("\n")[0]!).operation_run.operation.name).toBe(call.operation.name);
+  } finally { rmSync(directory, {recursive: true, force: true}); }
 });

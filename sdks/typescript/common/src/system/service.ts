@@ -1,3 +1,4 @@
+import type { Operation } from "../execution.js";
 import type { Identity } from "../identity.js";
 import type { Knowledge } from "./knowledge.js";
 import type { Component } from "./component.js";
@@ -29,12 +30,14 @@ export class Service<E extends Environment = Environment> implements Identity {
   readonly environment: E;
   /** Zero or more runtime carriers; an empty array declares no workloads. */
   readonly workloads: readonly Workload[];
+  readonly operations?: readonly Operation[];
 
   constructor(value: Omit<Service<E>, "id">) {
     this.name = value.name;
     this.component = value.component;
     this.environment = value.environment;
     this.workloads = value.workloads;
+    this.operations = value.operations;
     this.description = value.description;
     this.knowledge = value.knowledge;
     this.upstream = value.upstream;
