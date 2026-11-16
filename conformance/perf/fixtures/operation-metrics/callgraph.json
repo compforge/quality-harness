@@ -1,0 +1,436 @@
+{
+  "schema_version": 2,
+  "topology_source": "declared",
+  "run_id": "run",
+  "experiment": "fixture",
+  "created_at": "2026-09-17T00:00:00Z",
+  "status": "completed",
+  "environment": "qa",
+  "case_ids": [
+    "greeting",
+    "tool-use"
+  ],
+  "graph_source": "fixture",
+  "graph_version": "v1",
+  "relations": [
+    {
+      "id": "[\"operation:mock/chat\",\"calls\",\"operation:mock/search\"]",
+      "source": "operation:mock/chat",
+      "target": "operation:mock/search",
+      "kind": "calls",
+      "properties": {
+        "note": "declared"
+      }
+    },
+    {
+      "id": "[\"operation:mock/chat\",\"may_call\",\"operation:mock/empty\"]",
+      "source": "operation:mock/chat",
+      "target": "operation:mock/empty",
+      "kind": "may_call",
+      "properties": {
+        "note": "declared"
+      }
+    },
+    {
+      "id": "[\"operation:mock/chat\",\"calls\",\"operation:mock/failed\"]",
+      "source": "operation:mock/chat",
+      "target": "operation:mock/failed",
+      "kind": "calls",
+      "properties": {
+        "note": "declared"
+      }
+    },
+    {
+      "id": "[\"operation:mock/chat\",\"calls\",\"operation:mock/unbound\"]",
+      "source": "operation:mock/chat",
+      "target": "operation:mock/unbound",
+      "kind": "calls",
+      "properties": {
+        "note": "declared"
+      }
+    }
+  ],
+  "arms": [
+    {
+      "id": "run:one",
+      "arm_id": "one",
+      "started_at_s": 1000.125,
+      "load": {
+        "request_rate": "inf",
+        "max_inflight": 1,
+        "hold_s": 1,
+        "warmup": {
+          "step_s": 0
+        },
+        "stages": [],
+        "arrival": "constant",
+        "seed": 0,
+        "abort_on_error_rate": null,
+        "breaker_min_n": 20,
+        "cooldown_timeout_s": 30.0
+      },
+      "resources": {
+        "cpu": null,
+        "memory": null,
+        "workers": null,
+        "replicas": 1,
+        "extra": {}
+      },
+      "windows": [
+        {
+          "id": "full",
+          "kind": "full",
+          "phase": null,
+          "name": "Full observation",
+          "start_s": 0.0,
+          "end_s": 2.000000000001,
+          "complete": true,
+          "limited_s": 0.0,
+          "nodes": [
+            {
+              "id": "operation:mock/chat",
+              "kind": "operation",
+              "properties": {
+                "path": "/chat",
+                "method": "POST",
+                "response_mode": "sse",
+                "note": "preserved",
+                "perf": {
+                  "name": "chat",
+                  "importance": "high",
+                  "service": "mock",
+                  "method": "POST",
+                  "path": "/chat",
+                  "response_mode": "sse",
+                  "qps_semantics": "completed",
+                  "metrics": {
+                    "qps": {
+                      "value": 0.0,
+                      "unit": "rps",
+                      "status": "observed",
+                      "metric_ref": "prometheus_query.qps{operation=\"operation:mock/chat\",service=\"mock\"}.value",
+                      "reason": null,
+                      "queries": [
+                        {
+                          "expression": "sum(rate(qps{route=\"/chat\"}[1000ms]))",
+                          "source_url": "http://metrics",
+                          "datasource_kind": "prometheus",
+                          "start_s": 1000.125,
+                          "end_s": 1001.124,
+                          "collected_at_s": 1002.0,
+                          "error": null,
+                          "warnings": []
+                        }
+                      ],
+                      "description": "qps measured on the server",
+                      "histogram": null,
+                      "semantics": "completed"
+                    },
+                    "p95": {
+                      "value": "+Inf",
+                      "unit": "s",
+                      "status": "observed",
+                      "metric_ref": "prometheus_query.p95{operation=\"operation:mock/chat\",service=\"mock\"}.value",
+                      "reason": null,
+                      "queries": [
+                        {
+                          "expression": "sum(rate(p95{route=\"/chat\"}[1000ms]))",
+                          "source_url": "http://metrics",
+                          "datasource_kind": "prometheus",
+                          "start_s": 1000.125,
+                          "end_s": 1001.124,
+                          "collected_at_s": 1002.0,
+                          "error": null,
+                          "warnings": []
+                        }
+                      ],
+                      "description": "p95 measured on the server",
+                      "histogram": {
+                        "quantile": 0.95,
+                        "sample_count": 10,
+                        "max_finite_bucket": 1,
+                        "overflow": true
+                      },
+                      "semantics": ""
+                    },
+                    "error_rate": {
+                      "value": 0.2,
+                      "unit": "ratio",
+                      "status": "observed",
+                      "metric_ref": "prometheus_query.error_rate{operation=\"operation:mock/chat\",service=\"mock\"}.value",
+                      "reason": null,
+                      "queries": [
+                        {
+                          "expression": "sum(rate(error_rate{route=\"/chat\"}[1000ms]))",
+                          "source_url": "http://metrics",
+                          "datasource_kind": "prometheus",
+                          "start_s": 1000.125,
+                          "end_s": 1001.124,
+                          "collected_at_s": 1002.0,
+                          "error": null,
+                          "warnings": []
+                        }
+                      ],
+                      "description": "error_rate measured on the server",
+                      "histogram": null,
+                      "semantics": ""
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "operation:mock/search",
+              "kind": "operation",
+              "properties": {
+                "path": "/search",
+                "method": "POST",
+                "response_mode": "unary",
+                "note": "preserved",
+                "perf": {
+                  "name": "search",
+                  "importance": "medium",
+                  "service": "mock",
+                  "method": "POST",
+                  "path": "/search",
+                  "response_mode": "unary",
+                  "qps_semantics": "completed",
+                  "metrics": {
+                    "qps": {
+                      "value": 2.0,
+                      "unit": "rps",
+                      "status": "observed",
+                      "metric_ref": "prometheus_query.qps{operation=\"operation:mock/search\",service=\"mock\"}.value",
+                      "reason": null,
+                      "queries": [
+                        {
+                          "expression": "sum(rate(qps{route=\"/search\"}[1000ms]))",
+                          "source_url": "http://metrics",
+                          "datasource_kind": "prometheus",
+                          "start_s": 1000.125,
+                          "end_s": 1001.124,
+                          "collected_at_s": 1002.0,
+                          "error": null,
+                          "warnings": []
+                        }
+                      ],
+                      "description": "qps measured on the server",
+                      "histogram": null,
+                      "semantics": "completed"
+                    },
+                    "p95": {
+                      "value": null,
+                      "unit": "s",
+                      "status": "missing",
+                      "metric_ref": null,
+                      "reason": "unbound",
+                      "queries": [],
+                      "description": "",
+                      "histogram": null,
+                      "semantics": ""
+                    },
+                    "error_rate": {
+                      "value": null,
+                      "unit": "ratio",
+                      "status": "missing",
+                      "metric_ref": null,
+                      "reason": "unbound",
+                      "queries": [],
+                      "description": "",
+                      "histogram": null,
+                      "semantics": ""
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "operation:mock/empty",
+              "kind": "operation",
+              "properties": {
+                "path": "/empty",
+                "method": "POST",
+                "response_mode": "unary",
+                "note": "preserved",
+                "perf": {
+                  "name": "empty",
+                  "importance": "medium",
+                  "service": "mock",
+                  "method": "POST",
+                  "path": "/empty",
+                  "response_mode": "unary",
+                  "qps_semantics": "completed",
+                  "metrics": {
+                    "qps": {
+                      "value": null,
+                      "unit": "rps",
+                      "status": "missing",
+                      "metric_ref": "prometheus_query.qps{operation=\"operation:mock/empty\",service=\"mock\"}.value",
+                      "reason": "no_samples",
+                      "queries": [
+                        {
+                          "expression": "sum(rate(qps{route=\"/empty\"}[1000ms]))",
+                          "source_url": "http://metrics",
+                          "datasource_kind": "prometheus",
+                          "start_s": 1000.125,
+                          "end_s": 1001.124,
+                          "collected_at_s": 1002.0,
+                          "error": null,
+                          "warnings": []
+                        }
+                      ],
+                      "description": "qps measured on the server",
+                      "histogram": null,
+                      "semantics": "completed"
+                    },
+                    "p95": {
+                      "value": null,
+                      "unit": "s",
+                      "status": "missing",
+                      "metric_ref": null,
+                      "reason": "unbound",
+                      "queries": [],
+                      "description": "",
+                      "histogram": null,
+                      "semantics": ""
+                    },
+                    "error_rate": {
+                      "value": null,
+                      "unit": "ratio",
+                      "status": "missing",
+                      "metric_ref": null,
+                      "reason": "unbound",
+                      "queries": [],
+                      "description": "",
+                      "histogram": null,
+                      "semantics": ""
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "operation:mock/failed",
+              "kind": "operation",
+              "properties": {
+                "path": "/failed",
+                "method": "POST",
+                "response_mode": "unary",
+                "note": "preserved",
+                "perf": {
+                  "name": "failed",
+                  "importance": "medium",
+                  "service": "mock",
+                  "method": "POST",
+                  "path": "/failed",
+                  "response_mode": "unary",
+                  "qps_semantics": "completed",
+                  "metrics": {
+                    "qps": {
+                      "value": null,
+                      "unit": "rps",
+                      "status": "error",
+                      "metric_ref": "prometheus_query.qps{operation=\"operation:mock/failed\",service=\"mock\"}.value",
+                      "reason": "query_error",
+                      "queries": [
+                        {
+                          "expression": "sum(rate(qps{route=\"/failed\"}[1000ms]))",
+                          "source_url": "http://metrics",
+                          "datasource_kind": "prometheus",
+                          "start_s": 1000.125,
+                          "end_s": 1001.124,
+                          "collected_at_s": 1002.0,
+                          "error": "Prometheus HTTP 503",
+                          "warnings": []
+                        }
+                      ],
+                      "description": "qps measured on the server",
+                      "histogram": null,
+                      "semantics": "completed"
+                    },
+                    "p95": {
+                      "value": null,
+                      "unit": "s",
+                      "status": "missing",
+                      "metric_ref": null,
+                      "reason": "unbound",
+                      "queries": [],
+                      "description": "",
+                      "histogram": null,
+                      "semantics": ""
+                    },
+                    "error_rate": {
+                      "value": null,
+                      "unit": "ratio",
+                      "status": "missing",
+                      "metric_ref": null,
+                      "reason": "unbound",
+                      "queries": [],
+                      "description": "",
+                      "histogram": null,
+                      "semantics": ""
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "operation:mock/unbound",
+              "kind": "operation",
+              "properties": {
+                "path": "/unbound",
+                "method": "POST",
+                "response_mode": "unary",
+                "note": "preserved",
+                "perf": {
+                  "name": "unbound",
+                  "importance": "medium",
+                  "service": "mock",
+                  "method": "POST",
+                  "path": "/unbound",
+                  "response_mode": "unary",
+                  "qps_semantics": null,
+                  "metrics": {
+                    "qps": {
+                      "value": null,
+                      "unit": "rps",
+                      "status": "missing",
+                      "metric_ref": null,
+                      "reason": "unbound",
+                      "queries": [],
+                      "description": "",
+                      "histogram": null,
+                      "semantics": ""
+                    },
+                    "p95": {
+                      "value": null,
+                      "unit": "s",
+                      "status": "missing",
+                      "metric_ref": null,
+                      "reason": "unbound",
+                      "queries": [],
+                      "description": "",
+                      "histogram": null,
+                      "semantics": ""
+                    },
+                    "error_rate": {
+                      "value": null,
+                      "unit": "ratio",
+                      "status": "missing",
+                      "metric_ref": null,
+                      "reason": "unbound",
+                      "queries": [],
+                      "description": "",
+                      "histogram": null,
+                      "semantics": ""
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

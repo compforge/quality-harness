@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -104,6 +104,10 @@
     "./endpoint": {
       "types": "./dist/network/endpoint.d.ts",
       "import": "./dist/network/endpoint.js"
+    },
+    "./prometheus": {
+      "types": "./dist/prometheus/index.d.ts",
+      "import": "./dist/prometheus/index.js"
     }
   },
   "files": [

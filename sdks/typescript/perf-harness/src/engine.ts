@@ -1,3 +1,4 @@
+import { Graph, type GraphSnapshot } from "@compforge/harness-common";
 import { createHash } from "node:crypto";
 import {
   validateCaseSet,
@@ -27,6 +28,7 @@ import type {
 import type { ArmContext, Runner } from "./runner";
 
 export interface Experiment {
+  graph?: GraphSnapshot;
   name?: string;
   service: Service;
   runner: Runner;
@@ -193,6 +195,11 @@ export class Engine {
           !(0 <= range.start_s && range.start_s < range.end_s))
         throw new Error("time range requires name and 0 <= start_s < end_s");
     }
+    if (experiment.graph) {
+      const graph = Graph.fromJSON(experiment.graph);
+      if (graph.environment !== experiment.service.environment.name) throw new Error("Graph environment must match experiment");
+      experiment = {...experiment, graph: graph.toJSON()};
+    }
     const resolved = resolveCases(experiment);
     this.#experiment = experiment;
     this.#runId = options.run_id ?? runId();
@@ -247,6 +254,7 @@ export class Engine {
         setupEnd = origin;
         execution.enter("warmup");
         await drive({
+          origin,
           state: execution.drive,
           judge: this.#experiment.judge ?? defaultJudge,
           execution: result,
@@ -316,6 +324,8 @@ export class Engine {
     }
     return {
       schema: 12,
+      ...(this.#experiment.graph ? {graph: this.#experiment.graph} : {}),
+      case_ids: this.#cases.filter((_,index) => this.#weights[index]! > 0).map(item => item.id),
       run_id: this.#runId,
       experiment: this.#experiment.name ?? "perf",
       created_at: created.toISOString(),
