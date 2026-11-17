@@ -49,7 +49,8 @@ export function serializeRequests(run: Run): string {
       const operation_run = call
         ? {
             ...call,
-            operation: Object.fromEntries(Object.entries(call.operation).filter(([key]) => key !== "serviceName")),
+            // Static topology/probes belong to the Run, not every request record.
+            operation: Object.fromEntries(Object.entries(call.operation).filter(([key]) => ["name", "method", "path", "response_mode"].includes(key))),
             service: {
               name: call.service.name,
               component: call.service.component,

@@ -1,3 +1,4 @@
+import type { ProbeDefinition } from "./observation.js";
 import type { Identity } from "./identity.js";
 import type { Service } from "./system/service.js";
 
@@ -5,10 +6,20 @@ import type { Service } from "./system/service.js";
 export class Operation implements Identity {
   readonly name: string;
   readonly serviceName: string;
+  readonly description?: string;
+  readonly importance?: "high" | "medium" | "low";
+  readonly calls?: readonly string[];
+  readonly mayCalls?: readonly string[];
+  readonly probes?: readonly ProbeDefinition[];
 
   constructor(value: Omit<Operation, "id">) {
     this.name = value.name;
     this.serviceName = value.serviceName;
+    this.description = value.description;
+    this.importance = value.importance;
+    this.calls = value.calls === undefined ? undefined : Object.freeze([...value.calls]);
+    this.mayCalls = value.mayCalls === undefined ? undefined : Object.freeze([...value.mayCalls]);
+    this.probes = value.probes === undefined ? undefined : Object.freeze([...value.probes]);
   }
 
   id(): string {

@@ -63,3 +63,5 @@ export class PrometheusClient implements PrometheusReader {
     return {data, warnings: messages("warnings"), infos: messages("infos")};
   }
 }
+
+export { bindPrometheusProbe } from "./probe";

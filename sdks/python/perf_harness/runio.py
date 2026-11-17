@@ -254,6 +254,13 @@ def _stop_from(d: dict) -> ArmStop:
 
 def _operation_json(call: OperationRun) -> dict:
     service = call.service
+    operation = {"name": call.operation.name}
+    if isinstance(call.operation, HttpOperation):
+        operation.update(
+            method=call.operation.method,
+            path=call.operation.path,
+            response_mode=call.operation.response_mode,
+        )
     return {
         "id": call.id,
         "service": {
@@ -263,7 +270,7 @@ def _operation_json(call: OperationRun) -> dict:
             "workloads": [asdict(w) for w in service.workloads],
         },
         # The enclosing service is the canonical owner in this record.
-        "operation": {k: v for k, v in asdict(call.operation).items() if k != "service_name"},
+        "operation": operation,
         "outcome": asdict(call.outcome),
     }
 

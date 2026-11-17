@@ -74,7 +74,7 @@ export function buildCallgraph(run: Run): CallGraphSnapshot | undefined {
               name: decodeURIComponent(node.id.slice(node.id.indexOf("/")+1)),
               importance: incoming.has(node.id) ? String(properties.importance ?? "medium") : "high",
               service: owners.get(node.id)!, method: binding?.method ?? String(properties.method ?? ""),
-              path: binding?.path ?? String(properties.path ?? ""), response_mode: binding?.response_mode ?? (typeof properties.response_mode === "string" ? properties.response_mode : null),
+              path: binding?.path ?? String(properties.path ?? ""), response_mode: binding ? binding.response_mode ?? null : (typeof properties.response_mode === "string" ? properties.response_mode : null),
               qps_semantics: binding?.metrics.qps?.semantics ?? null,
               metrics: Object.fromEntries([...roles].map(role => [role,metric(arm,window,binding?.metrics[role], RED_UNITS[role as keyof typeof RED_UNITS] ?? "")]))}}};
           })}))}))};

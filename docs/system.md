@@ -174,6 +174,16 @@ TypeScript Service 的可选 upstream 引用调用当前 Service 的标准名称
 省略表示关系未声明，空数组表示声明无上游；该关系不改变身份，也不表示某次请求实际经过的路径。
 
 Common Graph 用带 kind 的 Node / Relation 表达 Service、Operation 和调用关系。
+Service 可通过 `operations` 贡献 Operation；Operation 的 `calls` / `may_calls`（TypeScript：`mayCalls`）
+引用下游 Operation ID，`probes` 声明可观测属性。`graph_from_services` / `graphFromServices`
+将同一 Environment 的声明组装为 Graph，校验 owner、重复节点、悬空引用与冲突边；允许循环。
+Service.operations 是声明源，Graph 和 Observation model 按需在内存组装，无需维护独立声明文件。
+运行记录保存当次使用的拓扑、查询计划和观测事实，供离线复查；报告视图由这些事实临时生成。
+
+ProbeDefinition、MetricQuery、MetricBinding、ObservationBinding 和 HistogramQuantile 属于 Common，
+不含执行窗口和访问凭据。后端选择要求每个 metric role 恰好有一个 producer；Toolbox 负责协议和
+参数绑定，Perf 负责窗口、RED 单位、MetricStore 地址校验及结果归约。Python Perf 的 binding
+在 Common 结构上保留这些领域校验。Case 与 Operation 的例子见 [执行模型](execution.md#operation-与-case)。
 拓扑声明与请求执行事实独立，结构、查询和证据关联边界见 [Graph](#graph)。
 
 ## Graph

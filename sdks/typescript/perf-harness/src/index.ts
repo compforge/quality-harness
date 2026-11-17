@@ -13,3 +13,5 @@ export * from "./observe/history";
 export * from "./observe/storage";
 export * from "./callgraph";
 export * from "./report";
+
+export * from "./observe/operations";

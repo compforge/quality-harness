@@ -37,6 +37,26 @@ OperationRun 是一次真实服务调用的基本单位。ExperimentRun 通过�
 一个 Artifact 可以汇总大量 Outcome，同一批 Outcome 也可被多个 Reducer 投影成不同 Artifact。公共 Artifact
 不枚举 Outcome ID；需要精确 provenance 时，由领域使用 Execution identity、selector 或时间窗口表达。
 
+## Operation 与 Case
+
+Operation 静态描述 Service 提供的 API 或能力及其关系；Case 描述具体输入与验证场景。
+多个 Case 可以针对同一个 Operation，例如：
+
+```text
+Operation: chat/chat
+  ├─ Case greeting: query="你好"
+  └─ Case python:   query="用 Python 计算下 1+1"
+```
+
+两个 Case 的入口能力都是 Chat API。第二个 Case 可能触发 Python 工具；静态 `mayCalls`
+只声明这种可能性，不能证明某次执行发生了该调用。实际调用属于运行证据。
+`calls`、`mayCalls` 和 `probes` 随 Operation 声明，输入变化不产生新的 Operation identity。
+
+Case 的执行绑定由消费方提供。Doctor 的 `ServiceCaseSource.operation` 静态引用这一组 Case
+共同针对的 Operation，runner 留在 Case source，负责执行准备和单次调用。
+运行记录同时保留 Case identity 与 Operation identity；通用 Case 格式不强制一对一绑定，
+多步骤 Case 仍可产生多个 OperationRun。
+
 ## 环境与 Case 的两层生命周期
 
 Python 的 FixtureContext 在 EnvironmentContext 上增加 phase，供 prepare/cleanup 使用；

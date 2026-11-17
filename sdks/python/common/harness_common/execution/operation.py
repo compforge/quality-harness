@@ -7,6 +7,7 @@ from typing import Generic, TypeVar
 from urllib.parse import quote
 
 from harness_common.identity import Identity
+from harness_common.observation import ProbeDefinition
 
 from harness_common.execution.outcome import Outcome
 from harness_common.system.service import Service
@@ -18,6 +19,13 @@ class Operation(Identity):
 
     name: str
     service_name: str = field(kw_only=True)
+    description: str | None = field(default=None, kw_only=True, compare=False)
+    importance: str | None = field(default=None, kw_only=True, compare=False)
+    calls: tuple[str, ...] | None = field(default=None, kw_only=True, compare=False)
+    may_calls: tuple[str, ...] | None = field(default=None, kw_only=True, compare=False)
+    probes: tuple[ProbeDefinition, ...] | None = field(
+        default=None, kw_only=True, compare=False
+    )
 
     def id(self) -> str:
         """Service-qualified capability identity, independent of transport details."""

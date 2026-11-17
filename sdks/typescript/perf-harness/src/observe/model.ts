@@ -2,12 +2,8 @@ import type { PrometheusResult, PrometheusKind } from "@compforge/harness-toolbo
 import type { WindowKind, Phase } from "../model";
 
 export const RED_UNITS = {qps: "rps", p95: "s", error_rate: "ratio"} as const;
-export interface MetricBinding { metric: string; unit: string; description?: string; semantics?: string; }
-export interface ObservationBinding {
-  target: string; service: string; metrics: Record<string, MetricBinding>;
-  workload?: string | null; method?: string; path?: string; response_mode?: string | null;
-}
-export interface HistogramQuantile { quantile: number; scale: number; }
+export type { MetricBinding, ObservationBinding, HistogramQuantile } from "@compforge/harness-common";
+import type { HistogramQuantile } from "@compforge/harness-common";
 export interface ScalarSummary {
   kind: "scalar"; value: number | "+Inf"; caveats: string[];
   histogram?: {quantile: number; sample_count: number; max_finite_bucket: number; overflow: boolean} | null;
@@ -26,7 +22,7 @@ export interface WindowQuery {
   window?: WindowSelector; histogram?: HistogramQuantile;
 }
 export interface PrometheusProbe {
-  service: string; target: string; method?: string; path?: string; response_mode?: string;
+  service: string; target: string; method?: string; path?: string; response_mode?: string | null;
   summaries: readonly WindowQuery[];
   metrics: Readonly<Record<string, string>>;
   qps_semantics?: "entered" | "completed";

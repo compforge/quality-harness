@@ -31,6 +31,9 @@ from harness_common import (
 )
 from harness_common import Deployment as BaseDeployment
 from harness_common import Environment as BaseEnvironment
+from harness_common import HistogramQuantile as HistogramQuantile
+from harness_common import MetricBinding as CommonMetricBinding
+from harness_common import ObservationBinding as CommonObservationBinding
 from harness_common import Outcome as BaseOutcome
 from harness_common import Service as BaseService
 
@@ -387,20 +390,6 @@ class ProbeWindowObservation:
     error: str | None = None
 
 
-@dataclass(frozen=True)
-class HistogramQuantile:
-    """Explicit classic-histogram projection; source expression returns bucket increments."""
-
-    quantile: float = 0.95
-    scale: float = 1.0
-
-    def __post_init__(self) -> None:
-        import math
-
-        if not 0 < self.quantile < 1 or not math.isfinite(self.scale) or self.scale <= 0:
-            raise ValueError("histogram requires 0 < quantile < 1 and a positive finite scale")
-
-
 @dataclass
 class PrometheusObservation:
     """One replayable query and its latest result; no connection credentials."""
@@ -518,42 +507,23 @@ RED_UNITS = {"qps": "rps", "p95": "s", "error_rate": "ratio"}
 
 
 @dataclass(frozen=True)
-class MetricBinding:
-    """An observed attribute points into MetricStore; never a second value store."""
-
-    metric: str
-    unit: str
-    description: str = ""
-    semantics: str = ""
+class MetricBinding(CommonMetricBinding):
+    """Perf metric references additionally obey MetricStore address syntax."""
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         from perf_harness.metric import parse_ref
 
         parse_ref(self.metric)
 
 
 @dataclass(frozen=True)
-class ObservationBinding:
-    """Resolved observation contract, independent of the collecting Probe type.
-
-    @spec Common owns Service/Operation identity; workload names are Service-scoped.
-    @rule Metric values belong to Run/Arm/Window, never to the static target.
-    """
-
-    target: str
-    service: str
-    metrics: dict[str, MetricBinding]
-    workload: str | None = None
-    method: str = ""
-    path: str = ""
-    response_mode: str | None = None
+class ObservationBinding(CommonObservationBinding):
+    """Perf RED roles have fixed display units."""
 
     def __post_init__(self) -> None:
-        if not self.target or not self.service or not self.metrics:
-            raise ValueError("observation requires target, service and metrics")
+        super().__post_init__()
         for name, binding in self.metrics.items():
-            if not isinstance(name, str) or not name:
-                raise ValueError("observed metric names must be nonempty strings")
             if name in RED_UNITS and binding.unit != RED_UNITS[name]:
                 raise ValueError(f"{name} requires unit {RED_UNITS[name]}")
 
