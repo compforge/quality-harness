@@ -40,3 +40,7 @@ uv run e2e run ../../examples/api-test/cases.yaml \
 ```
 
 目标服务需要已启动，并提供用例使用的接口。结果写入 `runs/` 下的运行目录，其中包含 `verdict.json`。跳过的用例和执行错误会在结果中明确体现。
+
+## 许可证
+
+采用 [MIT License](LICENSE)。第三方资源保留各自的许可证，见 [vendor 声明](report-kit/vendor/README.md)。
