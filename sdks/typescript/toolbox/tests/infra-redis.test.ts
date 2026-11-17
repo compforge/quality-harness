@@ -8,7 +8,7 @@ import {
   RedisConnection,
   type RedisAccessApi,
   type RedisManagedConnection,
-} from "../src/redis/index";
+} from "../src/kv/redis/index";
 
 test("Redis keyStats 对完整 keyspace pipeline 采集内存与类型长度", async () => {
   let pipelineCall = 0;

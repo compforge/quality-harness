@@ -1,8 +1,8 @@
 import { raceSignal } from "race-signal";
-import type { Client } from "../client";
-import type { ClientLifecycle } from "../datasource";
-import { Transport, isConnectionNetworkError, type TcpTransport } from "../transport";
-import { TimeoutError } from "../errors";
+import type { Client } from "../../client";
+import type { ClientLifecycle } from "../../datasource";
+import { Transport, isConnectionNetworkError, type TcpTransport } from "../../transport";
+import { TimeoutError } from "../../errors";
 import { discoverRedisTopology, type RedisTopologyConfig, type RedisTopology } from "./topology";
 import { createClient, SocketClosedUnexpectedlyError, ConnectionTimeoutError, type RedisClientType } from "@redis/client";
 

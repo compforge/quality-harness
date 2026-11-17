@@ -89,7 +89,7 @@ test("request serialization does not duplicate static Operation declarations", (
       copyFileSync(new URL(source!, fixtures), join(directory, target!));
     const run = loadRun(directory), arm = run.executions[0]!, call = arm.operation_runs[0]!;
     arm.operation_runs[0] = {...call, operation: new Operation({...call.operation,
-      calls: ["operation:worker/run"], probes: [{type: "prometheus", metrics: {qps: {unit: "rps", expression: "expensive_query"}}}]})};
+      calls: ["operation:worker/run"], probes: [{type: "metricdb", metrics: {qps: {unit: "rps", expression: "expensive_query"}}}]})};
     const serialized = serializeRequests(run);
     expect(serialized).not.toContain("expensive_query");
     expect(serialized).not.toContain('"calls"');

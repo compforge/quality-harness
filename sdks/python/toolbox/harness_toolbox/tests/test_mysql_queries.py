@@ -14,8 +14,8 @@ from asyncmy.cursors import Cursor
 from sqlalchemy.dialects.mysql.asyncmy import MySQLDialect_asyncmy
 
 from harness_toolbox import ClientManager
+from harness_toolbox.db.mysql import MySQLDataSource, MySQLTarget
 from harness_toolbox.errors import ErrorKind, MySQLQueryError
-from harness_toolbox.mysql import MySQLDataSource, MySQLTarget
 from harness_toolbox.transport import ConnectionSource, KubernetesAccess, PodPythonTransport
 
 

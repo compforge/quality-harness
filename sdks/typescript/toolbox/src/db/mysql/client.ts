@@ -1,13 +1,13 @@
 import { raceSignal } from "race-signal";
-import type { Client } from "../client";
-import { ConcurrencyPool } from "../concurrency";
-import { ToolboxError } from "../errors";
+import type { Client } from "../../client";
+import { ConcurrencyPool } from "../../concurrency";
+import { ToolboxError } from "../../errors";
 import type { Connection, ConnectionOptions, RowDataPacket } from "mysql2/promise";
 import type { Database, DatabaseTarget, DatabaseRow, DatabaseQueryLimits, DatabaseQueryResult, SqlStatement } from "./types";
 import { connectMysql, destroyMysqlConnection } from "./connection";
 import { queryReadonlySession, validateQueryLimits } from "./readonly";
-import type { ClientLifecycle } from "../datasource";
-import { isConnectionNetworkError, Transport, type PodPythonTransport, type TransportPath } from "../transport";
+import type { ClientLifecycle } from "../../datasource";
+import { isConnectionNetworkError, Transport, type PodPythonTransport, type TransportPath } from "../../transport";
 import { queryMysqlViaPod, queryMysqlViaPodBatch } from "./pod";
 
 export interface MysqlDatabaseOptions extends ClientLifecycle {

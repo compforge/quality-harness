@@ -66,8 +66,8 @@ Prometheus 的 headers_env、timeout_ms、连接池与结果大小限制复用�
 observations:
   - target: operation:search/search
     probes:
-      - type: prometheus_query
-        datasource_kind: prometheus
+      - type: metricdb
+        kind: prometheus
         metrics:
           qps:
             promql: sum(rate(search_requests_total[$window]))
@@ -93,7 +93,7 @@ rps / ratio / s；不会因此限制其他观测。错误率保存 0–1，显�
 同一 target/workload 的同名指标生产者冲突在发压前报错。一个带多个结果 label 的查询不能
 直接绑定为节点标量；显式聚合后再声明指标。`queries` 可继续声明独立趋势查询。
 
-HTTP 通用 profile 使用 `type: http_api`、Operation target、`datasource_kind` 和 `profile`。
+HTTP 通用 profile 使用 `type: http_api`、Operation target、`kind` 和 `profile`。
 profile 自动提供 qps/p95；只有同时配置 status_label 和 error_status_pattern 时才提供 HTTP
 错误率。分母仅包含非空 status 的请求序列，无流量或缺少 status schema 保留 Missing。
 HTTP status 错误率不代表 SSE 业务错误率；后者需要项目查询和对应业务 counter。
@@ -122,8 +122,8 @@ Experiment.observation；独立 Probe 调用仍可使用 Experiment.probes，二
 
 ## 按数据源后端选择 Probe
 
-Probe 的 `type` 表示生产者实现，`datasource_kind` 表示查询适用的实际后端。
-省略 `datasource_kind` 表示通用声明，不表示失败后的 fallback；显式值必须为非空字符串。
+Probe 的 `type` 表示生产者实现，`kind` 表示查询适用的实际后端。
+省略 `kind` 表示通用声明，不表示失败后的 fallback；显式值必须为非空字符串。
 Engine 装配时先匹配 `data_source.kind`，再构造 Probe、检查指标冲突和生成执行计划。
 未匹配的项目 factory 不会执行，查询函数也不会被 Harness 自动替换。
 
@@ -133,15 +133,15 @@ Engine 装配时先匹配 `data_source.kind`，再构造 Probe、检查指标冲
 observations:
   - target: operation:search/search
     probes:
-      - type: prometheus_query
-        datasource_kind: prometheus
+      - type: metricdb
+        kind: prometheus
         metrics:
           p95:
             promql: sum by (le) (increase(search_duration_seconds_bucket[$window]))
             histogram: {quantile: 0.95}
             unit: s
-      - type: prometheus_query
-        datasource_kind: victoriametrics
+      - type: metricdb
+        kind: victoriametrics
         metrics:
           p95:
             promql: sum by (le) (increase_prometheus(search_duration_seconds_bucket[$window]))
@@ -154,8 +154,8 @@ observations:
 
 声明的每个属性必须有匹配生产者；没有显式 metrics 的 Probe 用相同 type/name 标识后端变体。
 无匹配、同一属性多个生产者（包括通用与专用同时匹配）都在加压前报错，不静默覆盖或跳过。
-非数据源 Probe（如 restart）可以省略 datasource_kind，独立于 Prometheus 后端执行。
-项目 factory 的 ProbeConfig 接收实际 prometheus 数据源及声明的 datasource_kind。
+非数据源 Probe（如 restart）可以省略 kind，独立于 Prometheus 后端执行。
+项目 factory 的 ProbeConfig 接收实际 prometheus 数据源及声明的 kind。
 
 ## 执行与事实
 

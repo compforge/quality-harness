@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Connection } from "mysql2/promise";
-import { MysqlDatabase } from "../src/mysql";
+import { MysqlDatabase } from "../src/db/mysql";
 import { DirectTransport, PodPythonTransport } from "../src/transport";
 
 const target = { host: "localhost", port: 3306, database: "app", user: "reader", password: "secret" };

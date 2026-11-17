@@ -1,7 +1,7 @@
 import { Transport as ManagedTransport } from "../src/transport";
 import { expect, test } from "bun:test";
-import { MysqlClient } from "../src/mysql";
-import { RedisClient, RedisAccess } from "../src/redis";
+import { MysqlClient } from "../src/db/mysql";
+import { RedisClient, RedisAccess } from "../src/kv/redis";
 import { OpenSearchClient } from "../src/vectordb/opensearch";
 import { KubernetesClient } from "../src/kubernetes/client";
 import { DirectTransport, PodPythonTransport } from "../src/transport";

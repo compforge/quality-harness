@@ -10,11 +10,11 @@ from kubernetes_asyncio.client.exceptions import ApiException
 from sqlalchemy.exc import OperationalError
 
 from harness_toolbox.address import AddressPolicy, address_candidates
+from harness_toolbox.db.mysql import MySQLDataSource, MySQLTarget
 from harness_toolbox.environment import KubernetesEnvironment
 from harness_toolbox.errors import ErrorKind, MySQLConnectionError, OpenSearchRequestError
 from harness_toolbox.kube import KubernetesClient
 from harness_toolbox.kube.client import _KubernetesAccess
-from harness_toolbox.mysql import MySQLDataSource, MySQLTarget
 from harness_toolbox.transport import ConnectionSource, Endpoint
 from harness_toolbox.vectordb.opensearch import OpenSearchDataSource, OpenSearchTarget
 

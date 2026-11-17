@@ -2,7 +2,7 @@ import { Transport as ManagedTransport } from "../../dist/transport/index.js";
 import assert from "node:assert/strict";
 import net from "node:net";
 import mysql from "mysql2";
-import { MysqlClient } from "../../dist/mysql/index.js";
+import { MysqlClient } from "../../dist/db/mysql/index.js";
 import { DirectTransport } from "../../dist/transport/index.js";
 
 // Neither the listener nor the peer keeps Node alive. Only a leaked client socket can do that.

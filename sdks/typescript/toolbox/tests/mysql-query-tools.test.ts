@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { DataLoader } from "../src/data-loader";
 import { withReadScope, limitedRows, limitedStatement, queryLimited,
-  type Database, type DatabaseTarget } from "../src/mysql";
+  type Database, type DatabaseTarget } from "../src/db/mysql";
 
 const target: DatabaseTarget = { host: "db", port: 3306, database: "app", user: "reader", password: "test" };
 const options = () => ({ maxEntries: 10, maxBytes: 4096, signal: new AbortController().signal });

@@ -24,7 +24,7 @@ harness_toolbox/
 ├── process.py      # 有界子进程 I/O、退出结果与取消清理
 ├── kube/           # 本地/Host 原生资源后端、worker 通道、状态等待、Event、exec 与隧道
 ├── vectordb/opensearch.py   # HTTP 池、有界响应与 scroll
-├── mysql.py        # SQLAlchemy async 池与 Pod Python 查询
+├── db/mysql.py        # SQLAlchemy async 池与 Pod Python 查询
 ├── pod_log.py      # 按物理实例/窗口共享采集，依赖 Kubernetes 客户端
 └── tests/          # 协议 stub 和本机 HTTP/进程测试
 ```

@@ -1,5 +1,5 @@
 import type { DatabaseRow, DatabaseTarget, SqlStatement } from "./types";
-import type { PodPythonTransport } from "../transport";
+import type { PodPythonTransport } from "../../transport";
 
 // Preserve prepared-statement placeholders inside literals, identifiers and comments.
 // PyMySQL binds values using %s; escape literal percent signs before adapting placeholders.

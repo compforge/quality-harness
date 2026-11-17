@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { createConnection, type Connection } from "mysql2/promise";
 import { createServer } from "node:net";
 import { ToolboxError } from "../src/errors";
-import { MysqlDatabase, type DatabaseTarget } from "../src/mysql";
+import { MysqlDatabase, type DatabaseTarget } from "../src/db/mysql";
 import { DirectTransport, PodPythonTransport, PortForwardTransport } from "../src/transport";
-import { preparePodSql } from "../src/mysql/pod";
+import { preparePodSql } from "../src/db/mysql/pod";
 
 const target: DatabaseTarget = { host: "rds.example", port: 3306, database: "db", user: "reader", password: "stdin-only-password" };
 const options = { connectTimeoutMs: 100, queryTimeoutMs: 500 };

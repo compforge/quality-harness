@@ -2,7 +2,7 @@ import { Transport as ManagedTransport } from "../src/transport";
 import { expect, test } from "bun:test";
 import { SocketClosedUnexpectedlyError } from "@redis/client";
 import { RedisAccess, RedisClient, RedisConnection, discoverRedisTopology,
-  type RedisManagedConnection } from "../src/redis";
+  type RedisManagedConnection } from "../src/kv/redis";
 import type { TcpTransport } from "../src/transport";
 
 const endpoint = { host: "redis.internal", port: 6379 };

@@ -73,9 +73,14 @@ class MetricQuery:
 
 @dataclass(frozen=True)
 class ProbeDefinition:
+    """Capability type and optional concrete backend constraint, without source access.
+
+    @spec An omitted kind applies to all backends; selection never retries another variant.
+    """
+
     type: str
     metrics: Mapping[str, MetricQuery]
-    datasource_kind: str | None = field(default=None, kw_only=True)
+    kind: str | None = field(default=None, kw_only=True)
     response_mode: str | None = field(default=None, kw_only=True)
 
 
@@ -86,6 +91,10 @@ def select_probes(
     for probe in probes:
         if not probe.type.strip() or not probe.metrics:
             raise ValueError("Probe requires a type and metric roles")
+        if probe.kind is not None and (
+            not isinstance(probe.kind, str) or not probe.kind.strip()
+        ):
+            raise ValueError("Probe kind must be a nonempty string")
         for role, metric in probe.metrics.items():
             if (
                 not role.strip()
@@ -93,9 +102,7 @@ def select_probes(
                 or not metric.expression.strip()
             ):
                 raise ValueError("Metric requires role, unit and expression")
-    selected = tuple(
-        p for p in probes if p.datasource_kind is None or p.datasource_kind == backend
-    )
+    selected = tuple(p for p in probes if p.kind is None or p.kind == backend)
     for role in {role for p in probes for role in p.metrics}:
         if sum(role in p.metrics for p in selected) != 1:
             raise ValueError(

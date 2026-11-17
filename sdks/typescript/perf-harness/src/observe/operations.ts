@@ -1,5 +1,5 @@
 import { selectProbes, type Operation } from "@compforge/harness-common";
-import { bindPrometheusProbe } from "@compforge/harness-toolbox/metricdb";
+import { bindMetricDBProbe } from "@compforge/harness-toolbox/metricdb";
 import { RED_UNITS, type PrometheusProbe, type WindowSelector } from "./model";
 
 /** Adapt reusable Operation observations to the windows selected by this experiment. No I/O. */
@@ -8,7 +8,7 @@ export function operationMetricProbes(operations: readonly Operation[], backend:
   windows: readonly WindowSelector[] = [{kind: "full"}, {kind: "phase", phase: "hold"}],
 ): PrometheusProbe[] {
   return operations.flatMap(operation => selectProbes(operation.probes ?? [], backend).map(declaration => {
-    const probe = bindPrometheusProbe(declaration, parameters(operation));
+    const probe = bindMetricDBProbe(declaration, parameters(operation));
     for (const [role, metric] of Object.entries(probe.metrics)) {
       if (Object.hasOwn(RED_UNITS, role) && metric.unit !== RED_UNITS[role as keyof typeof RED_UNITS]) throw new Error(`Invalid unit for ${role}`);
       if (metric.histogram && (!(metric.histogram.quantile > 0 && metric.histogram.quantile < 1)

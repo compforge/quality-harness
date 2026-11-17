@@ -9,10 +9,15 @@ export interface MetricQuery extends MetricDefinition {
   readonly expression: string;
   readonly histogram?: HistogramQuantile;
 }
-/** The adapter type owns expression syntax; the host binds parameters and selects the backend. */
+/**
+ * @spec type selects the observation capability; kind restricts its concrete backend.
+ * An omitted kind applies to every backend; it is not a fallback for a failing query.
+ * The host owns source selection; declarations contain no endpoint or credentials.
+ */
 export interface ProbeDefinition {
   readonly type: string;
-  readonly datasourceKind?: string;
+  /** Open backend name, e.g. prometheus or victoriametrics; the client owns supported kinds. */
+  readonly kind?: string;
   /** Omitted inherits Operation; null declares metrics shared across response modes. */
   readonly responseMode?: "unary" | "sse" | null;
   readonly metrics: Readonly<Record<string, MetricQuery>>;
@@ -27,11 +32,12 @@ export interface ObservationBinding {
 export function selectProbes(probes: readonly ProbeDefinition[], backend: string): readonly ProbeDefinition[] {
   for (const probe of probes) {
     if (!probe.type?.trim() || !Object.keys(probe.metrics).length) throw new Error("Probe requires a type and metric roles");
+    if (probe.kind !== undefined && (typeof probe.kind !== "string" || !probe.kind.trim())) throw new Error("Probe kind must be a nonempty string");
     for (const [role, metric] of Object.entries(probe.metrics)) {
       if (!role.trim() || !metric.unit?.trim() || !metric.expression?.trim()) throw new Error("Metric requires role, unit and expression");
     }
   }
-  const selected = probes.filter(probe => probe.datasourceKind === undefined || probe.datasourceKind === backend);
+  const selected = probes.filter(probe => probe.kind === undefined || probe.kind === backend);
   const roles = new Set(probes.flatMap(probe => Object.keys(probe.metrics)));
   for (const role of roles) {
     const producers = selected.filter(probe => Object.hasOwn(probe.metrics, role));
