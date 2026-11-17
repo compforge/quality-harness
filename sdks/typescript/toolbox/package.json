@@ -1,7 +1,7 @@
 {
   "name": "@compforge/harness-toolbox",
   "license": "MIT",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -194,7 +194,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "3.1133.0",
     "@aws-sdk/s3-request-presigner": "3.1133.0",
-    "@compforge/harness-common": "^0.9.0",
+    "@compforge/harness-common": "^0.9.1",
     "@kubernetes/client-node": "1.4.0",
     "@opensearch-project/opensearch": "3.6.0",
     "@redis/client": "6.1.0",
