@@ -40,3 +40,47 @@ test("Prometheus adapter rejects redirects, bad JSON, error envelopes and creden
   }
   expect(()=>new PrometheusClient({request:async()=>{throw new Error();}},{url:"http://user:secret@metrics"})).toThrow("credentials");
 });
+
+/** @case Backend selection is independent of stored application metrics and keeps access failures distinct. */
+test("connect selects query dialect without assuming metrics have been scraped", async () => {
+  for (const kind of ["prometheus", "victoriametrics"] as const) {
+    let calls = 0;
+    const client = await PrometheusClient.connect({request: async (url, options) => {
+      calls++;
+      const request = new URL(url);
+      expect(request.pathname).toBe("/tenant/api/v1/query");
+      expect(request.searchParams.get("query")).toBe("increase_prometheus(vector(0)[1m:1m])");
+      expect(options?.headers?.authorization).toBe("Bearer fixture");
+      return {status: kind === "prometheus" ? 400 : 200, headers: {}, body: new TextEncoder().encode(JSON.stringify(
+        kind === "prometheus" ? {status:"error",errorType:"bad_data",error:'parse error: unknown function with name "increase_prometheus"'}
+          : {status:"success",data:{resultType:"vector",result:[]}}))};
+    }}, {url:"http://metrics/tenant",headers:{authorization:"Bearer fixture"}});
+    expect(client.kind).toBe(kind);
+    expect(calls).toBe(1);
+  }
+});
+
+test("backend detection never falls back on denied, invalid or unavailable responses", async () => {
+  for (const [status, payload] of [
+    [401,{status:"error",error:"secret"}], [403,{status:"error",error:"secret"}],
+    [503,{status:"error",error:"secret"}], [302,{location:"secret"}],
+    [400,{status:"error",errorType:"bad_data",error:"query blocked: secret"}],
+    [200,{status:"error",error:"secret"}], [200,{status:"success",data:{resultType:"scalar",result:[1,"1"]}}],
+  ] as const) {
+    await expect(PrometheusClient.connect({request: async () => ({status,headers:{},
+      body:new TextEncoder().encode(JSON.stringify(payload))})},{url:"http://metrics"})).rejects.toThrow();
+  }
+  const controller = new AbortController(), reason = new Error("cancelled");
+  controller.abort(reason);
+  await expect(PrometheusClient.connect({request: async () => {throw new Error("must not request");}},
+    {url:"http://metrics"},controller.signal)).rejects.toBe(reason);
+});
+
+test("partial backend responses remain explicit evidence even when samples exist", async () => {
+  const client = new PrometheusClient({request: async () => ({status:200,headers:{},
+    body:new TextEncoder().encode(JSON.stringify({status:"success",isPartial:true,
+      data:{resultType:"vector",result:[{metric:{},value:[1,"2"]}]}}))})},{url:"http://metrics"});
+  const result = await client.query("requests",1);
+  expect(result.warnings).toContain("Metric backend returned a partial result");
+  expect(result.data.result).toHaveLength(1);
+});

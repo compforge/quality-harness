@@ -26,9 +26,8 @@ import {
 } from "@compforge/perf-harness";
 
 // http: borrowed HttpApi with host-owned pooling, deadlines, TLS, cancellation and credentials.
-const source = new PrometheusClient(http, {
+const source = await PrometheusClient.connect(http, {
   url: "https://metrics.example/select/0/prometheus",
-  kind: "victoriametrics",
   headers: { Authorization: `Bearer ${token}` },
 });
 const probes: PrometheusProbe[] = [{
@@ -105,3 +104,9 @@ The renderer embeds the repository's existing neutral Cytoscape/ELK graph assets
 build time, from `report-kit`. This is one browser-code source,
 not a Python runtime dependency. Published ESM and generated HTML require no Python, source checkout,
 CDN or runtime asset files. Both SDKs consume the same `operation-metrics` conformance fixture.
+
+Operation declarations may contain complete queries: `operationMetricProbes(operations, source.kind)`
+requires no host-provided label parameters. `$window` is bound only after execution, using actual windows.
+The project owns all selectors. Declaring a Probe does not establish that the source stores its metrics:
+empty results remain missing, errors remain errors, and successful sibling metrics remain available.
+Neither backend detection nor metric collection scrapes exporters or discovers workloads.

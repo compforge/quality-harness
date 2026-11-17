@@ -4,7 +4,7 @@ import { RED_UNITS, type PrometheusProbe, type WindowSelector } from "./model";
 
 /** Adapt reusable Operation observations to the windows selected by this experiment. No I/O. */
 export function operationMetricProbes(operations: readonly Operation[], backend: string,
-  parameters: (operation: Operation) => Readonly<Record<string, string>>,
+  parameters: (operation: Operation) => Readonly<Record<string, string>> = () => ({}),
   windows: readonly WindowSelector[] = [{kind: "full"}, {kind: "phase", phase: "hold"}],
 ): PrometheusProbe[] {
   return operations.flatMap(operation => selectProbes(operation.probes ?? [], backend).map(declaration => {
