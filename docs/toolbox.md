@@ -214,6 +214,17 @@ Transport 只映射连接地址，不改变签名 Host 或 TLS 身份；映射�
 调用方提供私有 CA 时只改变信任来源，不关闭验证。client 初始化仅准备协议资源和访问路径，不用
 ListBuckets 预检强加账号级权限，也不自动重放失败请求。
 
+S3 失败的 `S3Error.toJSON()` 附带 `request` 诊断：最后观察到的阶段、相对操作开始的时间点、
+逻辑 Host 与实际拨号地址、socket 复用、配置的连接/请求预算及原始错误链中的安全 code。
+`timeoutSource` 区分整个操作到期与 HTTP handler 超时；服务端返回的 408/504 仍由 HTTP 状态表达，
+不标记为本地超时。SDK 提供时保留 `attempts` 和 RequestId。
+
+这些事实直接观察同一次 Node HTTP 请求，不额外拨号或重发。时间点是观察偏移，不是服务端耗时；
+`request_sent` 只说明本地请求流写完，不证明服务端已接收或提交对象。运行时未提供原生事件时，
+`nativeRequestObserved` 为 false，只保留 handler 已观察到的阶段，不补造 DNS/TCP/TLS 结论。
+同一路径的 `HttpClient` 下载失败经 `S3Error.from(error)` 转换后也保留诊断。请求结束移除监听器，
+取消原因与借用 Transport 的销毁权保持不变。诊断不记录 URL path/query、header、正文、凭据或原始错误消息。
+
 ## Kubernetes
 
 TypeScript 的根 `KubernetesClient` 直接提供 `get(ref)` / `list(query)`，返回资源对象和结构化

@@ -1,3 +1,4 @@
+import { HttpRequestTrace } from "./diagnostics";
 import { HttpRequest } from "@smithy/core/protocols";
 import { Readable } from "node:stream";
 import { raceSignal } from "race-signal";
@@ -74,7 +75,9 @@ export class HttpClient implements Client, HttpApi {
     const timer = setTimeout(() => timeout.abort(new TimeoutError(`HTTP request timed out after ${this.#limits.requestTimeoutMs}ms`)), this.#limits.requestTimeoutMs);
     timer.unref();
     const signal = AbortSignal.any([this.signal, timeout.signal, ...(options.signal ? [options.signal] : [])]);
-    const pending = this.#pool.run(async () => {
+    const trace = new HttpRequestTrace(this.#limits);
+    const pending = trace.run(() => this.#pool.run(async () => {
+      trace.dequeued();
       // Stop a caller's wait without canceling another caller's shared initialization.
       await raceSignal(this.initialize(), signal);
       signal.throwIfAborted();
@@ -103,7 +106,14 @@ export class HttpClient implements Client, HttpApi {
         signal.removeEventListener("abort", abort);
         body.destroy();
       }
-    }, signal).catch(error => { signal.throwIfAborted(); throw error; }).finally(() => clearTimeout(timer));
+    }, signal).catch(error => {
+      const failure = signal.aborted ? signal.reason : error;
+      // Smithy also names ECONNRESET/EPIPE errors TimeoutError; preserve their network cause.
+      const handlerTimeout = error instanceof Error && error.name === "TimeoutError"
+        && (!("code" in error) || error.code === "ETIMEDOUT");
+      trace.capture(failure, timeout.signal.aborted ? "operation" : handlerTimeout ? "http_handler" : undefined);
+      throw failure;
+    })).finally(() => clearTimeout(timer));
     this.#operations.add(pending);
     void pending.then(() => this.#operations.delete(pending), () => this.#operations.delete(pending));
     return pending;

@@ -1,3 +1,4 @@
+import { HttpRequestTrace } from "../http/diagnostics";
 import {
   S3Client as AwsS3Client, HeadBucketCommand, HeadObjectCommand, ListBucketsCommand,
   ListObjectsV2Command, GetBucketVersioningCommand, GetObjectCommand, PutObjectCommand, DeleteObjectCommand,
@@ -89,12 +90,20 @@ export class S3Client implements Client {
     const timer = setTimeout(() => timeout.abort(new Error("S3 request deadline exceeded")), this.limits.requestTimeoutMs);
     timer.unref();
     const signal = AbortSignal.any([this.signal, timeout.signal, ...(options.signal ? [options.signal] : [])]);
-    const pending = this.#pool.run(() => operation(sdk, signal), signal).catch(error => {
+    const trace = new HttpRequestTrace(this.limits);
+    const pending = trace.run(() => this.#pool.run(async () => {
+      trace.dequeued();
+      return operation(sdk, signal);
+    }, signal).catch(error => {
       // Caller/root cancellation preserves identity; local request deadlines are S3 timeout failures.
       options.signal?.throwIfAborted();
       this.signal.throwIfAborted();
-      throw timeout.signal.aborted ? new S3Error({ code: "ETIMEDOUT", cause: error }) : S3Error.from(error);
-    }).finally(() => clearTimeout(timer));
+      const failure = timeout.signal.aborted ? new S3Error({ code: "ETIMEDOUT", cause: error }) : S3Error.from(error);
+      const timeoutSource = timeout.signal.aborted ? "operation"
+        : failure.kind === "timeout" && failure.httpStatus === undefined ? "http_handler" : undefined;
+      trace.capture(failure, timeoutSource);
+      throw failure;
+    })).finally(() => clearTimeout(timer));
     this.#operations.add(pending);
     void pending.then(() => this.#operations.delete(pending), () => this.#operations.delete(pending));
     return pending;
