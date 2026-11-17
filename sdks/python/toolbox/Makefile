@@ -1,16 +1,21 @@
-.PHONY: test lint fix build
-
+# Each Component checks only its own files; empty selections mean its full suite.
 CHECK_PATHS ?= $(if $(filter %.py,$(LINT_FILES)),$(filter %.py,$(LINT_FILES)),harness_toolbox)
+TEST_PATHS = $(if $(strip $(TEST_FILES)),$(TEST_FILES),harness_toolbox/tests)
+
+.PHONY: test lint format fix
 
 test:
-	uv run --project .. pytest -v harness_toolbox/tests $(TEST_FILES)
+	uv run --project .. pytest -v $(TEST_PATHS)
 
 lint:
 	uv run --project .. ruff check $(CHECK_PATHS)
 
-fix:
+format:
 	uv run --project .. ruff check --fix $(CHECK_PATHS)
 	uv run --project .. ruff format $(CHECK_PATHS)
 
+fix: format
+
+.PHONY: build
 build:
 	uv build --out-dir ../../../dist

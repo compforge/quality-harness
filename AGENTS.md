@@ -78,7 +78,8 @@ quality-harness/
 environment 执行验证。Verdict 必须可追溯到资产版本、目标版本与运行证据；skipped / error 不能
 解释为已验证成功。执行完成也不自动意味着业务达标。
 
-Python 的 common、toolbox 与领域 SDK 由 `sdks/python/Makefile` 统一提供 format/lint/test/build；
+Python 的 common、toolbox 与五个领域 SDK 各自提供 format/lint/test；
+`sdks/python/Makefile` 只负责统一构建、版本和报告资源准备，不重复执行叶子校验。
 TypeScript 工作区入口位于 `sdks/typescript/Makefile`。通过 `repocli validate` 选择对应工程验证，
 具体命令和局部限制见各工程 AGENTS.md。不存在的校验目标应报告 unavailable，不视为通过。
 
