@@ -398,3 +398,35 @@ test("published HTTP client retains DNS SNI, IP identity and cancellation cleanu
     expect(result.status).toBe(0);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+/** @case id=pod_log_public_package,desc=`Import the published Pod log entry`,expect=`Consumers get the transport and nanosecond boundary parser without internal paths` */
+test("published Pod log entry exposes capture and nanosecond boundaries in Node", () => {
+  const root = mkdtempSync(join(tmpdir(), "harness-toolbox-pod-log-package-"));
+  const target = join(root, "node_modules/@compforge/harness-toolbox");
+  mkdirSync(target, { recursive: true });
+  try {
+    installSharedDependencies(root);
+    cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
+    cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
+    const require = createRequire(import.meta.url);
+    for (const dependency of ["@kubernetes/client-node", "node-fetch"]) {
+      const link = join(root, "node_modules", dependency);
+      mkdirSync(dirname(link), { recursive: true });
+      symlinkSync(dirname(require.resolve(`${dependency}/package.json`)), link, "dir");
+    }
+    const result = spawnSync("node", ["--input-type=module", "-e", `
+      import assert from 'node:assert/strict';
+      import { ClientNodePodLogAccess, KubectlPodLogAccess, logTimestampNanos } from '@compforge/harness-toolbox/kubernetes/pod-log';
+      assert.equal(typeof ClientNodePodLogAccess, 'function');
+      assert.equal(typeof KubectlPodLogAccess, 'function');
+      assert.equal(logTimestampNanos('2026-11-17T00:00:00.000000002Z') - logTimestampNanos('2026-11-17T00:00:00.000000001Z'), 1n);
+      assert.equal(logTimestampNanos('invalid'), undefined);
+      for (const path of ['kubernetes/log-timestamp', 'kubernetes/client-node-pod-log']) {
+        await assert.rejects(import('@compforge/harness-toolbox/' + path), {code:'ERR_PACKAGE_PATH_NOT_EXPORTED'});
+      }
+    `], { cwd: root, encoding: "utf8", timeout: 10_000 });
+    expect(result.error).toBeUndefined();
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

@@ -156,3 +156,8 @@ export class KubectlPodLogAccess implements KubernetesPodLogAccess {
     };
   }
 }
+
+/** Public Pod log adapters and timestamp precision shared by capture and consumers. */
+export { ClientNodePodLogAccess, DEFAULT_CLIENT_NODE_LOG_POLICY } from "./client-node-pod-log";
+export type { ClientNodeFetch, ClientNodeLogPolicy, ClientNodePodLogOptions } from "./client-node-pod-log";
+export { logTimestampNanos } from "./log-timestamp";
