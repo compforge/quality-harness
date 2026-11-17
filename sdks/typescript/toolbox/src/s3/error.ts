@@ -1,3 +1,4 @@
+import { httpRequestDiagnostics, type HttpRequestDiagnostics } from "../http/diagnostics";
 import { ToolboxError, type ErrorKind } from "../errors";
 import type { S3ResponseMetadata } from "./types";
 
@@ -8,6 +9,8 @@ export interface S3ErrorDetails {
   httpStatus?: number;
   requestId?: string;
   extendedRequestId?: string;
+  attempts?: number;
+  request?: HttpRequestDiagnostics;
 }
 
 function identifier(value: unknown): string | undefined {
@@ -66,6 +69,7 @@ export class S3Error extends ToolboxError {
 
   toJSON(): S3ErrorDetails {
     return { kind: this.kind, code: this.code, message: this.message, httpStatus: this.httpStatus,
-      requestId: this.requestId, extendedRequestId: this.extendedRequestId };
+      requestId: this.requestId, extendedRequestId: this.extendedRequestId, attempts: this.$metadata.attempts,
+      request: httpRequestDiagnostics(this) };
   }
 }

@@ -1,3 +1,4 @@
+import { HttpRequestTrace } from "./diagnostics";
 import { Agent as HttpAgent } from "node:http";
 import { Agent as HttpsAgent } from "node:https";
 import { isIP } from "node:net";
@@ -21,12 +22,16 @@ export function httpHandler(target: HttpTarget, route: Endpoint, limits: Omit<Ht
     throwOnRequestTimeout: true });
   // Handler routing works on Bun too; its Agent.createConnection is not a routing hook.
   return {
-    handle(request: Parameters<NodeHttpHandler["handle"]>[0], options: Parameters<NodeHttpHandler["handle"]>[1]) {
-      if (!mapped) return engine.handle(request, options);
-      const routed = request.clone();
-      routed.hostname = route.host;
-      routed.port = route.port;
-      return engine.handle(routed, options);
+    async handle(request: Parameters<NodeHttpHandler["handle"]>[0], options: Parameters<NodeHttpHandler["handle"]>[1]) {
+      const trace = HttpRequestTrace.current();
+      const routed = mapped ? request.clone() : request;
+      if (mapped) { routed.hostname = route.host; routed.port = route.port; }
+      trace?.dispatch(request, {
+        host: routed.hostname, port: routed.port ?? (routed.protocol === "https:" ? 443 : 80),
+      }, request.protocol === "https:" ? httpsAgent : httpAgent);
+      const result = await engine.handle(routed, options);
+      trace?.headers();
+      return result;
     },
     destroy() { engine.destroy(); httpAgent.destroy(); httpsAgent.destroy(); },
   };
