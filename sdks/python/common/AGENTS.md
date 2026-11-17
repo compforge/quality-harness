@@ -17,7 +17,7 @@ harness_common/
 `system` 描述目标，`access` 获取事实，`execution` 组织与解释证据。它们是包内职责分组，
 不是独立分发包；跨组引用必须指向具体模块，避免依赖包根聚合导出造成循环。
 包根保持既有符号和类型身份；深层导入迁移见 [0.6 升级说明](README.md)。
-从 `sdks/python` 运行 `make fix`、`make lint`、`make test` 和 `make build`。
+在本目录运行 `make format`、`make lint` 和 `make test`；环境、报告资源准备与统一构建见上层 AGENTS.md。
 
 `HttpOperation` 声明普通 HTTP 响应（`response_mode=unary`）；`SSEOperation` 继承它并声明
 `response_mode=sse`。两者沿用 Service + Operation name 身份，不以响应模式划分 ID；

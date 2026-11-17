@@ -55,7 +55,7 @@ cd sdks/python && uv sync
 # end-to-end with the echo producer (no live server) — writes real reports:
 uv run python -m eval_harness.cli eval_harness/materials/experiments/smoke.yaml --mock --fresh --runs-dir /tmp/eh
 # → /tmp/eh/smoke/<run-id>/{worksheet.jsonl, results.csv, report/{comparison.md, <arm_id>.md}}
-# tests + lint (shared project): uv run pytest tests/  ·  make lint
+# tests + lint (from eval_harness): make test  ·  make lint
 ```
 
 Output `runs/<exp>/<run-id>/`: `worksheet.jsonl` (checkpoint, resumable), `results.csv`
@@ -64,7 +64,7 @@ deltas) and `report/<arm_id>.md` (single-Arm by-facet).
 
 ## Status
 
-**Done + tested** (`cd sdks/python && uv run pytest tests/`, `make lint`):
+**Done + tested** (`cd sdks/python/eval_harness && make test && make lint`):
 model · worksheet + checkpoint · metric (base + WEIGHT + builtins + registry) ·
 aggregate (weighted_overall + percentiles) · report (pivot + render) ·
 schedule (per-endpoint AIMD ratelimit + reconcile) · config · engine

@@ -17,7 +17,7 @@ python/
 ├── common/            # 独立 harness-common：system/access/execution 契约与 report_kit
 ├── toolbox/           # 独立 harness-toolbox：协议客户端、LLM、Transport 与平台适配
 ├── pyproject.toml     # 包、依赖、CLI 与测试发现
-└── Makefile           # 测试、lint、格式化、构建与版本入口
+└── Makefile           # 工作区构建、版本与报告资源准备
 ```
 
 ## 关键约定
@@ -34,12 +34,19 @@ python/
 
 ```bash
 uv sync --locked
-make fix
-make lint
-uv run pytest -q
+make report-assets
+repocli validate --repo ../.. \
+  --component sdks/python/common,sdks/python/toolbox \
+  --component sdks/python/e2e_harness,sdks/python/eval_harness,sdks/python/perf_harness \
+  --component sdks/python/trace_harness,sdks/python/trajectory_harness \
+  --check format,lint,test
 make build
 ```
 
-局部验证使用 `make test TEST_FILES=<package>/tests`；toolbox 路径为 `toolbox/harness_toolbox/tests`。
-局部格式化使用 `make fix CHECK_PATHS=toolbox/harness_toolbox`，完整门禁仍运行 `make lint`。`make fix` 会修改源码，完成后再运行 lint 和测试。
+根 Makefile 不提供校验目标；七个叶子目录各自拥有 format/lint/test，复用同一个 uv 环境。
+各入口只检查本目录，空的 `LINT_FILES` / `TEST_FILES` 表示该组件的完整范围。
+局部验证可在叶子目录运行 `make test TEST_FILES=tests/test_example.py`；common/toolbox 的测试路径分别为
+`harness_common/tests` / `harness_toolbox/tests`。`make fix` 是 `make format` 的别名，完成后再运行 lint/test。
+从本目录运行 `uv run pytest -q` 仍可执行全部 Python 测试。报告资源在校验前通过 `make report-assets` 准备；
+并发的叶子检查不再生成或删除共享资源。
 构建产物写入仓库根目录 `dist/`。领域 smoke 命令与 fixture 使用方式归对应 Harness。

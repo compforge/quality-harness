@@ -1,18 +1,5 @@
-CHECK_PATHS ?= $(if $(filter %.py,$(LINT_FILES)),$(filter %.py,$(LINT_FILES)),common/harness_common/ common/hatch_build.py toolbox/harness_toolbox/ e2e_harness/ eval_harness/ perf_harness/ trace_harness/ trajectory_harness/)
-
-FIX_PATHS ?= $(CHECK_PATHS)
-
-.PHONY: test lint fix build clean bump report-assets
-
-test: report-assets
-	uv run pytest -v $(TEST_FILES)
-
-lint:
-	uv run ruff check $(CHECK_PATHS)
-
-fix:
-	uv run ruff check --fix $(FIX_PATHS)
-	uv run ruff format $(FIX_PATHS)
+# Validation belongs to the leaf Components; see AGENTS.md.
+.PHONY: build clean bump report-assets
 
 build:
 	uv build --all-packages --out-dir ../../dist
