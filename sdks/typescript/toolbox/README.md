@@ -10,7 +10,7 @@ command, plugin protocol, test model or verdict.
 
 The package supports Node.js 22+ and Bun. Install with `npm install @compforge/harness-toolbox`.
 Use `@compforge/harness-toolbox/duration` to parse a positive duration such as `30m` or `2d` into milliseconds.
-`searchAfterPages` from `@compforge/harness-toolbox/opensearch/search-after` yields raw OpenSearch
+`searchAfterPages` from `@compforge/harness-toolbox/vectordb/opensearch/search-after` yields raw OpenSearch
 hit pages with a caller supplied query and stable sort. It streams pages without owning the client or
 claiming snapshot consistency; callers supply cancellation and decide how to persist or verify results.
 Protocol adapters have separate entry points; importing lifecycle or transport contracts does
@@ -538,7 +538,7 @@ key without assuming no object exists. No customer object is read or overwritten
 
 ### OpenSearch health snapshot
 
-`@compforge/harness-toolbox/opensearch/health` exports `probeOpenSearchHealth`. It accepts an already prepared
+`@compforge/harness-toolbox/vectordb/opensearch/health` exports `probeOpenSearchHealth`. It accepts an already prepared
 read-only client and a cancellation/deadline budget. It reads cluster health, allocation, disk watermarks,
 index write blocks, shard state and cluster statistics, retaining independent acquisition gaps and
 protocol-level warnings. It neither discovers application configuration nor registers Doctor checks.
@@ -549,17 +549,24 @@ Consumers choose whether a warning fails their check and attach their own eviden
 Only subpaths declared in `package.json` exports are supported. Client/protocol capabilities have
 explicit entries; implementation helpers are private, independent of source file layout.
 
-`@compforge/harness-toolbox/opensearch/health` exports `probeOpenSearchHealth`,
+`@compforge/harness-toolbox/vectordb/opensearch/health` exports `probeOpenSearchHealth`,
 `groupOpenSearchObservations`, `analyzeOpenSearch`, `openSearchCapacityConclusion` and their
 OpenSearch types. Collection returns observations and individual failures; analysis can be repeated
 on a recorded `OpenSearchSnapshot` without I/O. Observation IDs use `opensearch-`, finding kinds
 use `opensearch.`. Consumers own service identity, scope and business verdicts.
 
-### Prometheus query backend
+### MetricDB query access
 
-`PrometheusClient.connect(http, {url, headers}, signal)` detects the supported query dialect using
+`MetricDBClient.connect(http, {url, headers}, signal)` detects the supported query dialect using
 one constant-only `increase_prometheus` capability query. It does not inspect stored application metrics,
 URL naming or compatible buildinfo versions. An explicit unsupported-function response selects Prometheus;
 a successful vector response selects VictoriaMetrics semantics. Authentication, transport and ambiguous
 responses fail without fallback. Hosts own HTTP budgets and cache the connected reader for their invocation.
 Partial backend results preserve a warning alongside any returned samples. No exporter is scraped.
+
+
+Import `MetricDBClient` and `MetricDBReader` from `@compforge/harness-toolbox/metricdb`.
+Prometheus and VictoriaMetrics adapters live under `metricdb/prometheus` and
+`metricdb/victoriametrics`; the shared client owns HTTP access and response validation.
+Query results retain `data`, `warnings`, `infos` and optional `isPartial`.
+Exact query bounds do not guarantee that all samples have reached storage.

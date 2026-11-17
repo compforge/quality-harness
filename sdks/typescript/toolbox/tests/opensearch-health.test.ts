@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
-import { probeOpenSearchHealth, groupOpenSearchObservations, analyzeOpenSearch } from "../src/opensearch/health";
-import type { OpenSearchReadApi } from "../src/opensearch/client";
+import { probeOpenSearchHealth, groupOpenSearchObservations, analyzeOpenSearch } from "../src/vectordb/opensearch/health";
+import type { OpenSearchReadApi } from "../src/vectordb/opensearch/client";
 function fixture(percent = 93) {
   const calls: string[] = [];
   const responses: Record<string, unknown> = {

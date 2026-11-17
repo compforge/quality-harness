@@ -20,10 +20,10 @@ harness_toolbox/
 ├── transport/      # Transport 契约、ConnectionSource、Kubernetes/Pod 通道与 SOCKS 适配
 ├── data_loader.py   # 单次读取范围内共享结果、错误与在途任务
 ├── metric.py       # MetricDataSource、Workload 目标抓取与本地窗口查询
-├── prometheus.py   # PrometheusDataSource：远端查询 API、单轮去重与响应预算
+├── metricdb/        # MetricDBDataSource、Client 与 prometheus/、victoriametrics/ 后端
 ├── process.py      # 有界子进程 I/O、退出结果与取消清理
 ├── kube/           # 本地/Host 原生资源后端、worker 通道、状态等待、Event、exec 与隧道
-├── opensearch.py   # HTTP 池、有界响应与 scroll
+├── vectordb/opensearch.py   # HTTP 池、有界响应与 scroll
 ├── mysql.py        # SQLAlchemy async 池与 Pod Python 查询
 ├── pod_log.py      # 按物理实例/窗口共享采集，依赖 Kubernetes 客户端
 └── tests/          # 协议 stub 和本机 HTTP/进程测试

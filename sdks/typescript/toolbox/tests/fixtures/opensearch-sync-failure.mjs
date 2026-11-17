@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import https from 'node:https';
-import { OpenSearchEngine } from '../../dist/opensearch/index.js';
+import { OpenSearchEngine } from '../../dist/vectordb/opensearch/index.js';
 
 // Inject the runtime's synchronous TLS failure without depending on platform-specific IP SNI behavior.
 const original = https.request;

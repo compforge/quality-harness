@@ -15,7 +15,7 @@ from harness_common import (
     SSEOperation,
     Workload,
 )
-from harness_toolbox.prometheus import PrometheusDataSource
+from harness_toolbox.metricdb import MetricDBDataSource
 
 from perf_harness.metric import series_id
 from perf_harness.model import (
@@ -141,7 +141,7 @@ def load_observation(
 
 
 def select_probes(
-    declarations: object, source: PrometheusDataSource | None, *, target: str
+    declarations: object, source: MetricDBDataSource | None, *, target: str
 ) -> list[dict]:
     """Select backend declarations before constructing factories or validating producers.
 
@@ -197,7 +197,7 @@ def _probe(
     service: Service,
     operation: Operation | None,
     workload: Workload | None,
-    source: PrometheusDataSource | None,
+    source: MetricDBDataSource | None,
     step: float,
     windows: list[WindowSelector],
 ) -> Probe:

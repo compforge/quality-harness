@@ -8,7 +8,7 @@ from urllib.parse import parse_qs
 import httpx
 import pytest
 from harness_toolbox.http import HTTPClient, HTTPClientProvider
-from harness_toolbox.prometheus import PrometheusDataSource
+from harness_toolbox.metricdb import MetricDBDataSource
 
 from perf_harness import Engine, Experiment, LoadPlan, Outcome, ResourceProfile, Service, Warmup
 from perf_harness.drive.runner import Runner
@@ -77,7 +77,7 @@ def experiment(runner):
         ],
         probes=[
             PrometheusQueryProbe(
-                data_source=PrometheusDataSource(
+                data_source=MetricDBDataSource(
                     "http://prom/proxy", headers={"X-Prom-Token": "metric-secret"}
                 ),
                 service="api",
@@ -168,7 +168,11 @@ async def test_incomplete_queries_remain_missing_and_do_not_change_request_resul
     run = await Engine(experiment(Slow())).run()
     arm = run.arm_runs[0]
     assert run.status == "completed" and len(arm.requests) == 2
-    assert arm.probe_errors and all(q.error for q in arm.prometheus_observations)
+    if state == "empty":
+        assert not arm.probe_errors
+        assert all(q.error is None and q.data["result"] == [] for q in arm.prometheus_observations)
+    else:
+        assert arm.probe_errors and all(q.error for q in arm.prometheus_observations)
     assert not arm.series and not any(w.probe_metrics for w in arm.windows)
     if state == "warning":
         assert all(q.warnings == ("partial",) for q in arm.prometheus_observations)
@@ -246,7 +250,7 @@ def test_same_endpoint_cannot_silently_override_access_options():
     exp = experiment(Slow())
     exp.probes.append(
         PrometheusQueryProbe(
-            data_source=PrometheusDataSource(
+            data_source=MetricDBDataSource(
                 "http://prom/proxy", headers={"X-Prom-Token": "different"}
             ),
             service="worker",

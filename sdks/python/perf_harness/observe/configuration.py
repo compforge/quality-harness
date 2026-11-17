@@ -5,7 +5,7 @@ import os
 from typing import get_args
 
 from harness_common import HttpOperation, Operation, SSEOperation
-from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
+from harness_toolbox.metricdb import MetricDBDataSource, MetricDBOptions
 
 from perf_harness.model import HistogramQuantile, ReportColumn, Service, WindowKind, WindowSelector
 from perf_harness.observe.prometheus import PrometheusQuery, WindowQuery
@@ -27,7 +27,7 @@ def parse_window(raw: dict | None, *, default: str) -> WindowSelector:
     )
 
 
-def parse_prometheus(raw: dict | None) -> tuple[PrometheusDataSource | None, float]:
+def parse_metricdb(raw: dict | None) -> tuple[MetricDBDataSource | None, float]:
     """Environment-owned query access. Only environment variable names carry secrets."""
     if raw is None:
         return None, 15
@@ -65,28 +65,28 @@ def parse_prometheus(raw: dict | None) -> tuple[PrometheusDataSource | None, flo
     }
     if any(isinstance(v, bool) or not isinstance(v, int) or v <= 0 for v in options.values()):
         raise ValueError("Prometheus limits must be positive integers")
-    return PrometheusDataSource(
+    return MetricDBDataSource(
         str(raw["url"]),
         kind=raw.get("kind", "prometheus"),
         headers=headers,
-        options=PrometheusOptions(**options),
+        options=MetricDBOptions(**options),
     ), step
 
 
-def parse_data_source(raw: dict | None) -> tuple[PrometheusDataSource | None, float]:
+def parse_data_source(raw: dict | None) -> tuple[MetricDBDataSource | None, float]:
     """Resolve the experiment's single observation source without project imports."""
     if raw is None:
         return None, 15
     if not isinstance(raw, dict):
         raise ValueError("data_source must be a mapping")
     options = dict(raw)
-    if options.pop("type", None) != "prometheus":
-        raise ValueError("data_source requires type: prometheus")
-    return parse_prometheus(options)
+    if options.pop("type", None) != "metricdb":
+        raise ValueError("data_source requires type: metricdb")
+    return parse_metricdb(options)
 
 
 def parse_prometheus_probe(
-    options: dict, service: Service, source: PrometheusDataSource | None, step_s: float
+    options: dict, service: Service, source: MetricDBDataSource | None, step_s: float
 ) -> PrometheusQueryProbe:
     options = dict(options)
     if source is None:
@@ -211,7 +211,7 @@ def parse_http_api_probe(
     options: dict,
     service: Service,
     profile: dict | None,
-    source: PrometheusDataSource | None,
+    source: MetricDBDataSource | None,
     step_s: float,
 ) -> PrometheusQueryProbe:
     from perf_harness.observe.http_api import HttpApiProbe, HttpMetricProfile

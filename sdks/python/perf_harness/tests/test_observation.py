@@ -71,7 +71,7 @@ def assets(tmp_path):
         "name": "red",
         "graph": "product.graph.yaml",
         "observation": "observations.yaml",
-        "data_source": {"type": "prometheus", "kind": "prometheus", "url": "http://metrics"},
+        "data_source": {"type": "metricdb", "kind": "prometheus", "url": "http://metrics"},
         "service": {"name": "entry", "environment": {"name": "qa"}, "base_url": "http://unused"},
         "runner": {"name": "mock"},
         "cases": [{"id": "search", "input": {"ms": 1}}],
@@ -453,7 +453,7 @@ def test_unselected_custom_factory_is_not_constructed(tmp_path):
 
 
 async def test_recollection_rejects_changed_backend_before_io_or_clearing(monkeypatch, tmp_path):
-    from harness_toolbox.prometheus import PrometheusDataSource
+    from harness_toolbox.metricdb import MetricDBDataSource
 
     from perf_harness.observe.history import collect_metrics, recollect_metrics
 
@@ -471,7 +471,7 @@ async def test_recollection_rejects_changed_backend_before_io_or_clearing(monkey
     monkeypatch.setattr(HTTPClientProvider, "create_client", forbidden)
     with pytest.raises(ValueError, match="backend mismatch"):
         await collect_metrics(
-            run, {"http://metrics": PrometheusDataSource("http://metrics", kind="victoriametrics")}
+            run, {"http://metrics": MetricDBDataSource("http://metrics", kind="victoriametrics")}
         )
     assert all(q.error == "original failure" for q in run.arm_runs[0].prometheus_observations)
     raw["data_source"]["kind"] = "victoriametrics"

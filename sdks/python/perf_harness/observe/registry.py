@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from harness_common import Operation, Workload
-from harness_toolbox.prometheus import PrometheusDataSource
+from harness_toolbox.metricdb import MetricDBDataSource
 
 from perf_harness.model import Service, WindowSelector
 from perf_harness.observe.base import Probe
@@ -27,7 +27,7 @@ class ProbeConfig:
     windows: tuple[WindowSelector, ...] = ()
     per_pod: bool = False
     options: Mapping[str, object] = field(default_factory=dict)
-    prometheus: PrometheusDataSource | None = None
+    prometheus: MetricDBDataSource | None = None
     step_s: float = 15
     datasource_kind: str | None = None
 

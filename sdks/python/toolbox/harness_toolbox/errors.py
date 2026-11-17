@@ -62,5 +62,5 @@ class OpenSearchRequestError(OpenSearchError):
     """Request execution or response collection failed."""
 
 
-class PrometheusQueryError(ToolboxError):
-    """Remote Prometheus query failed or exceeded its response budget."""
+class MetricDBQueryError(ToolboxError):
+    """Remote metric database query failed or exceeded its response budget."""

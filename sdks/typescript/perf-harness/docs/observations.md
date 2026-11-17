@@ -19,14 +19,14 @@ VictoriaMetrics already scrapes the target; this SDK never starts a scraper or s
    Render only after collection; failure or cancellation retains the original load evidence.
 
 ```ts
-import { PrometheusClient } from "@compforge/harness-toolbox/prometheus";
+import { MetricDBClient } from "@compforge/harness-toolbox/metricdb";
 import {
   planMetrics, writeRunData, recollectMetrics, writePerfReport,
   type PrometheusProbe,
 } from "@compforge/perf-harness";
 
 // http: borrowed HttpApi with host-owned pooling, deadlines, TLS, cancellation and credentials.
-const source = await PrometheusClient.connect(http, {
+const source = await MetricDBClient.connect(http, {
   url: "https://metrics.example/select/0/prometheus",
   headers: { Authorization: `Bearer ${token}` },
 });
@@ -110,3 +110,24 @@ requires no host-provided label parameters. `$window` is bound only after execut
 The project owns all selectors. Declaring a Probe does not establish that the source stores its metrics:
 empty results remain missing, errors remain errors, and successful sibling metrics remain available.
 Neither backend detection nor metric collection scrapes exporters or discovers workloads.
+
+## Query time and missing evidence
+
+Toolbox evaluates a frozen query at its requested timestamp. For VictoriaMetrics it sends
+`nocache=1` to disable instant evaluation shifts and range-grid alignment, together with
+`latency_offset=1ms` to minimize range-tail substitution. Older VM versions reject zero offset.
+This does not flush buffered samples or establish ingestion completeness. A later historical
+recollection may recover late samples while retaining exactly the same expression and window.
+Do not extend `$window` or move its end to obtain a nonempty result.
+
+Callgraph distinguishes `unbound`, `not_collected`, `empty_result`, `no_observations` and
+`query_error`. `empty_result` means only that the expression returned no result: missing source
+series, too few samples and an expression filtering zero activity can all cause it. A validated
+histogram with zero population supports `no_observations`; zero QPS alone does not establish the
+denominator of another metric. Warnings and partial responses remain errors. The report explains
+these states and preserves the query evidence rather than inferring scrape health.
+
+Choose observation duration with the source's actual sample interval in mind. Counter increments
+need multiple samples per series; a 60-second window over 60-second sampling may contain only one.
+Longer collection waiting cannot add samples whose timestamps belong inside an already closed
+window. Increase the planned observation duration for future runs, or keep the missing result.

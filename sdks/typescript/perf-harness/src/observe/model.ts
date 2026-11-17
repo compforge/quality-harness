@@ -1,4 +1,4 @@
-import type { PrometheusResult, PrometheusKind } from "@compforge/harness-toolbox/prometheus";
+import type { MetricDBResult, MetricDBKind } from "@compforge/harness-toolbox/metricdb";
 import type { WindowKind, Phase } from "../model";
 
 export const RED_UNITS = {qps: "rps", p95: "s", error_rate: "ratio"} as const;
@@ -10,10 +10,10 @@ export interface ScalarSummary {
 }
 /** Canonical replayable query facts; authentication is never persisted. */
 export interface PrometheusObservation {
-  probe: string; metric: string; expression: string; source_url: string; datasource_kind: PrometheusKind;
+  probe: string; metric: string; expression: string; source_url: string; datasource_kind: MetricDBKind;
   start_s: number; end_s: number; step_s: number | null;
   labels: Record<string, string>; result_labels: string[]; window_id: string | null;
-  data: PrometheusResult["data"] | null; warnings: string[]; infos: string[];
+  data: MetricDBResult["data"] | null; warnings: string[]; infos: string[];
   error: string | null; collected_at_s: number | null; histogram: HistogramQuantile | null;
 }
 export interface WindowSelector { kind: WindowKind; phase?: Phase; name?: string; level?: number; }

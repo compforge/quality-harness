@@ -2,7 +2,7 @@ import { Graph, NodeKind, RelationKind, type Relation } from "@compforge/harness
 import type { Run, ArmRun, Window } from "./model";
 import { serializeLoadPlan } from "./load";
 import { RED_UNITS, type MetricBinding, type ScalarSummary } from "./observe/model";
-import { seriesId } from "./observe/metric";
+import { projectObservation, seriesId } from "./observe/metric";
 
 export interface CallGraphMetric {
   value: number | "+Inf" | null; unit: string; status: "observed" | "missing" | "error";
@@ -37,12 +37,20 @@ function metric(arm: ArmRun, window: Window, binding: MetricBinding | undefined,
   const evidence = queries.map(({expression, source_url, datasource_kind, start_s, end_s, collected_at_s, error, warnings}) =>
     ({expression, source_url, datasource_kind, start_s, end_s, collected_at_s, error, warnings}));
   const summary = address?.endsWith(".value") ? window.probe_metrics[address.slice(0,-6)] : undefined;
-  const failed = queries.some(query => query.error && !(Array.isArray(query.data?.result) &&
-    !query.data.result.length && !query.warnings.length));
+  // Older Python collectors recorded empty results as this projection error. Other errors remain errors.
+  const empty = (query: typeof queries[number]) => query.data?.resultType === "vector" &&
+    Array.isArray(query.data.result) && !query.data.result.length && !query.warnings.length &&
+    (!query.error || query.error === "ValueError: Prometheus query returned no samples");
+  const failed = queries.some(query => (query.error && !empty(query)) || query.warnings.length);
   const observed = !failed && summary?.kind === "scalar" && (summary.value === "+Inf" || Number.isFinite(summary.value));
+  // A validated zero-population histogram proves no observed events. An empty expression proves no cause.
+  const reason = queries.some(empty) ? "empty_result" : queries.some(query => query.histogram &&
+    query.data?.resultType === "vector" && Array.isArray(query.data.result) && query.data.result.length && !query.error &&
+    !query.warnings.length && projectObservation(query,false) === undefined)
+    ? "no_observations" : queries.some(query => query.collected_at_s !== null) ? "no_samples" : "not_collected";
   return {value: observed ? summary!.value : null, unit: binding?.unit ?? unit,
     status: failed ? "error" : observed ? "observed" : "missing", metric_ref: address ?? null,
-    reason: failed ? "query_error" : observed ? null : !address ? "unbound" : queries.some(query => query.collected_at_s !== null) ? "no_samples" : "not_collected",
+    reason: failed ? "query_error" : observed ? null : !address ? "unbound" : reason,
     queries: evidence, description: binding?.description ?? "", semantics: binding?.semantics ?? "",
     histogram: observed ? summary?.histogram ?? null : null};
 }

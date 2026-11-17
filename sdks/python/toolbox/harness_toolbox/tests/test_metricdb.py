@@ -7,9 +7,9 @@ import pytest
 from harness_common.access.client import ClientManager
 
 from harness_toolbox.data_loader import DataLoader
-from harness_toolbox.errors import ErrorKind, PrometheusQueryError
+from harness_toolbox.errors import ErrorKind, MetricDBQueryError
 from harness_toolbox.http import HTTPClient, HTTPClientProvider
-from harness_toolbox.prometheus import PrometheusDataSource, PrometheusOptions
+from harness_toolbox.metricdb import MetricDBDataSource, MetricDBOptions
 
 
 def success(value="3", **annotations):
@@ -45,10 +45,10 @@ async def test_scoped_queries_share_timestamp_requests_and_owned_pool(monkeypatc
         return httpx.Response(200, json=success(infos=["annotation"]))
 
     pools = with_transport(monkeypatch, handler)
-    source = PrometheusDataSource(
+    source = MetricDBDataSource(
         "https://prom.example/proxy/",
         headers={"Authorization": "secret"},
-        options=PrometheusOptions(connection_pool_maxsize=3),
+        options=MetricDBOptions(connection_pool_maxsize=3),
     )
     assert "secret" not in repr(source)
     async with ClientManager() as clients:
@@ -105,10 +105,10 @@ async def test_errors_are_typed_safe_and_shared_within_scope(monkeypatch, respon
 
     with_transport(monkeypatch, handler)
     async with ClientManager() as clients:
-        client = await clients.get(PrometheusDataSource("http://prom"))
+        client = await clients.get(MetricDBDataSource("http://prom"))
         async with DataLoader() as scope:
             for _ in range(2):
-                with pytest.raises(PrometheusQueryError) as error:
+                with pytest.raises(MetricDBQueryError) as error:
                     await client.read(["secret-query"], scope=scope)
                 assert error.value.kind == kind
                 assert "secret-query" not in str(error.value)
@@ -118,9 +118,9 @@ async def test_errors_are_typed_safe_and_shared_within_scope(monkeypatch, respon
 @pytest.mark.parametrize(
     "options,payload",
     [
-        (PrometheusOptions(max_response_bytes=5), success()),
+        (MetricDBOptions(max_response_bytes=5), success()),
         (
-            PrometheusOptions(max_series=1),
+            MetricDBOptions(max_series=1),
             {
                 "status": "success",
                 "data": {
@@ -136,8 +136,8 @@ async def test_errors_are_typed_safe_and_shared_within_scope(monkeypatch, respon
 async def test_response_limits_fail_instead_of_truncating(monkeypatch, options, payload):
     with_transport(monkeypatch, lambda _: httpx.Response(200, json=payload))
     async with ClientManager() as clients:
-        client = await clients.get(PrometheusDataSource("http://prom", options=options))
-        with pytest.raises(PrometheusQueryError) as error:
+        client = await clients.get(MetricDBDataSource("http://prom", options=options))
+        with pytest.raises(MetricDBQueryError) as error:
             await client.read(["up"])
         assert error.value.kind == ErrorKind.LIMIT_EXCEEDED
 
@@ -151,7 +151,7 @@ async def test_empty_vectors_and_annotations_are_preserved(monkeypatch):
     }
     with_transport(monkeypatch, lambda _: httpx.Response(200, json=payload))
     async with ClientManager() as clients:
-        client = await clients.get(PrometheusDataSource("http://prom"))
+        client = await clients.get(MetricDBDataSource("http://prom"))
         result = (await client.read(["up"]))["up"]
         assert result.data["result"] == []
         assert result.warnings == ("partial response",) and result.infos == ("advisory",)
@@ -173,8 +173,8 @@ async def test_deadline_and_scope_cancellation_close_streams(monkeypatch, cancel
     pools = with_transport(monkeypatch, lambda _: httpx.Response(200, stream=SlowStream()))
     async with ClientManager() as clients:
         client = await clients.get(
-            PrometheusDataSource(
-                "http://prom", options=PrometheusOptions(timeout_ms=5000 if cancel else 20)
+            MetricDBDataSource(
+                "http://prom", options=MetricDBOptions(timeout_ms=5000 if cancel else 20)
             )
         )
         if cancel:
@@ -184,7 +184,7 @@ async def test_deadline_and_scope_cancellation_close_streams(monkeypatch, cancel
             with pytest.raises(asyncio.CancelledError):
                 await waiter
         else:
-            with pytest.raises(PrometheusQueryError) as error:
+            with pytest.raises(MetricDBQueryError) as error:
                 await client.read(["up"])
             assert error.value.kind == ErrorKind.TIMEOUT
         assert closed.is_set()
@@ -194,9 +194,9 @@ async def test_deadline_and_scope_cancellation_close_streams(monkeypatch, cancel
 def test_query_source_is_offline_and_validates_endpoint_and_limits():
     for url in ("", "ftp://prom", "http://user:secret@prom", "http://prom?query=x"):
         with pytest.raises(ValueError):
-            PrometheusDataSource(url)
+            MetricDBDataSource(url)
     with pytest.raises(ValueError):
-        PrometheusDataSource("http://prom", options=PrometheusOptions(timeout_ms=0))
+        MetricDBDataSource("http://prom", options=MetricDBOptions(timeout_ms=0))
 
 
 async def test_range_queries_preserve_matrix_annotations_and_share_only_identical_grids(
@@ -221,7 +221,7 @@ async def test_range_queries_preserve_matrix_annotations_and_share_only_identica
 
     pools = with_transport(monkeypatch, handler)
     async with ClientManager() as clients, DataLoader() as scope:
-        client = await clients.get(PrometheusDataSource("http://prom/prefix"))
+        client = await clients.get(MetricDBDataSource("http://prom/prefix"))
         first = await client.read_range(["up"], start=10, end=20, step=10, scope=scope)
         second = await client.read_range(["up"], start=10, end=20, step=10, scope=scope)
         assert first["up"] is second["up"]
@@ -243,7 +243,7 @@ async def test_range_queries_preserve_matrix_annotations_and_share_only_identica
 async def test_invalid_range_does_not_send_requests(monkeypatch, start, end, step):
     with_transport(monkeypatch, lambda _: pytest.fail("invalid range sent a request"))
     async with ClientManager() as clients:
-        client = await clients.get(PrometheusDataSource("http://prom"))
+        client = await clients.get(MetricDBDataSource("http://prom"))
         with pytest.raises(ValueError, match="range"):
             await client.read_range(["up"], start=start, end=end, step=step)
 
@@ -251,6 +251,60 @@ async def test_invalid_range_does_not_send_requests(monkeypatch, start, end, ste
 async def test_range_response_limits_and_protocol_type(monkeypatch):
     with_transport(monkeypatch, lambda _: httpx.Response(200, json=success()))
     async with ClientManager() as clients:
-        client = await clients.get(PrometheusDataSource("http://prom"))
-        with pytest.raises(PrometheusQueryError, match="matrix"):
+        client = await clients.get(MetricDBDataSource("http://prom"))
+        with pytest.raises(MetricDBQueryError, match="matrix"):
             await client.read_range(["up"], start=1, end=2, step=1)
+
+
+@pytest.mark.parametrize("kind", ["prometheus", "victoriametrics"])
+async def test_exact_query_time_does_not_depend_on_vm_latency_offset(monkeypatch, kind):
+    """@case Recent instant/range queries retain their bounds; only VM receives latency_offset."""
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        result_type = "matrix" if request.url.path.endswith("query_range") else "vector"
+        return httpx.Response(
+            200, json={"status": "success", "data": {"resultType": result_type, "result": []}}
+        )
+
+    with_transport(monkeypatch, handler)
+    async with ClientManager() as clients:
+        client = await clients.get(MetricDBDataSource("http://metrics/prefix", kind=kind))
+        await client.read(["time()"], timestamp=123.456)
+        await client.read_range(["time()"], start=120, end=123.456, step=1)
+    forms = [parse_qs(request.content.decode()) for request in requests]
+    assert forms[0]["time"] == ["123.456"]
+    assert forms[1]["end"] == ["123.456"]
+    for form in forms:
+        assert form.get("latency_offset") == (["1ms"] if kind == "victoriametrics" else None)
+        assert form.get("nocache") == (["1"] if kind == "victoriametrics" else None)
+
+
+@pytest.mark.parametrize("kind", ["prometheus", "victoriametrics"])
+@pytest.mark.parametrize("partial", [None, False, True])
+async def test_partial_flags_preserve_samples_and_annotations(monkeypatch, kind, partial):
+    payload = success(warnings=["server warning"], infos=["server info"])
+    if partial is not None:
+        payload["isPartial"] = partial
+    with_transport(monkeypatch, lambda _: httpx.Response(200, json=payload))
+    async with ClientManager() as clients:
+        client = await clients.get(MetricDBDataSource("http://metrics", kind=kind))
+        result = (await client.read(["requests"], timestamp=123.456))["requests"]
+    assert result.data == payload["data"]
+    assert result.is_partial is partial
+    assert result.infos == ("server info",)
+    expected = ("server warning",)
+    if partial:
+        expected += ("Metric backend returned a partial result",)
+    assert result.warnings == expected
+
+
+@pytest.mark.parametrize("partial", ["true", None, 1])
+async def test_invalid_partial_flag_is_not_silently_accepted(monkeypatch, partial):
+    with_transport(monkeypatch, lambda _: httpx.Response(200, json=success(isPartial=partial)))
+    async with ClientManager() as clients:
+        client = await clients.get(MetricDBDataSource("http://metrics"))
+        with pytest.raises(MetricDBQueryError) as error:
+            await client.read(["requests"])
+        assert error.value.kind == ErrorKind.INVALID_RESPONSE

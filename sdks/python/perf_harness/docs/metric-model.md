@@ -214,7 +214,7 @@ DAG：`metric.family ← model ← {metric.reduce, metric.store, engine}`；`sto
 
 ## 5. 外部 Prometheus 与指标投影
 
-PrometheusDataSource 和客户端访问由 toolbox 提供，perf 不自行抓取服务 /metrics。
+MetricDBDataSource 和客户端访问由 toolbox 提供，perf 不自行抓取服务 /metrics。
 响应可能较大，重复全量抓取会增加网络和解析成本，影响观测的及时性与完整性。
 
 PrometheusQueryProbe 保存查询计划和原始结果，再投影到同一个 MetricStore。

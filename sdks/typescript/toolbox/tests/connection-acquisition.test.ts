@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { Connection } from "mysql2/promise";
 import { MysqlClient, MysqlDatabase } from "../src/mysql";
-import { OpenSearchClient } from "../src/opensearch";
+import { OpenSearchClient } from "../src/vectordb/opensearch";
 import { RedisClient, RedisAccess, type RedisManagedConnection } from "../src/redis";
 import type { Client } from "../src/client";
 import type { TcpTransport } from "../src/transport";

@@ -3,7 +3,7 @@
 import math
 
 from harness_common import HttpOperation, Operation
-from harness_toolbox.prometheus import PrometheusDataSource
+from harness_toolbox.metricdb import MetricDBDataSource
 
 from perf_harness.metric import series_id
 from perf_harness.model import (
@@ -34,7 +34,7 @@ class PrometheusQueryProbe(_PrometheusResultProbe):
     def __init__(
         self,
         *,
-        data_source: PrometheusDataSource,
+        data_source: MetricDBDataSource,
         queries: list[PrometheusQuery] | None = None,
         summaries: list[WindowQuery] | None = None,
         service: str | None = None,

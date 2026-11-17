@@ -17,6 +17,17 @@ from harness_common.report_kit import (
 from perf_harness.callgraph import CallGraphSnapshot, CallGraphWindow, entry_callgraph
 
 _COLORS = ("#dbeafe", "#dcfce7", "#fef3c7", "#ede9fe", "#fce7f3", "#cffafe")
+_MISSING_REASONS = {
+    "unbound": "No metric probe is bound",
+    "not_collected": "Query has not been collected",
+    "empty_result": (
+        "Query returned no result; metric absence, insufficient samples "
+        "and zero activity require separate evidence"
+    ),
+    "no_observations": "Histogram contains zero observed events in this window",
+    "no_samples": "No usable samples; cause is not established",
+    "query_error": "Query or result validation failed; inspect the recorded error and warnings",
+}
 
 
 def _value(metric: dict) -> str:
@@ -120,13 +131,20 @@ def section(
                     if metric["description"]:
                         details.append((role + " description", metric["description"]))
                     if metric["reason"]:
-                        details.append((role + " reason", metric["reason"]))
+                        details.append(
+                            (
+                                role + " reason",
+                                _MISSING_REASONS.get(metric["reason"], metric["reason"]),
+                            )
+                        )
                     if metric["metric_ref"]:
                         details.append((role + " metric", metric["metric_ref"]))
                     for query in metric["queries"]:
                         details.append(("PromQL", query["expression"]))
                         if query["error"]:
                             details.append(("Query error", query["error"]))
+                        if query["warnings"]:
+                            details.append(("Query warnings", "; ".join(query["warnings"])))
                 if metrics["qps"]["value"] is not None and metrics["qps"]["value"] > 0:
                     details.append(("Traffic", "Observed on this node; incoming edge not verified"))
                 nodes.append(

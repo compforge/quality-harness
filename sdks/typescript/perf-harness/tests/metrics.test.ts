@@ -5,14 +5,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Engine, loadRun, writeRunData, serializeRequests, planMetrics, collectMetrics, recollectMetrics,
   buildCallgraph, renderPerfReport, writePerfReport, type PrometheusProbe, type Run } from "../src";
-import type { PrometheusReader } from "@compforge/harness-toolbox/prometheus";
+import type { MetricDBReader } from "@compforge/harness-toolbox/metricdb";
 
 const fixture = fileURLToPath(new URL("../../../../conformance/perf/fixtures/operation-metrics/",import.meta.url));
 const folders: string[] = [];
 afterEach(() => { for (const folder of folders.splice(0)) rmSync(folder,{recursive:true,force:true}); });
 function directory(): string { const path = mkdtempSync(join(tmpdir(),"perf-metrics-")); folders.push(path); return path; }
 function run(): Run { return loadRun(fixture); }
-function source(query: PrometheusReader["query"]): PrometheusReader {
+function source(query: MetricDBReader["query"]): MetricDBReader {
   return {url:"http://metrics",kind:"prometheus",query,queryRange: async () => {throw new Error("unexpected range");}};
 }
 const scalar = (value: string) => ({data:{resultType:"vector",result:[{metric:{},value:[1001,value]}]},warnings:[],infos:[]});
@@ -72,8 +72,9 @@ test("empty samples stay missing; warnings, unaggregated labels, NaN and invalid
   ] as const) {
     const value=unplanned();
     planMetrics(value,[{...probe,summaries:[{name:"errors",unit:"ratio",promql:"errors"}],metrics:{error_rate:"errors"}}],{url:"http://metrics",kind:"prometheus"});
-    await collectMetrics(value,[source(async()=>response as Awaited<ReturnType<PrometheusReader["query"]>>)]);
+    await collectMetrics(value,[source(async()=>response as Awaited<ReturnType<MetricDBReader["query"]>>)]);
     expect(buildCallgraph(value)!.arms[0]!.windows[0]!.nodes[0]!.properties.perf.metrics.error_rate!.status).toBe(status);
+    if (status === "missing") expect(buildCallgraph(value)!.arms[0]!.windows[0]!.nodes[0]!.properties.perf.metrics.error_rate!.reason).toBe("empty_result");
   }
 });
 
@@ -83,7 +84,26 @@ test("classic histogram retains overflow, rejects non-monotonic buckets, and zer
     planMetrics(value,[{...probe,summaries:[{name:"tail",unit:"s",promql:"buckets",histogram:{quantile:0.5,scale:1}}],metrics:{p95:"tail"}}],{url:"http://metrics",kind:"prometheus"});
     await collectMetrics(value,[source(async()=>({data:{resultType:"vector",result:[1,"+Inf"].map((le,index)=>({metric:{le:String(le)},value:[1001,String(counts[index])]}))},warnings:[],infos:[]}))]);
     expect(buildCallgraph(value)!.arms[0]!.windows[0]!.nodes[0]!.properties.perf.metrics.p95!).toMatchObject({status,value:expected});
+    if (status === "missing") {
+      expect(buildCallgraph(value)!.arms[0]!.windows[0]!.nodes[0]!.properties.perf.metrics.p95!.reason).toBe("no_observations");
+      expect(renderPerfReport(value)).toContain("Histogram contains zero observed events");
+    }
   }
+});
+
+test("empty responses cannot conceal warnings or unrelated errors in saved evidence", async () => {
+  const value=unplanned();
+  planMetrics(value,[probe],{url:"http://metrics",kind:"prometheus"});
+  await collectMetrics(value,[source(async()=>({data:{resultType:"vector",result:[]},warnings:[],infos:[]}))]);
+  const query=value.executions[0]!.prometheus_observations![0]!;
+  for (const error of [null,"ValueError: Prometheus query returned no samples","query cancelled"]) {
+    query.error=error;
+    expect(buildCallgraph(value)!.arms[0]!.windows[0]!.nodes[0]!.properties.perf.metrics.qps!).toMatchObject({
+      status:error === "query cancelled" ? "error" : "missing", reason:error === "query cancelled" ? "query_error" : "empty_result",
+    });
+  }
+  query.error=null;query.warnings=["partial result"];
+  expect(buildCallgraph(value)!.arms[0]!.windows[0]!.nodes[0]!.properties.perf.metrics.qps!.reason).toBe("query_error");
 });
 
 test("bounded collection cancels queued queries and persists partial attempts", async () => {
