@@ -554,3 +554,12 @@ explicit entries; implementation helpers are private, independent of source file
 OpenSearch types. Collection returns observations and individual failures; analysis can be repeated
 on a recorded `OpenSearchSnapshot` without I/O. Observation IDs use `opensearch-`, finding kinds
 use `opensearch.`. Consumers own service identity, scope and business verdicts.
+
+### Prometheus query backend
+
+`PrometheusClient.connect(http, {url, headers}, signal)` detects the supported query dialect using
+one constant-only `increase_prometheus` capability query. It does not inspect stored application metrics,
+URL naming or compatible buildinfo versions. An explicit unsupported-function response selects Prometheus;
+a successful vector response selects VictoriaMetrics semantics. Authentication, transport and ambiguous
+responses fail without fallback. Hosts own HTTP budgets and cache the connected reader for their invocation.
+Partial backend results preserve a warning alongside any returned samples. No exporter is scraped.
