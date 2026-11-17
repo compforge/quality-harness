@@ -13,7 +13,7 @@ async function rkLayout(nodes, edges, viewport, elk) {
   const candidates = [];
   // @why Packing parallel operations separately avoids a service's fan-out becoming
   // one unbounded rank. Connected operations still receive directed layered layout.
-  // @link component://docs/report-graph.md
+  // @link repo://docs/report.md#graph-呈现
   for (const ratio of [Math.max(0.5, aspect / 2), Math.max(1, aspect)]) {
     const boxes = [];
     for (const group of groups.values()) {

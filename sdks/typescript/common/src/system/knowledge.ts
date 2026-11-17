@@ -71,7 +71,7 @@ export interface Dictionary<T extends Entry = Entry> extends Markdown {
 /**
  * @spec Knowledge is owner-scoped offline content, independent of runtime evidence and identity.
  * @rule Top-level IDs are unique per kind; child IDs are unique within their containing object.
- * @see {@link component://docs/knowledge.md}
+ * @see {@link repo://docs/system.md#knowledge}
  */
 export interface Knowledge extends Markdown {
   readonly concepts?: readonly Concept[];

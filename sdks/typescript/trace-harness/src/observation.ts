@@ -15,7 +15,7 @@ export function sourceNodeIds(item: ObservationNode, context: TraceContext): str
 
 /**
  * @spec Extractors return shared SessionViews; Trace validates only local evidence ownership.
- * @see docs/session-view.md
+ * @see docs/session.md
  */
 export function validateSessionViews(views: readonly SessionView[], context: TraceContext): SessionView[] {
   const result = structuredClone([...views]);

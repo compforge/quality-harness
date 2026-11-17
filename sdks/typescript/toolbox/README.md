@@ -173,7 +173,7 @@ failures retain an unknown connection error. Native exec with a kubeconfig proxy
 Bun cannot reliably release proxy sockets or preserve TLS name overrides. This restriction does
 not apply to the kubectl stdin path. Neither path bypasses proxy or TLS checks.
 Port-forward also uses kubectl.
-See [the shared Workload model](../../../docs/workload.md).
+See [the shared Workload model](../../../docs/runtime.md#workload).
 
 ```ts
 import { ClientManager, EnvironmentContext } from "@compforge/harness-toolbox";
@@ -441,7 +441,7 @@ socket recovery can replay a failed request below the driver; Node retains conne
 ResourceAccess, use explicit deadlines/item/page budgets, and retain read coverage independently.
 Use `client.clusterResources()` for Nodes and all-namespace Pods; normal client methods retain their
 configured namespace. A forbidden cluster read records `permission_denied`; it does not block a
-separate namespace-scoped Workload read. See [compute collection](../../../docs/toolbox.md#kubernetes-compute-evidence).
+separate namespace-scoped Workload read. See [compute collection](../../../docs/toolbox.md#compute-evidence).
 
 ### Connection acquisition deadlines
 

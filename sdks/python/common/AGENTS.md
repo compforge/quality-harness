@@ -26,4 +26,4 @@ HTTP 200、首个事件和业务终态是不同事实，成功判定与计时边
 浏览器组件的唯一源在仓库 `report-kit/`；构建 hook 将其打入 wheel/sdist，包内 `assets/` 是生成目录。
 Python 负责报告模型与 HTML 适配，布局和过滤测试归 `report-kit/tests/`。
 
-报告 GraphView 的分组布局、视口适配与异步交互见 [Graph 渲染](../../../docs/report-graph.md)。
+报告 GraphView 的分组布局、视口适配与异步交互见 [Graph 渲染](../../../docs/report.md#graph-呈现)。

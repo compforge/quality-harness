@@ -38,7 +38,7 @@ from trajectory_harness.model import (
 @spec(
     "Project recorded requests and executed tools; never reconstruct missing calls or turns"
 )
-@link("repo://docs/session-view.md")
+@link("repo://docs/session.md")
 def session_views(trajectories: Sequence[Trajectory]) -> tuple[SessionView, ...]:
     """Group declared or inherited ATIF Sessions; retain source Step evidence."""
     grouped = {}
@@ -259,7 +259,7 @@ class _TrajectoryContext:
 @spec(
     "Embedded children may inherit the parent session; document IDs remain parent-scoped"
 )
-@link("repo://docs/trajectory-harness.md")
+@link("repo://docs/trajectory.md")
 def _trajectory_contexts(
     trajectories: Sequence[Trajectory],
     parent: _TrajectoryContext | None = None,

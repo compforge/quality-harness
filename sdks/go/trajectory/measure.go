@@ -119,7 +119,7 @@ func validateCatalog(catalog []MeasurerSpec) error {
 }
 
 // +spec=`Each explicitly identified Session is measured once; conflicting duplicates fail and plugin errors remain health data`
-// +link=repo://docs/trajectory-harness.md
+// +link=repo://docs/trajectory.md
 func (r Runner) Run(ctx context.Context, sessions []observation.SessionView) (Run, error) {
 	catalog, err := r.catalog()
 	if err != nil {

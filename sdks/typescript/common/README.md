@@ -104,7 +104,7 @@ support to a client. Service<E> and EnvironmentContext<E> preserve the concrete 
 Workload describes a logical runtime carrier and its resource, Kubernetes Service or labels location.
 WorkloadInstance records an observed Pod incarnation with environment and UID identity.
 These contracts perform no discovery or I/O; callers resolve declarations in their selected environment.
-Container selection affects access routing, not Pod identity. See [the shared model](../../../docs/workload.md).
+Container selection affects access routing, not Pod identity. See [the shared model](../../../docs/runtime.md#workload).
 
 Python's corresponding package is sdks/python/common (harness-common). Languages keep idiomatic APIs
 and independently versioned packages; they need not implement every model in lockstep.
@@ -187,13 +187,13 @@ custom Entry now renders consistently when shown alone or through its Dictionary
 `Resource` declares a collection held by a running Service; `ServiceResource` records manages/uses
 relationships without duplicating identity. `ResourceSnapshot` retains typed instances, unit-bearing
 measurements, independently known totals and complete/partial/unavailable coverage. Discovery and
-rendering remain consumer-owned. See [the shared contract](../../../docs/resource.md).
+rendering remain consumer-owned. See [the shared contract](../../../docs/runtime.md#resource).
 
 ## PullRequest
 
 `PullRequest` identifies a PR/MR by its target `Repository` and repository-local number.
 State, branches, source repository, revisions and provider timestamps are optional facts.
-See [the shared contract](../../../docs/pull-request.md) for identity and unknown-state semantics.
+See [the shared contract](../../../docs/system.md#pullrequest) for identity and unknown-state semantics.
 Forge access and polling remain consumer/toolkit responsibilities.
 
 ## Portable values
@@ -210,7 +210,7 @@ Component optionally declares `tools` and one logical `depot`. `Tool` describes 
 tool and an optional declared version/constraint. `Depot.bins` groups `Bin` declarations with
 repository-relative paths and `dependencies`, `output` or `cache` kinds. Metadata does not change
 Component identity, prove physical existence or authorize deletion. Discovery, preparation,
-usage protection and reclamation belong to consumers. See [the shared contract](../../../docs/component-depot.md).
+usage protection and reclamation belong to consumers. See [the shared contract](../../../docs/system.md#component).
 
 ## Endpoint
 
@@ -235,7 +235,7 @@ approval or authorization. Toolbox owns URL projection, validation and network p
 `Graph`, `Node` and `Relation` describe offline topology in one environment.
 Service/operation nodes connect through `belongs_to` and `calls`; other kinds remain extensible.
 Build validated snapshots, query dependencies and serialize them independently of metrics or tests.
-See [the Graph contract and example](../../../docs/graph.md).
+See [the Graph contract and example](../../../docs/system.md#graph).
 
 ## Service and Operation identity
 
@@ -244,4 +244,4 @@ Use `new Service({ name, component, environment, workloads })` and
 `new Operation({ name, serviceName })`; derive graph node IDs with `.id()`.
 Restore declarations from JSON through these constructors. Service names are unique
 within an environment's catalog; operation IDs include the owning service name.
-The previous graph ID helpers are removed. See [Graph](../../../docs/graph.md).
+The previous graph ID helpers are removed. See [Graph](../../../docs/system.md#graph).

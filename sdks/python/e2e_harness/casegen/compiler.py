@@ -1,6 +1,6 @@
 """casegen — build-time compiler: NL markers (``@case``/``@spec``) → structured ``case.yaml``.
 
-The build-time half of judgment-as-data (see ``docs/casegen.md``): ``discover`` extracts the NL
+The build-time half of judgment-as-data (see ``docs/case.md#casegen``): ``discover`` extracts the NL
 markers, a ``Compiler`` turns each into a structured ``common.Case`` (with ``judge.e2e.assert``),
 and casegen writes a committed ``case.yaml`` that ``e2e run`` executes. An ``intent hash`` (the
 marker's ``case_hash`` over NL + ``@spec``) is recorded per case in a top-level ``compiled_from``

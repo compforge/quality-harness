@@ -15,7 +15,7 @@ export type PullRequestMergeReadiness =
  * A code-review proposal owned by its target Repository (GitHub PR or GitLab MR).
  * @spec Identity is target Repository + repository-local number; source, revisions and state are metadata.
  * @spec Omitted facts are unknown. A missing state or mergedAt never proves closure or merge.
- * @see {@link component://docs/pull-request.md}
+ * @see {@link repo://docs/system.md#pullrequest}
  */
 export interface PullRequest extends Identity {
   readonly repository: Repository;
@@ -46,7 +46,7 @@ export interface PullRequestKey {
 /**
  * @spec A PR snapshot retains the common field names and optional facts, without PR or nested Repository identity methods.
  * @why JSON and remote observations must not require each consumer to invent a parallel PR shape or reconstruct methods.
- * @see {@link component://docs/pull-request.md}
+ * @see {@link repo://docs/system.md#pullrequest}
  */
 export type PullRequestSnapshot = Omit<PullRequest, "id" | "repository" | "sourceRepository"> & {
   readonly repository: RepositorySnapshot;

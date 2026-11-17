@@ -4,7 +4,7 @@ import type { Identity } from "../identity.js";
 /**
  * A repository identified by its Forge and path within that Forge.
  * @spec forkedFrom is the direct parent path within the same Forge instance, not repository identity.
- * @see {@link component://docs/system-model.md}
+ * @see {@link repo://docs/system.md}
  */
 export interface Repository extends Identity {
   readonly forge: Forge;

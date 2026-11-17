@@ -1,4 +1,4 @@
-# Dataset、复评与结果投影
+# 证据评估与复评
 
 固定观察事实后，应能更换分析组件而不再次触发被测系统。本主题定义事实版本、评估粒度和结果归属；
 执行事实的生成与归约见 [Experiment 执行与产物](execution.md)。
@@ -84,7 +84,7 @@ Dataset build、Observation production 和 Evaluation 融合在一个带 cell st
 
 ## 领域映射
 
-- [Canonical Case](case-unification.md)：Case / variant、Outcome 与离线复判。
-- [Trace](trace-harness.md)：Node、trace 和 corpus 的分析粒度。
-- [Trajectory](trajectory-harness.md#3-评估)：Detector / Verifier 与 cost / effect 维度。
+- [Canonical Case](case.md)：Case / variant、Outcome 与离线复判。
+- [Trace](trace.md)：Node、trace 和 corpus 的分析粒度。
+- [Trajectory](trajectory.md#3-评估)：Detector / Verifier 与 cost / effect 维度。
 - [Perf](../spec/perf-contract.md)：请求和窗口事实、独立 Judge 与指标归约。

@@ -50,7 +50,7 @@ export function createRelation(source: string, target: string, kind: RelationKin
  * @spec Kinds are open; built-in calls and belongs_to preserve endpoint and ownership constraints.
  * @spec Cycles are allowed; an operation has exactly one service owner.
  * @rule Topology does not prove actual traffic, metric coverage or causality.
- * @see {@link component://docs/graph.md}
+ * @see {@link repo://docs/system.md#graph}
  */
 export class Graph {
   readonly environment: string;

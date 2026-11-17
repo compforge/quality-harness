@@ -1,4 +1,4 @@
-# e2e_harness 设计
+# E2E：契约与功能测试
 
 > 本文描述跨语言 e2e 领域：当前面向单服务公开契约的 Case 路径，以及产品级 Playbook / Target
 > 功能测试的长期边界。
@@ -75,9 +75,10 @@ CLI、API、Pipeline 和 Kubernetes Job 只是外部触发适配。被测服务�
 iOS、产品 API Target SDK 尚未实现；等待首个真实功能测试消费方校准后再建立，不预建空接口或无消费方
 schema。
 
+环境前提与 CaseRun 的执行顺序见 [执行](execution.md#e2e-的环境前提)。
+
 ## References
 
-- 执行事实与产物：[Experiment 执行](execution.md)；事实复用与评估：[Dataset](evaluation-data.md)
+- 执行事实与产物：[Experiment 执行](execution.md)；事实复用与评估：[Dataset](evaluation.md)
 - 跨 Harness 环境操作与观测：[`toolbox.md`](toolbox.md)
-- Canonical Case 与 CaseRun：[`case-unification.md`](case-unification.md)
-- 暂缓能力与启动条件：[`backlog.md`](backlog.md)
+- Canonical Case 与 CaseRun：[Case 与测试资产](case.md)

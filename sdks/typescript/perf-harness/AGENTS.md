@@ -33,7 +33,7 @@ Kubernetes 资源采集仍由消费方编排。本包不抓取服务 /metrics，
 4. `trace_id` 等跨平面对齐键放在 `Outcome.meta`，落盘时不得丢失。
 5. 通用包不写业务 SSE 语义；业务 Plugin/consumer 实现 Runner。
 6. Case/CaseSet 归 spec-case；Perf Experiment 只通过 `caseMix` 选择 id 和设置 weight。
-7. 证据与复评：Outcome 是 request Observation；request、window、run 是不同 Unit grain，必须区分分析粒度。raw/model Run facts 可由不同 独立 Judge 和 analysis 组件离线复评，当前请求判定保存为独立 evaluations 表，不得因换判定口径重新发压；详见 `../../../docs/evaluation-data.md#dataset-与反复评估`。
+7. 证据与复评：Outcome 是 request Observation；request、window、run 是不同 Unit grain，必须区分分析粒度。raw/model Run facts 可由不同 独立 Judge 和 analysis 组件离线复评，当前请求判定保存为独立 evaluations 表，不得因换判定口径重新发压；详见 `../../../docs/evaluation.md#dataset-与反复评估`。
 
 8. 历史查询只读冻结的 source URL、backend kind、PromQL 与时间窗；补采先验证来源，再清除本次负责的旧投影。
 9. 查询原始结果、warnings、错误和采集时间均保存；缺失不补零，显式 histogram overflow 保留 `+Inf`。

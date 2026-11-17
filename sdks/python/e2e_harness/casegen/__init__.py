@@ -2,7 +2,7 @@
 
 The pushed way to write an e2e case is NOT a hand-written ``case.yaml`` but an ``@case``/``@spec``
 NL marker in the service's own source; casegen is the compiler that turns those into the
-structured ``common.Case`` that ``engine`` executes as data (see ``docs/casegen.md``). The three
+structured ``common.Case`` that ``engine`` executes as data (see ``docs/case.md#casegen``). The three
 files here are one pipeline stage, kept together so the front-end has a structural home:
 
 - ``contract``: ``@case`` / ``@spec`` / ``@rule`` / ``@link`` decorators + ``CaseSpec`` / ``Case`` + ``case_hash`` (the marker shape)

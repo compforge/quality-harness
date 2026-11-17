@@ -3,7 +3,7 @@ import type { Knowledge } from "./knowledge.js";
 /** A business identity independent of repository layout.
  * Consumers own its many-to-many associations with Components.
  * @spec Description and Knowledge describe the product, independently of identity and runtime evidence.
- * @see {@link component://docs/system-model.md}
+ * @see {@link repo://docs/system.md}
  */
 export interface Product {
   readonly name: string;

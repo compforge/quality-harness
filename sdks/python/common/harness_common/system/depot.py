@@ -10,7 +10,7 @@ class Bin:
 
     @spec path is a normalized repository-relative POSIX path, never checkout-absolute.
     @rule A declaration alone does not authorize deletion or prove exclusive ownership.
-    @link component://docs/component-depot.md
+    @link repo://docs/system.md#component
     """
 
     path: str
@@ -23,7 +23,7 @@ class Depot:
 
     @spec A Component has at most one Depot per checkout; missing contents do not remove its declaration.
     @spec Consumers own discovery, preparation, usage protection and reclamation.
-    @link component://docs/component-depot.md
+    @link repo://docs/system.md#component
     """
 
     bins: tuple[Bin, ...]

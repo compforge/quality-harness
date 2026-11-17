@@ -158,7 +158,7 @@ class Graph:
     @spec Kinds are extensible; belongs_to and calls retain their built-in endpoint rules.
     @spec Every operation belongs to exactly one service; call cycles are allowed.
     @rule Topology is not proof of actual traffic, metric coverage or causality.
-    @link component://docs/graph.md
+    @link repo://docs/system.md#graph
     """
 
     environment: str

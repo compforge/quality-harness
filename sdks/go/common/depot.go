@@ -13,7 +13,7 @@ type Tool struct {
 //
 // +spec=`Path is a normalized repository-relative POSIX path, never checkout-absolute`
 // +rule=`A declaration alone does not authorize deletion or prove exclusive ownership`
-// +link=component://docs/component-depot.md
+// +link=repo://docs/system.md#component
 type Bin struct {
 	Path string `json:"path" yaml:"path"`
 	// Kind is dependencies, output or cache. It does not determine cleanup eligibility.
@@ -24,7 +24,7 @@ type Bin struct {
 //
 // +spec=`A Component has at most one Depot per checkout; missing contents do not remove its declaration`
 // +spec=`Consumers own discovery, preparation, usage protection and reclamation`
-// +link=component://docs/component-depot.md
+// +link=repo://docs/system.md#component
 type Depot struct {
 	Bins []Bin `json:"bins" yaml:"bins"`
 }

@@ -51,7 +51,7 @@ def _parts():
     "media_roundtrip",
     "v1.8 media survives loading, Dataset persistence and SessionView projection",
 )
-@link("repo://docs/trajectory-harness.md")
+@link("repo://docs/trajectory.md")
 def test_multimodal_roundtrip(tmp_path: Path):
     document = _document()
     document["steps"][0]["message"] = _parts()
@@ -96,7 +96,7 @@ def test_multimodal_roundtrip(tmp_path: Path):
     "embedded_sessions",
     "embedded documents inherit run identity without losing their local identities",
 )
-@link("repo://docs/trajectory-harness.md")
+@link("repo://docs/trajectory.md")
 def test_nested_trajectories_preserve_identity_and_references(tmp_path: Path):
     document = _document()
     left = _document("left", None)
@@ -184,7 +184,7 @@ def test_child_with_explicit_session_is_visible_under_unassigned_root():
     "unsupported_versions",
     "reject unsupported ATIF versions at every document boundary, including embedded children",
 )
-@link("repo://docs/trajectory-harness.md")
+@link("repo://docs/trajectory.md")
 @pytest.mark.parametrize("version", ["ATIF-v1.6", "ATIF-v1.7", "ATIF-v1.9"])
 @pytest.mark.parametrize("nested", [False, True])
 def test_reject_unsupported_versions(version, nested):

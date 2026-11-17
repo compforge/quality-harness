@@ -9,7 +9,7 @@ e2e-harness 的第四个 SDK：trace/span 分析框架。前三个 harness 把�
 （ingest→transform→measure→diagnose→render）咬合成一个可生长的系统，靠**持续新增规则**（detector，case as
 code）辅助分析、排查 trace 里的问题——排查中每定位一类新坏模式就沉成一条，框架越用越懂、越会自己说话。
 
-设计理念、流程、决策记录见 [`../../../docs/trace-harness.md`](../../../docs/trace-harness.md)，本文件包含核心模型、主流程、代码地图与改动约束。
+设计理念、流程、决策记录见 [`../../../docs/trace.md`](../../../docs/trace.md)，本文件包含核心模型、主流程、代码地图与改动约束。
 
 与姐妹 harness 互不 import；`common`/`report_kit` 是唯一共享。域专属 kind（AS 的
 aigw/sandbox）不进本包，随域包留在消费方（如 trace-as skill），用 `spec.merge` 叠加。
@@ -104,7 +104,7 @@ corpus parquet 走可选 extra `quality-harness[trace-corpus]`（pyarrow），�
 
 ## 关键约定
 
-- **证据与复评**：raw span 经 normalize / assemble 得到的 `Node` 是 Observation，`trace_id + node_id` 定义 node-grain Unit；nodes / corpus 构成可复评 Dataset，本次选择的 detector 与 gate 直接定义评估侧重点，detect 输出 Finding。若使用 trace 或 cohort grain，应建立对应 Worksheet，不把多种 grain 混在同一行模型；详见 [`../../../docs/evaluation-data.md`](../../../docs/evaluation-data.md#dataset-与反复评估)。
+- **证据与复评**：raw span 经 normalize / assemble 得到的 `Node` 是 Observation，`trace_id + node_id` 定义 node-grain Unit；nodes / corpus 构成可复评 Dataset，本次选择的 detector 与 gate 直接定义评估侧重点，detect 输出 Finding。若使用 trace 或 cohort grain，应建立对应 Worksheet，不把多种 grain 混在同一行模型；详见 [`../../../docs/evaluation.md`](../../../docs/evaluation.md#dataset-与反复评估)。
 - **node 是分析本体，tree 是只读关系索引**：分析输入保持平 node 集，transform 和渲染按需
   复用 `ctx.tree()` 的关系索引，不另建或修改父子结构。
 - **输出责任独立**：transform 由消费方请求并写 facts，measure 写 Measurement，diagnose 写 Finding，
@@ -141,7 +141,7 @@ Python 与 TypeScript 的分析结果共同遵守仓库根目录 `conformance/tr
 
 ## References
 
-- 设计文档（理念/流程/决策记录）：[`../../../docs/trace-harness.md`](../../../docs/trace-harness.md)
+- 设计文档（理念/流程/决策记录）：[`../../../docs/trace.md`](../../../docs/trace.md)
 - 语言中立规范：[`../../../spec/trace-harness.md`](../../../spec/trace-harness.md)
 - 跨语言测试 fixture：`../../../conformance/trace/fixtures/genai-basic.jsonl`（真实 ES jaeger-span 形状）
 
@@ -157,4 +157,4 @@ Agent models come directly from Agent Ledger's `observation` package. Domain ext
 SessionView collections; AnalysisContext stores them and renderers consume them without another
 Agent model or conversion stage. Task-oriented and continuous loops both fit one SessionView.
 ToolCall references can connect Sessions; business Unit tracking across continuous agents is deferred.
-See repository `docs/session-view.md` for evidence ownership, call-site expansion and persistence.
+See repository `docs/session.md` for evidence ownership, call-site expansion and persistence.

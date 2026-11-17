@@ -51,7 +51,7 @@ trajectory_harness/
   SessionView 可展开子轨迹；Dataset 仍按顶层文档定义分析单位，禁止因视图展开重复统计。
 - **Source 只负责选择和读取**：Source 返回轻量 `RecordingRef` 和原始 `Recording`，不解析为
   `Trajectory`，也不执行判定；领域标签作为 `TrajectoryAnnotation` 与 Dataset 组合，不塞进 Source 契约。
-- **证据与复评**：Trajectory 是 Observation，`trajectory_id` 定义 Unit grain；`TrajectoryDataset` 固定 Case + Trajectory Unit 与 `TrajectoryAnnotation`。每次 `TrajectoryAnalysisRun` 记录实际选择的 Detector / Verifier / Measurer / Policy，并只填充自己的 Worksheet；同一 Dataset 可按成本或效果反复分析，详见 [`../../../docs/evaluation-data.md`](../../../docs/evaluation-data.md#dataset-与反复评估)。
+- **证据与复评**：Trajectory 是 Observation，`trajectory_id` 定义 Unit grain；`TrajectoryDataset` 固定 Case + Trajectory Unit 与 `TrajectoryAnnotation`。每次 `TrajectoryAnalysisRun` 记录实际选择的 Detector / Verifier / Measurer / Policy，并只填充自己的 Worksheet；同一 Dataset 可按成本或效果反复分析，详见 [`../../../docs/evaluation.md`](../../../docs/evaluation.md#dataset-与反复评估)。
 - **两个正交维度**：Detector 与 Verifier 的 `category` 只表达关注面 `cost / effect`，`rule_type` 只表达规则形态 `hard / soft`；两者不可互相推导。`target` 另行表达一行当前分析谁，如 CCR 的 Review 1 / Review 2。
 - **Loader 只做标准化适配**：`ATIFJsonLoader` 直接校验标准格式；session/OTLP Loader 把来源字段映射到
   ATIF 的 `agent / steps / tool_calls / observation / metrics`。无法无损映射的来源事实保留在 namespaced
@@ -95,7 +95,7 @@ trajectory_harness/
 
 ## References
 
-- 设计与外部实现取舍：[`../../../docs/trajectory-harness.md`](../../../docs/trajectory-harness.md)
+- 设计与外部实现取舍：[`../../../docs/trajectory.md`](../../../docs/trajectory.md)
 - ATIF v1.8：<https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md>
 - OTel GenAI 语义约定：<https://opentelemetry.io/docs/specs/semconv/gen-ai/>
 
@@ -105,7 +105,7 @@ trajectory_harness/
 观察、监督；Good / Fast / Cheap 分别关注质量或效果、速度、成本，独立评估结果通过证据引用
 关联视图。低分只是选择待优化样本的手段之一；归因、优化和同任务同标准的新执行复评构成闭环。
 Trajectory skill 持有整体指导，本 SDK 提供工程机制，CCR 等项目持有领域数据、判据和实践结果。
-Agent 执行框架与 Trajectory Harness 质量分析 SDK 不混同。详见 `docs/trajectory-harness.md`。
+Agent 执行框架与 Trajectory Harness 质量分析 SDK 不混同。详见 `docs/trajectory.md`。
 
 ## Session observation
 
@@ -114,12 +114,12 @@ observation read model; TUI/Web render it. Actual request messages feed Prompt V
 feeds Trajectory and SessionView; business work across loops/operations feeds JobView through explicit
 call attribution. Multiple loop trajectories may share a Session. Scores are separate results that
 reference trajectory/step evidence; view rendering does not rewrite facts or rerun evaluation.
-See `docs/trajectory-harness.md` for the fact-to-view boundaries.
+See `docs/trajectory.md` for the fact-to-view boundaries.
 
 `session_views` exports ATIF evidence through Agent Ledger's `observation.SessionView`.
 Each view contains one explicitly attributed Session. Trace uses the same model directly through
 its extractors. Missing identity stays unassigned; never infer it from a business Unit. Retain
-unmatched tool outcomes and evidence issues. See repository `docs/session-view.md`.
+unmatched tool outcomes and evidence issues. See repository `docs/session.md`.
 
 Measurement 展示复用 `MeasurementSpec` 与 `aggregate_measurements`，不按指标名维护 UI 清单。
 `measurement_views` 只读取固定 Run：Session 按显式 session_id 关联，Global 按顶层 Trajectory 身份聚合一次，

@@ -108,7 +108,7 @@ def trajectory_from_dict(value: Mapping[str, Any]) -> Trajectory:
 
 
 @spec("Accept only ATIF v1.8, including embedded trajectories")
-@link("repo://docs/trajectory-harness.md")
+@link("repo://docs/trajectory.md")
 def require_atif_version(trajectory: Trajectory) -> None:
     """Enforce the Harness contract beyond the upstream model's version string."""
     if trajectory.schema_version != ATIF_SCHEMA_VERSION:

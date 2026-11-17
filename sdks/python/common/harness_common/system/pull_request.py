@@ -29,7 +29,7 @@ class PullRequest(Identity):
 
     @spec Identity is target Repository + local number, independent of source, revisions and state.
     @spec Missing facts are unknown; neither absent state nor merged_at proves a terminal state.
-    @link component://docs/pull-request.md
+    @link repo://docs/system.md#pullrequest
     """
 
     repository: Repository

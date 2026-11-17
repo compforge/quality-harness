@@ -58,7 +58,7 @@ class MeasurementViews:
 @spec(
     "Project only recorded top-level results; shared Sessions and embedded children never multiply Global measurements"
 )
-@link("repo://docs/trajectory-harness.md")
+@link("repo://docs/trajectory.md")
 def measurement_views(
     run: TrajectoryAnalysisRun, *, trajectories: Sequence[Trajectory] = ()
 ) -> MeasurementViews:

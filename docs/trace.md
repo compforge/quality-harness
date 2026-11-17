@@ -50,7 +50,7 @@ trace 解释执行过程，eval 评估产出质量，perf 验证负载下的性�
 | TraceHarness | 分析配置的作用域 owner，显式组合业务贡献并执行分析和投影 |
 | Observation SessionView | 从 trace 提取的 agent 语义表示，保留 Node / span 溯源 |
 
-按照 [Dataset 与复评](evaluation-data.md#dataset-与反复评估)，Node 可以作为 Observation，
+按照 [Dataset 与复评](evaluation.md#dataset-与反复评估)，Node 可以作为 Observation，
 `trace_id + node_id` 定义 node-grain Unit。固定的事实和来源构成可复评 Dataset；
 本轮 Measurement / Finding 属于 EvaluationRun 的 Worksheet，不写回 Dataset。
 提升到 request、trace 或 trajectory 粒度时，需要明确自己的 Unit key 和 Worksheet。
@@ -112,3 +112,18 @@ Python 与 TypeScript 共享 [加载契约](../spec/trace-loading.md)。Source �
 在纯计算前准备证据。两端存储布局独立，跨语言对齐行为与 Analysis IR，不直接互读私有缓存目录。
 
 TypeScript 的接入步骤与资源限制见 [加载指南](../sdks/typescript/trace-harness/docs/loading.md)。
+
+## Tool command name 与解析边界
+
+当前 Python 与 TypeScript trace-harness 使用轻量 tokenizer，从 tool arguments 中提取文件名或命令的语义短名，例如把一段较长的 shell command 展示为 `stream_query.py`。解析失败时回退到 tool name；该结果只影响 Node Tree、Agent Stack 与火焰图的展示，不参与安全判断或命令执行。
+
+暂不引入 Baton 同类的 Bash AST 依赖：TypeScript 方案 `@lumis-sh/wasm-bash` + `web-tree-sitter` 约带来 1.3 MB grammar WASM 和 201 KB runtime WASM，Python 方案 `tree-sitter` + `tree-sitter-bash` 约带来 356 KB binding 和 1.44 MB grammar。相较仅用于展示的收益，当前包体、运行时初始化和双语言维护成本偏高。Baton 的 AST 用于只读命令判定，安全收益更直接，不宜机械照搬到展示层。
+
+满足以下条件后再启动：
+
+- pipeline、subshell、变量展开等复杂 command 已使轻量解析频繁产生误导性 name；
+- 依赖可以限制在 trace-harness 包或可选 extra 内，不给其它 SDK 增重；
+- Python 与 TypeScript 使用共享用例保证同一 command 产出一致的 name variants；
+- AST 初始化或解析失败时仍可靠回退到 tool name。
+
+候选实现分别为 Python 的 `tree-sitter` + `tree-sitter-bash`、TypeScript 的 `@lumis-sh/wasm-bash` + `web-tree-sitter`。落地前应先用真实 trace command corpus 衡量解析正确率与包体成本，再决定是否替换轻量 tokenizer。
