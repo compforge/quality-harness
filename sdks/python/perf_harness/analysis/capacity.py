@@ -20,7 +20,7 @@ KNEE_DROP = 0.15
 
 def analyze(run: Run, store: MetricStore) -> list[AnalysisNote]:
     out: list[AnalysisNote] = []
-    for label, rs in comparison_groups(run.arm_runs):
+    for label, rs in comparison_groups([r for r in run.arm_runs if r.full.request is not None]):
         if len(rs) < 2:
             continue
         if rs[0].arm.load.saturated:

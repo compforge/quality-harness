@@ -57,7 +57,7 @@ class Warmup:
 @dataclass(frozen=True, kw_only=True)
 class LoadPlan:
     request_rate: float
-    max_inflight: int
+    max_inflight: int = 0
     hold_s: float = 60.0
     warmup: Warmup = field(default_factory=Warmup)
     stages: tuple[Stage, ...] = ()
@@ -68,11 +68,12 @@ class LoadPlan:
     cooldown_timeout_s: float = 180.0
 
     def __post_init__(self) -> None:
-        Stage(self.hold_s, self.request_rate, self.max_inflight)
+        cap = self.max_inflight or (1 if self.request_rate == 0 else 0)
+        Stage(self.hold_s, self.request_rate, cap)
+        if not self.observes_only and self.max_inflight < 1:
+            raise ValueError("max_inflight must be an integer >= 1")
         if self.arrival not in {"constant", "poisson"}:
             raise ValueError("load.arrival must be constant or poisson")
-        if not self.stages and self.request_rate <= 0:
-            raise ValueError("load.request_rate must be > 0")
         if not math.isfinite(self.cooldown_timeout_s) or self.cooldown_timeout_s < 0:
             raise ValueError("load.cooldown_timeout_s must be finite and >= 0")
         if self.abort_on_error_rate is not None and not 0 < self.abort_on_error_rate <= 1:
@@ -92,6 +93,11 @@ class LoadPlan:
             raise ValueError("stages cannot switch between finite request_rate and inf")
 
     @property
+    def observes_only(self) -> bool:
+        """Zero injection observes natural traffic without runner lifecycle work."""
+        return all(s.request_rate == 0 for s in self.planned_stages)
+
+    @property
     def saturated(self) -> bool:
         return math.isinf(self.request_rate)
 
@@ -101,6 +107,8 @@ class LoadPlan:
 
     @property
     def planned_stages(self) -> tuple[Stage, ...]:
+        if self.request_rate == 0 and not any(s.request_rate > 0 for s in self.stages):
+            return (Stage(self.hold_s, 0, 1),)
         if self.stages:
             return self.stages
         stages = []
@@ -160,4 +168,6 @@ class LoadPlan:
         return math.inf
 
     def label(self) -> str:
+        if self.observes_only:
+            return "rate/0"
         return f"{self.mode}/{self.peak_level:g}/c{self.peak_inflight}"

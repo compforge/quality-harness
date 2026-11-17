@@ -71,7 +71,11 @@ def analyze(run: Run, store=None) -> list[AnalysisNote]:  # noqa: ARG001 — uni
         # breaker reachability: at the observed rps, how long until min_n is even
         # judged? Longer than half the window → the safety net mostly isn't armed.
         ld = r.arm.load
-        if ld.abort_on_error_rate is not None and r.full.request.throughput_rps > 0:
+        if (
+            r.full.request is not None
+            and ld.abort_on_error_rate is not None
+            and r.full.request.throughput_rps > 0
+        ):
             t_arm = ld.breaker_min_n / r.full.request.throughput_rps
             window = r.full.duration_s
             if window and t_arm / window > BREAKER_WINDOW_SHARE:
@@ -116,7 +120,7 @@ def analyze(run: Run, store=None) -> list[AnalysisNote]:  # noqa: ARG001 — uni
                     )
                 )
 
-        if r.full.request.drop_rate > DROP_FLAG:
+        if r.full.request is not None and r.full.request.drop_rate > DROP_FLAG:
             out.append(
                 AnalysisNote(
                     "validity",

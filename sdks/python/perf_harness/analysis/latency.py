@@ -28,7 +28,7 @@ _CAVEAT_TEXT = {
 
 def analyze(run: Run, store: MetricStore) -> list[AnalysisNote]:
     out: list[AnalysisNote] = []
-    for label, rs in comparison_groups(run.arm_runs):
+    for label, rs in comparison_groups([r for r in run.arm_runs if r.full.request is not None]):
         out.extend(_degradation(label, rs))
         out.extend(_ttft(label, rs, store))
         out.extend(_adequacy(label, rs))

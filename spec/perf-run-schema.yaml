@@ -35,6 +35,11 @@ properties:
       environment: {type: string, minLength: 1}
       nodes: {type: array}
       relations: {type: array}
+  entry_ids:
+    type: array
+    uniqueItems: true
+    items: {type: string, minLength: 1}
+    description: Selected Case Operation roots in the saved graph.
   case_ids:
     type: array
     items: {type: string}
@@ -149,15 +154,29 @@ $defs:
         - 'null'
   load:
     type: object
+    allOf:
+    - if:
+        anyOf:
+        - properties:
+            request_rate: {not: {const: 0}}
+        - required: [stages]
+          properties:
+            stages:
+              contains:
+                properties:
+                  request_rate: {not: {const: 0}}
+      then:
+        required: [max_inflight]
+        properties:
+          max_inflight: {type: integer, minimum: 1}
     required:
     - request_rate
-    - max_inflight
     - hold_s
     properties:
       request_rate: *id001
       max_inflight:
         type: integer
-        minimum: 1
+        minimum: 0
       hold_s:
         type: number
         exclusiveMinimum: 0
@@ -427,6 +446,7 @@ $defs:
       reason:
         enum:
         - deadline
+        - manual
         - error_rate
         - request_limit
         - aborted

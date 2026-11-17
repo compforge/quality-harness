@@ -25,6 +25,7 @@ export interface CallGraphWindow {
 export interface CallGraphSnapshot {
   schema_version: 2; topology_source: "declared"; run_id: string; experiment: string;
   created_at: string; status: string; environment: string; case_ids: string[];
+  entry_ids: string[];
   graph_source: string | null; graph_version: string | null; relations: readonly Relation[];
   arms: {id: string; arm_id: string; started_at_s: number | null; load: ReturnType<typeof serializeLoadPlan>;
     resources: {cpu: string | null; memory: string | null; workers: number | null; replicas: number; extra: Record<string,string>}; windows: CallGraphWindow[]}[];
@@ -57,9 +58,13 @@ export function buildCallgraph(run: Run): CallGraphSnapshot | undefined {
   const owners = new Map(graph.relations.filter(r => r.kind === RelationKind.BelongsTo)
     .map(r => [r.source, decodeURIComponent(r.target.replace(/^service:/,""))]));
   const incoming = new Set(graph.calls.map(relation => relation.target));
+  const entries = run.entry_ids?.length ? [...new Set(run.entry_ids)]
+    : graph.nodes.filter(node => node.kind === NodeKind.Operation && !incoming.has(node.id)).map(node => node.id);
+  for (const id of entries) if (graph.node(id)?.kind !== NodeKind.Operation) throw new Error(`Invalid entry Operation: ${id}`);
   const operations = graph.nodes.filter(node => node.kind === NodeKind.Operation);
   return {schema_version: 2, topology_source: "declared", run_id: run.run_id, experiment: run.experiment,
     created_at: run.created_at, status: run.status, environment: run.environment, case_ids: [...(run.case_ids ?? [])],
+    entry_ids: entries,
     graph_source: graph.source ?? null, graph_version: graph.version ?? null, relations: graph.calls,
     arms: run.executions.map(arm => ({id: arm.id, arm_id: arm.arm.id, started_at_s: arm.started_at_s ?? null,
       load: serializeLoadPlan(arm.arm.load), resources: {cpu: arm.arm.resources.cpu ?? null, memory: arm.arm.resources.memory ?? null,
@@ -72,10 +77,24 @@ export function buildCallgraph(run: Run): CallGraphSnapshot | undefined {
             const properties = node.properties ?? {};
             return {id: node.id, kind: node.kind, properties: {...properties, perf: {
               name: decodeURIComponent(node.id.slice(node.id.indexOf("/")+1)),
-              importance: incoming.has(node.id) ? String(properties.importance ?? "medium") : "high",
+              importance: entries.includes(node.id) ? "high" : String(properties.importance ?? "medium"),
               service: owners.get(node.id)!, method: binding?.method ?? String(properties.method ?? ""),
               path: binding?.path ?? String(properties.path ?? ""), response_mode: binding ? binding.response_mode ?? null : (typeof properties.response_mode === "string" ? properties.response_mode : null),
               qps_semantics: binding?.metrics.qps?.semantics ?? null,
               metrics: Object.fromEntries([...roles].map(role => [role,metric(arm,window,binding?.metrics[role], RED_UNITS[role as keyof typeof RED_UNITS] ?? "")]))}}};
           })}))}))};
+}
+
+/** Pure view of the saved full graph; shared descendants/cycles retain original identities. */
+export function entryCallgraph(snapshot: CallGraphSnapshot): CallGraphSnapshot {
+  const reachable = new Set(snapshot.entry_ids), pending = [...reachable];
+  while (pending.length) {
+    const id = pending.pop()!;
+    for (const edge of snapshot.relations) if (edge.source === id && !reachable.has(edge.target)) {
+      reachable.add(edge.target); pending.push(edge.target);
+    }
+  }
+  return {...snapshot, relations: snapshot.relations.filter(edge => reachable.has(edge.source) && reachable.has(edge.target)),
+    arms: snapshot.arms.map(arm => ({...arm, windows: arm.windows.map(window => ({...window,
+      nodes: window.nodes.filter(node => reachable.has(node.id))}))}))};
 }

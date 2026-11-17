@@ -1,6 +1,6 @@
 # @compforge/perf-harness
 
-Bounded request-rate and concurrency scheduling, with separate raw facts and judgments.
+Observe system performance under natural traffic or bounded injected traffic, with separate raw facts and judgments.
 Service, Execution and OperationRun reuse `@compforge/harness-common`; Cases reuse spec-case.
 
 ```ts
@@ -26,6 +26,21 @@ const run = await new Engine({
 }).run();
 writeRunData(run, "./runs/chat-capacity/local");
 ```
+
+Set `request_rate: 0` to observe natural traffic for `hold_s` without a Runner or `max_inflight`:
+
+```ts
+const observation = await new Engine({service, loads: [{request_rate: 0, hold_s: 60}]}).run();
+```
+
+This executes only hold: no setup, warmup, cooldown, cleanup or generated requests. Request statistics
+are absent, not zero. Pass a separate `stopSignal` to finish early and seal the actual window while
+leaving cancellation and final metric collection usable. `signal` remains cancellation.
+`entryIds` identifies selected Case Operations in the full graph; HTML offers entry and full graph views.
+
+`request_rate` is configured injection QPS. Actual dispatch rate may be lower at the inflight cap.
+Server throughput is observed independently and includes matching natural traffic. It is not an
+assertion that the system achieved the requested injection rate.
 
 Warmup doubles the rate from 1 every 5 seconds until the target rate or inflight cap is reached.
 Hold lasts `hold_s` seconds (default 60) and replenishes vacancies at the configured target rate.

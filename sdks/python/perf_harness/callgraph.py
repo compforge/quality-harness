@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Literal
 from urllib.parse import unquote
 
@@ -80,6 +80,7 @@ class CallGraphSnapshot:
     graph_version: str | None
     relations: tuple[Relation, ...]
     arms: tuple[CallGraphArm, ...]
+    entry_ids: tuple[str, ...] = ()
     schema_version: int = field(default=2, init=False)
     topology_source: str = field(default="declared", init=False)
 
@@ -94,6 +95,7 @@ class CallGraphSnapshot:
             "status": self.status,
             "environment": self.environment,
             "case_ids": self.case_ids,
+            "entry_ids": self.entry_ids,
             "graph_source": self.graph_source,
             "graph_version": self.graph_version,
             "relations": [r.to_dict() for r in self.relations],
@@ -204,6 +206,12 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
     }
     operations = [node for node in graph.nodes if node.kind == NodeKind.OPERATION]
     incoming = {relation.target for relation in graph.calls}
+    entries = tuple(dict.fromkeys(run.entry_ids)) or tuple(
+        node.id for node in operations if node.id not in incoming
+    )
+    for entry in entries:
+        if graph.node(entry) is None or graph.node(entry).kind != NodeKind.OPERATION:
+            raise ValueError(f"Invalid entry Operation: {entry}")
     store = MetricStore(run.arm_runs)
     arms = []
     for arm in run.arm_runs:
@@ -235,7 +243,7 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
                         "name": unquote(node.id.split("/", 1)[-1]),
                         "importance": (
                             "high"
-                            if node.id not in incoming
+                            if node.id in entries
                             else node.properties.get("importance", "medium")
                         ),
                         "service": owners[node.id],
@@ -289,4 +297,37 @@ def build_callgraph(run: Run) -> CallGraphSnapshot | None:
         graph.version,
         graph.calls,
         tuple(arms),
+        entry_ids=entries,
+    )
+
+
+def entry_callgraph(snapshot: CallGraphSnapshot) -> CallGraphSnapshot:
+    """Project the entry-reachable view without changing full graph evidence."""
+    reachable = set(snapshot.entry_ids)
+    pending = list(reachable)
+    while pending:
+        source = pending.pop()
+        for edge in snapshot.relations:
+            if edge.source == source and edge.target not in reachable:
+                reachable.add(edge.target)
+                pending.append(edge.target)
+    return replace(
+        snapshot,
+        relations=tuple(
+            edge
+            for edge in snapshot.relations
+            if edge.source in reachable and edge.target in reachable
+        ),
+        arms=tuple(
+            replace(
+                arm,
+                windows=tuple(
+                    replace(
+                        window, nodes=tuple(node for node in window.nodes if node.id in reachable)
+                    )
+                    for window in arm.windows
+                ),
+            )
+            for arm in snapshot.arms
+        ),
     )

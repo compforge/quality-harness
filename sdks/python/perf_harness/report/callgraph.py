@@ -1,6 +1,7 @@
 """Render numeric CallGraphSnapshot data without interpreting causality."""
 
 import math
+from dataclasses import replace
 
 from harness_common import RelationKind
 from harness_common.report_kit import (
@@ -13,7 +14,7 @@ from harness_common.report_kit import (
     Table,
 )
 
-from perf_harness.callgraph import CallGraphSnapshot, CallGraphWindow
+from perf_harness.callgraph import CallGraphSnapshot, CallGraphWindow, entry_callgraph
 
 _COLORS = ("#dbeafe", "#dcfce7", "#fef3c7", "#ede9fe", "#fce7f3", "#cffafe")
 
@@ -82,7 +83,8 @@ def section(
         )
         for r in snapshot.relations
     ]
-    incoming = {edge.target for edge in edges}
+    subset = entry_callgraph(snapshot)
+    reachable = {node.id for arm in subset.arms for window in arm.windows for node in window.nodes}
     frames = []
     for arm in snapshot.arms:
         for window in arm.windows:
@@ -146,18 +148,29 @@ def section(
                         ),
                     )
                 )
-            frames.append(
-                GraphFrame(
-                    f"{arm.arm_id} / {window.name} [{window.start_s:.3f}–{window.end_s:.3f}s]",
-                    nodes,
-                    edges,
-                    entry_ids=[node.id for node in nodes if node.id not in incoming],
-                    table=metric_tables.get((arm.id, window.id)) if metric_tables else None,
-                    group={"full": "全程观测", "phase": "指定阶段", "custom": "自定义范围"}[
-                        window.kind
-                    ],
-                )
+            full = GraphFrame(
+                f"{arm.arm_id} / {window.name} [{window.start_s:.3f}–{window.end_s:.3f}s]",
+                nodes,
+                edges,
+                entry_ids=[],
+                table=metric_tables.get((arm.id, window.id)) if metric_tables else None,
+                group="Full graph",
             )
+            if snapshot.entry_ids:
+                frames.append(
+                    replace(
+                        full,
+                        nodes=[node for node in nodes if node.id in reachable],
+                        edges=[
+                            edge
+                            for edge in edges
+                            if edge.source in reachable and edge.target in reachable
+                        ],
+                        entry_ids=list(snapshot.entry_ids),
+                        group="Case entry",
+                    )
+                )
+            frames.append(full)
     scope = (
         f"Case: {snapshot.case_ids[0]}"
         if len(snapshot.case_ids) == 1

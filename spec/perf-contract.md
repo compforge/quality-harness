@@ -20,7 +20,19 @@ Service 持有 common Component/Repository/Forge/Environment/Workload 身份；�
 
 ## 调度契约
 
-LoadPlan 必填 `request_rate` 与 `max_inflight`，`hold_s` 默认 60 秒。
+Perf 观察系统在一段流量条件下的表现；流量可以完全来自自然流量，也可以叠加 Harness 注入。
+`request_rate` 是配置的加压速率（requests/s），不是系统吞吐。`max_inflight` 限制 Harness
+发起且尚未完成的请求数量；到达上限会暂停发起，实际 dispatch rate 可以低于配置速率。
+服务端吞吐由真实完成事件和观测窗口决定，包含指标选择器匹配的自然流量；其口径由 Probe 声明。
+
+LoadPlan 必填 `request_rate`，正速率必须提供 `max_inflight`；`hold_s` 默认 60 秒。
+`request_rate=0` 且没有正速率 Stage 时只执行 hold：不调用 Runner、Deployer 或其生命周期，
+不生成 setup/warmup/cooldown/cleanup 阶段，也不要求 runner 或 max_inflight。
+max_inflight 省略时持久化为 0（不适用），不表示系统实际在途请求为零。
+Window.request 为缺省/null，请求、Outcome 和评价集合为空；不能从中推断系统吞吐为零。
+Python Experiment.stop / TypeScript Experiment.stopSignal 正常结束当前观测窗口，stop.reason=manual，
+完整保存实际结束边界，并继续 final collection/report。Host cancellation 是独立信号。
+手动结束后的窗口可 complete=true，表示实际窗口已封闭，不表示达到了原计划时长或性能目标。
 `warmup.step_s` 默认 5 秒：从 min(1, request_rate) 开始逐档倍增，达到目标速率或首次达到
 max_inflight 后进入 hold。step_s=0 或 request_rate=inf 直接进入 hold。
 
@@ -186,3 +198,11 @@ sample_count、max_finite_bucket 和 overflow；JSON value 用字符串 `"+Inf"`
 
 Callgraph 将全程/阶段/自定义范围分开选择；节点只显示 Operation 和指标，Service 以分组呈现，
 悬浮提示 Service 与 path。详情保留统计范围、指标来源和 Histogram 证据。
+
+### Case entry 与全局 Callgraph
+
+Run.entry_ids 保存本次选中 Case 对应的 Operation ID，必须存在于 Graph 中。
+CallGraphSnapshot 保留全图和同一批 Operation × Window 指标；entry view 从明确入口沿
+calls/may_call 取可达子图，多入口取并集，共享节点和环保留原身份。入口即使有上游入边也仍是入口。
+HTML 默认展示入口子图，并可切换全图；切换不重新查询、计算或归因指标。
+服务端指标表示选择器匹配流量，不能按 Case 数量或注入比例拆分到单个 Case。

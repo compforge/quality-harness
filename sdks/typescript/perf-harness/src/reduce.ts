@@ -1,3 +1,4 @@
+import { observesOnly } from "./load";
 import type { DriveState } from "./scheduler";
 import { stages, stageLabel, level, saturated } from "./load";
 import type {
@@ -167,7 +168,7 @@ export function buildWindows(execution: ArmRun, actualEnd: number, drive?: Drive
       end_s: end,
       complete,
       target_level: target,
-      request: requestStats(execution, start, end),
+      request: observesOnly(load) ? undefined : requestStats(execution, start, end),
       by_case,
       by_facet,
       probe_metrics: {},
@@ -183,7 +184,7 @@ export function buildWindows(execution: ArmRun, actualEnd: number, drive?: Drive
       clock += stage.duration_s;
     });
     const end = Math.max(actualEnd, ...execution.requests.map(r => r.finished_at ?? actualEnd));
-    segments.push({id: "cooldown", name: "cooldown", kind: "cooldown", start_s: actualEnd, end_s: end + 1e-12, complete: true});
+    if (!observesOnly(load)) segments.push({id: "cooldown", name: "cooldown", kind: "cooldown", start_s: actualEnd, end_s: end + 1e-12, complete: true});
   }
   const phases: import("./model").PhaseRun[] = [];
   for (const segment of segments) {

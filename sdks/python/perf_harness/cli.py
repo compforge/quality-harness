@@ -143,6 +143,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             continue
         o = r.full.request
+        if o is None:
+            print(f"  {r.arm.load.label()} observed {r.full.duration_s:.1f}s ({r.stop.reason})")
+            continue
         print(
             f"  {r.arm.resources.label():<14} {r.arm.load.label():<8} "
             f"rps={o.throughput_rps:6.1f} err={o.error_rate * 100:5.1f}% "

@@ -494,6 +494,7 @@ def write_run_data(run: Run, run_dir: str | Path) -> dict[str, str]:
         "report_columns": [asdict(column) for column in run.report_columns],
         "observation_bindings": [asdict(binding) for binding in run.observation_bindings],
         "case_ids": run.case_ids,
+        "entry_ids": run.entry_ids,
         "connection_budget": asdict(run.connection_budget) if run.connection_budget else None,
         "executions": [_arm_run_json(r) for r in run.arm_runs],
     }
@@ -604,6 +605,7 @@ def load_run(run_dir: str | Path, *, with_series: bool = True) -> Run:
             for binding in doc.get("observation_bindings", [])
         ],
         case_ids=doc.get("case_ids", []),
+        entry_ids=doc.get("entry_ids", []),
         connection_budget=ConnectionBudget(**doc["connection_budget"])
         if doc.get("connection_budget")
         else None,

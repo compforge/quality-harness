@@ -2,7 +2,7 @@
 
 ## 项目定位与边界
 
-不测对错（`e2e_harness`）、不测质量（`eval_harness`），测**容量与资源画像**：把服务放到某个资源档下、施加压力、观察它随时间的表现，回答"在 xx 资源 + xx qps 下扛得住多少、cpu/内存/错误率如何"。**自给自足**，不 import 另两个 SDK；Kubernetes I/O 由 toolbox 承担，部署、观测和请求通道在对应适配层装配。
+不测对错（`e2e_harness`）、不测质量（`eval_harness`），测**容量与资源画像**：把服务放到某个资源档下、选择自然流量或叠加受控压力、观察它随时间的表现，回答"在 xx 资源 + xx qps 下扛得住多少、cpu/内存/错误率如何"。**自给自足**，不 import 另两个 SDK；Kubernetes I/O 由 toolbox 承担，部署、观测和请求通道在对应适配层装配。
 
 本目录是 Perf Harness 跨语言契约的 Python 实现，不是其它语言实现的 canonical source。共享名词、
 调度语义、对齐键和落盘字段以 `../../../spec/perf-contract.md` 及对应 schema 为准。

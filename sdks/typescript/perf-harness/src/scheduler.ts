@@ -1,4 +1,5 @@
 import { Operation } from "@compforge/harness-common";
+import { observesOnly } from "./load";
 import { LoadController } from "./controller";
 import type {
   Arm,
@@ -26,7 +27,7 @@ export interface DriveState {
 export async function drive(options: {
   state: DriveState;
   origin?: number;
-  runner: Runner;
+  runner?: Runner;
   judge: Judge;
   context: ArmContext;
   arm: Arm;
@@ -34,6 +35,7 @@ export async function drive(options: {
   weights: readonly number[];
   execution: ArmRun;
   signal?: AbortSignal;
+  stopSignal?: AbortSignal;
 }): Promise<void> {
   const {
       runner,
@@ -107,11 +109,11 @@ export async function drive(options: {
           case: item,
           signal: requestSignal,
         };
-        let operation = new Operation({ name: runner.name, serviceName: context.service.name });
+        let operation = new Operation({ name: runner!.name, serviceName: context.service.name });
         try {
-          operation = runner.operation?.(fireContext) ?? operation;
+          operation = runner!.operation?.(fireContext) ?? operation;
           requestSignal.throwIfAborted();
-          outcome = await runner.fire(fireContext);
+          outcome = await runner!.fire(fireContext);
         } catch (error) {
           outcome = {
             status: null,
@@ -169,12 +171,13 @@ export async function drive(options: {
         new Promise<void>((resolve) => {
           abort = () => resolve();
           signal?.addEventListener("abort", abort, { once: true });
-          if (signal?.aborted) resolve();
+          if (state.load_end_s === undefined) options.stopSignal?.addEventListener("abort", abort, {once: true});
+          if (signal?.aborted || (state.load_end_s === undefined && options.stopSignal?.aborted)) resolve();
         }),
       ]);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
-      if (abort) signal?.removeEventListener("abort", abort);
+      if (abort) { signal?.removeEventListener("abort", abort); options.stopSignal?.removeEventListener("abort", abort); }
     }
   }
   signal.addEventListener("abort", onCancel, { once: true });
@@ -189,6 +192,13 @@ export async function drive(options: {
       state.phase = control.phase;
       if (errors.length) throw errors[0];
       if (control.done) break;
+      if (options.stopSignal?.aborted) {
+        reason = "manual";
+        control.abort(elapsed);
+        const phase = control.phases.at(-1)!;
+        phase.complete = true; phase.end_reason = "manual";
+        break;
+      }
       if (
         load.abort_on_error_rate !== undefined &&
         completed >= (load.breaker_min_n ?? 20) &&
@@ -225,7 +235,7 @@ export async function drive(options: {
       }
       // Observe a blocked pacing opportunity even when no request has completed yet.
       const delay = Math.max(0, Math.min(
-        0.01,
+        observesOnly(load) ? Infinity : 0.01,
         control.deadline - now(),
         rate && due > now() ? due - now() : Infinity,
       ));
@@ -263,7 +273,7 @@ export async function drive(options: {
     await Promise.all(active.keys());
     state.stop.interrupted = execution.requests.filter((r) => r.state === "interrupted").length;
     state.stop.force_cancelled = state.stop.interrupted > 0;
-    state.phases!.push({
+    if (!observesOnly(load)) state.phases!.push({
       id: "cooldown", name: "cooldown", kind: "cooldown",
       start_s: state.load_end_s,
       end_s: now(),

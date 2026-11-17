@@ -16,6 +16,7 @@ export function serializeRun(run: Run): Record<string, unknown> {
     environment: run.environment,
     ...(run.graph ? {graph: run.graph} : {}),
     case_ids: run.case_ids ?? [],
+    entry_ids: run.entry_ids ?? [],
     observation_bindings: run.observation_bindings ?? [],
     executions: run.executions.map((e) => ({
       id: e.id,
@@ -78,7 +79,7 @@ export function serializeRequests(run: Run): string {
 export function serializeVerdict(run: Run): Record<string, unknown> {
   const error = run.executions.find((e) => e.phase_errors.length),
     failed = run.executions.find(
-      (e) => e.stop.reason !== "deadline" || e.stop.interrupted,
+      (e) => !["deadline", "manual"].includes(e.stop.reason) || e.stop.interrupted,
     );
   return {
     schema_version: 1,
