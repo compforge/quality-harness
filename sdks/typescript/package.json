@@ -1,5 +1,6 @@
 {
   "name": "quality-harness-typescript",
+  "license": "MIT",
   "private": true,
   "workspaces": [
     "common",

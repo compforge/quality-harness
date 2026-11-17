@@ -40,3 +40,7 @@ uv run e2e run ../../examples/api-test/cases.yaml \
 ```
 
 The target service must be running and expose the endpoints used by the cases. Results are written to a run directory under `runs/`, including `verdict.json`. Skipped cases and execution errors remain visible in the result.
+
+## License
+
+Licensed under the [MIT License](LICENSE). Third-party assets retain their own licenses; see [vendor notices](report-kit/vendor/README.md).

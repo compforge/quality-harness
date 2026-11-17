@@ -1,5 +1,6 @@
 {
   "name": "@compforge/report-kit",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.cjs"

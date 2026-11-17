@@ -47,13 +47,14 @@ def main():
         build(sdk / name, f"harness_{name}", package_version)
     with tempfile.TemporaryDirectory(prefix="trace-wheel-") as temporary:
         root = Path(temporary)
+        shutil.copyfile(repo / "LICENSE", root / "LICENSE")
         shutil.copytree(sdk / "trace_harness", root / "trace_harness",
                         ignore=shutil.ignore_patterns("tests", "__pycache__", "*.pyc"))
         dependencies = [f"harness-common=={common_version}", "httpx>=0.27,<1", "pyyaml>=6,<7"]
         (root / "pyproject.toml").write_text(
             '[build-system]\nrequires = ["hatchling==1.27.0"]\nbuild-backend = "hatchling.build"\n'
             f'[project]\nname = "trace-harness"\nversion = "{version}"\n'
-            'requires-python = ">=3.11"\nlicense = {text = "Apache-2.0"}\n'
+            'requires-python = ">=3.11"\nlicense = {text = "MIT"}\n'
             f'dependencies = {json.dumps(dependencies)}\n'
             '[tool.hatch.build.targets.wheel]\npackages = ["trace_harness"]\n')
         build(root, "trace_harness", version)
