@@ -122,6 +122,7 @@ export class KubernetesSecretDataSource implements DataSource<KubernetesSecretCl
     this.clientKey = clientKey("kubernetes-secret", { access: kubernetes.clientKey, target: this.target, keys: this.keys });
   }
 
+  id(): string { return this.clientKey; }
   createClient(clients: Pick<ClientManager, "get">, signal: AbortSignal): KubernetesSecretClient {
     return new KubernetesSecretClient(this.keys, signal, async () => ({ target: this.target, access: await clients.get(this.kubernetes) }));
   }

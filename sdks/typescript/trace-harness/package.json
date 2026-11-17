@@ -1,6 +1,6 @@
 {
   "name": "@compforge/trace-harness",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "TypeScript trace/span analysis harness",
   "type": "module",
   "scripts": {
@@ -30,11 +30,15 @@
   },
   "dependencies": {
     "fflate": "0.8.3",
-    "@compforge/harness-toolbox": "0.1.0",
+    "@compforge/harness-toolbox": "^0.10.0",
     "@compforge/agent-common": "0.1.1",
     "@compforge/agent-observation": "0.2.0"
   },
   "engines": {
     "node": ">=22"
+  },
+  "overrides": {
+    "@compforge/harness-toolbox": "file:../toolbox",
+    "@compforge/harness-common": "file:../common"
   }
 }

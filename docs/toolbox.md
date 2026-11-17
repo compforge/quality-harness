@@ -44,6 +44,14 @@ Client 是执行期稳定的协议操作入口；Transport 内部的 worker、�
 通道中断使本次请求失败并淘汰该通道，下一个独立请求才可以重连；已发送的业务操作不自动重放。
 最终 dispose / scope exit 后不允许重开，借用者不关闭共享通道。
 
+### DataSource 身份
+
+DataSource 直接继承 Identity（`id()`），与 ClientProvider 的 `clientKey` / `client_key` 分工。
+具体 source 定义身份格式及访问等价范围；Service 归属和 description 不改变身份，凭据不能明文出现在 id 中。
+跨 Service 复用前先解析运行时配置，身份覆盖实际目标、凭据及访问上下文。
+现有 Toolbox source 保守地使用完整客户端配置 key 作为 id。
+消费方只在明确的一次执行范围内、对相同操作及参数复用结果；身份相同不自动缓存读取或授权另一项操作。
+
 ## 运行目标与访问绑定
 
 Environment 与 Service 描述逻辑运行目标；Service 通过 `workloads` 声明零个或多个运行载体。

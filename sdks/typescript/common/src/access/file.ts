@@ -37,5 +37,6 @@ export abstract class FileDataSource<C extends FileClient = FileClient> implemen
   abstract readonly paths: readonly string[];
   readonly description?: string;
   abstract readonly clientKey: string;
+  id(): string { return this.clientKey; }
   abstract createClient(clients: Pick<ClientManager, "get">, signal: AbortSignal): C;
 }

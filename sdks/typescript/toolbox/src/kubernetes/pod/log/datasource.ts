@@ -13,6 +13,7 @@ export class PodLogDataSource implements DataSource<PodLogClient> {
     private readonly budget: PodLogByteBudget,
     private readonly policy: PodLogCapturePolicy,
   ) { this.clientKey = clientKey("pod-log", target); }
+  id(): string { return this.clientKey; }
   createClient(_clients: Pick<ClientManager, "get">, signal: AbortSignal): PodLogClient {
     return new PodLogClient(this.pool, signal, this.policy, this.budget);
   }
