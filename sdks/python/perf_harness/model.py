@@ -275,7 +275,7 @@ class ArmStop:
     @property
     def early(self) -> bool:
         """The arm_run stopped before its planned window (anything but a deadline end)."""
-        return self.reason != "deadline"
+        return self.reason not in {"deadline", "manual"}
 
 
 @dataclass(frozen=True)
@@ -550,6 +550,7 @@ class Run(ExperimentRun):
     graph: Graph | None = None
     observation_bindings: list[ObservationBinding] = field(default_factory=list)
     case_ids: list[str] = field(default_factory=list)
+    entry_ids: list[str] = field(default_factory=list)
     connection_budget: ConnectionBudget | None = None
 
     def __post_init__(self) -> None:

@@ -15,7 +15,7 @@ export class LoadController {
 
   constructor(readonly load: LoadPlan) {
     this.stages = stages(load);
-    this.previous = [load.request_rate, load.max_inflight];
+    this.previous = [load.request_rate, load.max_inflight ?? 1];
     this.open();
   }
 

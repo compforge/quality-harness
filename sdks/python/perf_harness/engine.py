@@ -115,7 +115,9 @@ class Experiment(BaseExperiment):
     """
 
     service: Service
-    runner: Runner
+    runner: Runner | None = None
+    stop: asyncio.Event | None = None
+    entry_ids: list[str] = field(default_factory=list)
     resources: list[ResourceProfile]
     loads: list[LoadPlan]
     judge: Judge = default_judge
@@ -144,6 +146,8 @@ class Experiment(BaseExperiment):
         @rule A partial graph does not imply that unobserved operations have zero traffic.
         @link component://sdks/python/perf_harness/docs/service-metrics.md
         """
+        if any(not load.observes_only for load in self.loads) and self.runner is None:
+            raise ValueError("A runner is required for positive injection QPS")
         if self.observation:
             if self.probes:
                 raise ValueError("configure observation or standalone probes, not both")
@@ -155,8 +159,14 @@ class Experiment(BaseExperiment):
         )
         self.observation_bindings()  # reject duplicate producers before target access
         sources_for(self.probes)  # validate shared access options before load
+        if self.entry_ids and self.graph is None:
+            raise ValueError("Entry Operations require a graph")
         if self.graph is None:
             return
+        for entry in self.entry_ids:
+            node = self.graph.node(entry)
+            if node is None or node.kind != NodeKind.OPERATION:
+                raise ValueError(f"Invalid entry Operation: {entry}")
         if self.graph.environment != self.service.environment.name:
             raise ValueError("graph environment must match the experiment service")
         root = self.graph.node(self.service.id())
@@ -223,7 +233,11 @@ class Engine:
         try:
             applied: ResourceProfile | None = None
             for arm in exp.resolved_arms():
-                if exp.deployer is not None and arm.resources != applied:
+                if (
+                    not arm.load.observes_only
+                    and exp.deployer is not None
+                    and arm.resources != applied
+                ):
                     await exp.deployer.deploy(
                         Deployment(service=exp.service, resources=arm.resources)
                     )
@@ -244,10 +258,10 @@ class Engine:
                 )
                 arm_runs.append(arm_run)
                 # A broken lifecycle cannot safely provide the next Arm's testbed.
-                if arm_run.phase_errors:
+                if arm_run.phase_errors or (exp.stop is not None and exp.stop.is_set()):
                     break
         finally:
-            if exp.teardown and exp.deployer is not None:
+            if applied is not None and exp.teardown and exp.deployer is not None:
                 await exp.deployer.teardown()
         run = Run(
             run_id=self.run_id,
@@ -260,6 +274,7 @@ class Engine:
             graph=exp.graph,
             observation_bindings=exp.observation_bindings(),
             case_ids=[case.id for case in exp.cases],
+            entry_ids=list(dict.fromkeys(exp.entry_ids)),
             connection_budget=ConnectionBudget(
                 exp.effective_connection.configured_max_connections,
                 exp.effective_connection.max_connections,
@@ -278,6 +293,9 @@ class Engine:
     async def _run_arm_run(self, service: Service, arm: Arm) -> ArmRun:
         exp = self.experiment
         profile, load = arm.resources, arm.load
+        if load.observes_only:
+            return await self._observe_hold(service, arm)
+        assert exp.runner is not None
         setup_started = time.monotonic()
         stats = ClientStats()
         connection = exp.effective_connection
@@ -385,6 +403,7 @@ class Engine:
                     self._weights,
                     result,
                     execution.drive,
+                    exp.stop,
                 )
                 execution.enter("cooldown")
                 await exp.runner.deactivate(execution.context)
@@ -472,6 +491,97 @@ class Engine:
         result.phase_errors = execution.phase_errors
         return result
 
+    async def _observe_hold(self, service: Service, arm: Arm) -> ArmRun:
+        """@spec QPS=0 runs only hold; manual stop seals facts without cancelling collection."""
+        exp = self.experiment
+        result = ArmRun(
+            id=f"{self.run_id}:{arm.id}", service=service.name, arm=arm, windows=[], series={}
+        )
+        store: ProbeStore = {}
+        stop_observer = asyncio.Event()
+        start_observation = asyncio.Event()
+        ready = asyncio.Event()
+        async with ClientManager() as clients:
+            client = await clients.get(HTTPClientProvider(8, 10, pool="observe"))
+            ctx = ProbeContext(
+                service=service,
+                client=client,
+                observer_client=client,
+                t0=time.monotonic(),
+                clients=clients,
+                observation_budget_s=arm.load.hold_s,
+            )
+            observer = asyncio.create_task(
+                observe_loop(
+                    exp.probes,
+                    ctx,
+                    store,
+                    stop_observer,
+                    exp.observe_interval_s,
+                    ready,
+                    start_observation,
+                )
+            )
+            initial = asyncio.create_task(ready.wait())
+            try:
+                await asyncio.wait((initial, observer), return_when=asyncio.FIRST_COMPLETED)
+                if observer.done():
+                    await observer
+                origin = time.monotonic()
+                offset = origin - ctx.t0
+                for key, samples in store.items():
+                    store[key] = [Sample(sample.t - offset, sample.value) for sample in samples]
+                ctx.t0 = origin
+                result.started_at_s = ctx.wall_origin_s + origin
+                start_observation.set()
+                logger.info(
+                    "perf observation started: run=%s arm=%s qps=0 hold_s=%s",
+                    self.run_id,
+                    arm.id,
+                    arm.load.hold_s,
+                )
+                reason = "deadline"
+                try:
+                    await asyncio.wait_for((exp.stop or asyncio.Event()).wait(), arm.load.hold_s)
+                    reason = "manual"
+                except TimeoutError:
+                    pass
+                end = time.monotonic() - origin
+                result.stop = ArmStop(reason=reason)
+                state = DriveState(load_end_s=end)
+                state.phases = [
+                    PhaseRun(
+                        "hold",
+                        "hold",
+                        "hold",
+                        0,
+                        end,
+                        True,
+                        target_level=0,
+                        end_reason="manual" if reason == "manual" else "duration",
+                    )
+                ]
+                stop_observer.set()
+                errors = await observer
+                self._aggregate(
+                    arm,
+                    result,
+                    store,
+                    errors,
+                    load_end_s=end,
+                    drive_state=state,
+                    observation_end_s=end,
+                )
+                await self._finish_probes(ctx, result)
+                return result
+            finally:
+                initial.cancel()
+                stop_observer.set()
+                start_observation.set()
+                if not observer.done():
+                    observer.cancel()
+                await asyncio.gather(initial, observer, return_exceptions=True)
+
     async def _finish_probes(self, ctx: ProbeContext, result: ArmRun) -> None:
         windows = {window.id: window for window in result.windows}
         plan_history(self.experiment.probes, result)
@@ -525,7 +635,7 @@ class Engine:
         end = observation_end_s if observation_end_s is not None else drain_end + 1e-12
         if segments and segments[-1].kind == "cooldown":
             segments[-1].end_s = max(segments[-1].end_s, end)
-        elif segments:
+        elif segments and not load.observes_only:
             segments.append(PhaseRun("cooldown", "cooldown", "cooldown", measured_end, end, True))
         result.phases = (
             [p for p in result.phases if p.kind == "setup"]
@@ -535,7 +645,11 @@ class Engine:
         windows = traffic_windows(result.phases, exp.time_ranges)
         result.windows = windows
         for window in windows:
-            window.request = reduce_requests(result, window.start_s, window.end_s)
+            window.request = (
+                None
+                if load.observes_only
+                else reduce_requests(result, window.start_s, window.end_s)
+            )
             case_ids = {r.case_id for r in result.requests}
             window.by_case = {
                 case_id: reduce_requests(result, window.start_s, window.end_s, case_id=case_id)
@@ -548,7 +662,6 @@ class Engine:
                 }
 
         full = windows[0]
-        assert full.request is not None
 
         # unified metric registry: every report/analysis-visible metric → its descriptor.
         # (1) builtin request.* (duration_ms / error_rate / throughput_rps /
@@ -558,8 +671,9 @@ class Engine:
         registry: dict[str, MetricFamily] = {d.name: d for d in REQUEST_DESCRIPTORS}
         # per-request descriptor precedence: Runner-declared > framework (first_byte_ms) > inferred
         known = {d.name: d for d in PER_REQUEST_DESCRIPTORS}
-        known.update({m.name: m for m in exp.runner.describe()})
-        for key in full.request.metrics:
+        if not load.observes_only and exp.runner is not None:
+            known.update({m.name: m for m in exp.runner.describe()})
+        for key in full.request.metrics if full.request else ():
             registry[key] = known.get(
                 key,
                 MetricFamily(

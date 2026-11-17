@@ -140,11 +140,13 @@ def _key_cells(r: ArmRun) -> list[str]:
     return [
         r.arm.resources.label(),
         "inf" if r.arm.load.saturated else f"{r.arm.load.peak_level:g}",
-        str(r.arm.load.peak_inflight),
+        "N/A" if r.arm.load.observes_only else str(r.arm.load.peak_inflight),
     ]
 
 
-def _stat_cells(s: RequestStats) -> list[str]:
+def _stat_cells(s: RequestStats | None) -> list[str]:
+    if s is None:
+        return ["N/A"] * len(_STAT_COLS)
     return [f"{getattr(s, key):.2f}" for key in _THROUGHPUT_COLS] + [
         json.dumps(s.completed_by_code, ensure_ascii=False, sort_keys=True),
         json.dumps(s.throughput_by_code, ensure_ascii=False, sort_keys=True),
@@ -198,7 +200,7 @@ def _metric_keys(results: list[ArmRun]) -> list[str]:
     """Ordered union of per_request metric keys across arm_runs (ttft_ms / first_…)."""
     keys: list[str] = []
     for r in results:
-        for k in r.full.request.metrics:
+        for k in r.full.request.metrics if r.full.request else ():
             if k not in keys:
                 keys.append(k)
     return keys
@@ -212,8 +214,10 @@ def _metric_columns(keys: list[str]) -> list[str]:
     return cols
 
 
-def _metric_cells(stats: RequestStats, keys: list[str]) -> list[str]:
+def _metric_cells(stats: RequestStats | None, keys: list[str]) -> list[str]:
     """p50/p95 cells for each per_request metric on a slice (``-`` when absent)."""
+    if stats is None:
+        return ["N/A"] * (2 * len(keys))
     cells: list[str] = []
     for k in keys:
         ms = stats.metrics.get(k)
@@ -263,7 +267,9 @@ _DISPLAY_STAT_COLS = _THROUGHPUT_COLS + [
 _DISPLAY_STAT_TIPS = {**_STAT_TIPS, "lat_ms": "request latency — p50/p95/p99 (ms)"}
 
 
-def _display_stat_cells(s: RequestStats) -> list[str]:
+def _display_stat_cells(s: RequestStats | None) -> list[str]:
+    if s is None:
+        return ["N/A"] * len(_DISPLAY_STAT_COLS)
     return [f"{getattr(s, key):.2f}" for key in _THROUGHPUT_COLS] + [
         json.dumps(s.completed_by_code, ensure_ascii=False, sort_keys=True),
         json.dumps(s.throughput_by_code, ensure_ascii=False, sort_keys=True),
@@ -279,8 +285,10 @@ def _display_stat_cells(s: RequestStats) -> list[str]:
     ]
 
 
-def _display_metric_cells(stats: RequestStats, keys: list[str]) -> list[str]:
+def _display_metric_cells(stats: RequestStats | None, keys: list[str]) -> list[str]:
     """Per_request distribution → one ``p50/p95`` cell per metric (vs 2 flat columns)."""
+    if stats is None:
+        return ["N/A"] * len(keys)
     out: list[str] = []
     for k in keys:
         ms = stats.metrics.get(k)
@@ -365,7 +373,7 @@ def _key_cells_var(r: ArmRun, var_cols: list[str]) -> list[str]:
     m = {
         "constraint": r.arm.resources.label(),
         "peak_request_rate": "inf" if r.arm.load.saturated else f"{r.arm.load.peak_level:g}",
-        "peak_max_inflight": str(r.arm.load.peak_inflight),
+        "peak_max_inflight": "N/A" if r.arm.load.observes_only else str(r.arm.load.peak_inflight),
     }
     return [m[c] for c in var_cols]
 
@@ -753,7 +761,9 @@ def _build_doc(
         sec1.blocks.append(Prose("固定：" + " · ".join(f"`{k}={v}`" for k, v in consts)))
     sec1.blocks.append(
         Prose(
-            "默认范围覆盖 warmup、hold、cooldown，排除 setup/cleanup。"
+            "加压速率是配置，服务吞吐来自实际观测，两者不等同。"
+            "QPS=0 仅观测 hold，不执行 setup/warmup/cooldown/cleanup；请求指标不适用。"
+            "正 QPS 默认范围覆盖 warmup、hold、cooldown，排除 setup/cleanup。"
             "吞吐按范围内完成事件计算；客户端延迟按范围内发起请求的完整耗时计算。"
             "n 为完成样本数，n_pending/n_interrupted 为该 cohort 未完成/中断数；"
             "服务端 p95 的完成样本口径可能不同。"
@@ -768,7 +778,11 @@ def _build_doc(
                 "——勿当严格 无偏尾延迟；有限 request_rate 也须结合丢弃与调度延迟判断样本偏差。"
             )
         )
-    saturated = [r for r in results if r.full.request.drop_rate >= _SATURATION_FLAG]
+    saturated = [
+        r
+        for r in results
+        if r.full.request is not None and r.full.request.drop_rate >= _SATURATION_FLAG
+    ]
     if saturated:
         sat_txt = "；".join(
             f"{_arm_run_id(r)}: drop {r.full.request.drop_rate * 100:.1f}% "
@@ -907,7 +921,7 @@ def _response_section(results: list[ArmRun]) -> Section | None:
     # 请求侧（入口）— error/drop + latency vs level; these are measured AT the entry
     sec.blocks.append(Heading("请求侧（入口）"))
     for clabel, rs in groups:
-        pts = [(r.arm.load.peak_level, r) for r in rs]
+        pts = [(r.arm.load.peak_level, r) for r in rs if r.full.request is not None]
         err = [
             (lv, round(r.full.request.error_rate * 100, 2))
             for lv, r in pts
@@ -1192,7 +1206,11 @@ def _render_md(
         )
         lines.append("")
 
-    saturated = [r for r in results if r.full.request.drop_rate >= _SATURATION_FLAG]
+    saturated = [
+        r
+        for r in results
+        if r.full.request is not None and r.full.request.drop_rate >= _SATURATION_FLAG
+    ]
     if saturated:
         lines.append(
             f"**⚠ 客户端饱和**（drop ≥ {_SATURATION_FLAG * 100:.0f}%，该档延迟/吞吐**不可信**——"

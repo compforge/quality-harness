@@ -39,6 +39,7 @@ async def drive(
     weights: list[float],
     execution: ArmRun,
     state: DriveState,
+    stop: asyncio.Event | None = None,
 ) -> None:
     load = context.load
     rng = random.Random(load.seed)
@@ -155,6 +156,13 @@ async def drive(
             state.phase = controller.phase
             if failures:
                 raise failures[0]
+            if stop is not None and stop.is_set():
+                reason = "manual"
+                controller.abort(elapsed)
+                if state.phases:
+                    state.phases[-1].complete = True
+                    state.phases[-1].end_reason = "manual"
+                break
             if controller.done:
                 break
             if (

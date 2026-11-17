@@ -13,6 +13,7 @@ import {
   serializeLoadPlan,
   resourceLabel,
   validateLoadPlan,
+  observesOnly,
   type LoadPlan,
 } from "./load";
 import type {
@@ -31,7 +32,10 @@ export interface Experiment {
   graph?: GraphSnapshot;
   name?: string;
   service: Service;
-  runner: Runner;
+  runner?: Runner;
+  entryIds?: readonly string[];
+  /** Finish the current observation/load normally; does not cancel metric collection. */
+  stopSignal?: AbortSignal;
   judge?: Judge;
   resources?: ResourceProfile[];
   loads: LoadPlan[];
@@ -190,14 +194,19 @@ export class Engine {
     if (!experiment.loads.length)
       throw new Error("perf experiment requires at least one load profile");
     experiment.loads.forEach(validateLoadPlan);
+    if (experiment.loads.some(load => !observesOnly(load)) && !experiment.runner)
+      throw new Error("A runner is required for positive injection QPS");
     for (const range of experiment.timeRanges ?? []) {
       if (!range.name || !Number.isFinite(range.start_s) || !Number.isFinite(range.end_s) ||
           !(0 <= range.start_s && range.start_s < range.end_s))
         throw new Error("time range requires name and 0 <= start_s < end_s");
     }
+    if (experiment.entryIds?.length && !experiment.graph) throw new Error("Entry Operations require a graph");
     if (experiment.graph) {
       const graph = Graph.fromJSON(experiment.graph);
       if (graph.environment !== experiment.service.environment.name) throw new Error("Graph environment must match experiment");
+      for (const id of experiment.entryIds ?? [])
+        if (graph.node(id)?.kind !== "operation") throw new Error(`Invalid entry Operation: ${id}`);
       experiment = {...experiment, graph: graph.toJSON()};
     }
     const resolved = resolveCases(experiment);
@@ -242,11 +251,12 @@ export class Engine {
         requests: [],
         evaluations: {},
       };
+      const observationOnly = observesOnly(arm.load);
       const setupStart = performance.now();
       let origin = setupStart;
       let setupEnd: number | undefined;
       try {
-        await this.#experiment.runner.setup?.(execution.runner);
+        if (!observationOnly) await this.#experiment.runner!.setup?.(execution.runner);
         execution.runner.signal.throwIfAborted();
         await this.#experiment.onArmStart?.(execution.runner, started);
         execution.runner.signal.throwIfAborted();
@@ -264,9 +274,10 @@ export class Engine {
           cases: this.#cases,
           weights: this.#weights,
           signal: this.#experiment.signal,
+          stopSignal: this.#experiment.stopSignal,
         });
         execution.enter("cooldown");
-        await this.#experiment.runner.deactivate?.(execution.runner);
+        if (!observationOnly) await this.#experiment.runner!.deactivate?.(execution.runner);
       } catch (error) {
         if (this.#experiment.signal?.aborted) {
           execution.hasFatalError = true;
@@ -279,19 +290,19 @@ export class Engine {
         const observationEnd = performance.now();
         const cooldown = execution.drive.phases?.at(-1);
         if (cooldown?.kind === "cooldown") cooldown.end_s = (observationEnd - origin) / 1000;
-        result.phases.push({id: "setup", name: "setup", kind: "setup", start_s: (setupStart-origin)/1000,
+        if (!observationOnly) result.phases.push({id: "setup", name: "setup", kind: "setup", start_s: (setupStart-origin)/1000,
           end_s: ((setupEnd ?? observationEnd)-origin)/1000, complete: setupEnd !== undefined});
         execution.enter("cleanup");
         const cleanupStart = performance.now();
         try {
-          await this.#experiment.runner.cleanup?.(execution.runner);
+          if (!observationOnly) await this.#experiment.runner!.cleanup?.(execution.runner);
         } catch (cleanupError) {
           if (execution.hasFatalError) {
             execution.hasCleanupAfterFatal = true;
             execution.cleanupAfterFatal = cleanupError;
           } else execution.record(cleanupError, "cleanup");
         }
-        result.phases.push({id: "cleanup", name: "cleanup", kind: "cleanup", start_s: (cleanupStart-origin)/1000,
+        if (!observationOnly) result.phases.push({id: "cleanup", name: "cleanup", kind: "cleanup", start_s: (cleanupStart-origin)/1000,
           end_s: (performance.now()-origin)/1000, complete: !execution.phaseErrors.some(e => e.phase === "cleanup")});
       }
       if (execution.hasFatalError) {
@@ -320,10 +331,11 @@ export class Engine {
       await this.#experiment.onArmFinish?.(arm_run);
       // A phase failure means the execution/testbed state is no longer a safe
       // baseline for the next Arm.
-      if (arm_run.phase_errors.length) break;
+      if (arm_run.phase_errors.length || this.#experiment.stopSignal?.aborted) break;
     }
     return {
       schema: 12,
+      entry_ids: [...new Set(this.#experiment.entryIds ?? [])],
       ...(this.#experiment.graph ? {graph: this.#experiment.graph} : {}),
       case_ids: this.#cases.filter((_,index) => this.#weights[index]! > 0).map(item => item.id),
       run_id: this.#runId,
@@ -333,7 +345,7 @@ export class Engine {
       environment: this.#experiment.service.environment?.name ?? "",
       status: arm_runs.some(a => a.phase_errors.length) ? "error"
         : this.#experiment.signal?.aborted || arm_runs.length !== resolvedArms.length || !arm_runs.length ||
-          arm_runs.some(a => a.stop.reason !== "deadline" || a.stop.interrupted) ? "stopped" : "completed",
+          arm_runs.some(a => !["deadline", "manual"].includes(a.stop.reason) || a.stop.interrupted) ? "stopped" : "completed",
       executions: arm_runs,
       artifacts: [],
     };

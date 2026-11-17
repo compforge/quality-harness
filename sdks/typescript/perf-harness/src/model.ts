@@ -142,7 +142,7 @@ export interface StopSnapshot {
 }
 
 export interface ArmStop {
-  reason: "deadline" | "error_rate" | "request_limit" | "aborted";
+  reason: "deadline" | "manual" | "error_rate" | "request_limit" | "aborted";
   snapshot?: StopSnapshot;
   inflight_at_stop: number;
   interrupted: number;
@@ -193,6 +193,8 @@ export interface Run extends ExperimentRun<ArmRun> {
   graph?: GraphSnapshot;
   observation_bindings?: ObservationBinding[];
   case_ids?: string[];
+  /** Explicit Case-bound graph roots, including roots with incoming edges. */
+  entry_ids?: string[];
   schema: 12;
   service: string;
   status: "completed" | "stopped" | "error";

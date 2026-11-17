@@ -13,7 +13,8 @@ export interface Warmup {
 
 export interface LoadPlan {
   request_rate: number;
-  max_inflight: number;
+  /** Required only when injecting traffic. */
+  max_inflight?: number;
   hold_s?: number;
   warmup?: Warmup;
   stages?: Stage[];
@@ -25,6 +26,8 @@ export interface LoadPlan {
 }
 
 export function stages(load: LoadPlan): Stage[] {
+  if (load.request_rate === 0 && !load.stages?.some(stage => stage.request_rate > 0))
+    return [{kind: "hold", duration_s: load.hold_s ?? 60, request_rate: 0, max_inflight: 1}];
   if (load.stages?.length) return load.stages;
   const result: Stage[] = [];
   const step = load.warmup?.step_s ?? 5;
@@ -36,18 +39,22 @@ export function stages(load: LoadPlan): Stage[] {
     ) {
       result.push({
         kind: "warmup", duration_s: step,
-        request_rate: rate, max_inflight: load.max_inflight,
+        request_rate: rate, max_inflight: load.max_inflight ?? 1,
       });
     }
   }
   result.push({
     kind: "hold", duration_s: load.hold_s ?? 60,
-    request_rate: load.request_rate, max_inflight: load.max_inflight,
+    request_rate: load.request_rate, max_inflight: load.max_inflight ?? 1,
   });
   return result;
 }
 export function duration(load: LoadPlan): number {
   return stages(load).reduce((total, stage) => total + stage.duration_s, 0);
+}
+/** Zero injection is a hold-only observation; max_inflight has no runtime effect. */
+export function observesOnly(load: LoadPlan): boolean {
+  return stages(load).every(stage => stage.request_rate === 0);
 }
 export function saturated(load: LoadPlan): boolean {
   return load.request_rate === Infinity;
@@ -66,8 +73,9 @@ export function stageLabel(stage: Stage): string {
   return stage.name ?? `${stage.kind}@${level(stage)}`;
 }
 export function validateLoadPlan(load: LoadPlan): void {
-  if (!load.stages?.length && !(load.request_rate > 0))
-    throw new Error("request_rate must be > 0");
+
+  if (!observesOnly(load) && (!Number.isInteger(load.max_inflight) || (load.max_inflight ?? 0) < 1))
+    throw new Error("max_inflight must be an integer >= 1");
   if (!(load.request_rate >= 0)) throw new Error("invalid request_rate");
   if (!Number.isFinite(load.hold_s ?? 60) || (load.hold_s ?? 60) <= 0)
     throw new Error("hold_s must be finite and > 0");
@@ -78,7 +86,7 @@ export function validateLoadPlan(load: LoadPlan): void {
       throw new Error("duration_s must be finite and > 0");
     if (!(stage.request_rate >= 0) || stage.request_rate === -Infinity)
       throw new Error("request_rate must be >= 0 or inf");
-    if (!Number.isInteger(stage.max_inflight) || stage.max_inflight < 1)
+    if (stage.request_rate > 0 && (!Number.isInteger(stage.max_inflight) || (stage.max_inflight ?? 0) < 1))
       throw new Error("max_inflight must be an integer >= 1");
     if (stage.kind !== "hold" && stage.kind !== "warmup")
       throw new Error("stage.kind must be hold or warmup");
@@ -113,7 +121,7 @@ export function validateLoadPlan(load: LoadPlan): void {
 export function target(load: LoadPlan, t: number): [number, number] {
   let clock = 0,
     rate = load.request_rate,
-    concurrency = load.max_inflight;
+    concurrency = load.max_inflight ?? 1;
   for (const s of stages(load)) {
     if (t < clock + s.duration_s) {
       if (s.shape !== "ramp") return [s.request_rate, s.max_inflight];
@@ -156,7 +164,8 @@ export function arrivalTime(load: LoadPlan, volume: number): number {
   return Infinity;
 }
 export function loadLabel(load: LoadPlan): string {
-  return `${saturated(load) ? "concurrency" : "rate"}/${peakLevel(load)}/c${Math.max(load.max_inflight, ...stages(load).map((s) => s.max_inflight))}`;
+  if (observesOnly(load)) return "rate/0";
+  return `${saturated(load) ? "concurrency" : "rate"}/${peakLevel(load)}/c${Math.max(load.max_inflight ?? 1, ...stages(load).map((s) => s.max_inflight))}`;
 }
 export function resourceLabel(
   resource: import("./model").ResourceProfile,
@@ -176,6 +185,7 @@ export function resourceLabel(
 export function serializeLoadPlan(load: LoadPlan) {
   return {
     ...load,
+    max_inflight: load.max_inflight ?? 0,
     request_rate: load.request_rate === Infinity ? "inf" : load.request_rate,
     stages: (load.stages ?? []).map((s) => ({
       ...s,

@@ -100,7 +100,9 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
         raise ValueError(
             "`provisioner` was renamed `deployer`; configure it at the experiment root"
         )
-    if "base_url" not in subj:
+    loads = _parse_loads(raw["load"])
+    active = any(not load.observes_only for load in loads)
+    if active and "base_url" not in subj:
         raise ValueError("service needs a `base_url` (how to reach the service)")
     service = _parse_service(subj)
     graph = _load_graph(raw.get("graph"), config_path.parent, service.environment.name)
@@ -111,8 +113,10 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
                 raise ValueError("graph and observed services must use the same environment")
     deployer = _parse_deployer(raw.get("deployer"), service)
 
-    wl_cfg = raw["runner"]
-    runner = MockRunner() if mock else build_runner(wl_cfg["name"], wl_cfg)
+    runner = None
+    if active:
+        wl_cfg = raw["runner"]
+        runner = MockRunner() if mock else build_runner(wl_cfg["name"], wl_cfg)
 
     if "constraints" in raw:
         raise ValueError(
@@ -120,7 +124,6 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
             "(workers/cpu/memory/replicas) the grid sweeps"
         )
     resources = [_parse_resources(c) for c in raw.get("resources", [{}])]
-    loads = _parse_loads(raw["load"])
     if "probes" in raw:
         raise ValueError(
             "`probes:` was removed — `client` is always recorded; put "
@@ -239,6 +242,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     experiment = Experiment(
         service=service,
         graph=graph,
+        entry_ids=raw.get("entry_ids", []),
         request_transport=parse_request_transport(
             raw.get("request_transport"),
             service,
@@ -612,7 +616,7 @@ def _parse_loads(c: dict | list[dict]) -> list[LoadPlan]:
     return result
 
 
-def _validate_producers(probes: list[Probe], runner: Runner) -> None:
+def _validate_producers(probes: list[Probe], runner: Runner | None) -> None:
     """Fail-fast (config time) on a producer that declares a metric family wrongly:
     a Runner may only declare ``request``-side distributions; a Probe only
     ``resource``-side families; no producer may shadow a builtin ``request.*`` family;
@@ -633,7 +637,7 @@ def _validate_producers(probes: list[Probe], runner: Runner) -> None:
             )
         seen[fam.name] = fam
 
-    for m in runner.describe():
+    for m in runner.describe() if runner else ():
         if m.side != "request" or m.value_kind != "distribution":
             raise ValueError(
                 f"Runner.describe() may only declare request-side distributions; got "
@@ -650,7 +654,7 @@ def _validate_producers(probes: list[Probe], runner: Runner) -> None:
             _claim(d, f"Probe {type(p).__name__}.describe()")
 
 
-def _static_registry(probes: list[Probe], runner: Runner) -> dict[str, MetricFamily]:
+def _static_registry(probes: list[Probe], runner: Runner | None) -> dict[str, MetricFamily]:
     """Statically-knowable metric FAMILIES for report validation: builtin ``request.*`` +
     each Probe's ``describe()`` + the Runner's declared per-request metrics. Keyed
     by family name so metadata is stored once rather than once per service."""
@@ -672,15 +676,17 @@ def _static_registry(probes: list[Probe], runner: Runner) -> dict[str, MetricFam
             description="probe health (1 ok / 0 failed) — mean 即观测可用率",
             labels=frozenset(p.labels),
         )
-    reg.update({d.name: d for d in runner.describe()})
+    reg.update({d.name: d for d in (runner.describe() if runner else ())})
     return reg
 
 
-def _declared_facet_pairs(facet_schema: FacetSchema, cases: list[Case], runner: Runner) -> set[str]:
+def _declared_facet_pairs(
+    facet_schema: FacetSchema, cases: list[Case], runner: Runner | None
+) -> set[str]:
     """``k=v`` facet pairs a configured column may select: the static Case mix + the
     Runner's declared runtime facets + any ``facets:`` block values."""
     pairs = {f"{k}={v}" for c in cases for k, v in c.facets.items()}
-    for fd in runner.describe_facets():
+    for fd in runner.describe_facets() if runner else ():
         pairs.update(f"{fd.name}={v}" for v in fd.values)
     for key, spec in facet_schema.facets.items():
         pairs.update(f"{key}={v}" for v in spec.values or [])

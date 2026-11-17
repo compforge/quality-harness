@@ -432,5 +432,8 @@
         }
       ]
     }
+  ],
+  "entry_ids": [
+    "operation:mock/chat"
   ]
 }

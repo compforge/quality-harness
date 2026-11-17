@@ -16,7 +16,7 @@
     },
     "perf-harness": {
       "name": "@compforge/perf-harness",
-      "version": "0.8.3",
+      "version": "0.9.0",
       "dependencies": {
         "@compforge/harness-common": "^0.7.2",
         "@compforge/harness-toolbox": "^0.9.0",
