@@ -1,4 +1,4 @@
-import type { KubernetesEndpoint } from "./endpoint";
+import type { KubernetesEndpoint } from "../endpoint";
 
 export interface KubernetesPod {
   kind: "pod";

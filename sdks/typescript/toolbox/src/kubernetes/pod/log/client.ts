@@ -2,13 +2,13 @@ import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { Client } from "../client";
-import { clientKey } from "../client";
-import { ConcurrencyPool } from "../concurrency";
-import { LogCaptureFile } from "./log-capture-file";
-import { logTimestampNanos } from "./log-timestamp";
-import { PodLogByteBudget, runPodLogCapturePlan, type PodLogCapturePolicy } from "./log-capture-plan";
-import type { KubernetesPodLogAccess, PodLogRequest, PodLogResult } from "./pod-log";
+import type { Client } from "../../../client";
+import { clientKey } from "../../../client";
+import { ConcurrencyPool } from "../../../concurrency";
+import { LogCaptureFile } from "./capture-file";
+import { logTimestampNanos } from "./timestamp";
+import { PodLogByteBudget, runPodLogCapturePlan, type PodLogCapturePolicy } from "./capture-plan";
+import type { KubernetesPodLogAccess, PodLogRequest, PodLogResult } from "./types";
 
 interface CaptureSource {
   file: LogCaptureFile;

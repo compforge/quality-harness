@@ -3,7 +3,7 @@ import type { Endpoint, TcpTransport, TransportPath } from "./index";
 import { raceSignal } from "race-signal";
 import type { ConnectionAttempt } from "../connection/acquire";
 import { KubectlExecutor, type Executor, type KubectlOptions } from "../kubernetes/executor";
-import { ServicePortForwarder } from "../kubernetes/service-port-forward";
+import { ServicePortForwarder } from "../kubernetes/service/port-forward";
 import type { StartPortForward } from "../kubernetes/port-forward";
 
 /**

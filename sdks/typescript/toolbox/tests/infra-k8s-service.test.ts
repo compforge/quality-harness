@@ -3,15 +3,15 @@ import type { Executor } from "../src/kubernetes/executor";
 import {
   findPod,
   parsePods,
-} from "../src/kubernetes/pod";
+} from "../src/kubernetes/pod/index";
 import { PortForwardScope, type PortForwardTarget } from "../src/kubernetes/port-forward";
-import { ServicePortForwarder } from "../src/kubernetes/service-port-forward";
+import { ServicePortForwarder } from "../src/kubernetes/service/port-forward";
 import {
   findService,
   findServicesForPod,
   parseServices,
   serviceIdentity,
-} from "../src/kubernetes/service";
+} from "../src/kubernetes/service/index";
 
 function serviceList(targetPort: string | number = 6379): string {
   return JSON.stringify({

@@ -1,9 +1,9 @@
-import { ConcurrencyPool } from "../concurrency";
+import { ConcurrencyPool } from "../../../concurrency";
 import type {
   KubernetesPodLogAccess,
   PodLogRequest,
   PodLogResult,
-} from "./pod-log";
+} from "./types";
 
 export interface PodLogCapturePolicy {
   concurrency: number;

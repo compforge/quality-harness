@@ -17,7 +17,9 @@ toolbox/
 ├── src/network/         # Endpoint 地址投影、校验与指定执行环境的 DNS/TCP/TLS 探测
 ├── src/transport/       # TCP、端口转发与 Pod Python 路径
 ├── src/kubernetes/compute* # 集群/实例 CPU、内存与独立采集覆盖
-├── src/kubernetes/      # 资源 get/list、根 HTTP 连接池、exec/forward 与日志采集
+├── src/kubernetes/      # 资源 get/list、根 HTTP 连接池、exec/forward
+├── src/kubernetes/pod/  # Pod 模型与选择；log/ 拥有日志契约、adapter 和有界采集
+├── src/kubernetes/service/ # Kubernetes Service 识别、Pod 选择与端口转发
 ├── src/file/            # 本机及 Pod 文件来源、有界读取与取消
 ├── src/mysql/          # MySQL 原生与 Pod 协议执行
 ├── src/redis/           # Redis 连接与拓扑

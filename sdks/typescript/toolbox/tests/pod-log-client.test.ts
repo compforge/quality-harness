@@ -1,13 +1,13 @@
 import { ClientManager } from "../src/client-manager";
-import { PodLogDataSource } from "../src/kubernetes/pod-log-datasource";
-import { PodLogByteBudget } from "../src/kubernetes/log-capture-plan";
+import { PodLogDataSource } from "../src/kubernetes/pod/log/datasource";
+import { PodLogByteBudget } from "../src/kubernetes/pod/log/capture-plan";
 import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ConcurrencyPool } from "../src/concurrency";
-import { PodLogClient, type PodLogSourceScope } from "../src/kubernetes/pod-log-client";
-import type { KubernetesPodLogAccess, PodLogRequest, PodLogResult } from "../src/kubernetes/pod-log";
+import { PodLogClient, type PodLogSourceScope } from "../src/kubernetes/pod/log/client";
+import type { KubernetesPodLogAccess, PodLogRequest, PodLogResult } from "../src/kubernetes/pod/log/index";
 
 const capturePolicy = { concurrency: 2, maxBytesPerCapture: 1024 * 1024, maxTotalBytes: 4 * 1024 * 1024 };
 

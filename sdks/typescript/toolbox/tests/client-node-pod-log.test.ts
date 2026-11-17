@@ -7,8 +7,8 @@ import { Response as NodeFetchResponse } from "node-fetch";
 import {
   ClientNodePodLogAccess,
   type ClientNodeFetch,
-} from "../src/kubernetes/client-node-pod-log";
-import type { KubernetesPodLogAccess } from "../src/kubernetes/pod-log";
+} from "../src/kubernetes/pod/log/client-node";
+import type { KubernetesPodLogAccess } from "../src/kubernetes/pod/log/index";
 
 const roots: string[] = [];
 const servers: Array<ReturnType<typeof Bun.serve>> = [];

@@ -1,7 +1,7 @@
 import { ConcurrencyPool } from "../src/concurrency";
 import { expect, test } from "bun:test";
-import { runPodLogCapturePlan } from "../src/kubernetes/log-capture-plan";
-import type { KubernetesPodLogAccess } from "../src/kubernetes/pod-log";
+import { runPodLogCapturePlan } from "../src/kubernetes/pod/log/capture-plan";
+import type { KubernetesPodLogAccess } from "../src/kubernetes/pod/log/index";
 
 test("Pod Log plan 为并发任务预留总预算，耗尽后返回 unavailable", async () => {
   const limits: number[] = [];
