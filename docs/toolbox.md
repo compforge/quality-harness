@@ -13,8 +13,8 @@ Python 位于 `sdks/python/toolbox`，独立分发为 `harness-toolbox`。
 - **Client**：拥有协议资源和操作，负责初始化与幂等销毁，包括初始化失败后的部分资源清理。
 - **ClientProvider**：通过 client_key / clientKey 标识客户端配置，以 create_client / createClient 构造 Client；构造阶段不执行外部访问。
 - **DataSource**：具有数据来源语义的 ClientProvider，例如数据库、日志和指标，不代表所有环境操作。
-  `kind` 是开放的非空后端类型标识，不是实例名称或查询语言方言；Python Protocol / TypeScript interface
-  声明契约，具体实现提供取值。查询策略选择属于消费方。
+  Python Protocol / TypeScript interface 声明契约，具体实现提供后端与访问配置；
+  `kind` 与身份的分工见下文 [DataSource、能力家族与后端 kind](#datasource能力家族与后端-kind)。
   可选 `description` 用于说明来源用途与数据范围，供能力发现和报告展示；不得包含凭据，也不参与客户端复用身份。
 - **ClientManager**：在一次根执行中按 ClientProvider key 复用初始化中的异步任务和成功的 Client。
   初始化失败完成清理后允许重试；结束时取消并等待进行中的初始化，再按依赖顺序逆序销毁。
@@ -51,6 +51,35 @@ DataSource 直接继承 Identity（`id()`），与 ClientProvider 的 `clientKey
 跨 Service 复用前先解析运行时配置，身份覆盖实际目标、凭据及访问上下文。
 现有 Toolbox source 保守地使用完整客户端配置 key 作为 id。
 消费方只在明确的一次执行范围内、对相同操作及参数复用结果；身份相同不自动缓存读取或授权另一项操作。
+
+### DataSource、能力家族与后端 kind
+
+DataSource 表达一个具体、可访问的数据源实例，绑定实际目标、认证、访问范围与容量配置。
+`id()` 标识 source 的访问等价范围，`clientKey` / `client_key` 决定客户端复用；`kind` 只标识
+具体后端实现。同 kind 不代表同实例、同身份、同访问权限或可复用检查结果。
+
+| 概念 | 表达内容 | 示例 |
+|---|---|---|
+| 能力家族 | 消费方可依赖的能力接口或模块；配置需要分派家族时用 `type` | `db`、`vectordb`、`metricdb` |
+| `DataSource.kind` | 具体后端实现的稳定、非空标识 | `mysql`、`postgresql`、`opensearch`、`elasticsearch`、`milvus`、`prometheus`、`victoriametrics` |
+| source 身份 | 具体目标及访问上下文的等价范围 | 同为 MySQL 的两个数据库可以有不同 id |
+| `description` | 供人阅读的用途与数据范围 | 测试环境聊天服务数据库 |
+
+`kind` 使用稳定的小写后端名称，不使用实例名、别名或 Service 名称；也不表达查询语言、API
+兼容程度或版本。MySQL 与 PostgreSQL 都支持 SQL，仍分别使用 `mysql` 与 `postgresql`；
+OpenSearch、Elasticsearch 与 Milvus 分别使用 `opensearch`、`elasticsearch` 与 `milvus`；
+Prometheus 与 VictoriaMetrics 即使共享查询 API，也分别使用 `prometheus` 与 `victoriametrics`。
+消费方按 kind 选择查询策略，toolbox 按 kind 选择已实现的 adapter；URL、指标是否存在和
+Service 归属不能代替 kind。后端版本、访问参数与能力限制由各自配置和契约表达。
+
+common 的 `DataSource.kind` 是开放字符串，不维护跨能力家族的封闭枚举。具体客户端可以将
+它收窄为当前支持的 kind 集合，遇到未支持的值显式失败。表中示例约定命名，不表示相应
+adapter 已实现；能力家族也不保证其下所有后端共享完整 API。当前 VectorDB 仅归组
+OpenSearch 原生实现，MetricDB 提供统一查询入口及 Prometheus / VictoriaMetrics adapter。
+
+例如 `type: metricdb, kind: victoriametrics` 分别表达能力家族与具体后端；两个 VM source
+可有相同 kind，却因租户、目标、凭据或访问路径不同而具有不同身份。Operation probe 的
+`datasource_kind` 匹配这个后端标识；probe 自身的 `type` 表达探测协议，不与 source 家族混用。
 
 ## 运行目标与访问绑定
 
