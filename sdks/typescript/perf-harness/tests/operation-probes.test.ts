@@ -4,7 +4,7 @@ import { operationMetricProbes } from "../src/observe/operations";
 
 test("complete Operation queries need only backend and realized windows, not host label parameters", () => {
   const operation = new HttpOperation({serviceName:"api",name:"read",method:"GET",path:"/items",
-    probes: ["prometheus","victoriametrics"].map(datasourceKind => ({type:"prometheus",datasourceKind,
+    probes: ["prometheus","victoriametrics"].map(kind => ({type:"metricdb",kind,
       metrics:{qps:{unit:"rps",expression:`sum(rate(requests{job="api",path="/items"}[$window]))`}}}))});
   const [probe] = operationMetricProbes([operation],"victoriametrics");
   expect(probe!.summaries).toHaveLength(2);
@@ -12,6 +12,6 @@ test("complete Operation queries need only backend and realized windows, not hos
   expect(probe!.summaries.every(query => query.promql.includes('job="api"'))).toBe(true);
   expect(() => operationMetricProbes([operation],"unknown")).toThrow("exactly one producer");
   const incomplete = new HttpOperation({serviceName:"api",name:"missing",method:"GET",path:"/items",
-    probes:[{type:"prometheus",metrics:{qps:{unit:"rps",expression:"requests{namespace={{namespace}}}"}}}]});
+    probes:[{type:"metricdb",metrics:{qps:{unit:"rps",expression:"requests{namespace={{namespace}}}"}}}]});
   expect(() => operationMetricProbes([incomplete],"prometheus")).toThrow("Missing metric scope parameter");
 });

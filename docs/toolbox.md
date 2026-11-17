@@ -79,7 +79,7 @@ OpenSearch 原生实现，MetricDB 提供统一查询入口及 Prometheus / Vict
 
 例如 `type: metricdb, kind: victoriametrics` 分别表达能力家族与具体后端；两个 VM source
 可有相同 kind，却因租户、目标、凭据或访问路径不同而具有不同身份。Operation probe 的
-`datasource_kind` 匹配这个后端标识；probe 自身的 `type` 表达探测协议，不与 source 家族混用。
+`kind` 匹配这个后端标识；probe 自身的 `type` 表达探测能力类别，例如 `metricdb`。
 
 ## 运行目标与访问绑定
 
@@ -474,9 +474,17 @@ VM adapter 使用 `nocache=1` 与 `latency_offset=1ms`，避免近期 instant �
 不等同于 false。partial=true 同时产生 warning，防止现有投影将不完整证据解释为成功。
 查询没有结果、访问失败、没有 histogram observations 是不同事实，不能统一补零。
 
-Operation probe 的 `type: prometheus` 描述查询协议，`datasource_kind` 匹配实际后端；
-它们不代表 toolbox 的目录名。perf 继续保存既有查询 evidence 格式，历史报告不依赖在线访问。
+Operation probe 声明 `type: metricdb`，`kind` 匹配实际后端（`prometheus` 或
+`victoriametrics`）。省略 kind 表示通用表达式；多个匹配声明不能贡献同一个指标，查询失败也不切换后端。
+perf 继续保存既有查询 evidence 格式，历史报告不依赖在线访问。
 新的客户端 import 使用 `metricdb`，不提供旧 Prometheus 访问入口别名。
+
+## DB 与 KV 后端目录
+
+MySQL 位于 TypeScript `@compforge/harness-toolbox/db/mysql` 与 Python
+`harness_toolbox.db.mysql`；Redis 位于 TypeScript `@compforge/harness-toolbox/kv/redis`。
+Redis 属于 key-value database（键值数据库），也常称为 in-memory data store。
+这些调整仅归组目录，保留原有客户端 API 和行为，不引入统一 DB/KV adapter 或旧路径别名。
 
 ## VectorDB 后端目录
 

@@ -158,10 +158,10 @@ def select_probes(
         if not isinstance(raw, dict):
             raise ValueError("observation probe must be a mapping")
         if "data_source" in raw:
-            raise ValueError("Probe uses datasource_kind, not a named data_source")
-        kind = raw.get("datasource_kind")
-        if "datasource_kind" in raw and (not isinstance(kind, str) or not kind.strip()):
-            raise ValueError("datasource_kind must be a nonempty string")
+            raise ValueError("Probe uses kind, not a named data_source")
+        kind = raw.get("kind")
+        if "kind" in raw and (not isinstance(kind, str) or not kind.strip()):
+            raise ValueError("kind must be a nonempty string")
         probe_type, name = raw.get("type"), raw.get("name")
         if not isinstance(probe_type, str) or not probe_type:
             raise ValueError("observation probe requires a nonempty type")
@@ -177,7 +177,7 @@ def select_probes(
             selected.append(raw)
             covered.update(contributions)
             logger.debug(
-                "perf probe selected: target=%s type=%s name=%s datasource_kind=%s",
+                "perf probe selected: target=%s type=%s name=%s kind=%s",
                 target,
                 probe_type,
                 name,
@@ -185,7 +185,7 @@ def select_probes(
             )
     if missing := expected - covered:
         raise ValueError(
-            f"observation {target}: no matching probe for datasource_kind="
+            f"observation {target}: no matching probe for kind="
             f"{source.kind if source else None!r}; missing contributions: "
             f"{sorted(missing, key=str)}"
         )
@@ -204,27 +204,27 @@ def _probe(
     if not isinstance(raw, dict):
         raise ValueError("observation probe must be a mapping")
     options = dict(raw)
-    kind = options.pop("type", None)
+    probe_type = options.pop("type", None)
     instance_name = options.pop("name", None)
     metrics = options.pop("metrics", {})
     per_pod = options.pop("per_pod", False)
-    if not isinstance(kind, str) or not kind:
+    if not isinstance(probe_type, str) or not probe_type:
         raise ValueError("observation probe requires a nonempty type")
     if instance_name is not None and (not isinstance(instance_name, str) or not instance_name):
         raise ValueError("observation probe name must be a nonempty string")
     if not isinstance(metrics, dict) or not isinstance(per_pod, bool):
         raise ValueError("probe metrics must be a mapping and per_pod must be boolean")
-    datasource_kind = options.pop("datasource_kind", None)
+    kind = options.pop("kind", None)
     if per_pod and metrics:
         raise ValueError(
             "per_pod observations retain Pod series; no implicit aggregate metric binding"
         )
-    if kind in {"prometheus_query", "http_api"}:
+    if probe_type in {"metricdb", "http_api"}:
         if source is None:
             raise ValueError("Prometheus probe requires experiment data_source")
         if per_pod:
             raise ValueError("Prometheus queries declare output labels, not per_pod")
-        if kind == "http_api":
+        if probe_type == "http_api":
             if not isinstance(operation, HttpOperation) or workload:
                 raise ValueError("http_api requires an HTTP Operation target")
             if metrics:
@@ -274,21 +274,21 @@ def _probe(
                 queries=parse_queries(queries, service.name) if queries else [],
                 step_s=step,
             )
-    elif kind in _KUBE:
+    elif probe_type in _KUBE:
         if operation:
             raise ValueError("Kubernetes probes observe Service or Workload, not Operation")
-        probe = _KUBE[kind](target_service=service, target_workload=workload, per_pod=per_pod)
+        probe = _KUBE[probe_type](target_service=service, target_workload=workload, per_pod=per_pod)
     else:
         # Keep the existing project extension registry; do not add a second plugin mechanism.
         probe = build_probe(
-            kind,
+            probe_type,
             ProbeConfig(
                 service=service,
                 operation=operation,
                 workload=workload,
                 windows=tuple(windows),
                 prometheus=source,
-                datasource_kind=datasource_kind,
+                kind=kind,
                 step_s=step,
                 per_pod=per_pod,
                 options=options,
@@ -296,18 +296,18 @@ def _probe(
         )
         options = {}
     if options:
-        raise ValueError(f"unknown {kind} probe options: {sorted(options)}")
-    probe.datasource_kind = datasource_kind
+        raise ValueError(f"unknown {probe_type} probe options: {sorted(options)}")
+    probe.kind = kind
     if instance_name:
         probe.name += "." + instance_name
     if workload:
         probe.workload_name = workload.name
-        if kind not in _KUBE:
+        if probe_type not in _KUBE:
             probe.name += "." + workload.name
     if metrics:
         bindings = {}
         for name, spec in metrics.items():
-            if kind == "prometheus_query":
+            if probe_type == "metricdb":
                 ref, stat = name, "value"
             else:
                 if set(spec) - {"metric", "description", "semantics"}:

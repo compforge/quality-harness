@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { serialize } from "node:v8";
-import type { DataLoader } from "../data-loader";
+import type { DataLoader } from "../../data-loader";
 import type { Database, DatabaseRow, DatabaseTarget, SqlStatement } from "./types";
 
 function queryKey(kind: string, target: DatabaseTarget, statement: SqlStatement): string | undefined {

@@ -4,13 +4,13 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from harness_toolbox import ClientManager
-from harness_toolbox.errors import ErrorKind, MySQLQueryError
-from harness_toolbox.mysql import (
+from harness_toolbox.db.mysql import (
     MySQLDataSource,
     MySQLTarget,
     QueryResult,
     _connection_network_error,
 )
+from harness_toolbox.errors import ErrorKind, MySQLQueryError
 from harness_toolbox.transport import ConnectionSource, DirectTransport
 
 

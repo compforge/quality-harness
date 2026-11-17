@@ -52,12 +52,20 @@ def test_shared_operation_declarations():
 
 def test_probe_backend_selection():
     probe = ProbeDefinition(
-        "prometheus",
+        "metricdb",
         {"qps": MetricQuery("counter", "rps")},
-        datasource_kind="prometheus",
+        kind="prometheus",
     )
     assert select_probes((probe,), "prometheus") == (probe,)
     with pytest.raises(ValueError, match="exactly one"):
         select_probes((probe,), "victoriametrics")
     with pytest.raises(ValueError, match="exactly one"):
         select_probes((probe, probe), "prometheus")
+
+
+def test_universal_probe_and_invalid_backend_kind():
+    probe = ProbeDefinition("metricdb", {"qps": MetricQuery("counter", "rps")})
+    assert select_probes((probe,), "victoriametrics") == (probe,)
+    for kind in ("", " "):
+        with pytest.raises(ValueError, match="kind must be a nonempty string"):
+            select_probes((replace(probe, kind=kind),), "prometheus")

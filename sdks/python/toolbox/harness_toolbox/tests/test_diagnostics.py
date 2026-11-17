@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from harness_toolbox import ClientManager, ErrorKind, ToolboxError
+from harness_toolbox.db.mysql import MySQLDataSource, MySQLTarget
 from harness_toolbox.errors import (
     MySQLConnectionError,
     MySQLError,
@@ -20,7 +21,6 @@ from harness_toolbox.errors import (
     OpenSearchError,
     OpenSearchRequestError,
 )
-from harness_toolbox.mysql import MySQLDataSource, MySQLTarget
 from harness_toolbox.transport import (
     ConnectionSource,
     DirectTransport,

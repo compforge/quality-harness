@@ -29,7 +29,7 @@ class ProbeConfig:
     options: Mapping[str, object] = field(default_factory=dict)
     prometheus: MetricDBDataSource | None = None
     step_s: float = 15
-    datasource_kind: str | None = None
+    kind: str | None = None
 
 
 ProbeFactory = Callable[[ProbeConfig], Probe]

@@ -37,7 +37,7 @@ ordered routes. Its caller-supplied stable key covers configuration because reso
 ```python
 from dataclasses import asdict
 from harness_toolbox import ClientManager, client_key
-from harness_toolbox.mysql import MySQLDataSource, MySQLTarget
+from harness_toolbox.db.mysql import MySQLDataSource, MySQLTarget
 from harness_toolbox.transport import ConnectionSource, DirectTransport
 
 async def query(clients, settings):

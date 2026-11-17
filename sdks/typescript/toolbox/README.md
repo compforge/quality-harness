@@ -237,7 +237,7 @@ In 0.5, replace `new Client({ resolve, transports }, options)` with
 
 ```ts
 import { ClientManager, clientKey, type DataSource } from "@compforge/harness-toolbox";
-import { MysqlClient } from "@compforge/harness-toolbox/mysql";
+import { MysqlClient } from "@compforge/harness-toolbox/db/mysql";
 import { DirectTransport } from "@compforge/harness-toolbox/transport";
 
 const target = { host: "localhost", port: 3306, database: "app", user: "reader", password: "..." };
@@ -351,7 +351,7 @@ Use `withReadScope` to bind caller-approved database reads; do not use it for wr
 
 ```ts
 import { DataLoader } from '@compforge/harness-toolbox/data-loader';
-import { withReadScope, queryLimited } from '@compforge/harness-toolbox/mysql';
+import { withReadScope, queryLimited } from '@compforge/harness-toolbox/db/mysql';
 
 const scope = new DataLoader({
   maxEntries: 256, maxBytes: 4 * 1024 * 1024, signal: client.signal,

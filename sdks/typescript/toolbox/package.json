@@ -1,7 +1,7 @@
 {
   "name": "@compforge/harness-toolbox",
   "license": "MIT",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -34,13 +34,13 @@
       "types": "./dist/process/index.d.ts",
       "import": "./dist/process/index.js"
     },
-    "./mysql": {
-      "types": "./dist/mysql/index.d.ts",
-      "import": "./dist/mysql/index.js"
+    "./db/mysql": {
+      "types": "./dist/db/mysql/index.d.ts",
+      "import": "./dist/db/mysql/index.js"
     },
-    "./redis": {
-      "types": "./dist/redis/index.d.ts",
-      "import": "./dist/redis/index.js"
+    "./kv/redis": {
+      "types": "./dist/kv/redis/index.d.ts",
+      "import": "./dist/kv/redis/index.js"
     },
     "./vectordb/opensearch": {
       "types": "./dist/vectordb/opensearch/index.d.ts",
@@ -154,25 +154,25 @@
       "types": "./dist/kubernetes/workload.d.ts",
       "import": "./dist/kubernetes/workload.js"
     },
-    "./mysql/pod": {
-      "types": "./dist/mysql/pod.d.ts",
-      "import": "./dist/mysql/pod.js"
+    "./db/mysql/pod": {
+      "types": "./dist/db/mysql/pod.d.ts",
+      "import": "./dist/db/mysql/pod.js"
     },
-    "./mysql/target": {
-      "types": "./dist/mysql/target.d.ts",
-      "import": "./dist/mysql/target.js"
+    "./db/mysql/target": {
+      "types": "./dist/db/mysql/target.d.ts",
+      "import": "./dist/db/mysql/target.js"
     },
-    "./mysql/types": {
-      "types": "./dist/mysql/types.d.ts",
-      "import": "./dist/mysql/types.js"
+    "./db/mysql/types": {
+      "types": "./dist/db/mysql/types.d.ts",
+      "import": "./dist/db/mysql/types.js"
     },
-    "./redis/topology": {
-      "types": "./dist/redis/topology.d.ts",
-      "import": "./dist/redis/topology.js"
+    "./kv/redis/topology": {
+      "types": "./dist/kv/redis/topology.d.ts",
+      "import": "./dist/kv/redis/topology.js"
     },
-    "./redis/key-stats": {
-      "types": "./dist/redis/key-stats.d.ts",
-      "import": "./dist/redis/key-stats.js"
+    "./kv/redis/key-stats": {
+      "types": "./dist/kv/redis/key-stats.d.ts",
+      "import": "./dist/kv/redis/key-stats.js"
     },
     "./vectordb/opensearch/endpoint": {
       "types": "./dist/vectordb/opensearch/endpoint.d.ts",
@@ -194,7 +194,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "3.1133.0",
     "@aws-sdk/s3-request-presigner": "3.1133.0",
-    "@compforge/harness-common": "^0.8.0",
+    "@compforge/harness-common": "^0.9.0",
     "@kubernetes/client-node": "1.4.0",
     "@opensearch-project/opensearch": "3.6.0",
     "@redis/client": "6.1.0",

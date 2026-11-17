@@ -5,7 +5,7 @@ const fixture = JSON.parse(readFileSync(new URL("../../../../conformance/common/
 const services = fixture.operations.map((item) => new Service({name:item.service,
   environment:{name:"test"}, component:{name:"app",repository:{forge:{name:"github"},path:"example/app",id(){return repositoryId(this);}}},workloads:[],
   operations:[new Operation({name:item.name,serviceName:item.service,calls:item.calls,mayCalls:item.mayCalls,
-    probes:Object.keys(item.metrics).length ? [{type:"prometheus",metrics:item.metrics}] : []})]}));
+    probes:Object.keys(item.metrics).length ? [{type:"metricdb",metrics:item.metrics}] : []})]}));
 test("service operations assemble shared identity, cyclic topology and independent probes",()=>{
   const graph=graphFromServices(services,{source:"fixture",version:"1"});
   expect(graph.nodes).toHaveLength(4); expect(graph.calls).toHaveLength(2);
@@ -23,8 +23,14 @@ test("catalog rejects dangling, conflicting, duplicate and wrong-owner declarati
 });
 test("backend selection rejects missing and ambiguous roles before executing producers",()=>{
   const metrics={qps:{unit:"rps",expression:"counter"}};
-  const p={type:"prometheus",datasourceKind:"prometheus",metrics};
-  expect(selectProbes([p,{...p,datasourceKind:"victoriametrics"}],"prometheus")).toEqual([p]);
+  const p={type:"metricdb",kind:"prometheus",metrics};
+  expect(selectProbes([p,{...p,kind:"victoriametrics"}],"prometheus")).toEqual([p]);
   expect(()=>selectProbes([p],"victoriametrics")).toThrow("exactly one");
-  expect(()=>selectProbes([p,{...p,datasourceKind:undefined}],"prometheus")).toThrow("exactly one");
+  expect(()=>selectProbes([p,{...p,kind:undefined}],"prometheus")).toThrow("exactly one");
+});
+
+test("kind is optional for universal queries and must be nonempty when specified",()=>{
+ const probe={type:"metricdb",metrics:{qps:{unit:"rps",expression:"requests"}}};
+ expect(selectProbes([probe],"victoriametrics")).toEqual([probe]);
+ for(const kind of ["", " "]) expect(()=>selectProbes([{...probe,kind}],"prometheus")).toThrow("kind must be a nonempty string");
 });

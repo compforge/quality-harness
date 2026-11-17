@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
 import { pathToFileURL } from 'node:url';
 const { RedisClient } = await import(process.env.REDIS_PACKAGE_ENTRY);
-const { Transport: ManagedTransport } = await import(new URL('../transport/index.js', pathToFileURL(process.env.REDIS_PACKAGE_ENTRY)).href);
+const { Transport: ManagedTransport } = await import(new URL('../../transport/index.js', pathToFileURL(process.env.REDIS_PACKAGE_ENTRY)).href);
 const mode = process.argv[2];
 const sockets = new Set();
 let writes = 0;

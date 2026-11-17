@@ -160,7 +160,7 @@ and an open metrics map. Each MetricBinding stores a MetricStore address, unit, 
 and semantics. RED's qps/p95/error_rate roles use rps/seconds/ratio; other roles are allowed.
 Multiple producers may contribute disjoint roles, never silently overwrite the same role.
 Experiments supply one `data_source` with adapter `type` and backend `kind`. Reusable probes declare
-`datasource_kind` and their query logic, without naming an environment source. Assembly selects matching
+`kind` and their query logic, without naming an environment source. Assembly selects matching
 or universal declarations before constructing factories and validating producer conflicts. Every declared
 contribution must be covered; multiple selected producers cannot overwrite one attribute. Collection
 freezes the selected probe, actual datasource kind, expression and window. Recollection validates kind

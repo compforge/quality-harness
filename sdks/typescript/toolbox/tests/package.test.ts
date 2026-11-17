@@ -33,7 +33,7 @@ test("published lifecycle and transport entries run in Node without protocol dri
       import { probeOpenSearchHealth, groupOpenSearchObservations, analyzeOpenSearch } from '@compforge/harness-toolbox/vectordb/opensearch/health';
       assert.equal(typeof probeOpenSearchHealth, 'function');
       assert.deepEqual(analyzeOpenSearch(groupOpenSearchObservations([])), []);
-      for (const path of ['vectordb/opensearch/snapshot', 'vectordb/opensearch/analysis', 'vectordb/opensearch/health/model', 's3/probe']) {
+      for (const path of ['mysql', 'redis', 'vectordb/opensearch/snapshot', 'vectordb/opensearch/analysis', 'vectordb/opensearch/health/model', 's3/probe']) {
         await assert.rejects(import('@compforge/harness-toolbox/' + path), {code:'ERR_PACKAGE_PATH_NOT_EXPORTED'});
       }
       import { inspectKubernetesEnvironment } from '@compforge/harness-toolbox/kubernetes/environment-inspection';
@@ -187,7 +187,7 @@ test("published MySQL query helpers preserve typed parameters and isolated cache
     symlinkSync(dirname(require.resolve("mysql2/package.json")), join(root, "node_modules/mysql2"), "dir");
     const result = spawnSync("node", ["--input-type=module", "-e", `
       import assert from 'node:assert/strict';
-      import { withReadScope, queryLimited } from '@compforge/harness-toolbox/mysql';
+      import { withReadScope, queryLimited } from '@compforge/harness-toolbox/db/mysql';
       const target = {host:'db',port:3306,database:'app',user:'reader',password:'fixture'};
       let reads = 0;
       const inner = {
@@ -329,7 +329,7 @@ for (const mode of ["fallback", "no-replay", "cancel", "sentinel", "cluster"]) {
       symlinkSync(redis, join(root, "node_modules/@redis/client"));
       const result = spawnSync("node", [fileURLToPath(new URL("./fixtures/redis-client.mjs", import.meta.url)), mode], {
         cwd: root, encoding: "utf8", timeout: 4000,
-        env: { ...process.env, REDIS_PACKAGE_ENTRY: join(target, "dist/redis/index.js") },
+        env: { ...process.env, REDIS_PACKAGE_ENTRY: join(target, "dist/kv/redis/index.js") },
       });
       expect(result.error).toBeUndefined();
       expect(result.status, result.stderr).toBe(0);

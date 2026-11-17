@@ -21,8 +21,8 @@ toolbox/
 ├── src/kubernetes/pod/  # Pod 模型与选择；log/ 拥有日志契约、adapter 和有界采集
 ├── src/kubernetes/service/ # Kubernetes Service 识别、Pod 选择与端口转发
 ├── src/file/            # 本机及 Pod 文件来源、有界读取与取消
-├── src/mysql/          # MySQL 原生与 Pod 协议执行
-├── src/redis/           # Redis 连接与拓扑
+├── src/db/mysql/          # MySQL 原生与 Pod 协议执行
+├── src/kv/redis/           # Redis 连接与拓扑
 ├── src/vectordb/opensearch/      # 访问；health 探测、snapshot 解析、analysis 纯分析
 ├── src/http/            # 有界 HTTP 请求、Host/TLS 身份与共享 HTTP handler
 ├── src/metricdb/      # 统一指标库访问；prometheus/、victoriametrics/ 封装后端差异

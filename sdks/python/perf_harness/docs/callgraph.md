@@ -17,7 +17,7 @@ observations:
   - target: operation:search/search
     probes:
       - type: http_api
-        datasource_kind: prometheus
+        kind: prometheus
         profile:
           requests_metric: http_server_request_duration_seconds_count
           duration_bucket: http_server_request_duration_seconds_bucket

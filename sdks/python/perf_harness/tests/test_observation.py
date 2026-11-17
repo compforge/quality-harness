@@ -36,7 +36,7 @@ def assets(tmp_path):
                 "target": "operation:entry/search",
                 "probes": [
                     {
-                        "type": "prometheus_query",
+                        "type": "metricdb",
                         "name": "traffic",
                         "metrics": {
                             "qps": {
@@ -52,7 +52,7 @@ def assets(tmp_path):
                         },
                     },
                     {
-                        "type": "prometheus_query",
+                        "type": "metricdb",
                         "name": "errors",
                         "metrics": {
                             "error_rate": {
@@ -258,7 +258,7 @@ def test_registered_producer_and_open_attributes_share_observation_contract(tmp_
     def factory(config):
         assert config.operation.id() == "operation:entry/search"
         assert config.prometheus.url == "http://metrics"
-        assert config.datasource_kind == config.prometheus.kind == "victoriametrics"
+        assert config.kind == config.prometheus.kind == "victoriametrics"
         return PrometheusQueryProbe(
             service=config.service.name,
             operation=config.operation,
@@ -274,7 +274,7 @@ def test_registered_producer_and_open_attributes_share_observation_contract(tmp_
     asset["observations"][0]["probes"].append(
         {
             "type": "visit_ratio_test",
-            "datasource_kind": "victoriametrics",
+            "kind": "victoriametrics",
             "name": "visits",
             "metrics": {"visit_ratio": {"metric": "amplification.value"}},
         }
@@ -320,9 +320,9 @@ async def test_backend_selection_freezes_only_matching_queries(
 
     path, raw, asset = assets(tmp_path)
     traffic = asset["observations"][0]["probes"][0]
-    traffic["datasource_kind"] = "prometheus"
+    traffic["kind"] = "prometheus"
     vm = deepcopy(traffic)
-    vm["datasource_kind"] = "victoriametrics"
+    vm["kind"] = "victoriametrics"
     vm["metrics"]["p95"]["promql"] = vm["metrics"]["p95"]["promql"].replace(
         "increase(", "increase_prometheus("
     )
@@ -334,7 +334,7 @@ async def test_backend_selection_freezes_only_matching_queries(
     assert (
         next(
             p for p in experiment.observation[0].probes if "qps" in p.observation_binding.metrics
-        ).datasource_kind
+        ).kind
         == backend
     )
     seen = []
@@ -403,19 +403,19 @@ def test_backend_config_errors_before_load(tmp_path, mistake):
 
     path, raw, asset = assets(tmp_path)
     probe = asset["observations"][0]["probes"][0]
-    probe["datasource_kind"] = "prometheus"
+    probe["kind"] = "prometheus"
     if mistake == "no_match":
         raw["data_source"]["kind"] = "victoriametrics"
     elif mistake == "partial_match":
         candidate = deepcopy(probe)
-        candidate["datasource_kind"] = "victoriametrics"
+        candidate["kind"] = "victoriametrics"
         candidate["metrics"] = {"extra": {"promql": "value", "unit": ""}}
         asset["observations"][0]["probes"].append(candidate)
     elif mistake in {"universal_conflict", "duplicate_match"}:
         candidate = deepcopy(probe)
         candidate["name"] = "duplicate"
         if mistake == "universal_conflict":
-            del candidate["datasource_kind"]
+            del candidate["kind"]
         asset["observations"][0]["probes"].append(candidate)
     elif mistake == "missing_source":
         del raw["data_source"]
@@ -424,7 +424,7 @@ def test_backend_config_errors_before_load(tmp_path, mistake):
     elif mistake == "old_probe_source":
         probe["data_source"] = "metrics"
     else:
-        probe["datasource_kind"] = {"blank": " ", "null": None, "number": 1}[mistake]
+        probe["kind"] = {"blank": " ", "null": None, "number": 1}[mistake]
     raw["observation"] = asset
     path.write_text(yaml.safe_dump(raw))
     with pytest.raises(ValueError):
@@ -442,7 +442,7 @@ def test_unselected_custom_factory_is_not_constructed(tmp_path):
     asset["observations"][0]["probes"].append(
         {
             "type": "unselected_backend_test",
-            "datasource_kind": "victoriametrics",
+            "kind": "victoriametrics",
             "metrics": {"p95": {"metric": "latency.value"}},
         }
     )
@@ -491,4 +491,4 @@ def test_resource_observation_needs_no_data_source(tmp_path):
     }
     path.write_text(yaml.safe_dump(raw))
     experiment, _ = load_experiment(str(path))
-    assert experiment.observation[0].probes[0].datasource_kind is None
+    assert experiment.observation[0].probes[0].kind is None
