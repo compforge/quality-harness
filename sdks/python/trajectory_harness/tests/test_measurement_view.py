@@ -75,7 +75,7 @@ def artifact(*trajectories):
     "Several loop trajectories share one Session",
     expect="One Session projection and one Global total without distributions or repeated calls",
 )
-@link("repo://docs/trajectory-harness.md")
+@link("repo://docs/trajectory.md")
 def test_session_grouping_and_global_total_cross_targets():
     current = artifact(
         trajectory("r1"),
@@ -179,7 +179,7 @@ def test_summary_aggregation_roundtrips_and_reuses_the_declared_operation():
     "A consumer registers a new Measurer",
     expect="Session and Global JSON and HTML include its values; rerender runs no analysis",
 )
-@link("repo://docs/trajectory-harness.md")
+@link("repo://docs/trajectory.md")
 def test_new_measurer_exports_and_rerenders_without_executing_plugins(tmp_path):
     current = artifact(trajectory("one"))
     write_run_artifact(tmp_path, current)

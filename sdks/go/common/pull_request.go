@@ -39,7 +39,7 @@ const (
 //
 // +spec=`Identity is target Repository and repository-local number; source, revisions and state are metadata`
 // +spec=`Omitted facts are unknown; a missing State or MergedAt never proves closure or merge`
-// +link=component://docs/pull-request.md
+// +link=repo://docs/system.md#pullrequest
 type PullRequest struct {
 	Repository Repository `json:"repository" yaml:"repository"`
 	// Number is the positive repository-local PR number / MR iid, not a global database ID.

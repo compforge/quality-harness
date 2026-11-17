@@ -146,7 +146,7 @@ ATIF；投影视图不保证能无损反向重建 Trajectory。
 标准化与评分分离：同一固定 Trajectory 可以按多个明确维度反复评估，结果记录规则版本、维度、
 分数或 verdict，以及回到 trajectory / step 的证据引用。低分按项目阈值筛为 bad case，再诊断原因、
 实施优化，用相同任务与相同评分规则评估新执行产生的轨迹。缺失证据与不适用不能当作零分或通过；
-视图渲染不能改写轨迹或隐式重新评分。具体视图契约见 [Session observations](session-view.md)。
+视图渲染不能改写轨迹或隐式重新评分。具体视图契约见 [Session observations](session.md)。
 
 ### 1.1 Source 与 Loader 边界
 
@@ -559,21 +559,7 @@ trajectory_harness 拥有轨迹领域报告语义，对外提供 `build_report`�
 HTML 模板。这个“模型产物先落盘、报告可独立重建”的做法与 perf_harness 的 run model/report
 分层一致；各 Harness 仍拥有自己的生命周期，不引入跨 Harness 的通用 Engine。
 
-## 6. 外部语义
-
-[ATIF v1.8](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
-是唯一 Trajectory 数据契约，Python 实现直接依赖第三方 `atif` 包。OTel GenAI semantic conventions
-提供 operation、message、metrics 和 `error.type` 等遥测词汇；`OTelJsonLoader` 负责把它们映射到
-ATIF 标准字段，无法无损映射的来源事实保留在 namespaced `extra`。Harness 只拥有 Dataset/Run、
-Measurements、Detector、Verifier 和报告流程，不拥有另一个 Trajectory IR。
-
-### 扩展命名空间
-
-Harness 扩展统一读写 `extra.quality_harness`，不提供旧命名空间兼容或迁移。
-Trajectory 与 Step 的来源、执行和诊断事实均遵循此约定；其它 producer 的 `extra` 内容保持原样。
-回归契约见 `sdks/python/trajectory_harness/tests/test_atif_json.py` 与 `test_pipeline.py`。
-
-## Measurement 的 Session / Global 展示
+### Measurement 的 Session / Global 展示
 
 `measurement_views(run, trajectories=dataset.trajectories)` 是纯结果投影，不执行 Source、Loader、Measurer、Detector 或 Verifier。
 它返回带 Run ID、Dataset version 与生成时间的轻量 JSON 契约，可由 Web、TUI 或其它消费者通用渲染。
@@ -605,7 +591,7 @@ consumer_payload = views.to_dict()
 # consumer_payload["sessions"]: 按显式 Session 归属的值及证据
 ```
 
-### Go 的原生 Session 测量入口
+#### Go 的原生 Session 测量入口
 
 `sdks/go/trajectory` 是独立 Go 1.26 module，直接消费 agent-ledger `SessionView` 已记录的
 模型和工具调用，不在 SDK 中新建另一套 Trajectory/Step 格式。Python 继续消费 ATIF，重叠
@@ -619,3 +605,17 @@ Go 的 `Runner` 只执行确定性 Measurer，产出目录与逐 Session 结果�
 消费者可在读取视图时显式调用 Runner，并以录制内容指纹和 `Runner.Fingerprint()` 缓存结果。
 后者覆盖 Measurer 目录、版本和投影契约；算法变更必须更新版本。重复原生 Session 只计算一次，
 冲突快照报错，ToolCall 引用的其它 Session 不展开。Go 此阶段不实现 Detector/Verifier。
+
+## 6. 外部语义
+
+[ATIF v1.8](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
+是唯一 Trajectory 数据契约，Python 实现直接依赖第三方 `atif` 包。OTel GenAI semantic conventions
+提供 operation、message、metrics 和 `error.type` 等遥测词汇；`OTelJsonLoader` 负责把它们映射到
+ATIF 标准字段，无法无损映射的来源事实保留在 namespaced `extra`。Harness 只拥有 Dataset/Run、
+Measurements、Detector、Verifier 和报告流程，不拥有另一个 Trajectory IR。
+
+### 扩展命名空间
+
+Harness 扩展统一读写 `extra.quality_harness`，不提供旧命名空间兼容或迁移。
+Trajectory 与 Step 的来源、执行和诊断事实均遵循此约定；其它 producer 的 `extra` 内容保持原样。
+回归契约见 `sdks/python/trajectory_harness/tests/test_atif_json.py` 与 `test_pipeline.py`。

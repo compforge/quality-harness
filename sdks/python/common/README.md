@@ -43,7 +43,7 @@ quality-harness, so every dependency is available when a downstream package is i
 
 `PullRequest` identifies a PR/MR by its target `Repository` and repository-local number.
 State, branches, source repository, revisions and provider timestamps are optional facts.
-See [the shared contract](../../../docs/pull-request.md) for identity and unknown-state semantics.
+See [the shared contract](../../../docs/system.md#pullrequest) for identity and unknown-state semantics.
 Forge access and polling remain consumer/toolkit responsibilities.
 
 ## Component tools and Depot
@@ -52,14 +52,14 @@ Component optionally declares `tools` and one logical `depot`. `Tool` describes 
 tool and an optional declared version/constraint. `Depot.bins` groups `Bin` declarations with
 repository-relative paths and `dependencies`, `output` or `cache` kinds. Metadata does not change
 Component identity, prove physical existence or authorize deletion. Discovery, preparation,
-usage protection and reclamation belong to consumers. See [the shared contract](../../../docs/component-depot.md).
+usage protection and reclamation belong to consumers. See [the shared contract](../../../docs/system.md#component).
 
 ## System Graph
 
 `Graph`, `Node` and `Relation` describe offline topology in one environment.
 Service/operation nodes connect through `belongs_to` and `calls`; other kinds remain extensible.
 Build validated snapshots, query dependencies and serialize them independently of metrics or tests.
-See [the Graph contract and example](../../../docs/graph.md).
+See [the Graph contract and example](../../../docs/system.md#graph).
 
 ## Service and Operation identity
 
@@ -67,4 +67,4 @@ See [the Graph contract and example](../../../docs/graph.md).
 `service_name`: `Operation("ask", service_name=service.name)`. Use `service.id()` and
 `operation.id()` for graph nodes; graph ID helpers are removed. Python Node/Relation
 constructors require `NodeKind`/`RelationKind`, including explicit custom enum values.
-See [Graph](../../../docs/graph.md) for scope and JSON loading.
+See [Graph](../../../docs/system.md#graph) for scope and JSON loading.

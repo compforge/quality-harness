@@ -2,12 +2,27 @@ import type {
   OpenSearchAllocationNode,
   OpenSearchDiskSettingsObservation,
   OpenSearchDiskWatermark,
-  VdbFinding,
-  VdbObservations,
-} from "./model";
+  OpenSearchSnapshot,
+} from "./snapshot";
+
+export type OpenSearchFindingKind =
+  | "opensearch.cluster-red"
+  | "opensearch.cluster-yellow"
+  | "opensearch.disk-capacity-low"
+  | "opensearch.disk-capacity-high"
+  | "opensearch.disk-capacity-exhausted"
+  | "opensearch.index-write-blocked"
+  | "opensearch.unassigned-primary-shards"
+  | "opensearch.unassigned-replica-shards";
+
+export interface OpenSearchFinding {
+  id: string; kind: OpenSearchFindingKind; severity: "warning" | "critical"; confidence: "high" | "medium";
+  evidence: readonly { observationId: string; role: "supporting" }[];
+  summary: string;
+}
 
 const FALLBACK_DISK_SETTINGS: OpenSearchDiskSettingsObservation = {
-  id: "vdb-disk-settings",
+  id: "opensearch-disk-settings",
   kind: "opensearch-disk-settings",
   low: { raw: "85%", kind: "used-ratio", usedRatio: 0.85 },
   high: { raw: "90%", kind: "used-ratio", usedRatio: 0.9 },
@@ -15,8 +30,7 @@ const FALLBACK_DISK_SETTINGS: OpenSearchDiskSettingsObservation = {
   source: "fallback-defaults",
 };
 
-
-export function effectiveDiskSettings(observations: VdbObservations): OpenSearchDiskSettingsObservation {
+function effectiveDiskSettings(observations: OpenSearchSnapshot): OpenSearchDiskSettingsObservation {
   const collected = observations.diskSettings;
   if (!collected) return FALLBACK_DISK_SETTINGS;
   const usedFallback = [collected.low, collected.high, collected.floodStage]
@@ -54,13 +68,13 @@ function firstCrossed(
   return nodes.find((node) => watermarkCrossed(node, watermark));
 }
 
-export function detectVdbFindings(observations: VdbObservations): VdbFinding[] {
-  const findings: VdbFinding[] = [];
+export function analyzeOpenSearch(observations: OpenSearchSnapshot): OpenSearchFinding[] {
+  const findings: OpenSearchFinding[] = [];
   const health = observations.health;
   if (health?.status === "red") {
     findings.push({
       id: "cluster-red",
-      kind: "vdb.cluster-red",
+      kind: "opensearch.cluster-red",
       severity: "critical",
       confidence: "high",
       evidence: [{ observationId: health.id, role: "supporting" }],
@@ -69,7 +83,7 @@ export function detectVdbFindings(observations: VdbObservations): VdbFinding[] {
   } else if (health?.status === "yellow") {
     findings.push({
       id: "cluster-yellow",
-      kind: "vdb.cluster-yellow",
+      kind: "opensearch.cluster-yellow",
       severity: "warning",
       confidence: "high",
       evidence: [{ observationId: health.id, role: "supporting" }],
@@ -81,10 +95,10 @@ export function detectVdbFindings(observations: VdbObservations): VdbFinding[] {
   if (blocked.length) {
     findings.push({
       id: "index-write-blocked",
-      kind: "vdb.index-write-blocked",
+      kind: "opensearch.index-write-blocked",
       severity: "critical",
       confidence: "high",
-      evidence: [{ observationId: "vdb-index-blocks", role: "supporting" }],
+      evidence: [{ observationId: "opensearch-index-blocks", role: "supporting" }],
       summary: `${blocked.length} 个 index 已设置 read_only_allow_delete，写入当前受限。`,
     });
   }
@@ -99,29 +113,29 @@ export function detectVdbFindings(observations: VdbObservations): VdbFinding[] {
   if (floodNode) {
     findings.push({
       id: "disk-capacity-exhausted",
-      kind: "vdb.disk-capacity-exhausted",
+      kind: "opensearch.disk-capacity-exhausted",
       severity: "critical",
       confidence,
-      evidence: [{ observationId: "vdb-allocation", role: "supporting" }],
+      evidence: [{ observationId: "opensearch-allocation", role: "supporting" }],
       summary: `${floodNode.node} 已越过 flood-stage 水位 ${settings.floodStage.raw}`
         + `${floodNode.diskPercent === undefined ? "" : `（使用率 ${floodNode.diskPercent}%）`}。`,
     });
   } else if (highNode) {
     findings.push({
       id: "disk-capacity-high",
-      kind: "vdb.disk-capacity-high",
+      kind: "opensearch.disk-capacity-high",
       severity: "warning",
       confidence,
-      evidence: [{ observationId: "vdb-allocation", role: "supporting" }],
+      evidence: [{ observationId: "opensearch-allocation", role: "supporting" }],
       summary: `${highNode.node} 已越过 high 水位 ${settings.high.raw}`
         + `${highNode.diskPercent === undefined ? "" : `（使用率 ${highNode.diskPercent}%）`}。`,
     });
   }
 
   if (!floodNode && !highNode && lowNode) findings.push({
-    id: "disk-capacity-low", kind: "vdb.disk-capacity-low",
+    id: "disk-capacity-low", kind: "opensearch.disk-capacity-low",
     severity: "warning", confidence,
-    evidence: [{ observationId: "vdb-allocation", role: "supporting" }],
+    evidence: [{ observationId: "opensearch-allocation", role: "supporting" }],
     summary: `${lowNode.node} 已越过 low 水位 ${settings.low.raw}，需要关注磁盘增长。`,
   });
 
@@ -129,7 +143,7 @@ export function detectVdbFindings(observations: VdbObservations): VdbFinding[] {
   if ((shards?.unassignedPrimary ?? 0) > 0) {
     findings.push({
       id: "unassigned-primary-shards",
-      kind: "vdb.unassigned-primary-shards",
+      kind: "opensearch.unassigned-primary-shards",
       severity: "critical",
       confidence: "high",
       evidence: [{ observationId: shards!.id, role: "supporting" }],
@@ -139,7 +153,7 @@ export function detectVdbFindings(observations: VdbObservations): VdbFinding[] {
   if ((shards?.unassignedReplica ?? 0) > 0) {
     findings.push({
       id: "unassigned-replica-shards",
-      kind: "vdb.unassigned-replica-shards",
+      kind: "opensearch.unassigned-replica-shards",
       severity: "warning",
       confidence: "high",
       evidence: [{ observationId: shards!.id, role: "supporting" }],
@@ -149,7 +163,7 @@ export function detectVdbFindings(observations: VdbObservations): VdbFinding[] {
   return findings;
 }
 
-export function vdbCapacityConclusion(observations: VdbObservations): string {
+export function openSearchCapacityConclusion(observations: OpenSearchSnapshot): string {
   const blocked = observations.indexBlocks?.readOnlyAllowDelete ?? [];
   if (blocked.length) return `写入已受限（${blocked.length} 个 index 为 read_only_allow_delete）`;
   const nodes = (observations.allocation?.nodes ?? []).filter(node =>

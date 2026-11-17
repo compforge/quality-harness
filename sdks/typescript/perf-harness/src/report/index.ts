@@ -52,15 +52,7 @@ function graphView(snapshot: CallGraphSnapshot): string {
     group:window.kind,nodes:frameNodes(window,colors),edges,entry_ids:window.nodes.filter(node => !incoming.has(node.id)).map(node => node.id)})));
   if (!frames.length) return "<p>No observation windows were recorded.</p>";
   const payload = JSON.stringify({title:"Operation metrics",frames,group_filter_label:"Service",importance_filter:true,comparison_filter_label:"QPS"}).replaceAll("<","\\u003c");
-  const filter = (name: string) => `<details class="${name} graph-filter-control"><summary></summary><div class="filter-options"><div class="graph-filter-options"></div><button class="graph-filter-all">全部</button></div></details>`;
-  return `<div id="callgraph" class="graph-view"><select class="graph-scope" aria-label="统计范围"></select>
-<select class="graph-frame" aria-label="Graph view"></select>${filter("graph-filter")}${filter("graph-importance-filter")}${filter("graph-comparison-filter")}
-<button class="graph-fit">Fit</button><button class="graph-copy">复制图片</button>
-<span class="graph-filter-status" role="status"></span><span class="graph-comparison-status" role="status"></span>
-<span class="graph-layout-status" role="status"></span><span class="graph-copy-status" role="status"></span>
-<div class="graph-viewport"><div class="graph-canvas"></div><div class="graph-tooltip" role="tooltip" hidden></div>
-<label class="graph-zoom">Zoom <input type="range" min="0" max="100" value="100" aria-label="Graph zoom"><output>100%</output></label></div>
-<pre class="graph-details">Select a node for details.</pre></div>
+  return `<div id="callgraph" class="graph-view"></div>
 ${graphScripts()}<script>rkGraph(document.getElementById("callgraph"),${payload});</script>`;
 }
 /** @spec Render only persisted facts; no queries, load generation or Python runtime. */
@@ -75,16 +67,11 @@ export function renderPerfReport(run: Run): string {
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Perf ${escape(run.run_id)}</title><style>
 body{font:14px system-ui;margin:24px;color:#17202a}table{border-collapse:collapse;width:100%}td,th{padding:8px;border:1px solid #d9e0e6;text-align:left}th{background:#f4f7f9}
-.graph-viewport{position:relative;margin-top:12px}.graph-canvas{height:78vh;min-height:500px;border:1px solid #d9e0e6}.graph-details{white-space:pre-wrap;overflow-wrap:anywhere}
-.graph-tooltip{position:absolute;pointer-events:auto;white-space:pre-wrap;overflow-wrap:anywhere;max-width:min(560px,90%);max-height:65%;overflow:auto;background:white;border:1px solid #94a3b8;padding:8px;border-radius:4px;z-index:3}
-.graph-zoom{position:absolute;bottom:12px;right:12px;background:white;padding:6px;display:flex;align-items:center;gap:6px}.graph-zoom output{min-width:4em}
-.graph-filter-control{display:inline-block;position:relative;vertical-align:top;margin:0 4px}.graph-filter-control summary,button,select{font:inherit;cursor:pointer}
-.filter-options{position:absolute;z-index:4;top:100%;left:0;width:max-content;max-width:80vw;background:white;border:1px solid #94a3b8;padding:8px}.graph-filter-options{max-height:260px;overflow:auto}
 </style><h1>Perf ${escape(run.experiment)}</h1><p>Run ${escape(run.run_id)} · ${escape(run.environment)} · execution ${escape(run.status)}</p>
 <details open><summary>Request windows</summary><table><tr>${["Arm","Window","Seconds","Complete","Dispatch rps","Completion rps","p95 ms","Error ratio","Stop"].map(value => `<th>${value}</th>`).join("")}</tr>${rows}</table></details>
 <h2>Callgraph</h2><p>${run.case_ids?.length === 1 ? `Case: ${escape(run.case_ids[0])}` : "Aggregate case scope; metrics are not attributed to individual cases."}</p>
 <p>Declared topology with server/window metrics, including other matching traffic. Solid: call; dashed: may_call. Node traffic does not prove an edge executed. N/A is missing evidence, not zero. Latency percentiles cannot be summed along paths.</p>
-${snapshot ? graphView(snapshot) : "<p>No operation graph was declared.</p>"}</html>`;
+<div data-wide="true">${snapshot ? graphView(snapshot) : "<p>No operation graph was declared.</p>"}</div></html>`;
 }
 export function writePerfReport(run: Run, directory: string): {html:string; callgraph?:string} {
   mkdirSync(directory,{recursive:true});

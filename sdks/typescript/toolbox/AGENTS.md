@@ -21,7 +21,7 @@ toolbox/
 ├── src/file/            # 本机及 Pod 文件来源、有界读取与取消
 ├── src/mysql/          # MySQL 原生与 Pod 协议执行
 ├── src/redis/           # Redis 连接与拓扑
-├── src/opensearch/      # OpenSearch 访问
+├── src/opensearch/      # 访问；health 探测、snapshot 解析、analysis 纯分析
 ├── src/http/            # 有界 HTTP 请求、Host/TLS 身份与共享 HTTP handler
 ├── src/prometheus/      # 借用有界 HttpApi 查询外部 Prometheus/VM；不拥有 scraper
 ├── src/s3/              # S3-compatible 访问、分页与有界对象读写
@@ -45,6 +45,8 @@ toolbox/
   认证按请求刷新，连接池由 transport 持有；期限覆盖排队，TLS 身份变化后旧池待在途请求结束再回收。
 - Workload 解析复用 KubernetesClient 生命周期，不过滤实例就绪状态；平台错误转换为 KubernetesError，
   不能把访问失败当作空实例列表。common 的本地开发 override 不替代发布依赖，先发布 common 再发布 toolbox。
+
+公开 subpath 显式声明在 package.json；构建只以这些入口出包，内部 helper 不随文件布局成为 API。
 
 ## 开发与测试
 

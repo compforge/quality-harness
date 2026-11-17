@@ -37,10 +37,10 @@ e2e_harness/
 
 - **主链路**：`case.yaml → engine.run_cases → CasePlan(execute/judge) → BaseRunner → Outcome → CaseRun → verdict.json`；CaseRun 是 common Execution 的 E2E 子类并保留 OperationRun。复杂测试可直接使用完整 `prepare → execute → judge → cleanup`，cleanup 总执行且失败进入 Verdict error。
 - **Experiment**：公共身份是具名验证意图；E2E 子类增加 `service + caseset`。单一配置或单一 Arm 仍然是 Experiment，不以是否存在对照组为前提。
-- **证据与复评**：Runner `Outcome` 是 Observation，一次 CaseRun（`case_id + variant`）是 Unit；一组可复判 CaseRun Unit 构成 Dataset，本次选择的 assertion / deterministic judge / soft metric 直接定义评估侧重点。立即执行并直接写 Verdict 可以融合这些阶段，但必须保留 Outcome、来源 identity 和实际组件配置，使判断能够离线重放；详见 [`../../../docs/evaluation-data.md`](../../../docs/evaluation-data.md#dataset-与反复评估)。
+- **证据与复评**：Runner `Outcome` 是 Observation，一次 CaseRun（`case_id + variant`）是 Unit；一组可复判 CaseRun Unit 构成 Dataset，本次选择的 assertion / deterministic judge / soft metric 直接定义评估侧重点。立即执行并直接写 Verdict 可以融合这些阶段，但必须保留 Outcome、来源 identity 和实际组件配置，使判断能够离线重放；详见 [`../../../docs/evaluation.md`](../../../docs/evaluation.md#dataset-与反复评估)。
 - **case 两个编写前端**：手写 canonical CaseSet，或 `@case/@spec` NL marker 经 `casegen compile` 编译（`casegen check` 是无-LLM intent-hash 漂移闸门）。`binding.symbol_id + optional spec_id` 对齐 spec-case 的 plural `specs[]`；未填 assertion 的草稿是 error，不会假绿。
 - **Outcome 是 runner↔judge 契约**：`status_code / headers / body / duration_ms / metadata / raw`；SSE events 进 `metadata['events']`，engine 的 `response_view` 暴露 `events[]` / `event_count`。
-- **Config**（`config.yaml`，语言无关 schema）：`service.{name,component,environment,base_url,headers}`，Environment 支持 generic、host、kubernetes 及可选 Host；另有 `runtime.*_timeout` / `discover.{source_root,test_root}`。环境实测值与配置分离，见 [Environment](../../../docs/environment.md)。harness 不内置服务专用 header 名。
+- **Config**（`config.yaml`，语言无关 schema）：`service.{name,component,environment,base_url,headers}`，Environment 支持 generic、host、kubernetes 及可选 Host；另有 `runtime.*_timeout` / `discover.{source_root,test_root}`。环境实测值与配置分离，见 [Environment](../../../docs/runtime.md#environment)。harness 不内置服务专用 header 名。
 - **verdict**（`spec/verdict-schema.yaml`）：`e2e run` 跑完落 `runs/<scope>/<run-id>/verdict.json`（scope 默认 CaseSet 名，即 Experiment 名）。
 
 - **当前范围**：服务 API 契约测试；Playbook / Script 与 Web、移动端、产品 API Target 的长期边界见领域设计。
@@ -48,10 +48,10 @@ e2e_harness/
 
 ## References
 
-- [E2E、Playbook 与 Target 设计](../../../docs/e2e-harness.md)
+- [E2E、Playbook 与 Target 设计](../../../docs/e2e.md)
 
-- 判定即数据架构（engine / 多编写前端 / 新老收敛）：[`../../../docs/case-unification.md`](../../../docs/case-unification.md)
-- casegen（NL marker → 结构化 case 的 build-time 编译器）：[`../../../docs/casegen.md`](../../../docs/casegen.md)
+- 判定即数据架构（engine / 多编写前端 / 新老收敛）：[`../../../docs/case.md`](../../../docs/case.md)
+- casegen（NL marker → 结构化 case 的 build-time 编译器）：[`../../../docs/case.md#casegen`](../../../docs/case.md#casegen)
 - 跨语言约定（case/config schema）：[`../../../spec/conventions.md`](../../../spec/conventions.md)
 - 统一判定出口：[`../../../spec/verdict-schema.yaml`](../../../spec/verdict-schema.yaml) + conventions.md「Run 产物与 verdict 出口」
 - 接入示例：[`../../../examples/api-test/`](../../../examples/api-test/) / [`../../../examples/agent-test/`](../../../examples/agent-test/)

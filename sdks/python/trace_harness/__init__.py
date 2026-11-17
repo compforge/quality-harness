@@ -1,7 +1,7 @@
 """trace_harness —— e2e-harness 的第四个 SDK：trace/span 分析框架。
 
 前三个 harness 把系统当黑盒（发请求看响应），trace_harness 开盒：消费请求留下的遥测
-（OTel/Jaeger span），回答"链路内部哪一层先反常"。设计见 docs/trace-harness.md。
+（OTel/Jaeger span），回答"链路内部哪一层先反常"。设计见 docs/trace.md。
 
 核心立场（与 Canopy 同构）：raw span 是物理事实，**逻辑事件 node 是分析本体**，
 特征列 facts/findings 是分析底座；"树"只是看单条 trace 时的视图，不是中心对象。

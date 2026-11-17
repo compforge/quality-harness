@@ -198,7 +198,7 @@ MUST NOT introduce a temporal containment constraint absent from Observation.
 Analysis snapshots persist shared SessionView values directly; renderers consume those prepared
 values. Missing attribution stays in Trace Nodes; it MUST NOT cause fabricated Session identities.
 Unprepared observations and a prepared empty collection MUST remain distinguishable on reload.
-See [Session observations](../docs/session-view.md) for producer and artifact contracts.
+See [Session observations](../docs/session.md) for producer and artifact contracts.
 
 ## 5. Scoped composition
 
@@ -358,4 +358,4 @@ Result access MUST be independent of whether output is in memory or persisted in
 
 `analysis@4.session_views` contains shared SessionView documents directly. Python `dump_analysis`
 also writes a catalog and one file per Session. Source adapters establish identity; no intermediate
-Agent IR or conversion API is involved. See [Session observations](../docs/session-view.md).
+Agent IR or conversion API is involved. See [Session observations](../docs/session.md).

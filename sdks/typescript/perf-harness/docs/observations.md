@@ -102,6 +102,6 @@ filters, full/phase/custom selection, pan/zoom, tooltips and image copy. It make
 bottleneck verdict. Actual edge execution still needs trace evidence.
 
 The renderer embeds the repository's existing neutral Cytoscape/ELK graph assets and licenses at
-build time, from `sdks/python/common/harness_common/report_kit/assets`. This is one browser-code source,
+build time, from `report-kit`. This is one browser-code source,
 not a Python runtime dependency. Published ESM and generated HTML require no Python, source checkout,
 CDN or runtime asset files. Both SDKs consume the same `operation-metrics` conformance fixture.

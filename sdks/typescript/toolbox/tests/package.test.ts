@@ -25,6 +25,12 @@ test("published lifecycle and transport entries run in Node without protocol dri
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const result = spawnSync("node", ["--input-type=module", "-e", `
       import assert from 'node:assert/strict';
+      import { probeOpenSearchHealth, groupOpenSearchObservations, analyzeOpenSearch } from '@compforge/harness-toolbox/opensearch/health';
+      assert.equal(typeof probeOpenSearchHealth, 'function');
+      assert.deepEqual(analyzeOpenSearch(groupOpenSearchObservations([])), []);
+      for (const path of ['opensearch/snapshot', 'opensearch/analysis', 'opensearch/health/model', 's3/probe']) {
+        await assert.rejects(import('@compforge/harness-toolbox/' + path), {code:'ERR_PACKAGE_PATH_NOT_EXPORTED'});
+      }
       import { inspectKubernetesEnvironment } from '@compforge/harness-toolbox/kubernetes/environment-inspection';
       import { probeAppArmorUnconfinedAdmission } from '@compforge/harness-toolbox/kubernetes/apparmor';
       const instance = {platform:'kubernetes',environment:'test',workload:'main',namespace:'demo',pod:'one',uid:'one',container:'main'};

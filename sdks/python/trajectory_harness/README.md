@@ -28,7 +28,7 @@ contribute to one explicitly attributed Session. The complementary views follow 
 actual request messages → Prompt View; loop execution → ATIF Trajectory → SessionView;
 business work across loops and operations → JobView. SessionView may also come directly from other
 recordings; it does not replace ATIF storage. Scores remain separate, with trajectory/step evidence.
-See [facts and views](../../../docs/trajectory-harness.md#事实来源与视图投影) for identities and boundaries.
+See [facts and views](../../../docs/trajectory.md#事实来源与视图投影) for identities and boundaries.
 
 Native trajectory input is standard ATIF:
 
@@ -287,7 +287,7 @@ and references to trajectory IDs. Historical runs are report inputs rather than 
 avoiding quadratic storage. Without a domain verdict policy, successful analysis is `skipped`
 rather than silently treating findings as gates.
 
-See [`../../../docs/trajectory-harness.md`](../../../docs/trajectory-harness.md) for the model and
+See [`../../../docs/trajectory.md`](../../../docs/trajectory.md) for the model and
 its boundary with eval/trace analysis.
 
 ### Session and Global measurements
@@ -297,4 +297,4 @@ Session summaries with Step evidence and one Global summary without a Session di
 names, units and declared aggregation, so new registered measurers require no metric-specific rendering code.
 Missing values remain null with coverage/status; measured zero remains zero. `TrajectoryReportBuilder` exports
 `measurement-views.json` and renders both tables; offline rerender never executes the analysis plugins again.
-See the repository's `docs/trajectory-harness.md` for scope and aggregation rules.
+See the repository's `docs/trajectory.md` for scope and aggregation rules.

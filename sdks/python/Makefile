@@ -1,10 +1,10 @@
-CHECK_PATHS ?= $(if $(filter %.py,$(LINT_FILES)),$(filter %.py,$(LINT_FILES)),common/harness_common/ toolbox/harness_toolbox/ e2e_harness/ eval_harness/ perf_harness/ trace_harness/ trajectory_harness/)
+CHECK_PATHS ?= $(if $(filter %.py,$(LINT_FILES)),$(filter %.py,$(LINT_FILES)),common/harness_common/ common/hatch_build.py toolbox/harness_toolbox/ e2e_harness/ eval_harness/ perf_harness/ trace_harness/ trajectory_harness/)
 
 FIX_PATHS ?= $(CHECK_PATHS)
 
-.PHONY: test lint fix build clean bump
+.PHONY: test lint fix build clean bump report-assets
 
-test:
+test: report-assets
 	uv run pytest -v $(TEST_FILES)
 
 lint:
@@ -29,3 +29,6 @@ bump:
 	sed -i '' "s/^version = \"$$current\"/version = \"$$next\"/" pyproject.toml; \
 	uv lock; \
 	echo "bumped $$current → $$next"
+
+report-assets:
+	python3 common/hatch_build.py

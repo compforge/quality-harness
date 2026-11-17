@@ -27,7 +27,7 @@ def source_node_ids(item: ObservationNode, context: TraceContext) -> tuple[str, 
 
 
 @spec("Extractors return shared SessionViews; Trace validates only local evidence ownership")
-@link("repo://docs/session-view.md")
+@link("repo://docs/session.md")
 def validate_session_views(
     views: Iterable[SessionView], context: TraceContext
 ) -> tuple[SessionView, ...]:

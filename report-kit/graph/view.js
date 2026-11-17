@@ -1,5 +1,25 @@
 /* Neutral report graph renderer. No remote data access or domain calculations. */
 function rkGraph(root, view) {
+  const controls = document.createElement('div');
+  const filter = (name, label) => `<details class="${name} graph-filter-control" hidden><summary aria-label="${label}"></summary>
+    <div class="graph-filter-popup"><div class="graph-filter-options"></div>
+    <button type="button" class="graph-filter-all">全部</button></div></details>`;
+  // @spec Only static component markup goes through innerHTML; view text uses textContent.
+  controls.innerHTML = `<b class="graph-title"></b>
+    <select class="graph-scope" aria-label="统计范围"></select> <select class="graph-frame" aria-label="Graph view"></select>
+    ${filter('graph-filter', 'Service 多选过滤')} ${filter('graph-importance-filter', 'Importance 多选过滤')}
+    ${filter('graph-comparison-filter', '数值多选过滤')}
+    <button type="button" class="graph-fit">Fit</button> <button type="button" class="graph-copy">复制图片</button>
+    <span class="graph-filter-status" role="status" aria-live="polite"></span>
+    <span class="graph-comparison-status" role="status" aria-live="polite"></span>
+    <span class="graph-layout-status" role="status" aria-live="polite"></span>
+    <span class="graph-copy-status" role="status" aria-live="polite"></span>
+    <div class="graph-viewport"><div class="graph-canvas"></div><div class="graph-tooltip" role="tooltip" hidden></div>
+    <label class="graph-zoom">Zoom <input type="range" min="0" max="100" value="100" aria-label="Graph zoom"
+    title="Zoom: 0 selects the minimum visible scale; 100 is actual size"><output>100%</output></label></div>
+    <pre class="graph-details">Select a node for details.</pre>`;
+  controls.querySelector('.graph-title').textContent = view.title;
+  root.prepend(controls);
   const select = root.querySelector('.graph-frame');
   const scope = root.querySelector('.graph-scope');
   const tooltip = root.querySelector('.graph-tooltip');

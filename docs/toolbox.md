@@ -1,9 +1,10 @@
-# Harness 工具箱
+# 基础设施访问与采集
 
-> 本文描述可被多个 Harness 复用的环境操作与观测能力。工具箱回答“如何可靠地操作和观察”，
-> 不拥有 Case、Dataset、EvaluationRun 或 Verdict，也不决定业务目标、执行时机和通过条件。
+Toolbox 提供可被测试、诊断和业务适配复用的协议 Client、Transport 与有界采集能力。
+调用方选择目标、授权、执行时机、预算和判定标准；工具箱保留访问结果、失败原因与覆盖范围。
+中立生命周期契约归 common，具体协议和平台 I/O 归 toolbox，依赖方向为 toolbox → common → 标准库。
 
-## 1. Client、ClientProvider、DataSource 与 Transport
+## 客户端与生命周期
 
 TypeScript 平台工具箱位于 `sdks/typescript/toolbox`，独立发布为 `@compforge/harness-toolbox`；
 Python 位于 `sdks/python/toolbox`，独立分发为 `harness-toolbox`。
@@ -21,7 +22,7 @@ Python 位于 `sdks/python/toolbox`，独立分发为 `harness-toolbox`。
 - **Transport**：选择和准备直连、端口转发、Pod relay 等有限的访问路径，拥有通道的创建、失效和关闭。
   TypeScript Transport 实现 common 的生命周期契约，可以与协议 Client 使用同一个 Manager，无需 TransportManager。
 
-TypeScript 协议 Client 接收已解析配置（或异步配置函数）和一个 Transport，不再使用 ConnectionSource。
+TypeScript 协议 Client 接收已解析配置（或异步配置函数）和一个 Transport。
 配置语义归 provider，协议与握手归 Client，路径选择与准备归 Transport；`connection/acquire` 是内部算法。
 同一个 Transport 可供 OpenSearch、MySQL、Redis、S3 Client 复用。Client 只销毁自己的会话、池与在途请求，
 Transport 按需创建，直到根 Manager 结束才销毁。根取消先停止借用方等待，资源关闭仍按 Client → Transport 排序。
@@ -43,49 +44,7 @@ Client 是执行期稳定的协议操作入口；Transport 内部的 worker、�
 通道中断使本次请求失败并淘汰该通道，下一个独立请求才可以重连；已发送的业务操作不自动重放。
 最终 dispose / scope exit 后不允许重开，借用者不关闭共享通道。
 
-TypeScript ServicePortForwardTransport 共享同一 namespace 的发现结果与转发；一个 borrower 取消不影响其它 borrower。
-缓存检查子进程存活状态，已退出的隧道在下一次获取时重建；不重放已经失败的协议操作。
-当前发现快照限于一次 Transport 生命周期，不承诺跟踪同名 Service 的 UID 替换。
-dispose 等待晚到的转发并停止它，等待子进程退出；清理失败向根传播，不能用等待超时冒充释放成功。
-
-MySQL、Redis、OpenSearch、S3 和 Kubernetes 客户端实现这些原语。连接、排队、取消、资源释放属于工具箱；
-授权、业务 SQL、Redis key、索引规则、采集时机和结果解释仍属于消费方。MySQL 只在初始化阶段切换地址，建连网络错误可以切换
-Transport，认证错误或已开始执行的 SQL 错误不得触发重放。相互独立的语句可用 `queryBatch` 合并提交：
-Pod Transport 下进程启动、exec 握手与认证只发生一次，语句按提交顺序执行，任一失败即整批失败（fail-fast）。
-
-TypeScript RedisClient 持有完整的 single / sentinel / cluster 配置。endpoints 在三种模式下分别表示
-单机、Cluster 或 Sentinel 的种子地址，Sentinel 与数据节点的身份分别保存。所有节点使用同一组有序
-TCP Transport；只在建连网络失败时切换，鉴权失败不切换，命令和 pipeline 不自动重放。connectTimeoutMs
-约束单条路径的地址映射与握手，默认使用命令的 timeoutMs；acquireTimeoutMs 约束全部候选路径的总期限，
-默认按单条路径预算乘候选数量。总预算耗尽不再启动下一条路径。根 signal 取消建连与在途命令；失效连接在下一次获取时重建，最终 dispose 后不可重开。
-拓扑发现实现属于 toolbox，Client.topology() 按需刷新；诊断采样、业务 key 与结果缓存策略由消费方决定。
-
-TypeScript MySQL 的有界查询 helper 为调用方提供的 SQL 追加经过整数校验的 LIMIT，并通过额外一行
-判断截断；表结构、过滤条件和查询优先级仍由业务方拥有。`queryReadonly` 继续负责独立只读会话的
-行数、字节与时间预算，两种能力不混用语义。
-
-TypeScript 数据库适配器 `withReadScope` 将读取接入同一个 DataLoader，按完整数据库身份、SQL
-与参数类型隔离。适配器借用 scope 和数据库，关闭权归调用方；底层查询的取消与超时仍归 Client。
-相同读取共享结果和失败，不能视作数据库一致性快照。批量操作复用命中项，将缺失项有序交给数据库。
-
-PodLogClient 以物理 Pod/container 身份及绝对时间窗口共享采集源，向并发和晚到的消费者回放原始日志。
-相对窗口或缺少实例身份的请求不能复用。消费者保有独立过滤与原始文件；根并发池和字节预算只约束真实
-网络采集，不约束本地回放。容量、预算和访问期限显式传入，不将某个产品的现场默认值作为通用策略。
-
-### S3 对象访问
-
-TypeScript 的 S3DataSource 把调用方已解析的连接配置、凭据、访问路径身份和容量策略绑定为复用身份。
-S3Client 基于官方 SDK 提供只读 metadata、单页列表和有界对象读取；业务 bucket/key 规则、扫描总预算、
-授权与证据解释归消费方。MinIO 等平台管理指标不是 S3 数据面接口，不进入此 client。
-
-并发槽覆盖完整请求及响应流消费，截止时间覆盖排队；取消或销毁会终止读流并释放连接池。列表不自动
-遍历后续页，正文达到预算时关闭读流并标记截断。SDK 错误保留状态，HEAD 权限拒绝不能伪装成对象不存在。
-
-Transport 只映射连接地址，不改变签名 Host 或 TLS 身份；映射通道使用 path-style，并保持证书校验。
-调用方提供私有 CA 时只改变信任来源，不关闭验证。client 初始化仅准备协议资源和访问路径，不用
-ListBuckets 预检强加账号级权限，也不自动重放失败请求。
-
-### 与 Environment / Service / Workload 的关联
+## 运行目标与访问绑定
 
 Environment 与 Service 描述逻辑运行目标；Service 通过 `workloads` 声明零个或多个运行载体。
 Workload 是部署引用，不是实时实例列表，不保证目标此刻存在。部署配置负责提供和更新映射，
@@ -105,7 +64,7 @@ Workload 名不能代替连接身份。EnvironmentContext 绑定本次环境、�
 Python 的 Environment、EnvironmentContext、Service、Client、ClientProvider、DataSource、
 ClientManager、ServiceDataSource 与配置 key 归独立的 harness-common；具体协议客户端、Transport、
 地址解析、具体 KubernetesEnvironment 及其配置解析归 harness-toolbox。依赖方向为 toolbox → common → 标准库；LLM HTTP 客户端位于
-`harness_toolbox.llm`，通过 `harness-toolbox[llm]` 引入 httpx。原 toolbox 生命周期符号保留转导出。
+`harness_toolbox.llm`，通过 `harness-toolbox[llm]` 引入 httpx。toolbox 转导出中立生命周期符号。
 
 共享层按语言独立组织：Python 位于 `sdks/python/common`，TypeScript 位于
 `sdks/typescript/common`，分别发布 `harness-common` 与 `@compforge/harness-common`。
@@ -125,7 +84,129 @@ MySQL 以认证并选择 database 成功、OpenSearch 以初始化 HEAD 成功�
 SQL/搜索执行失败不重放。TLS 保留原始 servername 与 HTTP Host，不因 IP 或隧道映射关闭证书校验。
 诊断分别提供配置 target、各次 endpoint/source/transport、失败原因与 selected_endpoint，不包含凭据。
 
-## 2. Kubernetes
+## 连接建立与网络探测
+
+TypeScript Transport uses the internal `connection/acquire` algorithm for ordered route attempts. The protocol adapter owns
+handshake mechanics and classifies retryable connection failures; acquisition owns deadlines, cancellation,
+route reporting and disposal of connections that arrive after their attempt ended. Queries, commands and
+pipelines execute outside this flow and are never replayed by fallback.
+
+- `connectTimeoutMs` covers one route's endpoint mapping and handshake/probe together.
+- `acquireTimeoutMs` bounds the complete route sequence; omission uses the per-route budget times the route count.
+- Expired acquisition budgets raise `TimeoutError extends ToolboxError`, exported from
+  `@compforge/harness-toolbox/errors`, with `kind: "timeout"` and `code: "ETIMEDOUT"`.
+  Protocol adapters preserve this error rather than relabeling it as a connection failure.
+- OpenSearch defaults its per-route budget to `requestTimeoutMs` or 10 seconds; Redis defaults to `timeoutMs`.
+  MySQL requires `connectTimeoutMs`. Query/command deadlines remain independent.
+- Cancellation while resolving configuration or mapping a route stops waiting and preserves the caller's reason.
+  A mapping that finishes later cannot start a handshake. Shared transports remain root-owned; stopping one
+  acquisition does not dispose a transport borrowed by other clients.
+- Native MySQL and Redis handshakes retain handles for cancellation; OpenSearch cancels its probe and closes
+  its engine. Injected factories that ignore cancellation have late successful connections closed before publication.
+- `onRoute` records only the selected route and the preceding safe failure category. Shared budget expiry uses
+  `ETIMEDOUT`; authentication and protocol errors stop immediately. Credentials and protocol payloads are excluded.
+
+Configuration resolution has root cancellation but no connection timeout: the acquisition budget starts after
+resolution supplies the target. Non-cooperative injected work may finish later; its result is never exposed as ready.
+
+Cancelable waits use `race-signal`; it preserves the abort reason and removes its listener after settling.
+Stopping a wait does not stop I/O. Protocol adapters still abort requests or destroy connections, while Transport
+retains shared channels and owns late-acquisition rollback. No separate async primitive is maintained in common or ts-stdx.
+
+Protocol identity stays separate from the mapped dial address: forwarding never changes HTTP Host, S3 signing identity
+or the original TLS DNS name. OpenSearch omits SNI for IP literals, keeps the successful probe's engine, and only
+tries HTTP/HTTPS when the target has no explicit scheme. Authentication, TLS verification and cleanup failures are terminal.
+The OpenSearch 3.6 adapter balances request accounting when request construction throws synchronously, so SDK close
+does not poll forever. A Node child-process regression verifies natural exit after this failure without process.exit().
+
+### 端口转发
+
+TypeScript ServicePortForwardTransport 共享同一 namespace 的发现结果与转发；一个 borrower 取消不影响其它 borrower。
+缓存检查子进程存活状态，已退出的隧道在下一次获取时重建；不重放已经失败的协议操作。
+当前发现快照限于一次 Transport 生命周期，不承诺跟踪同名 Service 的 UID 替换。
+dispose 等待晚到的转发并停止它，等待子进程退出；清理失败向根传播，不能用等待超时冒充释放成功。
+
+### Endpoint 与连通性
+
+Common 的 `Endpoint` 描述访问地址（scheme、host、port、secure），不继承 Service 或 DataSource，
+可选 id、description 和 workload 描述消费方声明；workload 携带消费方完整 Workload 声明（platform、location、namespace、container），用于定位访问与探测实例。
+Endpoint 不携带执行适配器、凭据或完整资源 URL。Service、DataSource 与独立资源都可提供 Endpoint；关系归消费方。
+Toolbox 的 `endpointFromUrl` 提取网络入口并剔除资源路径和签名，`validateEndpoint` 统一校验地址字段。
+
+`secure` 表示加密传输要求，具体握手由协议决定；不表示可信下载策略允许访问或业务功能正常。
+`probeConnectivity` 在调用方选择的执行环境观察 DNS、TCP、TLS 阶段及耗时，当前只支持
+https/wss/tls 的直接 TLS。其它加密协议抛 `ProtocolError`（继承 `ToolboxError`，kind 为 `protocol`，code 为 `Unsupported`），不能降级为 TCP 成功。
+协议客户端仍负责 MySQL 等协议内的 TLS 协商；网络失败证据与执行能力缺口分别保留。
+
+## 读取范围
+
+`ClientManager` 共享连接与客户端状态；`DataLoader` 共享一轮读取的结果、错误和在途任务。
+调用方显式创建读取范围，适配器用 DataSource 配置和完整查询参数决定共享键。
+单个等待者取消不影响其它等待者；范围退出会取消并等待未完成读取，再释放结果。
+范围应嵌套在 ClientManager 内；消费方不能修改共享结果。DataLoader 只做单轮缓存和去重，
+不自动 batch，也不保证 Kubernetes 与 Prometheus 等不同来源处于同一原子快照。
+`ResourceListClient.list(..., scope=scope)` 和 `MetricClient.read(..., scope=scope)`
+都支持这个可选参数，不传时每次重新访问。
+TypeScript DataLoader 显式声明条目数与序列化结果字节预算；超出容量的读取正常执行但不保留。
+关闭时向 operation 发出 AbortSignal 并等待退出；operation 必须响应信号才能及时取消。
+
+TypeScript 数据库适配器 `withReadScope` 将读取接入同一个 DataLoader，按完整数据库身份、SQL
+与参数类型隔离。适配器借用 scope 和数据库，关闭权归调用方；底层查询的取消与超时仍归 Client。
+相同读取共享结果和失败，不能视作数据库一致性快照。批量操作复用命中项，将缺失项有序交给数据库。
+
+## 协议客户端
+
+MySQL、Redis、OpenSearch、S3 和 Kubernetes 客户端实现这些原语。连接、排队、取消、资源释放属于工具箱；
+授权、业务 SQL、Redis key、索引规则、采集时机和结果解释仍属于消费方。
+
+### HTTP
+
+`HttpClient` accepts a logical HTTP(S) endpoint, a borrowed `Transport`, and explicit concurrency,
+connect/request deadlines and response-byte limits. It shares HTTP handler mechanics with S3,
+including original Host and certificate identity through a mapped route. It exposes bounded
+`request(path, options)` responses: status, headers and fully consumed bytes. Oversized bodies fail;
+cancellation destroys the body before releasing capacity. No response stream escapes its lifecycle.
+
+A request can only address the configured origin. Redirects and non-success statuses are returned,
+not followed or retried. Caller cancellation only stops that request; disposing the client aborts
+its operations and destroys its pools, while the root retains ownership of the borrowed Transport.
+Route preparation may select another candidate; an HTTP operation is never replayed on another route.
+Protocol adapters retain credential, signing and response interpretation rules. HTTP is a Client,
+not a new Transport variant.
+
+### MySQL
+
+MySQL 只在初始化阶段切换地址，建连网络错误可以切换
+Transport，认证错误或已开始执行的 SQL 错误不得触发重放。相互独立的语句可用 `queryBatch` 合并提交：
+Pod Transport 下进程启动、exec 握手与认证只发生一次，语句按提交顺序执行，任一失败即整批失败（fail-fast）。
+
+TypeScript MySQL 的有界查询 helper 为调用方提供的 SQL 追加经过整数校验的 LIMIT，并通过额外一行
+判断截断；表结构、过滤条件和查询优先级仍由业务方拥有。`queryReadonly` 继续负责独立只读会话的
+行数、字节与时间预算，两种能力不混用语义。
+
+### Redis
+
+TypeScript RedisClient 持有完整的 single / sentinel / cluster 配置。endpoints 在三种模式下分别表示
+单机、Cluster 或 Sentinel 的种子地址，Sentinel 与数据节点的身份分别保存。所有节点使用同一组有序
+TCP Transport；只在建连网络失败时切换，鉴权失败不切换，命令和 pipeline 不自动重放。connectTimeoutMs
+约束单条路径的地址映射与握手，默认使用命令的 timeoutMs；acquireTimeoutMs 约束全部候选路径的总期限，
+默认按单条路径预算乘候选数量。总预算耗尽不再启动下一条路径。根 signal 取消建连与在途命令；失效连接在下一次获取时重建，最终 dispose 后不可重开。
+拓扑发现实现属于 toolbox，Client.topology() 按需刷新；诊断采样、业务 key 与结果缓存策略由消费方决定。
+
+### S3
+
+TypeScript 的 S3DataSource 把调用方已解析的连接配置、凭据、访问路径身份和容量策略绑定为复用身份。
+S3Client 基于官方 SDK 提供只读 metadata、单页列表和有界对象读取；业务 bucket/key 规则、扫描总预算、
+授权与证据解释归消费方。MinIO 等平台管理指标不是 S3 数据面接口，不进入此 client。
+
+并发槽覆盖完整请求及响应流消费，截止时间覆盖排队；取消或销毁会终止读流并释放连接池。列表不自动
+遍历后续页，正文达到预算时关闭读流并标记截断。SDK 错误保留状态，HEAD 权限拒绝不能伪装成对象不存在。
+
+Transport 只映射连接地址，不改变签名 Host 或 TLS 身份；映射通道使用 path-style，并保持证书校验。
+调用方提供私有 CA 时只改变信任来源，不关闭验证。client 初始化仅准备协议资源和访问路径，不用
+ListBuckets 预检强加账号级权限，也不自动重放失败请求。
+
+## Kubernetes
 
 TypeScript 的根 `KubernetesClient` 直接提供 `get(ref)` / `list(query)`，返回资源对象和结构化
 `KubernetesError`。查询声明 API version 与 resource 的 REST 复数名，适用于内置资源与 CRD；
@@ -208,91 +289,25 @@ stderr 有界收集。取消、超时或协议断流会退役当前 worker，后
 正常 API 错误保留状态并返回给调用方，不销毁健康通道、不重放请求。Host 命令入口仍用于 Helm
 等程序；Kubernetes 资源操作在 Host 上调用原生 API，不转换为逐项 kubectl 子进程。
 
-## 3. 读取范围与 Prometheus
+### 日志采集
 
-`ClientManager` 共享连接与客户端状态；`DataLoader` 共享一轮读取的结果、错误和在途任务。
-调用方显式创建读取范围，适配器用 DataSource 配置和完整查询参数决定共享键。
-单个等待者取消不影响其它等待者；范围退出会取消并等待未完成读取，再释放结果。
-范围应嵌套在 ClientManager 内；消费方不能修改共享结果。DataLoader 只做单轮缓存和去重，
-不自动 batch，也不保证 Kubernetes 与 Prometheus 等不同来源处于同一原子快照。
-`ResourceListClient.list(..., scope=scope)` 和 `MetricClient.read(..., scope=scope)`
-都支持这个可选参数，不传时每次重新访问。
-TypeScript DataLoader 显式声明条目数与序列化结果字节预算；超出容量的读取正常执行但不保留。
-关闭时向 operation 发出 AbortSignal 并等待退出；operation 必须响应信号才能及时取消。
+PodLogClient 以物理 Pod/container 身份及绝对时间窗口共享采集源，向并发和晚到的消费者回放原始日志。
+相对窗口或缺少实例身份的请求不能复用。消费者保有独立过滤与原始文件；根并发池和字节预算只约束真实
+网络采集，不约束本地回放。容量、预算和访问期限显式传入，不将某个产品的现场默认值作为通用策略。
 
-Python `harness-toolbox[prometheus]` 提供 `MetricDataSource`，描述 `/metrics` 地址、
-显式请求头、HTTP 连接池、总抓取超时、响应体及历史容量。客户端通过独立 HTTP 池抓取，
-用内嵌 Prombed 保存短期样本并执行 PromQL；它不是远端 Prometheus HTTP 查询 API 的客户端。
-相同配置在 ClientManager 内复用抓取客户端和历史；同一 DataLoader 内只抓取一次，
-各消费方分别执行查询，返回原始 Prometheus 类型与 labels。
+### Secret DataSource
 
-读取频率与范围边界由调用方决定；toolbox 不运行采样循环，也不声明业务指标或 SLO。
-消费方持有 ClientManager、按读取范围创建 DataLoader；不同客户端的内嵌 Prombed 历史彼此独立。
-Perf 使用下述远端 Prometheus 查询能力，不调用此直接抓取路径。
+`KubernetesSecretDataSource` 接收根 ClientProvider、明确的 namespace/name 和非空 key 列表。
+它只执行命名 Secret 的 get；来源发现、访问权限和配置含义归消费方，不枚举其它 Secret。
+Client 返回所选 UTF-8 值、missingKeys、resourceVersion 和 observedAt，未选择的值不进入结果；
+403/404 等 API 失败保留 KubernetesError，不能解释成 key 缺失。Secret 的当前值不证明进程已加载。
 
-直接抓取声明显式 targets，或通过 environment + workloads + port 复用 Workload 解析。
-MetricDataSource 的 transport 选择 direct 或 port-forward；后者复用根执行拥有的 Toolbox 通道。
-准备预算与整轮 HTTP 采集预算分开；diagnostics 保留每个实例的传输方式、阶段、字节数和耗时。
-失败实例不会被视为零；健康实例样本保留，但覆盖不完整时窗口查询拒绝产生全服务结果。
-实例 UID 进入 Prometheus instance 标签，替代 Pod 不与旧计数器拼接；消失实例记录 stale。
-抓取并发、超时与响应预算归同一个客户端，任一实例失败不能表现为成功的服务级聚合。
-`query_window` 只查询已保留的本地历史，历史缺失或采集不完整时显式失败；采集调度和业务 PromQL
-仍归消费方。direct 要求 Pod 地址从执行机可达；port-forward 显式复用 Kubernetes 通道，Host 配置不隐式切换 HTTP 路径。
+资源访问借用根客户端的并发、响应大小和默认超时预算，`read({ timeoutMs, signal })` 可传入请求预算。
+释放 Secret Client 会取消并等待自身读取结束，不关闭借用的 Kubernetes Client。
+宿主也可通过 `KubernetesSecretClient` 的 acquire 回调注入经过权限校验的资源访问视图；
+初始化时才执行目标发现，不由 Toolbox 解释业务配置。
 
-远端 Prometheus 使用 Python `PrometheusDataSource`（`kind` 默认 `prometheus`，VictoriaMetrics 声明
-`kind="victoriametrics"`；其他兼容实现可使用自己的非空 kind），通过现有 HTTPClientProvider
-借用独立连接池，复用相同 ClientManager 生命周期。`read(expressions, timestamp=..., scope=...)`
-调用 `/api/v1/query`；`read_range(expressions, start=..., end=..., step=..., scope=...)`
-调用 `/api/v1/query_range` 并保留矩阵结果。单轮 DataLoader 共享求值时间与相同表达式的结果或错误。端点、显式认证、
-kind 参与客户端复用身份；Toolbox 不猜测后端、不改写调用方查询或转换统计口径。
-超时、响应字节数与序列上限属于 DataSource；超限失败，不请求服务端截断结果。
-原始 labels、warnings 和 infos 保留在返回值中，perf Probe 将 warnings 视为观测失败。
-
-远端历史归 Prometheus 管理，查询窗口可以包含压测开始前的数据。环境、租户、实例与时间窗口
-由调用方的 PromQL 显式选择；toolbox 不推断业务归属。网络地址必须从执行机可达，
-Service 名称只是 perf 报告的归属标签，不隐式添加查询条件或进行集群路由。
-
-## 4. 故障注入后端
-
-Chaos Mesh、ChaosBlade、Toxiproxy、AgentChaos 等可以作为工具箱中的具体故障注入后端；它们负责执行
-和撤销受控故障、返回后端证据，不拥有故障意图、恢复标准或评估结论。
-
-LitmusChaos 已经包含 Workflow、Probe 和 Result 等平台模型。接入这类后端时，应把它们视为执行协议
-和证据来源，避免与 quality-harness 的 Case、EvaluationRun 和 Verdict 重复建模。
-
-只有至少两个真实消费方需要同一种能力时，才从具体 Driver 中收敛公共接口；单一 Harness 或单一
-产品专用的操作继续留在消费方，避免把工具箱演变成无边界的公共包。
-
-## References
-
-- 跨 Harness 模型、主流程与职责：[开发约定](../AGENTS.md)
-- e2e Target Driver 边界：[`e2e-harness.md`](e2e-harness.md)
-- Go Kubernetes 实现：[`../sdks/go/toolbox/kube`](../sdks/go/toolbox/kube)
-- Python Kubernetes 实现：[`../sdks/python/toolbox/harness_toolbox/kube`](../sdks/python/toolbox/harness_toolbox/kube)
-- Perf 跨语言契约：[`../spec/perf-contract.md`](../spec/perf-contract.md)
-
-
-## 文件数据源
-
-Common 的 `FileDataSource.paths` 声明一组可以共同获取的文件；一个来源就是一个获取单元。
-`FileClient.read` 每次获取整组，按声明顺序逐路径返回成功字节或独立错误。Toolbox 的
-`LocalFileDataSource` 与 `PodFileDataSource` 分别完成本机和同一 Pod/Container 的读取。
-来源身份覆盖完整路径组、访问目标和容量策略，构造时冻结声明，声明来源不做 I/O。
-
-调用方完成 Workload/Container 选择后创建来源；文件客户端借用根 Kubernetes Client，根按依赖顺序销毁。
-Pod 文件组只发起一次 exec，要求 sh、head -c、base64、tr，以索引和编码记录传输原始字节及每文件状态；
-路径通过 argv 传入，不插入 shell 源码，不写容器临时文件，也不在失败后改成逐文件重放。
-本机来源只读常规文件（可经过 symlink），不因 FIFO 等非常规路径阻塞初始化。
-
-每文件 maxBytes 独立计算，错误文件不交付部分字节，不丢弃成功的其它文件。maxTotalBytes 限制整个读取
-保留的字节（包含在途文件）；整次 timeoutMs 包含排队、访问和完整传输。取消、总量超限、整次超时与
-传输/协议失败拒绝整次操作。每次 read 重新读取路径，不缓存内容；共同获取不承诺原子文件系统快照。
-路径和 Pod target 为来源元数据，配置解析、覆盖规则和证据持久化由消费方负责。
-
-Common 0.5.4 与 Toolbox 0.4.2 用 paths 和逐文件结果替代旧的单 path/单字节返回接口，单文件也声明为
-一个元素的组；先发布 Common，再发布依赖它的 Toolbox，最后由消费方升级。
-
-## Kubernetes compute evidence
+### Compute evidence
 
 TypeScript `kubernetes/compute` exposes two read-only collectors over the existing ResourceAccess.
 They do not construct clients or close borrowed transports. `KubernetesClient.clusterResources()`
@@ -341,77 +356,72 @@ Accounting references: [Kubernetes Pod resources](https://kubernetes.io/docs/con
 [sidecar lifecycle and resource accounting](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/),
 and [Metrics API semantics](https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/).
 
-## Connection acquisition
+## 文件数据源
 
-TypeScript Transport uses the internal `connection/acquire` algorithm for ordered route attempts. The protocol adapter owns
-handshake mechanics and classifies retryable connection failures; acquisition owns deadlines, cancellation,
-route reporting and disposal of connections that arrive after their attempt ended. Queries, commands and
-pipelines execute outside this flow and are never replayed by fallback.
+Common 的 `FileDataSource.paths` 声明一组可以共同获取的文件；一个来源就是一个获取单元。
+`FileClient.read` 每次获取整组，按声明顺序逐路径返回成功字节或独立错误。Toolbox 的
+`LocalFileDataSource` 与 `PodFileDataSource` 分别完成本机和同一 Pod/Container 的读取。
+来源身份覆盖完整路径组、访问目标和容量策略，构造时冻结声明，声明来源不做 I/O。
 
-- `connectTimeoutMs` covers one route's endpoint mapping and handshake/probe together.
-- `acquireTimeoutMs` bounds the complete route sequence; omission uses the per-route budget times the route count.
-- Expired acquisition budgets raise `TimeoutError extends ToolboxError`, exported from
-  `@compforge/harness-toolbox/errors`, with `kind: "timeout"` and `code: "ETIMEDOUT"`.
-  Protocol adapters preserve this error rather than relabeling it as a connection failure.
-- OpenSearch defaults its per-route budget to `requestTimeoutMs` or 10 seconds; Redis defaults to `timeoutMs`.
-  MySQL requires `connectTimeoutMs`. Query/command deadlines remain independent.
-- Cancellation while resolving configuration or mapping a route stops waiting and preserves the caller's reason.
-  A mapping that finishes later cannot start a handshake. Shared transports remain root-owned; stopping one
-  acquisition does not dispose a transport borrowed by other clients.
-- Native MySQL and Redis handshakes retain handles for cancellation; OpenSearch cancels its probe and closes
-  its engine. Injected factories that ignore cancellation have late successful connections closed before publication.
-- `onRoute` records only the selected route and the preceding safe failure category. Shared budget expiry uses
-  `ETIMEDOUT`; authentication and protocol errors stop immediately. Credentials and protocol payloads are excluded.
+调用方完成 Workload/Container 选择后创建来源；文件客户端借用根 Kubernetes Client，根按依赖顺序销毁。
+Pod 文件组只发起一次 exec，要求 sh、head -c、base64、tr，以索引和编码记录传输原始字节及每文件状态；
+路径通过 argv 传入，不插入 shell 源码，不写容器临时文件，也不在失败后改成逐文件重放。
+本机来源只读常规文件（可经过 symlink），不因 FIFO 等非常规路径阻塞初始化。
 
-Configuration resolution has root cancellation but no connection timeout: the acquisition budget starts after
-resolution supplies the target. Non-cooperative injected work may finish later; its result is never exposed as ready.
+每文件 maxBytes 独立计算，错误文件不交付部分字节，不丢弃成功的其它文件。maxTotalBytes 限制整个读取
+保留的字节（包含在途文件）；整次 timeoutMs 包含排队、访问和完整传输。取消、总量超限、整次超时与
+传输/协议失败拒绝整次操作。每次 read 重新读取路径，不缓存内容；共同获取不承诺原子文件系统快照。
+路径和 Pod target 为来源元数据，配置解析、覆盖规则和证据持久化由消费方负责。
 
-Cancelable waits use `race-signal`; it preserves the abort reason and removes its listener after settling.
-Stopping a wait does not stop I/O. Protocol adapters still abort requests or destroy connections, while Transport
-retains shared channels and owns late-acquisition rollback. No separate async primitive is maintained in common or ts-stdx.
+## Prometheus
 
-Protocol identity stays separate from the mapped dial address: forwarding never changes HTTP Host, S3 signing identity
-or the original TLS DNS name. OpenSearch omits SNI for IP literals, keeps the successful probe's engine, and only
-tries HTTP/HTTPS when the target has no explicit scheme. Authentication, TLS verification and cleanup failures are terminal.
-The OpenSearch 3.6 adapter balances request accounting when request construction throws synchronously, so SDK close
-does not poll forever. A Node child-process regression verifies natural exit after this failure without process.exit().
+Python `harness-toolbox[prometheus]` 提供 `MetricDataSource`，描述 `/metrics` 地址、
+显式请求头、HTTP 连接池、总抓取超时、响应体及历史容量。客户端通过独立 HTTP 池抓取，
+用内嵌 Prombed 保存短期样本并执行 PromQL；它不是远端 Prometheus HTTP 查询 API 的客户端。
+相同配置在 ClientManager 内复用抓取客户端和历史；同一 DataLoader 内只抓取一次，
+各消费方分别执行查询，返回原始 Prometheus 类型与 labels。
 
-### HTTP clients
+读取频率与范围边界由调用方决定；toolbox 不运行采样循环，也不声明业务指标或 SLO。
+消费方持有 ClientManager、按读取范围创建 DataLoader；不同客户端的内嵌 Prombed 历史彼此独立。
+Perf 使用下述远端 Prometheus 查询能力，不调用此直接抓取路径。
 
-`HttpClient` accepts a logical HTTP(S) endpoint, a borrowed `Transport`, and explicit concurrency,
-connect/request deadlines and response-byte limits. It shares HTTP handler mechanics with S3,
-including original Host and certificate identity through a mapped route. It exposes bounded
-`request(path, options)` responses: status, headers and fully consumed bytes. Oversized bodies fail;
-cancellation destroys the body before releasing capacity. No response stream escapes its lifecycle.
+直接抓取声明显式 targets，或通过 environment + workloads + port 复用 Workload 解析。
+MetricDataSource 的 transport 选择 direct 或 port-forward；后者复用根执行拥有的 Toolbox 通道。
+准备预算与整轮 HTTP 采集预算分开；diagnostics 保留每个实例的传输方式、阶段、字节数和耗时。
+失败实例不会被视为零；健康实例样本保留，但覆盖不完整时窗口查询拒绝产生全服务结果。
+实例 UID 进入 Prometheus instance 标签，替代 Pod 不与旧计数器拼接；消失实例记录 stale。
+抓取并发、超时与响应预算归同一个客户端，任一实例失败不能表现为成功的服务级聚合。
+`query_window` 只查询已保留的本地历史，历史缺失或采集不完整时显式失败；采集调度和业务 PromQL
+仍归消费方。direct 要求 Pod 地址从执行机可达；port-forward 显式复用 Kubernetes 通道，Host 配置不隐式切换 HTTP 路径。
 
-A request can only address the configured origin. Redirects and non-success statuses are returned,
-not followed or retried. Caller cancellation only stops that request; disposing the client aborts
-its operations and destroys its pools, while the root retains ownership of the borrowed Transport.
-Route preparation may select another candidate; an HTTP operation is never replayed on another route.
-Protocol adapters retain credential, signing and response interpretation rules. HTTP is a Client,
-not a new Transport variant.
+远端 Prometheus 使用 Python `PrometheusDataSource`（`kind` 默认 `prometheus`，VictoriaMetrics 声明
+`kind="victoriametrics"`；其他兼容实现可使用自己的非空 kind），通过现有 HTTPClientProvider
+借用独立连接池，复用相同 ClientManager 生命周期。`read(expressions, timestamp=..., scope=...)`
+调用 `/api/v1/query`；`read_range(expressions, start=..., end=..., step=..., scope=...)`
+调用 `/api/v1/query_range` 并保留矩阵结果。单轮 DataLoader 共享求值时间与相同表达式的结果或错误。端点、显式认证、
+kind 参与客户端复用身份；Toolbox 不猜测后端、不改写调用方查询或转换统计口径。
+超时、响应字节数与序列上限属于 DataSource；超限失败，不请求服务端截断结果。
+原始 labels、warnings 和 infos 保留在返回值中，perf Probe 将 warnings 视为观测失败。
 
+远端历史归 Prometheus 管理，查询窗口可以包含压测开始前的数据。环境、租户、实例与时间窗口
+由调用方的 PromQL 显式选择；toolbox 不推断业务归属。网络地址必须从执行机可达，
+Service 名称只是 perf 报告的归属标签，不隐式添加查询条件或进行集群路由。
 
-### Kubernetes Secret DataSource（TypeScript）
+## 故障注入后端
 
-`KubernetesSecretDataSource` 接收根 ClientProvider、明确的 namespace/name 和非空 key 列表。
-它只执行命名 Secret 的 get；来源发现、访问权限和配置含义归消费方，不枚举其它 Secret。
-Client 返回所选 UTF-8 值、missingKeys、resourceVersion 和 observedAt，未选择的值不进入结果；
-403/404 等 API 失败保留 KubernetesError，不能解释成 key 缺失。Secret 的当前值不证明进程已加载。
+Chaos Mesh、ChaosBlade、Toxiproxy、AgentChaos 等可以作为工具箱中的具体故障注入后端；它们负责执行
+和撤销受控故障、返回后端证据，不拥有故障意图、恢复标准或评估结论。
 
-资源访问借用根客户端的并发、响应大小和默认超时预算，`read({ timeoutMs, signal })` 可传入请求预算。
-释放 Secret Client 会取消并等待自身读取结束，不关闭借用的 Kubernetes Client。
-宿主也可通过 `KubernetesSecretClient` 的 acquire 回调注入经过权限校验的资源访问视图；
-初始化时才执行目标发现，不由 Toolbox 解释业务配置。
+LitmusChaos 已经包含 Workflow、Probe 和 Result 等平台模型。接入这类后端时，应把它们视为执行协议
+和证据来源，避免与 quality-harness 的 Case、EvaluationRun 和 Verdict 重复建模。
 
-### Endpoint 与连通性（TypeScript）
+只有至少两个真实消费方需要同一种能力时，才从具体 Driver 中收敛公共接口；单一 Harness 或单一
+产品专用的操作继续留在消费方，避免把工具箱演变成无边界的公共包。
 
-Common 的 `Endpoint` 描述访问地址（scheme、host、port、secure），不继承 Service 或 DataSource，
-可选 id、description 和 workload 描述消费方声明；workload 携带消费方完整 Workload 声明（platform、location、namespace、container），用于定位访问与探测实例。
-Endpoint 不携带执行适配器、凭据或完整资源 URL。Service、DataSource 与独立资源都可提供 Endpoint；关系归消费方。
-Toolbox 的 `endpointFromUrl` 提取网络入口并剔除资源路径和签名，`validateEndpoint` 统一校验地址字段。
+## References
 
-`secure` 表示加密传输要求，具体握手由协议决定；不表示可信下载策略允许访问或业务功能正常。
-`probeConnectivity` 在调用方选择的执行环境观察 DNS、TCP、TLS 阶段及耗时，当前只支持
-https/wss/tls 的直接 TLS。其它加密协议抛 `ProtocolError`（继承 `ToolboxError`，kind 为 `protocol`，code 为 `Unsupported`），不能降级为 TCP 成功。
-协议客户端仍负责 MySQL 等协议内的 TLS 协商；网络失败证据与执行能力缺口分别保留。
+- 跨 Harness 模型、主流程与职责：[开发约定](../AGENTS.md)
+- e2e Target Driver 边界：[E2E](e2e.md)
+- Go Kubernetes 实现：[`../sdks/go/toolbox/kube`](../sdks/go/toolbox/kube)
+- Python Kubernetes 实现：[`../sdks/python/toolbox/harness_toolbox/kube`](../sdks/python/toolbox/harness_toolbox/kube)
+- Perf 跨语言契约：[`../spec/perf-contract.md`](../spec/perf-contract.md)

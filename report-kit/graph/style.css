@@ -1,0 +1,25 @@
+/* Shared graph presentation; report shell styles belong to each adapter. */
+.graph-view [hidden] { display:none !important; }
+.graph-view .graph-filter-control { display:inline-block; position:relative; vertical-align:top; margin:0 4px; }
+.graph-view .graph-filter-control > summary { font:inherit; margin:0; padding:1px 6px; border:1px solid #767676;
+  border-radius:3px; background:#f5f5f5; white-space:nowrap; cursor:pointer; list-style:none; }
+.graph-view .graph-filter-control > summary::before { content:none; }
+.graph-view .graph-filter-control > summary::after { content:" ▾"; }
+.graph-view .graph-filter-control > summary::-webkit-details-marker { display:none; }
+.graph-view button, .graph-view select { font:inherit; cursor:pointer; }
+.graph-view .graph-filter-popup { position:absolute; z-index:4; top:100%; left:0; width:max-content; max-width:80vw;
+  background:#fff; border:1px solid #94a3b8; padding:8px; border-radius:4px; }
+.graph-view .graph-filter-options { padding:8px; max-height:260px; overflow:auto; }
+.graph-view .graph-table > [data-graph-frame] { overflow-x:auto; }
+.graph-view .graph-viewport { position:relative; margin-top:.5rem; }
+.graph-view .graph-canvas { height:600px; border:1px solid var(--line,#d0d7de); }
+[data-wide="true"] .graph-view .graph-canvas { height:max(600px, 78vh); }
+.graph-view .graph-tooltip { position:absolute; pointer-events:auto; white-space:pre-wrap; overflow-wrap:anywhere;
+  max-width:min(560px,90%); max-height:65%; overflow:auto; background:#fff; border:1px solid #94a3b8;
+  padding:8px; border-radius:4px; z-index:3; }
+.graph-view .graph-details { white-space:pre-wrap; overflow-wrap:anywhere; }
+.graph-view .graph-zoom { position:absolute; bottom:12px; right:12px; display:flex; align-items:center;
+  gap:.5rem; padding:.45rem .65rem; background:white; border:1px solid var(--line,#d0d7de);
+  border-radius:6px; box-shadow:0 2px 6px #0001; }
+.graph-view .graph-zoom input { width:140px; }
+.graph-view .graph-zoom output { min-width:3.5em; text-align:right; font-variant-numeric:tabular-nums; }
