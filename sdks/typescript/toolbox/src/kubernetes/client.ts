@@ -1,7 +1,7 @@
 import { KubernetesExecTransport } from "./exec-transport";
 import type { Client } from "../client";
 import { KubectlExecutor, type Executor, type ExecTarget, type RunOptions } from "./executor";
-import { ServicePortForwarder } from "./service-port-forward";
+import { ServicePortForwarder } from "./service/port-forward";
 import type { KubernetesEndpoint } from "./endpoint";
 import type { Workload, WorkloadInstance } from "@compforge/harness-common";
 import type { ResourceAccess, ResourceLimits, ResourceRef, ResourceListQuery, ResourceRequestOptions, NamespaceResources } from "./resources";

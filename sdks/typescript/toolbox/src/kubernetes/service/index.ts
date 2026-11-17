@@ -1,6 +1,6 @@
-import type { Executor } from "./executor";
-import type { KubernetesEndpoint } from "./endpoint";
-import { parsePods, type KubernetesPod } from "./pod";
+import type { Executor } from "../executor";
+import type { KubernetesEndpoint } from "../endpoint";
+import { parsePods, type KubernetesPod } from "../pod/index";
 
 export interface KubernetesServicePort {
   name?: string;

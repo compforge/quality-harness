@@ -1,13 +1,13 @@
-import type { Executor, KubectlOptions } from "./executor";
-import type { KubernetesEndpoint } from "./endpoint";
-import { findPod, type KubernetesPod } from "./pod";
-import { PortForwardScope, type StartPortForward, type PortForward } from "./port-forward";
+import type { Executor, KubectlOptions } from "../executor";
+import type { KubernetesEndpoint } from "../endpoint";
+import { findPod, type KubernetesPod } from "../pod/index";
+import { PortForwardScope, type StartPortForward, type PortForward } from "../port-forward";
 import {
   findPodsForService,
   findService,
   listServiceNetwork,
   type KubernetesService,
-} from "./service";
+} from "./index";
 
 export interface ForwardedEndpoint extends KubernetesEndpoint {
   /** TLS 校验仍使用集群内逻辑地址，而不是本地 127.0.0.1。 */

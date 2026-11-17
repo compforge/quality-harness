@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -117,21 +117,21 @@
       "types": "./dist/kubernetes/executor.d.ts",
       "import": "./dist/kubernetes/executor.js"
     },
-    "./kubernetes/log-capture-plan": {
-      "types": "./dist/kubernetes/log-capture-plan.d.ts",
-      "import": "./dist/kubernetes/log-capture-plan.js"
+    "./kubernetes/pod/log/capture-plan": {
+      "types": "./dist/kubernetes/pod/log/capture-plan.d.ts",
+      "import": "./dist/kubernetes/pod/log/capture-plan.js"
     },
     "./kubernetes/pod": {
-      "types": "./dist/kubernetes/pod.d.ts",
-      "import": "./dist/kubernetes/pod.js"
+      "types": "./dist/kubernetes/pod/index.d.ts",
+      "import": "./dist/kubernetes/pod/index.js"
     },
-    "./kubernetes/pod-log": {
-      "types": "./dist/kubernetes/pod-log.d.ts",
-      "import": "./dist/kubernetes/pod-log.js"
+    "./kubernetes/pod/log": {
+      "types": "./dist/kubernetes/pod/log/index.d.ts",
+      "import": "./dist/kubernetes/pod/log/index.js"
     },
-    "./kubernetes/pod-log-datasource": {
-      "types": "./dist/kubernetes/pod-log-datasource.d.ts",
-      "import": "./dist/kubernetes/pod-log-datasource.js"
+    "./kubernetes/pod/log/datasource": {
+      "types": "./dist/kubernetes/pod/log/datasource.d.ts",
+      "import": "./dist/kubernetes/pod/log/datasource.js"
     },
     "./kubernetes/resources": {
       "types": "./dist/kubernetes/resources.d.ts",
@@ -142,12 +142,12 @@
       "import": "./dist/kubernetes/secret-datasource.js"
     },
     "./kubernetes/service": {
-      "types": "./dist/kubernetes/service.d.ts",
-      "import": "./dist/kubernetes/service.js"
+      "types": "./dist/kubernetes/service/index.d.ts",
+      "import": "./dist/kubernetes/service/index.js"
     },
-    "./kubernetes/service-port-forward": {
-      "types": "./dist/kubernetes/service-port-forward.d.ts",
-      "import": "./dist/kubernetes/service-port-forward.js"
+    "./kubernetes/service/port-forward": {
+      "types": "./dist/kubernetes/service/port-forward.d.ts",
+      "import": "./dist/kubernetes/service/port-forward.js"
     },
     "./kubernetes/workload": {
       "types": "./dist/kubernetes/workload.d.ts",

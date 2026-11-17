@@ -400,7 +400,7 @@ test("published HTTP client retains DNS SNI, IP identity and cancellation cleanu
 });
 
 /** @case id=pod_log_public_package,desc=`Import the published Pod log entry`,expect=`Consumers get the transport and nanosecond boundary parser without internal paths` */
-test("published Pod log entry exposes capture and nanosecond boundaries in Node", () => {
+test("published Pod and Service entries expose resource capabilities in Node", () => {
   const root = mkdtempSync(join(tmpdir(), "harness-toolbox-pod-log-package-"));
   const target = join(root, "node_modules/@compforge/harness-toolbox");
   mkdirSync(target, { recursive: true });
@@ -416,12 +416,25 @@ test("published Pod log entry exposes capture and nanosecond boundaries in Node"
     }
     const result = spawnSync("node", ["--input-type=module", "-e", `
       import assert from 'node:assert/strict';
-      import { ClientNodePodLogAccess, KubectlPodLogAccess, logTimestampNanos } from '@compforge/harness-toolbox/kubernetes/pod-log';
+      import { ClientNodePodLogAccess, KubectlPodLogAccess, logTimestampNanos } from '@compforge/harness-toolbox/kubernetes/pod/log';
       assert.equal(typeof ClientNodePodLogAccess, 'function');
       assert.equal(typeof KubectlPodLogAccess, 'function');
       assert.equal(logTimestampNanos('2026-11-17T00:00:00.000000002Z') - logTimestampNanos('2026-11-17T00:00:00.000000001Z'), 1n);
       assert.equal(logTimestampNanos('invalid'), undefined);
-      for (const path of ['kubernetes/log-timestamp', 'kubernetes/client-node-pod-log']) {
+      import { parsePods } from '@compforge/harness-toolbox/kubernetes/pod';
+      import { parseServices, findPodsForService } from '@compforge/harness-toolbox/kubernetes/service';
+      import { ServicePortForwarder } from '@compforge/harness-toolbox/kubernetes/service/port-forward';
+      import { PodLogDataSource } from '@compforge/harness-toolbox/kubernetes/pod/log/datasource';
+      import { PodLogByteBudget } from '@compforge/harness-toolbox/kubernetes/pod/log/capture-plan';
+      assert.equal(typeof ServicePortForwarder.create, 'function');
+      assert.equal(typeof PodLogDataSource, 'function');
+      assert.equal(typeof PodLogByteBudget, 'function');
+      const pods = parsePods(JSON.stringify({items:[{metadata:{name:'one',namespace:'demo',labels:{app:'api'}},status:{phase:'Running'}}]}),'demo');
+      const services = parseServices(JSON.stringify({items:[{metadata:{name:'api',namespace:'demo'},spec:{selector:{app:'api'},ports:[{port:80}]}}]}),'demo');
+      assert.deepEqual(findPodsForService(services,pods,'api','demo').map(pod=>pod.name),['one']);
+      for (const path of ['kubernetes/log-timestamp', 'kubernetes/client-node-pod-log',
+        'kubernetes/pod-log', 'kubernetes/pod-log-datasource', 'kubernetes/log-capture-plan',
+        'kubernetes/service-port-forward', 'kubernetes/pod/log/client-node', 'kubernetes/pod/log/timestamp']) {
         await assert.rejects(import('@compforge/harness-toolbox/' + path), {code:'ERR_PACKAGE_PATH_NOT_EXPORTED'});
       }
     `], { cwd: root, encoding: "utf8", timeout: 10_000 });

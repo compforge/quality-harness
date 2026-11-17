@@ -1,19 +1,19 @@
-/// <reference path="./node-fetch.d.ts" />
-import { logTimestampNanos } from "./log-timestamp";
-import { parseDuration } from "../duration";
+/// <reference path="../../node-fetch.d.ts" />
+import { logTimestampNanos } from "./timestamp";
+import { parseDuration } from "../../../duration";
 import { closeSync, openSync, writeSync } from "node:fs";
 import { KubeConfig } from "@kubernetes/client-node";
 // Bun replaces the bare node-fetch import with a shim that ignores HTTPS Agent TLS options.
 // Use the installed implementation so kubeconfig CA, client certificates and proxies reach HTTP(S).
 import fetch from "node-fetch/lib/index.js";
 import type { RequestInfo, RequestInit, Response } from "node-fetch";
-import type { ExecResult } from "./executor";
+import type { ExecResult } from "../../executor";
 import type {
   KubernetesPodLogAccess,
   PodLogRequest,
   PodLogResult,
   ServicePodListResult,
-} from "./pod-log";
+} from "./types";
 
 export interface ClientNodeLogPolicy {
   idleTimeoutMs: number;
