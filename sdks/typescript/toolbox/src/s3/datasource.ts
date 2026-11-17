@@ -19,6 +19,7 @@ export class S3DataSource implements DataSource<S3Client> {
     this.clientKey = clientKey("s3", { target: this.#target, limits: this.#limits,
       route: route ? { key: route.key, transport: route.transport.name } : "direct" });
   }
+  id(): string { return this.clientKey; }
   createClient(_clients: Pick<ClientManager, "get">, signal: AbortSignal): S3Client {
     return new S3Client(this.#target, this.#transport instanceof Transport ? this.#transport : new Transport([this.#transport]), this.#limits, { signal });
   }

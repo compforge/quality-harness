@@ -5,9 +5,10 @@ from typing import Generic, Protocol
 
 from harness_common.access.client import C, ClientProvider
 from harness_common.system.service import Service
+from harness_common.identity import Identity
 
 
-class DataSource(ClientProvider[C], Protocol[C]):
+class DataSource(Identity, ClientProvider[C], Protocol[C]):
     """A source of data; lifecycle and reuse follow ClientProvider.
 
     Accessible environment providers need not be described as data sources.
@@ -15,6 +16,10 @@ class DataSource(ClientProvider[C], Protocol[C]):
     @spec kind identifies the backend implementation with a nonempty, open string;
           consumer-owned query strategies may select by kind, not by URL or source name.
     """
+
+    def id(self) -> str:
+        """Default to the complete access identity; consumers own result reuse."""
+        return self.client_key
 
     # Backend implementation, not a source name or query-language dialect.
     kind: str

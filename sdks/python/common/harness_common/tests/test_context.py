@@ -31,6 +31,9 @@ class ProbeSource:
     client_key: str
     kind: str = "example"
 
+    def id(self) -> str:
+        return self.client_key
+
     def create_client(self, clients):
         return Probe()
 

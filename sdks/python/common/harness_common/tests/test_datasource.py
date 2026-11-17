@@ -24,8 +24,10 @@ class ExampleSource(DataSource[ExampleClient]):
 async def test_description_is_optional_and_does_not_change_client_identity() -> None:
     source = ExampleSource()
     assert source.description is None
+    assert source.id() == source.client_key
     described = ExampleSource()
     described.description = "Read-only conversation history"
+    assert described.id() == source.id()
     async with ClientManager() as clients:
         assert await clients.get(source) is await clients.get(described)
     assert described.description == "Read-only conversation history"

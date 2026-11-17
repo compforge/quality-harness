@@ -4,7 +4,7 @@ import { repositoryId, ClientManager, clientKey, Service, type ServiceDataSource
 
 test("datasource description is optional discovery metadata, not client identity", async () => {
   const source: DataSource<Client> = {
-    kind: "mysql",
+    kind: "mysql", id: () => "source:db",
     clientKey: "shared-db",
     createClient: () => ({ initialize: async () => {}, dispose: async () => {} }),
   };
@@ -12,6 +12,7 @@ test("datasource description is optional discovery metadata, not client identity
   const described: DataSource<Client> = { ...source, description: "Read-only conversation history" };
   const clients = new ClientManager();
   try {
+    expect(described.id()).toBe(source.id());
     expect(described.description).toBe("Read-only conversation history");
     expect(await clients.get(described)).toBe(await clients.get(source));
   } finally { await clients.dispose(); }
@@ -27,7 +28,7 @@ test("source identity includes credentials and ignores configuration key order",
 test("service associations share the source client without owning its lifetime", async () => {
   let starts = 0;
   let closes = 0;
-  const source = { kind: "mysql", clientKey: "db", createClient: () => ({
+  const source = { kind: "mysql", id: () => "source:db", clientKey: "db", createClient: () => ({
     initialize: async () => { starts++; },
     dispose: async () => { closes++; },
   }) };
@@ -40,6 +41,7 @@ test("service associations share the source client without owning its lifetime",
   try {
     const [one, two] = await Promise.all(bindings.map(binding => clients.get(binding.source)));
     expect(one).toBe(two);
+    expect(bindings[0]!.source.id()).toBe(bindings[1]!.source.id());
     expect(starts).toBe(1);
     expect(closes).toBe(0);
   } finally { await clients.dispose(); }
