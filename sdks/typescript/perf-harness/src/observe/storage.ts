@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import type { PrometheusReader } from "@compforge/harness-toolbox/prometheus";
+import type { MetricDBReader } from "@compforge/harness-toolbox/metricdb";
 import type { Run } from "../model";
 import { loadRun, serializeRun } from "../runio";
 import { collectMetrics, type CollectionOptions } from "./history";
@@ -38,7 +38,7 @@ export function writeMetricData(run: Run, directory: string): void {
   renameSync(temporary,path);
 }
 /** Reuse frozen source identity, expressions and windows without loading project Runners. */
-export async function recollectMetrics(directory: string, sources: readonly PrometheusReader[], options: CollectionOptions = {}): Promise<Run> {
+export async function recollectMetrics(directory: string, sources: readonly MetricDBReader[], options: CollectionOptions = {}): Promise<Run> {
   const run = loadRun(directory);
   if (!run.executions.some(arm => arm.prometheus_observations?.length)) throw new Error("Run has no saved metric queries");
   archiveMetricCollection(run,directory);

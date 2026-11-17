@@ -1,4 +1,4 @@
-"""Bounded reads from the Prometheus HTTP query API.
+"""Bounded reads from the metric database query API.
 
 The caller owns expressions and observation cadence. This client owns HTTP access,
 response validation and one evaluation timestamp per DataLoader scope.
@@ -19,31 +19,25 @@ from harness_common import ClientProvider, DataSource
 from harness_common.access.client import _ClientBorrower, client_key
 
 from harness_toolbox.data_loader import DataLoader
-from harness_toolbox.errors import ErrorKind, PrometheusQueryError
+from harness_toolbox.errors import ErrorKind, MetricDBQueryError
 from harness_toolbox.http import HTTPClient, HTTPClientProvider, HTTPRoute
 
-
-@dataclass(frozen=True)
-class PrometheusOptions:
-    timeout_ms: int = 5_000
-    max_response_bytes: int = 16 * 1024 * 1024
-    max_series: int = 20_000
-    connection_pool_maxsize: int = 8
+from .backend import backend_for
+from .model import MetricDBKind, MetricDBOptions, MetricDBResult
 
 
 @dataclass(frozen=True)
-class PrometheusDataSource(DataSource["PrometheusClient"]):
-    """Prometheus server base URL (including any proxy prefix), auth and limits."""
+class MetricDBDataSource(DataSource["MetricDBClient"]):
+    """Metric database base URL (including any proxy prefix), auth and limits."""
 
     url: str
-    kind: str = field(default="prometheus", kw_only=True)
+    kind: MetricDBKind = field(default="prometheus", kw_only=True)
     headers: dict[str, str] = field(default_factory=dict, repr=False)
-    options: PrometheusOptions = field(default_factory=PrometheusOptions)
+    options: MetricDBOptions = field(default_factory=MetricDBOptions)
     transport: ClientProvider[HTTPRoute] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.kind, str) or not self.kind.strip():
-            raise ValueError("Prometheus data source kind must be a nonempty string")
+        backend_for(self.kind)
         parts = urlsplit(self.url)
         if (
             parts.scheme not in {"http", "https"}
@@ -52,16 +46,14 @@ class PrometheusDataSource(DataSource["PrometheusClient"]):
             or parts.query
             or parts.fragment
         ):
-            raise ValueError(
-                "Prometheus query URL must be an HTTP(S) base URL; use headers for auth"
-            )
+            raise ValueError("MetricDB query URL must be an HTTP(S) base URL; use headers for auth")
         if min(asdict(self.options).values()) <= 0:
-            raise ValueError("Prometheus query capacity and timeout limits must be positive")
+            raise ValueError("MetricDB query capacity and timeout limits must be positive")
 
     @property
     def client_key(self) -> str:
         return client_key(
-            "prometheus_query",
+            "metricdb",
             {
                 "kind": self.kind,
                 "url": self.url,
@@ -71,22 +63,14 @@ class PrometheusDataSource(DataSource["PrometheusClient"]):
             },
         )
 
-    def create_client(self, clients: _ClientBorrower) -> PrometheusClient:
-        return PrometheusClient(self, clients)
+    def create_client(self, clients: _ClientBorrower) -> MetricDBClient:
+        return MetricDBClient(self, clients)
 
 
-@dataclass(frozen=True)
-class PrometheusQueryResult:
-    """Native data plus server annotations; consumers decide whether warnings are acceptable."""
-
-    data: dict
-    warnings: tuple[str, ...] = ()
-    infos: tuple[str, ...] = ()
-
-
-class PrometheusClient:
-    def __init__(self, source: PrometheusDataSource, clients: _ClientBorrower) -> None:
+class MetricDBClient:
+    def __init__(self, source: MetricDBDataSource, clients: _ClientBorrower) -> None:
         self._source = source
+        self._backend = backend_for(source.kind)
         self._clients = clients
         self._http: HTTPClient | None = None
 
@@ -111,14 +95,14 @@ class PrometheusClient:
         *,
         timestamp: float | None = None,
         scope: DataLoader | None = None,
-    ) -> dict[str, PrometheusQueryResult]:
+    ) -> dict[str, MetricDBResult]:
         """Evaluate expressions at one Unix timestamp; share identical reads within a scope.
 
         No selector or time window is injected into PromQL. A server-side rate
         window may include observations from before this execution started.
         """
         if self._http is None:
-            raise RuntimeError("Prometheus query client is closed")
+            raise RuntimeError("MetricDB query client is closed")
         if timestamp is None:
 
             async def now() -> float:
@@ -130,10 +114,10 @@ class PrometheusClient:
                 else await now()
             )
         if not math.isfinite(timestamp):
-            raise ValueError("Prometheus evaluation timestamp must be finite")
+            raise ValueError("MetricDB evaluation timestamp must be finite")
 
-        async def query(expression: str) -> PrometheusQueryResult:
-            async def request() -> PrometheusQueryResult:
+        async def query(expression: str) -> MetricDBResult:
+            async def request() -> MetricDBResult:
                 return await self._query(expression, timestamp)
 
             return (
@@ -164,26 +148,26 @@ class PrometheusClient:
         end: float,
         step: float,
         scope: DataLoader | None = None,
-    ) -> dict[str, PrometheusQueryResult]:
+    ) -> dict[str, MetricDBResult]:
         """Evaluate historical expressions on an inclusive Unix-time grid.
 
         @spec Range queries preserve server data and annotations; limits fail, never truncate.
         """
         if self._http is None:
-            raise RuntimeError("Prometheus query client is closed")
+            raise RuntimeError("MetricDB query client is closed")
         if not all(math.isfinite(v) for v in (start, end, step)) or end < start or step <= 0:
-            raise ValueError("Prometheus range needs finite start <= end and positive step")
+            raise ValueError("MetricDB range needs finite start <= end and positive step")
 
-        async def query(expression: str) -> PrometheusQueryResult:
-            async def request() -> PrometheusQueryResult:
+        async def query(expression: str) -> MetricDBResult:
+            async def request() -> MetricDBResult:
                 result = await self._request(
                     "query_range",
                     expression,
                     {"start": str(start), "end": str(end), "step": str(step)},
                 )
                 if result.data["resultType"] != "matrix":
-                    raise PrometheusQueryError(
-                        "Prometheus range response must be a matrix",
+                    raise MetricDBQueryError(
+                        "MetricDB range response must be a matrix",
                         kind=ErrorKind.INVALID_RESPONSE,
                     )
                 return result
@@ -209,14 +193,20 @@ class PrometheusClient:
                     task.cancel()
             await asyncio.gather(*tasks.values(), return_exceptions=True)
 
-    async def _query(self, expression: str, timestamp: float) -> PrometheusQueryResult:
+    async def _query(self, expression: str, timestamp: float) -> MetricDBResult:
         return await self._request("query", expression, {"time": str(timestamp)})
 
     async def _request(
         self, endpoint: str, expression: str, parameters: dict[str, str]
-    ) -> PrometheusQueryResult:
+    ) -> MetricDBResult:
+        """Preserve the requested time even for recent VM evaluations.
+
+        @spec VM query latency must not silently shift a frozen observation window.
+        @why Exact evaluation time does not imply that buffered samples have reached storage.
+        """
         if self._http is None:
-            raise RuntimeError("Prometheus query client is closed")
+            raise RuntimeError("MetricDB query client is closed")
+        parameters = {**parameters, **self._backend.query_parameters()}
         options = self._source.options
         timeout = options.timeout_ms / 1000
         body = bytearray()
@@ -241,24 +231,22 @@ class PrometheusClient:
                 async for chunk in response.aiter_bytes():
                     body.extend(chunk)
                     if len(body) > options.max_response_bytes:
-                        raise PrometheusQueryError(
-                            "Prometheus response exceeds byte limit", kind=ErrorKind.LIMIT_EXCEEDED
+                        raise MetricDBQueryError(
+                            "MetricDB response exceeds byte limit", kind=ErrorKind.LIMIT_EXCEEDED
                         )
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             kind = {401: ErrorKind.AUTHENTICATION_FAILED, 403: ErrorKind.PERMISSION_DENIED}.get(
                 status, ErrorKind.OPERATION_FAILED
             )
-            raise PrometheusQueryError(
-                f"Prometheus query HTTP request failed ({status})", kind=kind, code=status
+            raise MetricDBQueryError(
+                f"MetricDB query HTTP request failed ({status})", kind=kind, code=status
             ) from exc
         except (TimeoutError, httpx.TimeoutException) as exc:
-            raise PrometheusQueryError(
-                "Prometheus query timed out", kind=ErrorKind.TIMEOUT
-            ) from exc
+            raise MetricDBQueryError("MetricDB query timed out", kind=ErrorKind.TIMEOUT) from exc
         except httpx.RequestError as exc:
-            raise PrometheusQueryError(
-                "Prometheus query transport failed", kind=ErrorKind.CONNECTION_FAILED
+            raise MetricDBQueryError(
+                "MetricDB query transport failed", kind=ErrorKind.CONNECTION_FAILED
             ) from exc
         try:
             envelope = json.loads(body)
@@ -267,8 +255,8 @@ class PrometheusClient:
             if envelope.get("status") == "error":
                 # Server errors can echo query contents or credentials. Expose only
                 # a safe protocol category; never the remote error text.
-                raise PrometheusQueryError(
-                    "Prometheus rejected the query", kind=ErrorKind.OPERATION_FAILED
+                raise MetricDBQueryError(
+                    "MetricDB rejected the query", kind=ErrorKind.OPERATION_FAILED
                 )
             data = envelope["data"]
             if (
@@ -287,12 +275,20 @@ class PrometheusClient:
                     raise ValueError
                 annotations.append(tuple(values))
         except (ValueError, KeyError, TypeError) as exc:
-            raise PrometheusQueryError(
+            raise MetricDBQueryError(
                 "Invalid Prometheus query response", kind=ErrorKind.INVALID_RESPONSE
             ) from exc
         # Do not send API `limit`: truncation would look like a complete observation.
         if data["resultType"] in {"vector", "matrix"} and len(data["result"]) > options.max_series:
-            raise PrometheusQueryError(
-                "Prometheus response exceeds series limit", kind=ErrorKind.LIMIT_EXCEEDED
+            raise MetricDBQueryError(
+                "MetricDB response exceeds series limit", kind=ErrorKind.LIMIT_EXCEEDED
             )
-        return PrometheusQueryResult(data, *annotations)
+        partial = envelope.get("isPartial")
+        if "isPartial" in envelope and not isinstance(partial, bool):
+            raise MetricDBQueryError(
+                "Invalid MetricDB partial result flag", kind=ErrorKind.INVALID_RESPONSE
+            )
+        warnings, infos = annotations
+        if partial:
+            warnings += ("Metric backend returned a partial result",)
+        return MetricDBResult(data, warnings, infos, is_partial=partial)

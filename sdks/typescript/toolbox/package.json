@@ -1,6 +1,6 @@
 {
   "name": "@compforge/harness-toolbox",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {
@@ -41,9 +41,9 @@
       "types": "./dist/redis/index.d.ts",
       "import": "./dist/redis/index.js"
     },
-    "./opensearch": {
-      "types": "./dist/opensearch/index.d.ts",
-      "import": "./dist/opensearch/index.js"
+    "./vectordb/opensearch": {
+      "types": "./dist/vectordb/opensearch/index.d.ts",
+      "import": "./dist/vectordb/opensearch/index.js"
     },
     "./s3": {
       "types": "./dist/s3/index.d.ts",
@@ -81,13 +81,13 @@
       "types": "./dist/network/endpoint.d.ts",
       "import": "./dist/network/endpoint.js"
     },
-    "./prometheus": {
-      "types": "./dist/prometheus/index.d.ts",
-      "import": "./dist/prometheus/index.js"
+    "./metricdb": {
+      "types": "./dist/metricdb/index.d.ts",
+      "import": "./dist/metricdb/index.js"
     },
-    "./opensearch/health": {
-      "types": "./dist/opensearch/health.d.ts",
-      "import": "./dist/opensearch/health.js"
+    "./vectordb/opensearch/health": {
+      "types": "./dist/vectordb/opensearch/health.d.ts",
+      "import": "./dist/vectordb/opensearch/health.js"
     },
     "./kubernetes/apparmor": {
       "types": "./dist/kubernetes/apparmor.d.ts",
@@ -173,13 +173,13 @@
       "types": "./dist/redis/key-stats.d.ts",
       "import": "./dist/redis/key-stats.js"
     },
-    "./opensearch/endpoint": {
-      "types": "./dist/opensearch/endpoint.d.ts",
-      "import": "./dist/opensearch/endpoint.js"
+    "./vectordb/opensearch/endpoint": {
+      "types": "./dist/vectordb/opensearch/endpoint.d.ts",
+      "import": "./dist/vectordb/opensearch/endpoint.js"
     },
-    "./opensearch/search-after": {
-      "types": "./dist/opensearch/search-after.d.ts",
-      "import": "./dist/opensearch/search-after.js"
+    "./vectordb/opensearch/search-after": {
+      "types": "./dist/vectordb/opensearch/search-after.d.ts",
+      "import": "./dist/vectordb/opensearch/search-after.js"
     },
     "./kubernetes/port-forward": {
       "types": "./dist/kubernetes/port-forward.d.ts",

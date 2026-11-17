@@ -7,8 +7,8 @@ import pytest
 
 from harness_toolbox import ClientManager
 from harness_toolbox.errors import ErrorKind, OpenSearchRequestError
-from harness_toolbox.opensearch import OpenSearchDataSource, OpenSearchTarget
 from harness_toolbox.transport import ConnectionSource
+from harness_toolbox.vectordb.opensearch import OpenSearchDataSource, OpenSearchTarget
 
 
 @asynccontextmanager

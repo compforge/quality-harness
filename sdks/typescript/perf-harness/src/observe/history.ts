@@ -1,4 +1,4 @@
-import type { PrometheusReader } from "@compforge/harness-toolbox/prometheus";
+import type { MetricDBReader } from "@compforge/harness-toolbox/metricdb";
 import { Graph, RelationKind } from "@compforge/harness-common";
 import type { Run, Window } from "../model";
 import { RED_UNITS, type PrometheusProbe, type ObservationBinding, type PrometheusObservation } from "./model";
@@ -16,7 +16,7 @@ function matches(window: Window, query: PrometheusProbe["summaries"][number]): b
  * @rule Backend-specific PromQL belongs to the project; never rewrite it when recollecting.
  * @see {@link component://sdks/typescript/perf-harness/docs/observations.md}
  */
-export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source: Pick<PrometheusReader, "url" | "kind">): void {
+export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source: Pick<MetricDBReader, "url" | "kind">): void {
   const url = new URL(source.url);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash)
     throw new Error("Metric source URL must not contain credentials, query or fragment");
@@ -121,7 +121,7 @@ export interface CollectionOptions {
  * @spec Collection cannot change request facts, evaluations or Run execution status.
  * @spec Each attempt replaces only its own projections; failed reads cannot retain stale values.
  */
-export async function collectMetrics(run: Run, sources: readonly PrometheusReader[], options: CollectionOptions = {}): Promise<void> {
+export async function collectMetrics(run: Run, sources: readonly MetricDBReader[], options: CollectionOptions = {}): Promise<void> {
   const concurrency = options.concurrency ?? 4;
   if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new Error("Metric concurrency must be a positive integer");
   const clients = new Map(sources.map(source => [source.url, source]));

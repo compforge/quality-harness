@@ -9,7 +9,7 @@ from prombed import PrombedError
 
 from harness_toolbox.data_loader import DataLoader
 from harness_toolbox.metric import MetricClient, MetricDataSource, MetricOptions
-from harness_toolbox.prometheus import PrometheusDataSource
+from harness_toolbox.metricdb import MetricDBDataSource
 
 
 @pytest.fixture(autouse=True)
@@ -278,16 +278,16 @@ async def test_partial_fleet_preserves_samples_and_target_failure_stage(monkeypa
         assert client.diagnostics
 
 
-@pytest.mark.parametrize("kind", ["prometheus", "victoriametrics", "custom_backend"])
+@pytest.mark.parametrize("kind", ["prometheus", "victoriametrics"])
 def test_backend_kind_is_explicit_and_part_of_client_identity(kind):
-    source = PrometheusDataSource("http://metrics", kind=kind)
+    source = MetricDBDataSource("http://metrics", kind=kind)
     assert source.kind == kind
-    assert source.client_key == PrometheusDataSource("http://metrics", kind=kind).client_key
+    assert source.client_key == MetricDBDataSource("http://metrics", kind=kind).client_key
     if kind != "prometheus":
-        assert source.client_key != PrometheusDataSource("http://metrics").client_key
+        assert source.client_key != MetricDBDataSource("http://metrics").client_key
 
 
-@pytest.mark.parametrize("kind", [None, "", " ", 1])
+@pytest.mark.parametrize("kind", [None, "", " ", 1, "custom_backend"])
 def test_invalid_backend_kind_is_rejected(kind):
     with pytest.raises(ValueError, match="kind"):
-        PrometheusDataSource("http://metrics", kind=kind)
+        MetricDBDataSource("http://metrics", kind=kind)

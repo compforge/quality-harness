@@ -10,7 +10,7 @@ import pytest
 import yaml
 from harness_common import Graph, HttpOperation, Node, NodeKind, Relation, RelationKind
 from harness_toolbox.http import HTTPClient, HTTPClientProvider
-from harness_toolbox.prometheus import PrometheusDataSource
+from harness_toolbox.metricdb import MetricDBDataSource
 
 from perf_harness import Engine, build_callgraph, load_experiment, load_run, write_run
 from perf_harness.metric.store import MetricStore
@@ -39,7 +39,7 @@ def test_http_matching_scopes_service_method_and_route_and_escapes_values():
     probe = HttpApiProbe(
         operation=operation,
         profile=metrics,
-        data_source=PrometheusDataSource("http://prom"),
+        data_source=MetricDBDataSource("http://prom"),
         metric_route="/faqs/:dataset_id",
     )
     selector = metrics.selector(operation, "/faqs/:dataset_id")
@@ -209,7 +209,8 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     )
     props = payload["arms"][0]["windows"][0]["nodes"][1]["properties"]
     if state == "missing":
-        assert metric["reason"] == "no_samples"
+        assert metric["reason"] == "empty_result"
+        assert not restored.arm_runs[0].probe_errors
     assert props["team"] == "search"
     assert restored.graph.node("operation:kb/retrieve").properties == {"team": "search"}
     assert payload["topology_source"] == "declared"
@@ -242,14 +243,14 @@ async def test_http_query_to_saved_graph_is_offline_and_preserves_missing(
     assert "Service: kb\nPath: /faqs/{dataset_id}" in node.tooltip
     if state == "zero":
         assert props["perf"]["metrics"]["p95"]["status"] == "missing"
-        assert props["perf"]["metrics"]["p95"]["reason"] == "no_samples"
+        assert props["perf"]["metrics"]["p95"]["reason"] == "no_observations"
         assert not restored.arm_runs[0].probe_errors
     if state == "overflow":
         assert "p95 +Inf s" in node.label
         assert props["perf"]["metrics"]["p95"]["value"] == "+Inf"
         assert props["perf"]["metrics"]["p95"]["histogram"]["overflow"]
     assert "QPS N/A" in frame.nodes[0].label  # Unbound entry operation is not zero.
-    if state in {"error", "missing"}:
+    if state == "error":
         assert any(key == "Query error" for key, _ in node.details)
     from perf_harness.cli import main
 
@@ -304,7 +305,7 @@ def test_operation_roles_are_independent_and_preserve_meaning(tmp_path, roles):
         "p95": "histogram_quantile(0.95, sum by (le) (increase(log_duration_bucket[$window])))",
     }
     probe = PrometheusQueryProbe(
-        data_source=PrometheusDataSource("http://prom"),
+        data_source=MetricDBDataSource("http://prom"),
         operation=operation,
         service="search-store",
         summaries=[
@@ -391,7 +392,7 @@ def test_operation_role_descriptions_cannot_change_between_windows():
 
     with pytest.raises(ValueError, match="descriptions must agree"):
         PrometheusQueryProbe(
-            data_source=PrometheusDataSource("http://prom"),
+            data_source=MetricDBDataSource("http://prom"),
             operation=Operation("search", service_name="search-store"),
             service="search-store",
             metrics={"p95": "latency"},
@@ -449,7 +450,7 @@ def test_http_response_mode_survives_configuration_binding_and_request_roundtrip
 
 def test_http_error_profile_is_explicit_and_excludes_missing_status_schema():
     operation = HttpOperation("search", service_name="search", method="POST", path="/search")
-    source = PrometheusDataSource("http://prom")
+    source = MetricDBDataSource("http://prom")
     plain = HttpApiProbe(operation=operation, profile=profile(), data_source=source)
     assert "error_rate" not in plain.observation_binding.metrics
     probe = HttpApiProbe(

@@ -21,7 +21,6 @@ from harness_toolbox.errors import (
     OpenSearchRequestError,
 )
 from harness_toolbox.mysql import MySQLDataSource, MySQLTarget
-from harness_toolbox.opensearch import OpenSearchDataSource, OpenSearchTarget
 from harness_toolbox.transport import (
     ConnectionSource,
     DirectTransport,
@@ -30,6 +29,7 @@ from harness_toolbox.transport import (
     PodPythonTransport,
     PortForwardTransport,
 )
+from harness_toolbox.vectordb.opensearch import OpenSearchDataSource, OpenSearchTarget
 
 
 @pytest.mark.parametrize(

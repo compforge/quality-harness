@@ -1,11 +1,11 @@
 import { describeOpenSearchError, type OpenSearchReadApi } from "./protocol";
 export { describeOpenSearchError, isOpenSearchReadApi, type OpenSearchReadApi } from "./protocol";
 import { raceSignal } from "race-signal";
-import type { Client as ManagedClient } from "../client";
-import type { ClientLifecycle } from "../datasource";
+import type { Client as ManagedClient } from "../../client";
+import type { ClientLifecycle } from "../../datasource";
 import { Client, Connection, errors } from "@opensearch-project/opensearch";
-import { Transport, isConnectionNetworkError } from "../transport";
-import { ToolboxError, TimeoutError } from "../errors";
+import { Transport, isConnectionNetworkError } from "../../transport";
+import { ToolboxError, TimeoutError } from "../../errors";
 import type { SearchEngine, SearchQuery, SearchResult } from "./types";
 import { isIP } from "node:net";
 

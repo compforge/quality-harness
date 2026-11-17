@@ -25,10 +25,15 @@ test("published lifecycle and transport entries run in Node without protocol dri
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const result = spawnSync("node", ["--input-type=module", "-e", `
       import assert from 'node:assert/strict';
-      import { probeOpenSearchHealth, groupOpenSearchObservations, analyzeOpenSearch } from '@compforge/harness-toolbox/opensearch/health';
+      import { MetricDBClient } from '@compforge/harness-toolbox/metricdb';
+      const metricdb = new MetricDBClient({request:async () => ({status:200,headers:{},
+        body:new TextEncoder().encode(JSON.stringify({status:'success',isPartial:true,
+          data:{resultType:'vector',result:[]}}))})},{url:'http://metrics',kind:'victoriametrics'});
+      assert.equal((await metricdb.query('up',123.456)).isPartial,true);
+      import { probeOpenSearchHealth, groupOpenSearchObservations, analyzeOpenSearch } from '@compforge/harness-toolbox/vectordb/opensearch/health';
       assert.equal(typeof probeOpenSearchHealth, 'function');
       assert.deepEqual(analyzeOpenSearch(groupOpenSearchObservations([])), []);
-      for (const path of ['opensearch/snapshot', 'opensearch/analysis', 'opensearch/health/model', 's3/probe']) {
+      for (const path of ['vectordb/opensearch/snapshot', 'vectordb/opensearch/analysis', 'vectordb/opensearch/health/model', 's3/probe']) {
         await assert.rejects(import('@compforge/harness-toolbox/' + path), {code:'ERR_PACKAGE_PATH_NOT_EXPORTED'});
       }
       import { inspectKubernetesEnvironment } from '@compforge/harness-toolbox/kubernetes/environment-inspection';
@@ -122,7 +127,7 @@ test("published S3 entry performs bounded signed reads through a mapped route in
     const result = spawnSync("node", ["--input-type=module", "-e", `
       import assert from 'node:assert/strict';
       import { probeS3ReadWrite } from '@compforge/harness-toolbox/s3';
-      import { probeOpenSearchHealth } from '@compforge/harness-toolbox/opensearch/health';
+      import { probeOpenSearchHealth } from '@compforge/harness-toolbox/vectordb/opensearch/health';
       assert.equal(typeof probeS3ReadWrite, 'function');
       const cancelled = await probeS3ReadWrite({bucket:'fixture',signal:AbortSignal.abort(),client:{},download:async()=>{throw Error('not reached')},cleanupTimeoutMs:100,presignExpiresInSeconds:60});
       assert.equal(cancelled.status,'cancelled');
@@ -232,7 +237,7 @@ test("published OpenSearch entry falls back and does not replay reads on a reuse
     const result = spawnSync("node", ["--input-type=module", "-e", `
       import assert from 'node:assert/strict';
       import { createServer } from 'node:http';
-      import { openOpenSearch } from '@compforge/harness-toolbox/opensearch';
+      import { openOpenSearch } from '@compforge/harness-toolbox/vectordb/opensearch';
       import { DirectTransport, Transport } from '@compforge/harness-toolbox/transport';
       let queries = 0, connects = 0;
       const routes = [];

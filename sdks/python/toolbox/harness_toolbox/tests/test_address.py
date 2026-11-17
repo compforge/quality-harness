@@ -15,8 +15,8 @@ from harness_toolbox.errors import ErrorKind, MySQLConnectionError, OpenSearchRe
 from harness_toolbox.kube import KubernetesClient
 from harness_toolbox.kube.client import _KubernetesAccess
 from harness_toolbox.mysql import MySQLDataSource, MySQLTarget
-from harness_toolbox.opensearch import OpenSearchDataSource, OpenSearchTarget
 from harness_toolbox.transport import ConnectionSource, Endpoint
+from harness_toolbox.vectordb.opensearch import OpenSearchDataSource, OpenSearchTarget
 
 ENV = KubernetesEnvironment("smoke", "/configs/smoke", "smoke-context")
 POLICY = AddressPolicy(ENV, "runtime", timeout_s=3, connection_pool_maxsize=2)

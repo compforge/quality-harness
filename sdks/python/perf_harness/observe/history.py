@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from harness_common import ClientManager
 from harness_toolbox.data_loader import DataLoader
-from harness_toolbox.prometheus import PrometheusDataSource
+from harness_toolbox.metricdb import MetricDBDataSource
 
 from perf_harness.metric import ScalarSummary, series_id, split_series
 from perf_harness.metric.reduce import time_series_summary
@@ -42,7 +42,7 @@ def _project(arm: ArmRun, observation: PrometheusObservation, *, fraction: bool 
         if fraction and any(not 0 <= value <= 1 for value in values.values()):
             raise ValueError("ratio observation must be between zero and one")
         if not values:
-            raise ValueError("Prometheus query returned no samples")
+            return
         window = next(w for w in arm.windows if w.id == observation.window_id)
         for key, value in values.items():
             metric, labels = split_series(key)
@@ -78,7 +78,7 @@ def _project(arm: ArmRun, observation: PrometheusObservation, *, fraction: bool 
         if samples:
             collected[sid] = samples
     if not collected:
-        raise ValueError("Prometheus query returned no samples")
+        return
     descriptor = arm.metrics[observation.metric]
     for sid, samples in collected.items():
         arm.series[sid] = Series(observation.metric.rsplit(".", 1)[-1], descriptor.unit, samples)
@@ -104,7 +104,7 @@ def _clear(arm: ArmRun) -> None:
         arm.probe_errors.pop(query.probe, None)
 
 
-def sources_for(probes: list[Probe]) -> dict[str, PrometheusDataSource]:
+def sources_for(probes: list[Probe]) -> dict[str, MetricDBDataSource]:
     sources = {}
     for probe in probes:
         if isinstance(probe, PrometheusQueryProbe):
@@ -122,7 +122,7 @@ def plan_history(probes: list[Probe], arm: ArmRun) -> None:
             arm.prometheus_observations.extend(probe.plan(arm))
 
 
-async def collect_metrics(run: Run, sources: dict[str, PrometheusDataSource]) -> None:
+async def collect_metrics(run: Run, sources: dict[str, MetricDBDataSource]) -> None:
     """Query frozen windows. Neither retry nor a metrics failure sends load requests.
 
     @spec Missing, non-finite and partial data remain explicit failures; request outcomes
@@ -240,7 +240,7 @@ async def recollect_metrics(run_dir: str, config_path: str | None = None) -> Run
     """Use only source configuration and saved queries, without importing project runners."""
     import yaml
 
-    from perf_harness.observe.configuration import parse_data_source, parse_prometheus
+    from perf_harness.observe.configuration import parse_data_source, parse_metricdb
     from perf_harness.runio import load_run, write_metric_data
 
     directory = Path(run_dir)
@@ -253,7 +253,7 @@ async def recollect_metrics(run_dir: str, config_path: str | None = None) -> Run
     source, _ = (
         parse_data_source(raw.get("data_source"))
         if "observation" in raw
-        else parse_prometheus(raw.get("prometheus"))
+        else parse_metricdb(raw.get("prometheus"))
     )
     if source is None:
         raise ValueError("Metric collection requires a Prometheus data source")

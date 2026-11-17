@@ -3,7 +3,7 @@ import { expect, test, spyOn } from "bun:test";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { describeOpenSearchError, OpenSearchEngine, OpenSearchClient, openOpenSearch } from "../src/opensearch";
+import { describeOpenSearchError, OpenSearchEngine, OpenSearchClient, openOpenSearch } from "../src/vectordb/opensearch";
 import { DirectTransport, type TcpTransport } from "../src/transport";
 import { Client } from "@opensearch-project/opensearch";
 import { TimeoutError, ToolboxError } from "../src/errors";

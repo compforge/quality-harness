@@ -392,7 +392,9 @@ Pod 文件组只发起一次 exec，要求 sh、head -c、base64、tr，以索�
 传输/协议失败拒绝整次操作。每次 read 重新读取路径，不缓存内容；共同获取不承诺原子文件系统快照。
 路径和 Pod target 为来源元数据，配置解析、覆盖规则和证据持久化由消费方负责。
 
-## Prometheus
+## 指标访问
+
+### 本地指标窗口
 
 Python `harness-toolbox[prometheus]` 提供 `MetricDataSource`，描述 `/metrics` 地址、
 显式请求头、HTTP 连接池、总抓取超时、响应体及历史容量。客户端通过独立 HTTP 池抓取，
@@ -413,8 +415,10 @@ MetricDataSource 的 transport 选择 direct 或 port-forward；后者复用根�
 `query_window` 只查询已保留的本地历史，历史缺失或采集不完整时显式失败；采集调度和业务 PromQL
 仍归消费方。direct 要求 Pod 地址从执行机可达；port-forward 显式复用 Kubernetes 通道，Host 配置不隐式切换 HTTP 路径。
 
-远端 Prometheus 使用 Python `PrometheusDataSource`（`kind` 默认 `prometheus`，VictoriaMetrics 声明
-`kind="victoriametrics"`；其他兼容实现可使用自己的非空 kind），通过现有 HTTPClientProvider
+### MetricDB
+
+远端指标库使用 Python `MetricDBDataSource`（`kind` 默认 `prometheus`，VictoriaMetrics 声明
+`kind="victoriametrics"`；不支持的 kind 显式失败），通过现有 HTTPClientProvider
 借用独立连接池，复用相同 ClientManager 生命周期。`read(expressions, timestamp=..., scope=...)`
 调用 `/api/v1/query`；`read_range(expressions, start=..., end=..., step=..., scope=...)`
 调用 `/api/v1/query_range` 并保留矩阵结果。单轮 DataLoader 共享求值时间与相同表达式的结果或错误。端点、显式认证、
@@ -425,6 +429,31 @@ kind 参与客户端复用身份；Toolbox 不猜测后端、不改写调用方�
 远端历史归 Prometheus 管理，查询窗口可以包含压测开始前的数据。环境、租户、实例与时间窗口
 由调用方的 PromQL 显式选择；toolbox 不推断业务归属。网络地址必须从执行机可达，
 Service 名称只是 perf 报告的归属标签，不隐式添加查询条件或进行集群路由。
+
+
+`toolbox/metricdb` 是远端指标库的统一访问入口。TypeScript 提供 `MetricDBReader` 与
+`MetricDBClient`，Python 提供 `MetricDBDataSource`、`MetricDBClient` 与 `MetricDBResult`。
+`client` 复用已有 HTTP transport、认证、容量与生命周期；`model` 定义查询结果；
+`prometheus/` 和 `victoriametrics/` 分别拥有后端查询行为。调用方不拼接后端修正参数。
+TypeScript `connect` 通过常量表达式识别查询能力；Python DataSource 显式声明 kind。
+身份识别失败不能降级为另一个后端，指标是否存在也不能作为后端识别依据。
+
+请求时间保留小数秒，表达式原样传递；MetricDB 不自动把 MetricsQL 翻译为 PromQL。
+VM adapter 使用 `nocache=1` 与 `latency_offset=1ms`，避免近期 instant 求值偏移与 range
+网格对齐，并最小化尾部值替换。这个策略不保证样本已经到库：等待、补采和 RED 解释由 perf 拥有。
+两种语言均保留原始 samples、warnings、infos 和可选 partial 标记；标记缺席表示未知，
+不等同于 false。partial=true 同时产生 warning，防止现有投影将不完整证据解释为成功。
+查询没有结果、访问失败、没有 histogram observations 是不同事实，不能统一补零。
+
+Operation probe 的 `type: prometheus` 描述查询协议，`datasource_kind` 匹配实际后端；
+它们不代表 toolbox 的目录名。perf 继续保存既有查询 evidence 格式，历史报告不依赖在线访问。
+新的客户端 import 使用 `metricdb`，不提供旧 Prometheus 访问入口别名。
+
+## VectorDB 后端目录
+
+OpenSearch 实现位于 Python `harness_toolbox.vectordb.opensearch` 与 TypeScript
+`@compforge/harness-toolbox/vectordb/opensearch`。这是目录归组，保留现有原生查询、health、
+snapshot 和 analysis 行为；尚未定义跨后端 VectorDB 契约，也不改变 OpenSearch 的日志检索用途。
 
 ## 故障注入后端
 

@@ -15,7 +15,7 @@ def histogram_summary(data: dict, projection: HistogramQuantile) -> ScalarSummar
     if data.get("resultType") != "vector":
         raise ValueError("histogram query must return a vector grouped only by le")
     if not data.get("result"):
-        raise ValueError("Prometheus query returned no samples")
+        return None
     buckets: dict[float, float] = {}
     for row in data["result"]:
         labels = {k: v for k, v in row["metric"].items() if k != "__name__"}

@@ -5,7 +5,7 @@ import yaml
 
 from perf_harness.config import load_experiment
 from perf_harness.observe import PrometheusQuery, PrometheusQueryProbe
-from perf_harness.observe.configuration import parse_prometheus
+from perf_harness.observe.configuration import parse_metricdb
 
 
 def config():
@@ -103,6 +103,6 @@ def test_removed_or_invalid_source_configuration_fails_before_load(tmp_path, cha
 def test_missing_auth_environment_fails_without_echoing_credentials(monkeypatch):
     monkeypatch.delenv("ABSENT_PROMETHEUS_AUTH", raising=False)
     with pytest.raises(ValueError, match="ABSENT_PROMETHEUS_AUTH"):
-        parse_prometheus(
+        parse_metricdb(
             {"url": "http://prom", "headers_env": {"Authorization": "ABSENT_PROMETHEUS_AUTH"}}
         )

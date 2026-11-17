@@ -65,16 +65,16 @@ Pod UID keeps replacement counters separate; HTTP targets must be reachable from
 `query_window(expressions, start_ms=..., end_ms=...)` queries retained local history without I/O,
 rejecting incomplete scrapes or evicted history.
 
-For a Prometheus server, use `PrometheusDataSource` from
-`harness_toolbox.prometheus` (extra `http`). It queries the HTTP API without
+For a Prometheus server, use `MetricDBDataSource` from
+`harness_toolbox.metricdb` (extra `http`). It queries the HTTP API without
 running a scraper or a local TSDB:
 
 ```python
 from harness_common import ClientManager
-from harness_toolbox.prometheus import PrometheusDataSource
+from harness_toolbox.metricdb import MetricDBDataSource
 
 async with ClientManager() as clients:
-    source = PrometheusDataSource("https://prometheus.example/prometheus")
+    source = MetricDBDataSource("https://prometheus.example/prometheus")
     client = await clients.get(source)
     results = await client.read(['sum(rate(http_requests_total{job="api"}[1m]))'])
     result = results['sum(rate(http_requests_total{job="api"}[1m]))']
@@ -83,7 +83,7 @@ async with ClientManager() as clients:
 ```
 
 The URL is the server base URL, including any reverse-proxy prefix. Authentication
-uses explicit `headers`. `PrometheusOptions` bounds total query time, response
+uses explicit `headers`. `MetricDBOptions` bounds total query time, response
 bytes, series count and pool size. Queries use one evaluation timestamp per call;
 passing a `DataLoader` shares that timestamp and identical queries across readers
 in one observation cycle. `timestamp=` selects an explicit Unix time in seconds.
@@ -137,5 +137,11 @@ and complete response consumption. The caller owns persistence of diagnostics.
 
 API migration: direct scrapes use `MetricDataSource`, `MetricClient`, `MetricOptions`
 from `harness_toolbox.metric`; Prometheus-compatible query APIs use
-`PrometheusDataSource`, `PrometheusClient`, `PrometheusOptions` from
-`harness_toolbox.prometheus`. No old-name aliases are provided.
+`MetricDBDataSource`, `MetricDBClient`, `MetricDBOptions` from
+`harness_toolbox.metricdb`. No old-name aliases are provided.
+
+
+MetricDB backend behavior lives under `metricdb/prometheus` and `metricdb/victoriametrics`.
+Both use the same bounded HTTP access and return `MetricDBResult`; `is_partial=None` means
+no completeness flag was provided. Partial results retain samples and also carry a warning.
+OpenSearch access is under `harness_toolbox.vectordb.opensearch`, retaining its native API.

@@ -174,6 +174,18 @@ Reports read saved MetricStore windows and project only operation nodes plus cal
 edges. Service ownership is auxiliary metadata. QPS on a node does not prove an incoming edge
 executed or isolate case traffic. Missing values and collection errors cannot become zero.
 
+Toolbox must preserve the requested evaluation timestamp, including recent VictoriaMetrics queries
+(`nocache=1` disables instant shifts and range-grid alignment; `latency_offset=1ms` minimizes
+range-tail adjustment and works with versions that reject zero). This does not guarantee ingestion
+completeness; recollection keeps the same
+frozen expression and bounds. The collector must not move or enlarge a window to obtain samples.
+Callgraph uses `empty_result` for a successful empty instant expression and `no_observations` for
+a validated histogram with zero population. An empty expression alone cannot distinguish absent
+source series, insufficient raw samples or a zero-activity filter. `unbound` and `not_collected`
+remain distinct; warnings and query/projection failures produce `query_error`. Legacy empty-result
+projection errors remain readable without hiding unrelated errors. Missing reasons are derived
+offline from saved facts, not inferred by parsing project PromQL or probing scrape targets.
+
 `connection_budget` records configured and effective max connections. Python Perf resolves
 one capacity before execution as max(default, configured, all LoadPlan/Stage peak inflight),
 then passes it to the load HTTP pool/local proxy/Pod relay. Observers and timeouts remain

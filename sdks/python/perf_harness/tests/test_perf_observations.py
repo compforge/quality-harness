@@ -8,7 +8,7 @@ import httpx
 import pytest
 from harness_common import Operation, OperationRun
 from harness_toolbox.http import HTTPClient, HTTPClientProvider
-from harness_toolbox.prometheus import PrometheusDataSource
+from harness_toolbox.metricdb import MetricDBDataSource
 
 from perf_harness import (
     Arm,
@@ -212,14 +212,14 @@ observe:
 def test_operation_binding_rejects_wrong_owner_and_query_override():
     with pytest.raises(ValueError, match="owner"):
         PrometheusQueryProbe(
-            data_source=PrometheusDataSource("http://prom"),
+            data_source=MetricDBDataSource("http://prom"),
             service="a",
             operation=Operation("ask", service_name="b"),
             queries=[PrometheusQuery("latency", "x")],
         )
     with pytest.raises(ValueError, match="override"):
         PrometheusQueryProbe(
-            data_source=PrometheusDataSource("http://prom"),
+            data_source=MetricDBDataSource("http://prom"),
             service="a",
             operation=Operation("ask", service_name="a"),
             queries=[PrometheusQuery("latency", "x", labels=("operation",))],

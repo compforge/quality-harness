@@ -123,13 +123,16 @@ def test_histogram_overflow_is_explicit_and_json_safe():
     "data",
     [
         buckets(110),
-        {"resultType": "vector", "result": []},
         {"resultType": "scalar", "result": [1, "10"]},
     ],
 )
 def test_histogram_rejects_insufficient_or_invalid_bucket_evidence(data):
     with pytest.raises(ValueError):
         histogram_summary(data, HistogramQuantile())
+
+
+def test_empty_histogram_is_missing_without_claiming_no_traffic():
+    assert histogram_summary({"resultType": "vector", "result": []}, HistogramQuantile()) is None
 
 
 async def test_five_serial_phases_and_separate_traffic_ranges():

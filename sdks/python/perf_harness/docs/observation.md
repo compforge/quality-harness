@@ -13,7 +13,7 @@ Engine 按 Experiment 的计划调用 Runner 执行 case，组织观测、归约
 ObservationSpec 是观测意图，不能与已经取得的 Observation 事实混淆。
 Service、Operation / HttpOperation / SSEOperation、Workload / KubernetesWorkload 均复用 Common。
 Workload 的名字在 Service 内限定范围，不额外发明 infra ID；Kubernetes 实例发现由 toolbox
-resolve_workload 完成。数据源使用 toolbox PrometheusDataSource，客户端由 Common ClientManager
+resolve_workload 完成。数据源使用 toolbox MetricDBDataSource，客户端由 Common ClientManager
 复用与回收，perf 不实现另一套连接池、发现或抓取系统。
 
 ## 项目文件与实验装配
@@ -40,7 +40,7 @@ runner: {name: http, method: POST, path: /search}
 cases: [{id: example, input: {query: example}}]
 graph: ../product.graph.yaml
 observation: ../observations.yaml
-data_source: {type: prometheus, kind: prometheus, url: 'http://prometheus.qa:9090', step_s: 15}
+data_source: {type: metricdb, kind: prometheus, url: 'http://prometheus.qa:9090', step_s: 15}
 observation_windows:
   - {kind: full}
   - {kind: phase, phase: hold}
@@ -53,7 +53,7 @@ Workload 声明，环境默认继承被测 Service；root Service 不重复声�
 声明 Common Operation 字段（name、service_name，可选 method/path/response_mode）。
 
 `data_source` 是实验唯一的观测数据源；`type` 选择访问适配器，`kind` 标识实际后端。
-例如 `type: prometheus, kind: victoriametrics` 使用 Prometheus HTTP API 访问 VictoriaMetrics。
+例如 `type: metricdb, kind: victoriametrics` 使用 Prometheus HTTP API 访问 VictoriaMetrics。
 `kind` 默认 prometheus；VM 必须显式声明，不通过 URL 猜测。Probe 不引用数据源名称或地址。
 Prometheus 的 headers_env、timeout_ms、连接池与结果大小限制复用已有访问配置。
 `observation_windows` 默认 full / phase / custom；它选择求值窗口，不改变执行阶段或请求耗时。

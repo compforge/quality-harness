@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from harness_common import HttpOperation
-from harness_toolbox.prometheus import PrometheusDataSource
+from harness_toolbox.metricdb import MetricDBDataSource
 
 from perf_harness.model import HistogramQuantile, WindowSelector
 from perf_harness.observe.prometheus import PrometheusQuery, WindowQuery
@@ -117,7 +117,7 @@ class HttpApiProbe(PrometheusQueryProbe):
         *,
         operation: HttpOperation,
         profile: HttpMetricProfile,
-        data_source: PrometheusDataSource,
+        data_source: MetricDBDataSource,
         step_s: float = 15,
         metric_route: str | None = None,
     ) -> None:

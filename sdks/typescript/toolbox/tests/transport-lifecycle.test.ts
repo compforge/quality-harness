@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createServer } from "node:http";
 import { ClientManager } from "../src/client-manager";
 import { ServicePortForwardTransport, Transport } from "../src/transport";
-import { OpenSearchClient, openSearchServername } from "../src/opensearch";
+import { OpenSearchClient, openSearchServername } from "../src/vectordb/opensearch";
 import { S3Client } from "../src/s3";
 import type { Executor } from "../src/kubernetes/executor";
 import type { StartPortForward, PortForward } from "../src/kubernetes/port-forward";

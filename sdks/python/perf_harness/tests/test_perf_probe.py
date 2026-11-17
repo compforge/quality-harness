@@ -1,4 +1,4 @@
-from harness_toolbox.prometheus import PrometheusDataSource
+from harness_toolbox.metricdb import MetricDBDataSource
 
 from perf_harness.model import Sample, Service
 from perf_harness.observe import (
@@ -37,7 +37,7 @@ def test_default_summarize_gauge_mean_and_peak():
 
 def test_prometheus_summarize_counter_rate():
     probe = PrometheusQueryProbe(
-        data_source=PrometheusDataSource("http://prom"),
+        data_source=MetricDBDataSource("http://prom"),
         queries=[
             PrometheusQuery("req_total", "sum(requests_total)", "counter"),
             PrometheusQuery("in_progress", "sum(requests_in_progress)"),
@@ -64,7 +64,7 @@ def test_counter_reset_uses_positive_delta_accumulation():
     # NEGATIVE and poison rate summaries. increase = Σ max(0, Δ) (Prometheus increase()
     # semantics) and the summary carries the counter_reset caveat.
     probe = PrometheusQueryProbe(
-        data_source=PrometheusDataSource("http://prom"),
+        data_source=MetricDBDataSource("http://prom"),
         queries=[PrometheusQuery("req_total", "sum(requests_total)", "counter")],
     )
     out = probe.summarize(

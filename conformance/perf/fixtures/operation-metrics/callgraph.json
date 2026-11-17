@@ -266,7 +266,7 @@
                       "unit": "rps",
                       "status": "missing",
                       "metric_ref": "prometheus_query.qps{operation=\"operation:mock/empty\",service=\"mock\"}.value",
-                      "reason": "no_samples",
+                      "reason": "empty_result",
                       "queries": [
                         {
                           "expression": "sum(rate(qps{route=\"/empty\"}[1000ms]))",

@@ -25,7 +25,7 @@ from harness_common import (
 )
 from harness_common.execution.overlay import Overlay
 from harness_toolbox.environment import KubernetesEnvironment, parse_environment
-from harness_toolbox.prometheus import PrometheusDataSource
+from harness_toolbox.metricdb import MetricDBDataSource
 from spec_case.facets import FacetSchema
 from spec_case.model import Case, CaseSet, load_caseset, validate
 
@@ -64,7 +64,7 @@ from perf_harness.observe import (
 from perf_harness.observe.configuration import (
     parse_columns,
     parse_http_api_probe,
-    parse_prometheus,
+    parse_metricdb,
     parse_prometheus_probe,
     parse_window,
 )
@@ -136,7 +136,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
         raise ValueError("Use one data_source mapping instead of named data_sources")
     if "data_source" in raw and "observation" not in raw:
         raise ValueError("data_source requires observation declarations")
-    source, step_s = parse_prometheus(raw.get("prometheus"))
+    source, step_s = parse_metricdb(raw.get("prometheus"))
     observation = []
     if "observation" in raw:
         if "observe" in raw or "prometheus" in raw:
@@ -470,7 +470,7 @@ def _parse_service(c: dict, fallback_environment: Environment | None = None) -> 
 def _parse_observe(
     items: list[dict] | None,
     root_service: Service,
-    source: PrometheusDataSource | None = None,
+    source: MetricDBDataSource | None = None,
     step_s: float = 15,
 ) -> list[Probe]:
     """``observe:`` → the ONE place for per-service resource observation, self +

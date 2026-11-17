@@ -12,7 +12,8 @@ from harness_common import Node, NodeKind, Relation, RelationKind
 
 from perf_harness.metric import Missing, ScalarSummary, parse_ref
 from perf_harness.metric.store import MetricStore
-from perf_harness.model import RED_UNITS, ArmRun, Run, Window
+from perf_harness.model import RED_UNITS, ArmRun, PrometheusObservation, Run, Window
+from perf_harness.observe.histogram import histogram_summary
 
 
 @dataclass(frozen=True)
@@ -160,14 +161,26 @@ def _metric(
     )
     value = store.query(arm, address, window)
     if isinstance(value, Missing):
-        failed = any(
-            q.error and not (q.data is not None and q.data.get("result") == [] and not q.warnings)
-            for q in queries
-        )
-        empty = bool(queries) and all(
-            q.data is not None
+
+        def empty_result(q: PrometheusObservation) -> bool:
+            # Older collectors recorded this projection error for otherwise successful empty reads.
+            return (
+                q.data is not None
+                and q.data.get("resultType") == "vector"
+                and q.data.get("result") == []
+                and not q.warnings
+                and q.error in (None, "ValueError: Prometheus query returned no samples")
+            )
+
+        failed = any((q.error and not empty_result(q)) or q.warnings for q in queries)
+        empty = bool(queries) and all(empty_result(q) for q in queries)
+        no_observations = bool(queries) and all(
+            q.histogram is not None
+            and q.data is not None
+            and q.data.get("result")
+            and not q.error
             and not q.warnings
-            and (q.data.get("result") == [] or (q.histogram is not None and not q.error))
+            and histogram_summary(q.data, q.histogram) is None
             for q in queries
         )
         return CallGraphMetric(
@@ -175,7 +188,11 @@ def _metric(
             unit,
             "error" if failed else "missing",
             address,
-            "query_error" if failed else "no_samples" if empty else value.reason,
+            "query_error"
+            if failed
+            else (
+                "empty_result" if empty else "no_observations" if no_observations else value.reason
+            ),
             evidence,
             description,
         )

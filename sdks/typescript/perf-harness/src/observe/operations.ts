@@ -1,5 +1,5 @@
 import { selectProbes, type Operation } from "@compforge/harness-common";
-import { bindPrometheusProbe } from "@compforge/harness-toolbox/prometheus";
+import { bindPrometheusProbe } from "@compforge/harness-toolbox/metricdb";
 import { RED_UNITS, type PrometheusProbe, type WindowSelector } from "./model";
 
 /** Adapt reusable Operation observations to the windows selected by this experiment. No I/O. */

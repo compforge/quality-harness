@@ -11,6 +11,14 @@ function escape(value: unknown): string {
 function number(value: unknown): string {
   return value === null || value === undefined ? "N/A" : typeof value === "number" ? Number(value.toPrecision(4)).toString() : String(value);
 }
+const missingReasons: Record<string,string> = {
+  unbound: "No metric probe is bound",
+  not_collected: "Query has not been collected",
+  empty_result: "Query returned no result; metric absence, insufficient samples and zero activity require separate evidence",
+  no_observations: "Histogram contains zero observed events in this window",
+  no_samples: "No usable samples; cause is not established",
+  query_error: "Query or result validation failed; inspect the recorded error and warnings",
+};
 function frameNodes(window: CallGraphWindow, colors: Map<string,string>) {
   const values = window.nodes.map(node => node.properties.perf.metrics.qps?.value).filter((value): value is number =>
     typeof value === "number" && Number.isFinite(value) && value >= 0);
@@ -23,7 +31,7 @@ function frameNodes(window: CallGraphWindow, colors: Map<string,string>) {
     for (const [role,metric] of Object.entries(metrics)) {
       details.push([role,`${number(metric.value)} ${metric.unit} (${metric.status})`]);
       if (metric.description) details.push([`${role} description`,metric.description]);
-      if (metric.reason) details.push([`${role} reason`,metric.reason]);
+      if (metric.reason) details.push([`${role} reason`,missingReasons[metric.reason] ?? metric.reason]);
       if (metric.metric_ref) details.push([`${role} metric`,metric.metric_ref]);
       if (metric.histogram) details.push([`${role} histogram`,JSON.stringify(metric.histogram)]);
       for (const query of metric.queries) {

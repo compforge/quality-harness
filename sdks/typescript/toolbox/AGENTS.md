@@ -23,9 +23,9 @@ toolbox/
 ├── src/file/            # 本机及 Pod 文件来源、有界读取与取消
 ├── src/mysql/          # MySQL 原生与 Pod 协议执行
 ├── src/redis/           # Redis 连接与拓扑
-├── src/opensearch/      # 访问；health 探测、snapshot 解析、analysis 纯分析
+├── src/vectordb/opensearch/      # 访问；health 探测、snapshot 解析、analysis 纯分析
 ├── src/http/            # 有界 HTTP 请求、Host/TLS 身份与共享 HTTP handler
-├── src/prometheus/      # 借用有界 HttpApi 查询外部 Prometheus/VM；不拥有 scraper
+├── src/metricdb/      # 统一指标库访问；prometheus/、victoriametrics/ 封装后端差异
 ├── src/s3/              # S3-compatible 访问、分页与有界对象读写
 ├── src/process/         # Node-compatible 进程原语
 ├── scripts/build.ts     # 保留共享模块身份的多入口 ESM 构建
