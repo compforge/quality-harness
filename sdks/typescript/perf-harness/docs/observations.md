@@ -139,5 +139,5 @@ summary also gets one range query per execution. Its rolling `$window` comes fro
 `trendWindowSeconds` (default 60); the evaluation step is at least 15 seconds and scales to roughly 1,000
 points for longer runs. A rolling value can include observations before the run.
 The saved expressions describe the actual lookback; step is independent of scrape
-interval. Window values still drive the Callgraph. The Report groups requests by
+interval. Window values still drive the Callgraph. The Trends tab groups requests by
 Case and draws the shared entry series once, including zero or a single sample.

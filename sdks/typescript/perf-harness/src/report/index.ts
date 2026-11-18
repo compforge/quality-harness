@@ -91,7 +91,7 @@ export function renderPerfReport(run: Run, options: { issues?: readonly string[]
     const scope = run.case_ids?.length === 1 ? "Case: " + escape(run.case_ids[0]) : "Aggregate case scope; metrics are not attributed to individual cases.";
     const graph = section("Call Graph", `<p>${scope}</p><p>Operation nodes; service is auxiliary information. Solid: call, dashed: may_call. Metrics describe the selected server/window, including other matching traffic. Node traffic does not prove a particular edge executed. N/A means missing observation, not zero. Latency percentiles cannot be summed along paths. Circle area scales with the current window’s QPS range; missing QPS uses the default size. Hover for details.</p>${graphView(snapshot,run)}`);
     body = `<div class="report-tabs" role="tablist" aria-label="Report views">
-<button type="button" role="tab" id="rk-tab-0" aria-controls="rk-panel-0" aria-selected="true" tabindex="0">Report</button>
+<button type="button" role="tab" id="rk-tab-0" aria-controls="rk-panel-0" aria-selected="true" tabindex="0">Trends</button>
 <button type="button" role="tab" id="rk-tab-1" aria-controls="rk-panel-1" aria-selected="false" tabindex="-1">Callgraph</button>
 </div><div role="tabpanel" id="rk-panel-0" aria-labelledby="rk-tab-0" data-wide="true">${report}</div>
 <div role="tabpanel" id="rk-panel-1" aria-labelledby="rk-tab-1" data-wide="true" hidden>${graph}</div>${tabScript()}`;
