@@ -3,6 +3,7 @@ import { validateEvaluation } from "./judge";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Run, ArmRun } from "./model";
+import { loadSeries, serializeSeries } from "./series";
 import { serializeLoadPlan } from "./load";
 
 export function serializeRun(run: Run): Record<string, unknown> {
@@ -15,6 +16,7 @@ export function serializeRun(run: Run): Record<string, unknown> {
     status: run.status,
     environment: run.environment,
     ...(run.graph ? {graph: run.graph} : {}),
+    ...(run.report_columns?.length ? {report_columns: run.report_columns} : {}),
     case_ids: run.case_ids ?? [],
     entry_ids: run.entry_ids ?? [],
     observation_bindings: run.observation_bindings ?? [],
@@ -121,7 +123,7 @@ export function writeRunData(run: Run, directory: string) {
     ),
   );
   writeFileSync(paths.verdict, JSON.stringify(serializeVerdict(run), null, 2));
-  writeFileSync(join(directory, "timeseries.csv"), "arm_run,series,t,value\n");
+  writeFileSync(join(directory, "timeseries.csv"), serializeSeries(run.executions));
   return paths;
 }
 /** Load facts and evaluations without contacting the tested service. */
@@ -167,6 +169,7 @@ export function loadRun(directory: string): Run {
     throw new Error(
       "duplicate ArmRun id in run.json; request ownership is ambiguous",
     );
+  loadSeries(join(directory, "timeseries.csv"), byId);
   for (const line of readFileSync(join(directory, "requests.jsonl"), "utf8")
     .split("\n")
     .filter(Boolean)) {

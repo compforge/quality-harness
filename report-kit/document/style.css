@@ -1,0 +1,58 @@
+:root { --fg:#1f2328; --muted:#656d76; --line:#d0d7de; --accent:#0969da; --zebra:#f6f8fa; }
+* { box-sizing: border-box; }
+body { font: 14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+       color: var(--fg); margin: 0; padding: 2rem; max-width: 1200px; }
+body:has([role="tabpanel"][data-wide="true"]:not([hidden])) { max-width:none; }
+h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+h2 { font-size: 1.2rem; margin: 2rem 0 .75rem; padding-bottom: .3rem; border-bottom: 1px solid var(--line); }
+h3 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; }
+/* sections are collapsible <details>; style <summary> like an h2 with a flip triangle */
+details { margin: 0 0 .5rem; }
+summary { font-size: 1.2rem; font-weight: 600; margin: 2rem 0 .75rem; padding-bottom: .3rem;
+          border-bottom: 1px solid var(--line); cursor: pointer; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::before { content: "\25BE"; color: var(--muted); font-size: .85em; margin-right: .45rem; }
+details:not([open]) > summary::before { content: "\25B8"; }
+summary:hover { color: var(--accent); }
+
+/* nested sub-section (a Heading group, e.g. one service): h3-sized, no rule line */
+details.sub { margin: 0 0 .25rem .25rem; }
+details.sub > summary { font-size: 1.05rem; margin: 1.25rem 0 .4rem; padding-bottom: 0;
+                        border-bottom: none; }
+.meta { color: var(--muted); font-size: .85rem; margin-bottom: 1rem; }
+.meta span { margin-right: 1.25rem; }
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; margin: .5rem 0; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; font-size: .85rem; }
+th, td { border: 1px solid var(--line); padding: .35rem .6rem; text-align: right; font-variant-numeric: tabular-nums; }
+th:first-child, td:first-child { text-align: left; }
+thead th { background: var(--zebra); cursor: pointer; user-select: none; position: sticky; top: 0; white-space: nowrap; }
+thead th:hover { color: var(--accent); }
+thead th::after { content: " \2195"; color: var(--line); font-size: .8em; }
+thead th.tip { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; position: relative; }
+/* instant CSS tooltip (avoids the laggy native-title hover delay): shown on :hover via ::before, below the header */
+thead th.tip:hover::before {
+  content: attr(data-tip);
+  position: absolute; left: 0; top: 100%; z-index: 30; margin-top: 4px;
+  width: max-content; max-width: 320px; white-space: normal; text-align: left;
+  font: 400 .8rem/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  color: #fff; background: #24292f; padding: .4rem .6rem; border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.18); pointer-events: none;
+}
+/* tree column (Table.tree_col): box-drawing prefixes only line up when whitespace is
+   preserved and the font is monospace; default right-align would break the indent. */
+td.tree { text-align: left; white-space: pre;
+          font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+tbody tr:nth-child(even) { background: var(--zebra); }
+tr.winner { background: #dafbe1 !important; font-weight: 600; }
+tr.knee   { background: #fff1e5 !important; }
+.chart { width: 100%; height: 340px; margin: .5rem 0 1.5rem; }
+[hidden] { display: none !important; }
+.report-tabs { display:flex; gap:.5rem; border-bottom:1px solid var(--line); margin:1rem 0; }
+.report-tabs [role="tab"] { padding:.65rem 1.2rem; background:none; border:0;
+  border-bottom:3px solid transparent; font:inherit; cursor:pointer; color:var(--muted); }
+.report-tabs [aria-selected="true"] { color:var(--accent); border-color:var(--accent); font-weight:600; }
+.report-tabs [role="tab"]:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+p { margin: .5rem 0; }
+code { background: var(--zebra); padding: .1rem .3rem; border-radius: 3px; font-size: .85em; }
