@@ -19,7 +19,7 @@ function rkGraph(root, view, frameMenu) {
     title="Zoom: 0 selects the minimum visible scale; 100 is actual size"><output>100%</output></label></div>
     <pre class="graph-details">Select a node for details.</pre>`;
   controls.querySelector('.graph-title').textContent = view.title;
-  root.prepend(controls);
+  (root.querySelector('[data-graph-controls]') || root).prepend(controls);
   const select = root.querySelector('.graph-frame');
   const scope = root.querySelector('.graph-scope');
   const tooltip = root.querySelector('.graph-tooltip');

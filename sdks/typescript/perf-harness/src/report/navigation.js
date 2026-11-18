@@ -5,7 +5,7 @@
     .filter(element => element.tagName === 'DETAILS');
   const links = sections.map((section, index) => {
     const summary = section.querySelector('summary');
-    section.id = 'perf-section-' + index;
+    section.id = (menu.id || 'perf') + '-section-' + index;
     const link = document.createElement('a');
     link.href = '#' + section.id;
     link.textContent = summary.textContent;
