@@ -52,7 +52,7 @@ function frameNodes(window: CallGraphWindow, colors: Map<string,string>, run: Ru
       diameter: observedQps && high > low ? Math.sqrt(88**2+(qps-low)/(high-low)*(160**2-88**2)) : 112};
   });
 }
-function graphView(snapshot: CallGraphSnapshot, run: Run): string {
+function graphView(snapshot: CallGraphSnapshot, run: Run, description: string): string {
   const palette = ["#dbeafe","#dcfce7","#fef3c7","#ede9fe","#fce7f3","#cffafe"];
   const services = [...new Set(snapshot.arms.flatMap(arm => arm.windows.flatMap(window => window.nodes.map(node => node.properties.perf.service))))].sort();
   const colors = new Map(services.map((service,index) => [service,palette[index%palette.length]!]));
@@ -63,7 +63,6 @@ function graphView(snapshot: CallGraphSnapshot, run: Run): string {
   const frames = snapshot.arms.flatMap((arm, armIndex) => arm.windows.flatMap((window, windowIndex) => {
     const scoped = subset.arms[armIndex]!.windows[windowIndex]!;
     const label = `${arm.arm_id} / ${window.name} [${window.start_s.toFixed(3)}–${window.end_s.toFixed(3)}s]`;
-    const menuLabel = snapshot.arms.length > 1 ? label : `${window.name} · ${window.start_s.toFixed(1)}–${window.end_s.toFixed(1)}s`;
     const execution = run.executions.find(a => a.id === arm.id)!;
     const rows = apiRows(execution, execution.windows.find(w => w.id === window.id));
     const content = rows.length ? table(apiHeader, rows) : "<p>No observations in this view.</p>";
@@ -71,15 +70,17 @@ function graphView(snapshot: CallGraphSnapshot, run: Run): string {
       panels.push(`<div data-graph-frame="${panels.length}"${panels.length ? " hidden" : ""}>${content}</div>`);
     }
     return [
-      ...(snapshot.entry_ids.length ? [{label:`Case entry / ${label}`, group:"Case entry", menu_label:menuLabel,
+      ...(snapshot.entry_ids.length ? [{label:`Case entry / ${label}`, group:"Case entry",
         nodes:frameNodes(scoped,colors,run), edges:edges.filter(edge => subset.relations.some(r => r.id === edge.id)), entry_ids:snapshot.entry_ids}] : []),
-      {label:`Full graph / ${label}`, group:"Full graph", menu_label:menuLabel, nodes:frameNodes(window,colors,run), edges, entry_ids:[]},
+      {label:`Full graph / ${label}`, group:"Full graph", nodes:frameNodes(window,colors,run), edges, entry_ids:[]},
     ];
   }));
-  if (!frames.length) return "<p>No observation windows were recorded.</p>";
   const payload = JSON.stringify({title:"Operation metrics",frames,group_filter_label:"Service",importance_filter:true,comparison_filter_label:"QPS"}).replaceAll("<","\\u003c");
-  return `<div class="perf-layout"><nav id="callgraph-menu" class="perf-menu" aria-label="调用图视图与窗口"></nav><div id="callgraph" class="graph-view"><details class="graph-table"><summary>完整窗口指标明细</summary>${panels.join("")}</details></div></div>
-${graphScripts()}<script>rkGraph(document.getElementById("callgraph"),${payload},document.getElementById("callgraph-menu"));</script>`;
+  const empty = "<p>No observation windows were recorded.</p>";
+  const graph = section("Callgraph", description + (frames.length ? '<div data-graph-controls></div>' : empty));
+  const metrics = `<details class="graph-table"><summary>完整窗口指标明细</summary>${panels.join("") || empty}</details>`;
+  return `<div class="perf-layout"><nav id="callgraph-menu" class="perf-menu" aria-label="调用图章节"></nav><div id="callgraph" class="perf-content graph-view">${graph}${metrics}</div></div><script>${navigation}</script>
+${frames.length ? graphScripts() + `<script>rkGraph(document.getElementById("callgraph"),${payload});</script>` : ""}`;
 }
 /** Render the eval-perf report from persisted facts only. */
 export function renderPerfReport(run: Run, options: { issues?: readonly string[]; facetOrder?: Readonly<Record<string, readonly string[]>> } = {}): string {
@@ -89,7 +90,7 @@ export function renderPerfReport(run: Run, options: { issues?: readonly string[]
   let body = report;
   if (snapshot) {
     const scope = run.case_ids?.length === 1 ? "Case: " + escape(run.case_ids[0]) : "Aggregate case scope; metrics are not attributed to individual cases.";
-    const graph = section("Call Graph", `<p>${scope}</p><p>Operation nodes; service is auxiliary information. Solid: call, dashed: may_call. Metrics describe the selected server/window, including other matching traffic. Node traffic does not prove a particular edge executed. N/A means missing observation, not zero. Latency percentiles cannot be summed along paths. Circle area scales with the current window’s QPS range; missing QPS uses the default size. Hover for details.</p>${graphView(snapshot,run)}`);
+    const graph = graphView(snapshot, run, `<p>${scope}</p><p>Operation nodes; service is auxiliary information. Solid: call, dashed: may_call. Metrics describe the selected server/window, including other matching traffic. Node traffic does not prove a particular edge executed. N/A means missing observation, not zero. Latency percentiles cannot be summed along paths. Circle area scales with the current window’s QPS range; missing QPS uses the default size. Hover for details.</p>`);
     body = `<div class="report-tabs" role="tablist" aria-label="Report views">
 <button type="button" role="tab" id="rk-tab-0" aria-controls="rk-panel-0" aria-selected="true" tabindex="0">Trends</button>
 <button type="button" role="tab" id="rk-tab-1" aria-controls="rk-panel-1" aria-selected="false" tabindex="-1">Callgraph</button>

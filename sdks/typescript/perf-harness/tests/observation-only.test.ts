@@ -70,6 +70,9 @@ test("explicit entries choose descendants, union shared nodes and tolerate cycle
   const html=renderPerfReport(run);
   expect(html).toContain('aria-selected="true" tabindex="0">Trends</button>');
   expect(html).toContain('aria-labelledby="rk-tab-1" data-wide="true" hidden');
+  const graphContent = html.split('id="callgraph" class="perf-content graph-view">')[1]!.split("</div></div><script>")[0]!;
+  expect([...graphContent.matchAll(/<summary>([^<]+)<\/summary>/g)].map(match => match[1]))
+    .toEqual(["Callgraph", "完整窗口指标明细"]);
   expect(html).toContain("Operation metrics");
   expect(html).toContain("Case entry");expect(html).toContain("Full graph");
 });
