@@ -343,7 +343,7 @@ export function reportSections(
             .join(""),
       ),
     );
-  sections.push(charts(arms));
+  sections.push(charts(run));
   if (issues.length)
     sections.push(
       `<details><summary>指标覆盖明细（${issues.length}）</summary><ul>${issues.map((i) => `<li>${escape(i)}</li>`).join("")}</ul></details>`,

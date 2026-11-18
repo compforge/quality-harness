@@ -2,7 +2,7 @@ import type { MetricDBReader } from "@compforge/harness-toolbox/metricdb";
 import { Graph, RelationKind } from "@compforge/harness-common";
 import type { Run, Window } from "../model";
 import { RED_UNITS, type PrometheusProbe, type ObservationBinding, type PrometheusObservation } from "./model";
-import { projectObservation, seriesId } from "./metric";
+import { projectObservation, projectSeries, seriesId } from "./metric";
 
 export function matches(window: Window, query: Pick<PrometheusProbe["summaries"][number], "window">): boolean {
   const select = query.window ?? {kind: "full"};
@@ -42,6 +42,8 @@ export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source
         if (run.executions.some(arm => arm.windows.some(window => matches(window, previous) && matches(window, query))))
           throw new Error("Duplicate summary in an observation window");
       }
+      if (query.trendWindowSeconds !== undefined && (!Number.isSafeInteger(query.trendWindowSeconds) || query.trendWindowSeconds <= 0))
+        throw new Error("Trend lookback must be a positive integer in seconds");
       if (query.histogram && (!(query.histogram.quantile > 0 && query.histogram.quantile < 1) ||
         !Number.isFinite(query.histogram.scale) || query.histogram.scale <= 0)) throw new Error("Invalid histogram projection");
     }
@@ -90,6 +92,11 @@ export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source
           source_url: source.url, datasource_kind: source.kind, start_s: start, end_s: end, step_s: null,
           labels: {service: probe.service, operation: probe.target}, result_labels: [], window_id: window.id,
           data: null, warnings: [], infos: [], error: null, collected_at_s: null, histogram: query.histogram ?? null});
+        if (window.kind === "full" && run.case_entries && run.entry_ids?.includes(probe.target)) {
+          const step = Math.max(15, Math.ceil((end-start)/1000));
+          queries.push({...queries[queries.length-1]!, window_id: null, step_s: step,
+            expression: query.promql.replaceAll("$window", `${query.trendWindowSeconds ?? 60}s`)});
+        }
       }
     }
     const addresses = queries.map(query => `${query.window_id}/${seriesId(query.metric,query.labels)}`);
@@ -130,14 +137,15 @@ export async function collectMetrics(run: Run, sources: readonly MetricDBReader[
   for (const {arm, query} of jobs) {
     const source = clients.get(query.source_url);
     if (!source || source.kind !== query.datasource_kind) throw new Error("Saved metric source/backend does not match supplied access");
-    if (query.step_s !== null || query.result_labels.length) throw new Error("TypeScript operation collection requires unlabeled instant window queries");
-    if (!arm.windows.some(window => window.id === query.window_id)) throw new Error("Saved query references unknown window");
+    if ((query.step_s !== null && (!(query.step_s > 0) || query.window_id !== null)) || query.result_labels.length) throw new Error("Unsupported Operation query shape or range step");
+    if (query.step_s === null && !arm.windows.some(window => window.id === query.window_id)) throw new Error("Saved query references unknown window");
   }
   options.signal?.throwIfAborted();
   const fractions = new Set((run.observation_bindings ?? []).flatMap(binding =>
     binding.metrics.error_rate ? [binding.metrics.error_rate.metric] : []));
   for (const {arm, query} of jobs) {
-    delete arm.windows.find(window => window.id === query.window_id)!.probe_metrics[seriesId(query.metric,query.labels)];
+    if (query.step_s !== null) delete arm.series?.[seriesId(query.metric,query.labels)];
+    else delete arm.windows.find(window => window.id === query.window_id)!.probe_metrics[seriesId(query.metric,query.labels)];
     delete arm.probe_errors[query.probe];
     query.data = null; query.warnings = []; query.infos = []; query.collected_at_s = null;
     query.error = "collection not completed";
@@ -151,13 +159,23 @@ export async function collectMetrics(run: Run, sources: readonly MetricDBReader[
       options.onProgress?.({...event, state: "started"});
       let state: MetricCollectionEvent["state"] = "missing";
       try {
-        const result = await clients.get(query.source_url)!.query(query.expression, query.end_s, options.signal);
+        const client = clients.get(query.source_url)!;
+        const result = query.step_s === null ? await client.query(query.expression, query.end_s, options.signal)
+          : await client.queryRange(query.expression, query.start_s, query.end_s, query.step_s, options.signal);
         query.data = result.data; query.warnings = result.warnings; query.infos = result.infos; query.error = null;
         const address = seriesId(query.metric,query.labels);
-        const summary = projectObservation(query,fractions.has(`${address}.value`));
-        if (summary) {
-          arm.windows.find(window => window.id === query.window_id)!.probe_metrics[address] = summary;
-          state = "observed";
+        if (query.step_s !== null) {
+          const points = projectSeries(query, arm.started_at_s!, fractions.has(`${address}.value`));
+          if (points.length) {
+            (arm.series ??= {})[address] = points;
+            state = "observed";
+          }
+        } else {
+          const summary = projectObservation(query,fractions.has(`${address}.value`));
+          if (summary) {
+            arm.windows.find(window => window.id === query.window_id)!.probe_metrics[address] = summary;
+            state = "observed";
+          }
         }
       } catch (error) {
         query.error = error instanceof Error ? error.message : "Metric query failed";

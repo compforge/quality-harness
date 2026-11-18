@@ -7,6 +7,8 @@ export interface MetricDefinition {
 export interface HistogramQuantile { quantile: number; scale: number; }
 export interface MetricQuery extends MetricDefinition {
   readonly expression: string;
+  /** Rolling lookback for $window in an Operation time series, in seconds. */
+  readonly trendWindowSeconds?: number;
   readonly histogram?: HistogramQuantile;
 }
 /**

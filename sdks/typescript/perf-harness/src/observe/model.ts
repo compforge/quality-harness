@@ -19,6 +19,7 @@ export interface PrometheusObservation {
 export interface WindowSelector { kind: WindowKind; phase?: Phase; name?: string; level?: number; }
 export interface WindowQuery {
   name: string; promql: string; unit: string; description?: string;
+  trendWindowSeconds?: number;
   window?: WindowSelector; histogram?: HistogramQuantile;
 }
 export interface PrometheusProbe {

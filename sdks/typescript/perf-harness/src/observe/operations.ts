@@ -20,7 +20,7 @@ export function operationMetricProbes(operations: readonly Operation[], backend:
       response_mode: probe.responseMode === undefined ? http.response_mode : probe.responseMode, metrics,
       qps_semantics: probe.metrics.qps?.semantics === "entered" ? "entered" : "completed",
       summaries: Object.entries(probe.metrics).flatMap(([role, metric]) => windows.map(window => ({
-        name: metrics[role]!, promql: metric.expression, unit: metric.unit,
+        name: metrics[role]!, promql: metric.expression, unit: metric.unit, trendWindowSeconds:metric.trendWindowSeconds,
         description: [metric.description, metric.semantics].filter(Boolean).join("; "), histogram: metric.histogram, window,
       }))),
     };

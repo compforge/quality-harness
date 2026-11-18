@@ -201,6 +201,8 @@ export interface Run extends ExperimentRun<ArmRun> {
   graph?: GraphSnapshot;
   observation_bindings?: ObservationBinding[];
   case_ids?: string[];
+  /** Selected Case IDs and their entry Operations, independent of observed requests. */
+  case_entries?: Record<string, string>;
   /** Explicit Case-bound graph roots, including roots with incoming edges. */
   entry_ids?: string[];
   schema: 12;

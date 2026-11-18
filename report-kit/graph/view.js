@@ -1,5 +1,5 @@
 /* Neutral report graph renderer. No remote data access or domain calculations. */
-function rkGraph(root, view) {
+function rkGraph(root, view, frameMenu) {
   const controls = document.createElement('div');
   const filter = (name, label) => `<details class="${name} graph-filter-control" hidden><summary aria-label="${label}"></summary>
     <div class="graph-filter-popup"><div class="graph-filter-options"></div>
@@ -49,6 +49,28 @@ function rkGraph(root, view) {
     });
   }
   selectScope();
+  const frameButtons = new Map();
+  if (frameMenu) {
+    scope.hidden = select.hidden = true;
+    groups.forEach(group => {
+      const heading = document.createElement('strong');
+      heading.textContent = group;
+      frameMenu.append(heading);
+      view.frames.forEach((frame, index) => {
+        if ((frame.group || 'Views') !== group) return;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = frame.menu_label || frame.label;
+        button.addEventListener('click', () => {
+          if (scope.value !== group) { scope.value = group; selectScope(); }
+          select.value = String(index);
+          showFrame();
+        });
+        frameMenu.append(button);
+        frameButtons.set(String(index), button);
+      });
+    });
+  }
   const filterStatus = root.querySelector('.graph-filter-status');
   const serviceGroups = [...new Set(view.frames.flatMap(frame => frame.nodes.map(n => n.group)))].sort();
   const selectedGroups = new Set(serviceGroups);
@@ -165,6 +187,7 @@ function rkGraph(root, view) {
     ++generation;
     const original = view.frames[Number(select.value)];
     if (!original) return;
+    frameButtons.forEach((button, index) => button.setAttribute('aria-pressed', String(index === select.value)));
     const canFilter = original.entry_ids.length > 0 &&
       original.entry_ids.every(id => original.nodes.some(n => n.id === id));
     updateServiceFilter(canFilter);
