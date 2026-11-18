@@ -6,6 +6,9 @@ import { escape, section, table } from "./view";
 import { buildCallgraph, entryCallgraph, type CallGraphSnapshot, type CallGraphWindow } from "../callgraph";
 import { graphScripts, tabScript, reportStyle, sort } from "./assets";
 
+import navigationStyle from "./navigation.css" with { type: "text" };
+import navigation from "./navigation.js" with { type: "text" };
+
 function number(value: unknown): string {
   return value === null || value === undefined ? "N/A" : typeof value === "number" ? Number(value.toPrecision(4)).toString() : String(value);
 }
@@ -60,6 +63,7 @@ function graphView(snapshot: CallGraphSnapshot, run: Run): string {
   const frames = snapshot.arms.flatMap((arm, armIndex) => arm.windows.flatMap((window, windowIndex) => {
     const scoped = subset.arms[armIndex]!.windows[windowIndex]!;
     const label = `${arm.arm_id} / ${window.name} [${window.start_s.toFixed(3)}–${window.end_s.toFixed(3)}s]`;
+    const menuLabel = snapshot.arms.length > 1 ? label : `${window.name} · ${window.start_s.toFixed(1)}–${window.end_s.toFixed(1)}s`;
     const execution = run.executions.find(a => a.id === arm.id)!;
     const rows = apiRows(execution, execution.windows.find(w => w.id === window.id));
     const content = rows.length ? table(apiHeader, rows) : "<p>No observations in this view.</p>";
@@ -67,20 +71,21 @@ function graphView(snapshot: CallGraphSnapshot, run: Run): string {
       panels.push(`<div data-graph-frame="${panels.length}"${panels.length ? " hidden" : ""}>${content}</div>`);
     }
     return [
-      ...(snapshot.entry_ids.length ? [{label:`Case entry / ${label}`, group:"Case entry",
+      ...(snapshot.entry_ids.length ? [{label:`Case entry / ${label}`, group:"Case entry", menu_label:menuLabel,
         nodes:frameNodes(scoped,colors,run), edges:edges.filter(edge => subset.relations.some(r => r.id === edge.id)), entry_ids:snapshot.entry_ids}] : []),
-      {label:`Full graph / ${label}`, group:"Full graph", nodes:frameNodes(window,colors,run), edges, entry_ids:[]},
+      {label:`Full graph / ${label}`, group:"Full graph", menu_label:menuLabel, nodes:frameNodes(window,colors,run), edges, entry_ids:[]},
     ];
   }));
   if (!frames.length) return "<p>No observation windows were recorded.</p>";
   const payload = JSON.stringify({title:"Operation metrics",frames,group_filter_label:"Service",importance_filter:true,comparison_filter_label:"QPS"}).replaceAll("<","\\u003c");
-  return `<div id="callgraph" class="graph-view"><details class="graph-table"><summary>完整窗口指标明细</summary>${panels.join("")}</details></div>
-${graphScripts()}<script>rkGraph(document.getElementById("callgraph"),${payload});</script>`;
+  return `<div class="perf-layout"><nav id="callgraph-menu" class="perf-menu" aria-label="调用图视图与窗口"></nav><div id="callgraph" class="graph-view"><details class="graph-table"><summary>完整窗口指标明细</summary>${panels.join("")}</details></div></div>
+${graphScripts()}<script>rkGraph(document.getElementById("callgraph"),${payload},document.getElementById("callgraph-menu"));</script>`;
 }
 /** Render the eval-perf report from persisted facts only. */
 export function renderPerfReport(run: Run, options: { issues?: readonly string[]; facetOrder?: Readonly<Record<string, readonly string[]>> } = {}): string {
   const snapshot = buildCallgraph(run);
-  const report = reportSections(run, options.facetOrder ?? {}, options.issues ?? []);
+  const sections = reportSections(run, options.facetOrder ?? {}, options.issues ?? []);
+  const report = `<div class="perf-layout"><nav class="perf-menu" aria-label="报告章节"></nav><div class="perf-content">${sections}</div></div><script>${navigation}</script>`;
   let body = report;
   if (snapshot) {
     const scope = run.case_ids?.length === 1 ? "Case: " + escape(run.case_ids[0]) : "Aggregate case scope; metrics are not attributed to individual cases.";
@@ -88,11 +93,11 @@ export function renderPerfReport(run: Run, options: { issues?: readonly string[]
     body = `<div class="report-tabs" role="tablist" aria-label="Report views">
 <button type="button" role="tab" id="rk-tab-0" aria-controls="rk-panel-0" aria-selected="true" tabindex="0">Report</button>
 <button type="button" role="tab" id="rk-tab-1" aria-controls="rk-panel-1" aria-selected="false" tabindex="-1">Callgraph</button>
-</div><div role="tabpanel" id="rk-panel-0" aria-labelledby="rk-tab-0">${report}</div>
+</div><div role="tabpanel" id="rk-panel-0" aria-labelledby="rk-tab-0" data-wide="true">${report}</div>
 <div role="tabpanel" id="rk-panel-1" aria-labelledby="rk-tab-1" data-wide="true" hidden>${graph}</div>${tabScript()}`;
   }
   const title = "perf report — " + escape(run.service);
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>${reportStyle}</style><script>${sort}</script></head><body><h1>${title}</h1><div class="meta"><span><b>service:</b> ${escape(run.service)}</span></div>${body}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>${reportStyle}\n${navigationStyle}</style><script>${sort}</script></head><body><h1>${title}</h1><div class="meta"><span><b>service:</b> ${escape(run.service)}</span></div>${body}</body></html>`;
 }
 export function writePerfReport(run: Run, directory: string): {html:string; callgraph?:string} {
   mkdirSync(directory,{recursive:true});
