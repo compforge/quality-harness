@@ -4,11 +4,11 @@ import type { Run, Window } from "../model";
 import { RED_UNITS, type PrometheusProbe, type ObservationBinding, type PrometheusObservation } from "./model";
 import { projectObservation, seriesId } from "./metric";
 
-function matches(window: Window, query: PrometheusProbe["summaries"][number]): boolean {
+export function matches(window: Window, query: Pick<PrometheusProbe["summaries"][number], "window">): boolean {
   const select = query.window ?? {kind: "full"};
-  return window.kind === select.kind && (select.phase === undefined || select.phase === window.phase)
-    && (select.name === undefined || select.name === window.name)
-    && (select.level === undefined || select.level === window.target_level);
+  return window.kind === select.kind && (select.phase == null || select.phase === window.phase)
+    && (select.name == null || select.name === window.name)
+    && (select.level == null || select.level === window.target_level);
 }
 
 /**

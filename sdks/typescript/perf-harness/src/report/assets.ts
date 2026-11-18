@@ -1,3 +1,12 @@
+import chart from "../../../../../report-kit/vendor/echarts.min.js" with { type: "text" };
+import license from "../../../../../report-kit/vendor/echarts-LICENSE" with { type: "text" };
+import notice from "../../../../../report-kit/vendor/echarts-NOTICE" with { type: "text" };
+import reportStyle from "../../../../../report-kit/document/style.css" with { type: "text" };
+import sort from "../../../../../report-kit/document/sort.js" with { type: "text" };
+export { reportStyle, sort };
+export function chartScript(): string {
+  return "<script>/*" + (license + notice).replaceAll("*/","* /") + "*/" + chart.replace(/<\/script/gi, "<\\/script") + "</script>";
+}
 import tabs from "../../../../../report-kit/tabs/view.js" with { type: "text" };
 import style from "../../../../../report-kit/graph/style.css" with { type: "text" };
 import cytoscape from "../../../../../report-kit/vendor/cytoscape.min.js" with { type: "text" };

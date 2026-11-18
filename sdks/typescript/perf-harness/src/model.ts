@@ -172,6 +172,7 @@ export interface RequestRecord {
 }
 
 export interface ArmRun extends Execution<Outcome> {
+  series?: Record<string, [number, number][]>;
   started_at_s?: number | null;
   prometheus_observations?: PrometheusObservation[];
   id: string;
@@ -189,7 +190,14 @@ export interface ArmRun extends Execution<Outcome> {
   evaluations: Record<string, RequestEvaluation>;
 }
 
+export interface ReportColumn {
+  title: string;
+  metric: string;
+  window?: import("./observe/model").WindowSelector;
+}
+
 export interface Run extends ExperimentRun<ArmRun> {
+  report_columns?: ReportColumn[];
   graph?: GraphSnapshot;
   observation_bindings?: ObservationBinding[];
   case_ids?: string[];

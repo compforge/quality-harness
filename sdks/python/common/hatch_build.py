@@ -10,7 +10,7 @@ def prepare_assets(root: Path) -> Path:
     if (source / "graph/view.js").is_file():
         if target.exists():
             rmtree(target)
-        for directory in ("graph", "vendor", "tabs"):
+        for directory in ("graph", "vendor", "tabs", "document"):
             copytree(source / directory, target / directory)
     elif not (target / "graph/view.js").is_file():
         raise RuntimeError("report-kit sources or bundled sdist assets are required")
