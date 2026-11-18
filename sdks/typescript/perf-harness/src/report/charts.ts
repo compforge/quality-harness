@@ -1,9 +1,10 @@
-import type { ArmRun } from "../model";
+import { seriesId } from "../observe/metric";
+import type { ArmRun, Run } from "../model";
 import { peakLevel, saturated, stages } from "../load";
 import { drop, escape, full, section } from "./view";
 import { chartScript } from "./assets";
 
-type Points = [number, number][];
+type Points = [number, number | null][];
 type Lines = Map<string, Points>;
 function chart(
   title: string,
@@ -12,6 +13,7 @@ function chart(
   lines: Lines,
   registry: Record<string, unknown>,
   right: Lines = new Map(),
+  extent?: [number, number],
 ) {
   const tips: Record<string, string> = Object.create(null);
   const series = (source: Lines, secondary: boolean) =>
@@ -28,8 +30,8 @@ function chart(
         name,
         data,
         type: "line",
-        smooth: true,
-        showSymbol: false,
+        smooth: false,
+        showSymbol: true,
         itemStyle: { color },
         lineStyle: { color, type: secondary ? "dashed" : "solid" },
         yAxisIndex: secondary ? 1 : 0,
@@ -40,7 +42,7 @@ function chart(
     tooltip: { trigger: "axis", renderMode: "richText" },
     legend: { top: 24, type: "scroll" },
     grid: { top: 64, left: 56, right: 56, bottom: 48 },
-    xAxis: { type: "value", name: x, nameLocation: "middle", nameGap: 28 },
+    xAxis: { type: "value", min: extent?.[0], max: extent?.[1], name: x, nameLocation: "middle", nameGap: 28 },
     yAxis: [
       { type: "value", name: unit },
       ...(right.size
@@ -106,7 +108,8 @@ function line(lines: Lines, name: string, x: number, y: unknown) {
   pts.push([x, y]);
   lines.set(name, pts);
 }
-export function charts(arms: ArmRun[]): string {
+export function charts(run: Run): string {
+  const arms = run.executions;
   const responseGroups = new Map<string, string>(),
     timeGroups = new Map<string, string>();
   const append = (map: Map<string, string>, key: string, content: string) =>
@@ -192,6 +195,7 @@ export function charts(arms: ArmRun[]): string {
     const buckets = new Map<string, Lines>(),
       pressure = new Map<string, Lines>();
     for (const [id, points] of Object.entries(a.series ?? {})) {
+      if (run.case_entries && id.startsWith("prometheus_query.") && id.includes("{operation=")) continue;
       const family = id.split("{")[0]!,
         svc = serviceOf(id);
       const meta = a.registry[family] as
@@ -238,10 +242,11 @@ export function charts(arms: ArmRun[]): string {
       );
     }
   }
+  const entries = run.case_entries ? entryCharts(run) : "";
   const response = sections(responseGroups),
     time = sections(timeGroups);
   return (
-    (response || time ? chartScript() : "") +
+    (entries || response || time ? chartScript() : "") +
     (response
       ? section(
           "3. 压力响应曲线（指标随档位）",
@@ -249,10 +254,66 @@ export function charts(arms: ArmRun[]): string {
             response,
         )
       : "") +
-    section(
+    entries + (entries && !time ? "" : section(
       "4. 时间序列（Probe 采样）",
       "<p>单档内的形状（爬坡/平台/尖峰）。左轴=该服务的资源（usage 配 request/limit 参考平线），右轴=压力（虚线：发压机在途 + 该服务自身并发）。count 单位的 counter 画成逐 tick 速率（计数速率图）；累计原值见 `timeseries.csv`。悬停图例可见各指标含义。</p>" +
         (time || "<p>（无服务级 Probe 序列 — 资源观测见 observe: 配置）</p>"),
-    )
+    ))
   );
+}
+
+function entryCharts(run: Run): string {
+  const groups: string[] = [];
+  for (const operation of run.entry_ids ?? []) {
+    const cases = Object.entries(run.case_entries ?? {}).filter(([, entry]) => entry === operation).map(([id]) => id);
+    const body = [`<p>Case：${cases.map(escape).join("、") || "自然流量"}</p>`];
+    for (const arm of run.executions) {
+      const window = full(arm);
+      if (!window) continue;
+      const extent: [number,number] = [window.start_s, window.end_s];
+      const calls = new Map(arm.operation_runs.map(call => [call.id,call.outcome]));
+      const duration: Lines = new Map(), first: Lines = new Map(), throughput: Lines = new Map();
+      const bucket = Math.max(1, Math.ceil((extent[1]-extent[0])/120));
+      for (const id of cases) {
+        const counts = Array<number>(Math.ceil((extent[1]-extent[0])/bucket)).fill(0);
+        for (const request of arm.requests) {
+          if (request.case_id !== id || request.state !== "finished" || request.dispatched_at === undefined || request.finished_at === undefined) continue;
+          const outcome = calls.get(request.operation_run_id ?? "");
+          line(duration,id,request.dispatched_at,outcome?.duration_ms);
+          line(first,id,request.dispatched_at,outcome?.metrics?.first_token_ms ?? outcome?.metrics?.ttft_ms);
+          const index = Math.floor((request.finished_at-extent[0])/bucket);
+          if (index >= 0 && index < counts.length) counts[index]!++;
+        }
+        counts.forEach((count,i) => {
+          const start = extent[0]+i*bucket;
+          line(throughput,id,start,count/Math.min(bucket,extent[1]-start));
+        });
+      }
+      body.push(`<h4>${escape(arm.id)}</h4>`);
+      for (const [title,unit,lines] of [["请求耗时","ms",duration],["首个输出耗时","ms",first],[`完成吞吐（每 ${bucket}s）`,"req/s",throughput]] as const)
+        if (lines.size) body.push(chart(title,"t (s)",unit,lines,{},new Map(),extent));
+      body.push("<p>服务端指标覆盖该 Operation 的全部匹配流量。</p>");
+      const queries = arm.prometheus_observations?.filter(q => q.step_s !== null && q.labels.operation === operation) ?? [];
+      if (!queries.length) body.push("<p>没有入口指标的时间序列。</p>");
+      for (const q of queries) {
+        const name = q.metric.replace(`prometheus_query.${operation}.`,"");
+        const meta = arm.registry[q.metric] as {unit?:string;description?:string} | undefined;
+        const points = arm.series?.[seriesId(q.metric,q.labels)] ?? [];
+        if (!points.length || q.error) {
+          body.push(`<p>${escape(name)} · ${q.error ? "查询失败：" + escape(q.error) : "窗口内无可用点"}</p>`);
+          continue;
+        }
+        const data: Points = [];
+        for (const [t,v] of points) {
+          const previous = data.at(-1);
+          if (previous && t-previous[0] > q.step_s! * 1.5) data.push([previous[0]+q.step_s!,null]);
+          data.push([t,v]);
+        }
+        body.push(chart(name,"t (s)",meta?.unit ?? "",new Map([[name,data]]),{[name]:meta},new Map(),extent));
+        body.push(`<p>${escape(meta?.description)} · 查询步长 ${q.step_s}s · ${points.length} 个有效点 · <code>${escape(q.expression)}</code></p>`);
+      }
+    }
+    groups.push(section(operation,body.join("")));
+  }
+  return groups.length ? section("Case 与入口 Operation 时间趋势",groups.join("")) : "";
 }

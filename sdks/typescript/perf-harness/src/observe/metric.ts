@@ -79,3 +79,26 @@ export function projectObservation(query: PrometheusObservation, fraction: boole
   if (fraction && !(0 <= value && value <= 1)) throw new Error("ratio observation must be between zero and one");
   return {kind: "scalar", value, caveats: []};
 }
+
+/** Project each evaluation timestamp independently, including bucket vectors for histogram quantiles. */
+export function projectSeries(query: PrometheusObservation, origin: number, fraction: boolean): [number, number][] {
+  if (query.warnings.length || query.data?.resultType !== "matrix" || !Array.isArray(query.data.result))
+    throw new Error("Expected a complete MetricDB range matrix");
+  const ticks = new Map<number, {metric: Record<string,string>; value: [number,string]}[]>();
+  for (const row of query.data.result) {
+    if (!row.metric || !Array.isArray(row.values)) throw new Error("Invalid matrix series");
+    for (const sample of row.values) {
+      if (!Array.isArray(sample) || sample.length !== 2 || !Number.isFinite(sample[0])) throw new Error("Invalid range sample");
+      const rows = ticks.get(sample[0]) ?? [];
+      rows.push({metric:row.metric,value:[sample[0],sample[1]]});
+      ticks.set(sample[0],rows);
+    }
+  }
+  const points: [number,number][] = [];
+  for (const [t,rows] of [...ticks].sort(([a],[b]) => a-b)) {
+    if (rows.some(row => ["NaN","+Inf","-Inf"].includes(row.value[1]))) continue;
+    const summary = projectObservation({...query,data:{resultType:"vector",result:rows}},fraction);
+    if (typeof summary?.value === "number") points.push([t-origin,summary.value]);
+  }
+  return points;
+}

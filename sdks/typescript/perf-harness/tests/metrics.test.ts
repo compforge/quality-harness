@@ -155,3 +155,31 @@ test("independent producers merge disjoint roles and reject conflicting family d
   expect(()=>planMetrics(unplanned(),[probe,{...tail,summaries:[{name:"qps",unit:"s",promql:"histogram"}],metrics:{p95:"qps"}}],
     {url:"http://metrics",kind:"prometheus"})).toThrow("family");
 });
+
+test("Case entry trends share range queries, preserve single points, and render offline", async () => {
+  const value = unplanned();
+  value.entry_ids = [probe.target, "operation:mock/search"];
+  value.case_entries = {greet:probe.target, calculate:probe.target, search:"operation:mock/search"};
+  planMetrics(value,[probe],{url:"http://metrics",kind:"prometheus"});
+  const client = source(async () => scalar("4"));
+  let ranges = 0;
+  client.queryRange = async (expression,start) => {
+    expect(expression).toContain("[60s]");
+    ranges++;
+    return {data:{resultType:"matrix",result:[{metric:{},values:[[start,"3"]]}]},warnings:[],infos:[]};
+  };
+  await collectMetrics(value,[client]);
+  expect(ranges).toBe(value.executions.length);
+  const dir = directory();
+  writeRunData(value,dir);
+  const replay = loadRun(dir);
+  expect(replay.case_entries).toEqual(value.case_entries);
+  const html = renderPerfReport(replay);
+  expect(html).toContain("greet、calculate");
+  expect(html).toContain("1 个有效点");
+  expect(html).toEqual(renderPerfReport(value));
+  client.queryRange = async () => { throw new Error("range unavailable"); };
+  await recollectMetrics(dir,[client]);
+  expect(renderPerfReport(loadRun(dir))).toContain("查询失败：range unavailable");
+  expect(readFileSync(join(dir,"timeseries.csv"),"utf8")).not.toContain("prometheus_query.qps");
+});

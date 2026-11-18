@@ -17,6 +17,7 @@ export function serializeRun(run: Run): Record<string, unknown> {
     environment: run.environment,
     ...(run.graph ? {graph: run.graph} : {}),
     ...(run.report_columns?.length ? {report_columns: run.report_columns} : {}),
+    case_entries: run.case_entries,
     case_ids: run.case_ids ?? [],
     entry_ids: run.entry_ids ?? [],
     observation_bindings: run.observation_bindings ?? [],

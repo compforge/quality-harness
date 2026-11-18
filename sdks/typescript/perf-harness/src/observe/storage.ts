@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { MetricDBReader } from "@compforge/harness-toolbox/metricdb";
 import type { Run } from "../model";
 import { loadRun, serializeRun } from "../runio";
+import { serializeSeries } from "../series";
 import { collectMetrics, type CollectionOptions } from "./history";
 
 export function archiveMetricCollection(run: Run, directory: string): string {
@@ -36,6 +37,8 @@ export function writeMetricData(run: Run, directory: string): void {
   const temporary = `${path}.${randomUUID()}.tmp`;
   writeFileSync(temporary,JSON.stringify(saved,null,2),{flag:"wx"});
   renameSync(temporary,path);
+  if (run.executions.some(arm => arm.prometheus_observations?.some(q => q.step_s !== null)))
+    writeFileSync(join(directory,"timeseries.csv"),serializeSeries(run.executions));
 }
 /** Reuse frozen source identity, expressions and windows without loading project Runners. */
 export async function recollectMetrics(directory: string, sources: readonly MetricDBReader[], options: CollectionOptions = {}): Promise<Run> {

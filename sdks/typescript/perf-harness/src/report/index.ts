@@ -17,12 +17,13 @@ const missingReasons: Record<string,string> = {
   no_samples: "No usable samples; cause is not established",
   query_error: "Query or result validation failed; inspect the recorded error and warnings",
 };
-function frameNodes(window: CallGraphWindow, colors: Map<string,string>) {
+function frameNodes(window: CallGraphWindow, colors: Map<string,string>, run: Run) {
   const values = window.nodes.map(node => node.properties.perf.metrics.qps?.value).filter((value): value is number =>
     typeof value === "number" && Number.isFinite(value) && value >= 0);
   const low = Math.min(...values), high = Math.max(...values);
   return window.nodes.map(node => {
     const props = node.properties.perf, metrics = props.metrics, qps = metrics.qps?.value;
+    const cases = Object.entries(run.case_entries ?? {}).filter(([,op]) => op === node.id).map(([id]) => id);
     const details = [["Operation",node.id],["Service",props.service],["Path",props.path],["Method",props.method],
       ["Response mode",props.response_mode ?? "unbound"],["Window",`${window.id}: ${window.start_s}–${window.end_s}s`],
       ["QPS semantics",props.qps_semantics ?? "unbound"]];
@@ -42,7 +43,7 @@ function frameNodes(window: CallGraphWindow, colors: Map<string,string>) {
     const observedQps = typeof qps === "number" && Number.isFinite(qps) && qps >= 0;
     const error = metrics.error_rate?.value;
     return {id:node.id, group:props.service, importance:props.importance,
-      label:`${props.name}\nQPS ${number(qps)}\np95 ${number(metrics.p95?.value)} s\nerr ${typeof error === "number" ? number(error*100)+"%" : "N/A"}`,
+      label:`${props.name}${cases.length ? "\n" + cases.join(", ") : ""}\nQPS ${number(qps)}\np95 ${number(metrics.p95?.value)} s\nerr ${typeof error === "number" ? number(error*100)+"%" : "N/A"}`,
       details,tooltip:details.map(([key,value]) => `${key}: ${value}`).join("\n"),color:colors.get(props.service),
       comparison_value:observedQps ? qps : null,
       diameter: observedQps && high > low ? Math.sqrt(88**2+(qps-low)/(high-low)*(160**2-88**2)) : 112};
@@ -67,8 +68,8 @@ function graphView(snapshot: CallGraphSnapshot, run: Run): string {
     }
     return [
       ...(snapshot.entry_ids.length ? [{label:`Case entry / ${label}`, group:"Case entry",
-        nodes:frameNodes(scoped,colors), edges:edges.filter(edge => subset.relations.some(r => r.id === edge.id)), entry_ids:snapshot.entry_ids}] : []),
-      {label:`Full graph / ${label}`, group:"Full graph", nodes:frameNodes(window,colors), edges, entry_ids:[]},
+        nodes:frameNodes(scoped,colors,run), edges:edges.filter(edge => subset.relations.some(r => r.id === edge.id)), entry_ids:snapshot.entry_ids}] : []),
+      {label:`Full graph / ${label}`, group:"Full graph", nodes:frameNodes(window,colors,run), edges, entry_ids:[]},
     ];
   }));
   if (!frames.length) return "<p>No observation windows were recorded.</p>";
