@@ -1,7 +1,7 @@
 {
   "name": "@compforge/perf-harness",
   "license": "MIT",
-  "version": "0.12.0",
+  "version": "0.14.0",
   "description": "TypeScript load scheduling and request-side performance evidence harness",
   "type": "module",
   "scripts": {
@@ -21,7 +21,7 @@
     "docs"
   ],
   "dependencies": {
-    "@compforge/harness-common": "^0.9.0",
+    "@compforge/harness-common": "^0.9.3",
     "@compforge/harness-toolbox": "^0.13.0",
     "@compforge/spec-case": "^0.0.4"
   },

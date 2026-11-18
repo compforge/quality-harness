@@ -6,6 +6,7 @@ import { escape, section, table } from "./view";
 import { buildCallgraph, entryCallgraph, type CallGraphSnapshot, type CallGraphWindow } from "../callgraph";
 import { graphScripts, tabScript, reportStyle, sort } from "./assets";
 
+import { charts } from "./charts";
 import navigationStyle from "./navigation.css" with { type: "text" };
 import navigation from "./navigation.js" with { type: "text" };
 
@@ -86,17 +87,19 @@ ${frames.length ? graphScripts() + `<script>rkGraph(document.getElementById("cal
 export function renderPerfReport(run: Run, options: { issues?: readonly string[]; facetOrder?: Readonly<Record<string, readonly string[]>> } = {}): string {
   const snapshot = buildCallgraph(run);
   const sections = reportSections(run, options.facetOrder ?? {}, options.issues ?? []);
-  const report = `<div class="perf-layout"><nav class="perf-menu" aria-label="报告章节"></nav><div class="perf-content">${sections}</div></div><script>${navigation}</script>`;
-  let body = report;
+  const layout = (menu: string, content: string) =>
+    `<div class="perf-layout"><nav id="${menu}-menu" class="perf-menu" aria-label="${menu}"></nav><div class="perf-content">${content}</div></div><script>${navigation}</script>`;
+  const views = [{name: "Overview", content: layout("overview", sections)}];
+  const trends = charts(run);
+  if (trends) views.push({name: "Trends", content: layout("trends", trends)});
   if (snapshot) {
     const scope = run.case_ids?.length === 1 ? "Case: " + escape(run.case_ids[0]) : "Aggregate case scope; metrics are not attributed to individual cases.";
     const graph = graphView(snapshot, run, `<p>${scope}</p><p>Operation nodes; service is auxiliary information. Solid: call, dashed: may_call. Metrics describe the selected server/window, including other matching traffic. Node traffic does not prove a particular edge executed. N/A means missing observation, not zero. Latency percentiles cannot be summed along paths. Circle area scales with the current window’s QPS range; missing QPS uses the default size. Hover for details.</p>`);
-    body = `<div class="report-tabs" role="tablist" aria-label="Report views">
-<button type="button" role="tab" id="rk-tab-0" aria-controls="rk-panel-0" aria-selected="true" tabindex="0">Trends</button>
-<button type="button" role="tab" id="rk-tab-1" aria-controls="rk-panel-1" aria-selected="false" tabindex="-1">Callgraph</button>
-</div><div role="tabpanel" id="rk-panel-0" aria-labelledby="rk-tab-0" data-wide="true">${report}</div>
-<div role="tabpanel" id="rk-panel-1" aria-labelledby="rk-tab-1" data-wide="true" hidden>${graph}</div>${tabScript()}`;
+    views.push({name: "Callgraph", content: graph});
   }
+  const tabs = views.map(({name}, i) => `<button type="button" role="tab" id="rk-tab-${i}" aria-controls="rk-panel-${i}" aria-selected="${i === 0}" tabindex="${i ? -1 : 0}">${name}</button>`);
+  const panels = views.map(({content}, i) => `<div role="tabpanel" id="rk-panel-${i}" aria-labelledby="rk-tab-${i}" data-wide="true"${i ? " hidden" : ""}>${content}</div>`);
+  const body = `<div class="report-tabs" role="tablist" aria-label="Report views">${tabs.join("")}</div>${panels.join("")}${tabScript()}`;
   const title = "perf report — " + escape(run.service);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>${reportStyle}\n${navigationStyle}</style><script>${sort}</script></head><body><h1>${title}</h1><div class="meta"><span><b>service:</b> ${escape(run.service)}</span></div>${body}</body></html>`;
 }

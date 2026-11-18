@@ -68,7 +68,7 @@ test("explicit entries choose descendants, union shared nodes and tolerate cycle
   try {writeRunData(run,folder);expect(loadRun(folder).entry_ids).toEqual(run.entry_ids);}
   finally {rmSync(folder,{recursive:true,force:true});}
   const html=renderPerfReport(run);
-  expect(html).toContain('aria-selected="true" tabindex="0">Trends</button>');
+  expect(html).toContain('aria-selected="true" tabindex="0">Overview</button>');
   expect(html).toContain('aria-labelledby="rk-tab-1" data-wide="true" hidden');
   const graphContent = html.split('id="callgraph" class="perf-content graph-view">')[1]!.split("</div></div><script>")[0]!;
   expect([...graphContent.matchAll(/<summary>([^<]+)<\/summary>/g)].map(match => match[1]))

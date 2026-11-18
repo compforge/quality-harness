@@ -45,8 +45,12 @@ export class Service<E extends Environment = Environment> implements Identity {
 
   /** Name-based identity scoped to one environment's service catalog. */
   id(): string {
-    if (!this.name) throw new Error("service name must not be empty");
-    const name = encodeURIComponent(this.name).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
-    return `service:${name}`;
+    return serviceId(this.name);
   }
+}
+
+export function serviceId(name: string): string {
+  if (!name) throw new Error("service name must not be empty");
+  const encoded = encodeURIComponent(name).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `service:${encoded}`;
 }
