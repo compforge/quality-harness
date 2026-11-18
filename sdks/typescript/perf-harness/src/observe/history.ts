@@ -1,5 +1,5 @@
 import type { MetricDBReader } from "@compforge/harness-toolbox/metricdb";
-import { Graph, RelationKind } from "@compforge/harness-common";
+import { Graph, RelationKind, serviceId } from "@compforge/harness-common";
 import type { Run, Window } from "../model";
 import { RED_UNITS, type PrometheusProbe, type ObservationBinding, type PrometheusObservation } from "./model";
 import { projectObservation, projectSeries, seriesId } from "./metric";
@@ -25,9 +25,13 @@ export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source
   const graph = run.graph ? Graph.fromJSON(run.graph) : undefined;
   if (graph && graph.environment !== run.environment) throw new Error("Graph environment must match Run");
 
-  const bindings: ObservationBinding[] = probes.map(probe => {
+  const bindings: ObservationBinding[] = probes.flatMap(probe => {
     if (!probe.target || !probe.service) throw new Error("Metric probes require a target and a service");
-    if (graph && (!graph.node(probe.target) || !graph.relationsFrom(probe.target, RelationKind.BelongsTo)
+    const serviceScope = probe.scope === "service";
+    if (serviceScope) {
+      if (probe.target !== serviceId(probe.service) || (graph && graph.node(probe.target)?.kind !== "service"))
+        throw new Error(`Unknown resource Service: ${probe.target}`);
+    } else if (graph && (!graph.node(probe.target) || !graph.relationsFrom(probe.target, RelationKind.BelongsTo)
       .some(relation => decodeURIComponent(relation.target.replace(/^service:/,"")) === probe.service)))
       throw new Error(`Metric target or owner missing from graph: ${probe.target}`);
     if (probe.qps_semantics && !["entered", "completed"].includes(probe.qps_semantics)) throw new Error("Invalid QPS semantics");
@@ -37,7 +41,7 @@ export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source
       if (!["full", "phase", "custom"].includes(selector.kind) || (selector.phase !== undefined &&
         (selector.kind !== "phase" || !["warmup", "hold", "cooldown"].includes(selector.phase)))) throw new Error("Invalid observation window selector");
       for (const previous of probe.summaries.slice(0,index).filter(item => item.name === query.name)) {
-        if (previous.unit !== query.unit || previous.description !== query.description)
+        if (previous.unit !== query.unit || previous.category !== query.category || previous.description !== query.description)
           throw new Error("Metric descriptions and units must agree across windows");
         if (run.executions.some(arm => arm.windows.some(window => matches(window, previous) && matches(window, query))))
           throw new Error("Duplicate summary in an observation window");
@@ -47,6 +51,7 @@ export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source
       if (query.histogram && (!(query.histogram.quantile > 0 && query.histogram.quantile < 1) ||
         !Number.isFinite(query.histogram.scale) || query.histogram.scale <= 0)) throw new Error("Invalid histogram projection");
     }
+    if (serviceScope) return [];
     if (!Object.keys(probe.metrics).length) throw new Error("Probe requires metric bindings");
     const labels = {service: probe.service, operation: probe.target};
     const metrics = Object.fromEntries(Object.entries(probe.metrics).map(([role, name]) => {
@@ -56,8 +61,8 @@ export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source
       return [role, {metric: `${seriesId(`prometheus_query.${name}`, labels)}.value`, unit: summary.unit,
         description: summary.description ?? "", semantics: role === "qps" ? probe.qps_semantics ?? "completed" : ""}];
     }));
-    return {target: probe.target, service: probe.service, metrics, method: probe.method ?? "", path: probe.path ?? "",
-      response_mode: probe.response_mode ?? null, workload: null};
+    return [{target: probe.target, service: probe.service, metrics, method: probe.method ?? "", path: probe.path ?? "",
+      response_mode: probe.response_mode ?? null, workload: null}];
   });
   const merged = new Map<string,ObservationBinding>();
   for (const binding of bindings) {
@@ -69,12 +74,12 @@ export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source
       throw new Error("Metric producers must contribute unique roles for a target");
     previous.metrics = {...previous.metrics,...binding.metrics};
   }
-  const descriptors = new Map<string,{unit:string; description:string}>();
+  const descriptors = new Map<string,{unit:string; description:string; category?:string}>();
   for (const probe of probes) for (const summary of probe.summaries) {
     const description = summary.description ?? "", existing = descriptors.get(summary.name);
-    if (existing && (existing.unit !== summary.unit || existing.description !== description))
+    if (existing && (existing.unit !== summary.unit || existing.category !== summary.category || existing.description !== description))
       throw new Error("Metric family units and descriptions must agree across producers");
-    descriptors.set(summary.name,{unit:summary.unit,description});
+    descriptors.set(summary.name,{unit:summary.unit,description,category:summary.category});
   }
   const plans = run.executions.map(arm => {
     if (arm.windows.length && !Number.isFinite(arm.started_at_s)) throw new Error(`Arm ${arm.id} has no recorded Unix observation origin`);
@@ -87,14 +92,17 @@ export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source
       const end = (Math.ceil((arm.started_at_s! + window.end_s)*1000)-1)/1000;
       if (end < start) continue;
       for (const query of probe.summaries.filter(item => matches(window,item))) {
-        queries.push({probe: `prometheus_query.${probe.service}.${probe.target}`, metric: `prometheus_query.${query.name}`,
+        const labels: Record<string,string> = {service: probe.service};
+        if (probe.scope !== "service") labels.operation = probe.target;
+        const instant: PrometheusObservation = {probe: `prometheus_query.${probe.service}.${probe.target}`, metric: `prometheus_query.${query.name}`,
           expression: query.promql.replaceAll("$window", `${Math.round((end-start)*1000)+1}ms`),
           source_url: source.url, datasource_kind: source.kind, start_s: start, end_s: end, step_s: null,
-          labels: {service: probe.service, operation: probe.target}, result_labels: [], window_id: window.id,
-          data: null, warnings: [], infos: [], error: null, collected_at_s: null, histogram: query.histogram ?? null});
-        if (window.kind === "full" && run.case_entries && run.entry_ids?.includes(probe.target)) {
+          labels, result_labels: [], window_id: window.id,
+          data: null, warnings: [], infos: [], error: null, collected_at_s: null, histogram: query.histogram ?? null};
+        if (probe.scope !== "service") queries.push(instant);
+        if (window.kind === "full") {
           const step = Math.max(15, Math.ceil((end-start)/1000));
-          queries.push({...queries[queries.length-1]!, window_id: null, step_s: step,
+          queries.push({...instant, window_id: null, step_s: step,
             expression: query.promql.replaceAll("$window", `${query.trendWindowSeconds ?? 60}s`)});
         }
       }
@@ -107,8 +115,8 @@ export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source
   run.executions.forEach((arm,index) => {
     arm.prometheus_observations = plans[index]!;
     for (const probe of probes) for (const query of probe.summaries) {
-      arm.registry[`prometheus_query.${query.name}`] = {unit: query.unit, side: "resource", value_kind: "scalar",
-        source: "prometheus_query", description: query.description ?? "", labels: ["operation","service"]};
+      arm.registry[`prometheus_query.${query.name}`] = {unit: query.unit, side: "resource", category: query.category, value_kind: "scalar",
+        source: "prometheus_query", description: query.description ?? "", labels: probe.scope === "service" ? ["service"] : ["operation","service"]};
     }
   });
 }

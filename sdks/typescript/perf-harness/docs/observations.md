@@ -133,11 +133,17 @@ Longer collection waiting cannot add samples whose timestamps belong inside an a
 window. Increase the planned observation duration for future runs, or keep the missing result.
 
 For Case-oriented reports, save the selected Case-to-Operation mapping in
-`run.case_entries` and its roots in `run.entry_ids`. An empty mapping with
-explicit roots observes natural traffic. Each entry metric with a full-window
-summary also gets one range query per execution. Its rolling `$window` comes from the metric’s optional
-`trendWindowSeconds` (default 60); the evaluation step is at least 15 seconds and scales to roughly 1,000
-points for longer runs. A rolling value can include observations before the run.
-The saved expressions describe the actual lookback; step is independent of scrape
-interval. Window values still drive the Callgraph. The Trends tab groups requests by
-Case and draws the shared entry series once, including zero or a single sample.
+`run.case_entries` and its roots in `run.entry_ids`. An empty mapping with explicit roots observes natural traffic.
+Each planned Operation metric with a full-window summary gets one range query per execution,
+including downstream Operations. The rolling `$window` uses `trendWindowSeconds` (default 60).
+The step is at least 15 seconds and scales to roughly 1,000 points for longer runs. Rolling
+values can include observations before the run; instant window values still drive Callgraph.
+
+Overview contains run status, summaries and coverage. Trends groups time series by the exact
+`category` on each registered metric: `red:qps` (rps), `red:error_rate` (ratio), and `red:p95`
+(seconds) bind standard RED slots, while `resource:cpu` and `resource:mem` group resource
+measurements. Other and absent categories are custom. Names, units and Operation owners are
+retained independently of category. Each series shares its execution's request_qps overlay:
+actual dispatches across all Cases per elapsed bucket second. Completion throughput counts
+completion events. Observation-only runs have zero injected QPS; service-side QPS can still
+include natural traffic. A missing Operation series is shown as unavailable.

@@ -18,11 +18,12 @@ export interface PrometheusObservation {
 }
 export interface WindowSelector { kind: WindowKind; phase?: Phase; name?: string; level?: number; }
 export interface WindowQuery {
-  name: string; promql: string; unit: string; description?: string;
+  name: string; promql: string; unit: string; category?: string; description?: string;
   trendWindowSeconds?: number;
   window?: WindowSelector; histogram?: HistogramQuantile;
 }
 export interface PrometheusProbe {
+  scope?: "operation" | "service";
   service: string; target: string; method?: string; path?: string; response_mode?: string | null;
   summaries: readonly WindowQuery[];
   metrics: Readonly<Record<string, string>>;

@@ -9,18 +9,26 @@ export function operationMetricProbes(operations: readonly Operation[], backend:
 ): PrometheusProbe[] {
   return operations.flatMap(operation => selectProbes(operation.probes ?? [], backend).map(declaration => {
     const probe = bindMetricDBProbe(declaration, parameters(operation));
-    for (const [role, metric] of Object.entries(probe.metrics)) {
+    const metrics: Record<string, string> = Object.create(null);
+    let qpsSemantics: "entered" | "completed" = "completed";
+    for (const [name, metric] of Object.entries(probe.metrics)) {
+      const category = declaration.metrics[name]!.category;
+      const red = Object.keys(RED_UNITS).find(role => category === `red:${role}`);
+      // The binding key drives Callgraph RED slots. Preserve the declared series name independently.
+      const role = red ?? (Object.hasOwn(RED_UNITS, name) || name.startsWith("metric:") ? `metric:${name}` : name);
+      if (Object.hasOwn(metrics, role)) throw new Error(`Duplicate metric role ${role} for ${operation.id()}`);
+      metrics[role] = `${operation.id()}.${name}`;
+      if (red === "qps" && metric.semantics === "entered") qpsSemantics = "entered";
       if (Object.hasOwn(RED_UNITS, role) && metric.unit !== RED_UNITS[role as keyof typeof RED_UNITS]) throw new Error(`Invalid unit for ${role}`);
       if (metric.histogram && (!(metric.histogram.quantile > 0 && metric.histogram.quantile < 1)
         || !Number.isFinite(metric.histogram.scale) || metric.histogram.scale <= 0)) throw new Error("Invalid histogram projection");
     }
     const http = operation as Operation & {method?: string; path?: string; response_mode?: string};
-    const metrics = Object.fromEntries(Object.keys(probe.metrics).map(role => [role, `${operation.id()}.${role}`]));
     return {service: operation.serviceName, target: operation.id(), method: http.method, path: http.path,
       response_mode: probe.responseMode === undefined ? http.response_mode : probe.responseMode, metrics,
-      qps_semantics: probe.metrics.qps?.semantics === "entered" ? "entered" : "completed",
+      qps_semantics: qpsSemantics,
       summaries: Object.entries(probe.metrics).flatMap(([role, metric]) => windows.map(window => ({
-        name: metrics[role]!, promql: metric.expression, unit: metric.unit, trendWindowSeconds:metric.trendWindowSeconds,
+        name: `${operation.id()}.${role}`, category: declaration.metrics[role]!.category, promql: metric.expression, unit: metric.unit, trendWindowSeconds:metric.trendWindowSeconds,
         description: [metric.description, metric.semantics].filter(Boolean).join("; "), histogram: metric.histogram, window,
       }))),
     };

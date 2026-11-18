@@ -2,7 +2,6 @@ import { escape, table, section, full, drop } from "./view";
 import type { ArmRun, RequestStats, Run, Window } from "../model";
 import { peakLevel, saturated, stages, observesOnly } from "../load";
 import { selectedCells } from "./columns";
-import { charts } from "./charts";
 
 const statCols = [
   "dispatch_rps",
@@ -343,7 +342,6 @@ export function reportSections(
             .join(""),
       ),
     );
-  sections.push(charts(run));
   if (issues.length)
     sections.push(
       `<details><summary>指标覆盖明细（${issues.length}）</summary><ul>${issues.map((i) => `<li>${escape(i)}</li>`).join("")}</ul></details>`,

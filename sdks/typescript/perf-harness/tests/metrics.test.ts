@@ -151,7 +151,9 @@ test("independent producers merge disjoint roles and reject conflicting family d
   const tail: PrometheusProbe={...probe,summaries:[{name:"tail",unit:"s",promql:"histogram"}],metrics:{p95:"tail"}};
   planMetrics(value,[probe,tail],{url:"http://metrics",kind:"prometheus"});
   expect(Object.keys(value.observation_bindings![0]!.metrics)).toEqual(["qps","p95"]);
-  expect(value.executions[0]!.prometheus_observations).toHaveLength(2);
+  const queries = value.executions[0]!.prometheus_observations!;
+  expect(queries.filter(q => q.step_s === null)).toHaveLength(2);
+  expect(queries.filter(q => q.step_s !== null)).toHaveLength(2);
   expect(()=>planMetrics(unplanned(),[probe,{...tail,summaries:[{name:"qps",unit:"s",promql:"histogram"}],metrics:{p95:"qps"}}],
     {url:"http://metrics",kind:"prometheus"})).toThrow("family");
 });

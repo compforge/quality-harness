@@ -1,5 +1,7 @@
 /** A reusable observation declaration, independent of execution phases and access credentials. */
 export interface MetricDefinition {
+  /** Semantic series category. Unrecognized or absent categories are custom metrics. */
+  readonly category?: string;
   readonly unit: string;
   readonly description?: string;
   readonly semantics?: string;

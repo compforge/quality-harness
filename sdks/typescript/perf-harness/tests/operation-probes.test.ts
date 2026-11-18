@@ -15,3 +15,18 @@ test("complete Operation queries need only backend and realized windows, not hos
     probes:[{type:"metricdb",metrics:{qps:{unit:"rps",expression:"requests{namespace={{namespace}}}"}}}]});
   expect(() => operationMetricProbes([incomplete],"prometheus")).toThrow("Missing metric scope parameter");
 });
+
+test("Operation metric categories select canonical RED slots independently of registered names", () => {
+  const operation = new HttpOperation({serviceName:"api", name:"read", method:"GET",path:"/items",
+    probes:[{type:"metricdb", metrics:{
+      ingress:{category:"red:qps", unit:"rps", semantics:"entered", expression:"ingress"},
+      qps:{unit:"bytes", expression:"custom"},
+      first_chunk:{category:"red:other", unit:"s", expression:"first_chunk"},
+      memory:{category:"resource:mem", unit:"bytes", expression:"memory"},
+    }}]});
+  const [probe] = operationMetricProbes([operation], "prometheus");
+  expect(probe!.metrics.qps).toBe(operation.id()+".ingress");
+  expect(probe!.qps_semantics).toBe("entered");
+  expect(Object.values(probe!.metrics)).toContain(operation.id()+".qps");
+  expect(probe!.summaries.find(q => q.name.endsWith(".memory"))?.category).toBe("resource:mem");
+});
