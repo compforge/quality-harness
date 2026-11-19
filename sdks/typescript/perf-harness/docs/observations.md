@@ -98,7 +98,7 @@ population remain missing. Backend-specific increase functions belong to the pro
 `callgraph.json` and `report.html`; `renderPerfReport(run)` returns HTML for hosts that own delivery.
 Callgraph nodes show the Operation name and three RED metrics. They display `N/A` for a metric
 without a finite value and `error` for a failed query. Open the full-window metrics table
-for detailed statistics. The saved observations in `run.json` retain the exact PromQL, query
+for detailed statistics and reasons for unavailable values. The saved observations in `run.json` retain the exact PromQL, query
 window, raw result and query diagnostics.
 The report includes request windows and an interactive Operation graph with service/importance/QPS
 filters, full/phase/custom selection, pan/zoom, tooltips and image copy. It makes no capacity or

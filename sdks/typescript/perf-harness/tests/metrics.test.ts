@@ -92,6 +92,14 @@ test("classic histogram retains overflow, rejects non-monotonic buckets, and zer
     expect(html).toContain("chat\\nQPS N/A\\np95 " + display + "\\nerr N/A");
     expect(html).not.toContain("Histogram contains zero observed events");
     expect(html).not.toContain("p95 +Inf");
+    const metricTable = html.split("<summary>完整窗口指标明细</summary>")[1]!.split("</details>")[0]!;
+    if (expected === "+Inf") {
+      expect(metricTable).toContain("超出直方图量程（最高有限桶 1 s）");
+      expect(metricTable).not.toContain("value=+Inf");
+    }
+    if (status === "missing") expect(metricTable).toContain("窗口内直方图无观测事件");
+    if (status === "error") expect(metricTable).toContain("查询或结果校验失败，详见 run.json");
+    expect(metricTable).toContain("未绑定观测指标");
   }
 });
 
