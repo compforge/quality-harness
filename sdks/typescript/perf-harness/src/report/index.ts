@@ -38,7 +38,7 @@ function frameNodes(window: CallGraphWindow, colors: Map<string,string>, run: Ru
       if (metric.metric_ref) details.push([`${role} metric`,metric.metric_ref]);
       if (metric.histogram) details.push([`${role} histogram`,JSON.stringify(metric.histogram)]);
       for (const query of metric.queries) {
-        details.push(["PromQL",query.expression],["Source",`${query.datasource_kind} ${query.source_url}`],
+        details.push(["Source",`${query.datasource_kind} ${query.source_url}`],
           ["Query range",`${query.start_s}–${query.end_s}`]);
         if (query.error) details.push(["Query error",query.error]);
         if (query.warnings.length) details.push(["Query warnings",query.warnings.join("; ")]);

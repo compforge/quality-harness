@@ -160,7 +160,6 @@ export function charts(run: Run) {
       name: string,
       points: Points,
       note?: string,
-      expression?: string,
     ) {
       const meta = arm.registry[id.split("{")[0]!] as
         | { category?: string; unit?: string; description?: string }
@@ -185,10 +184,6 @@ export function charts(run: Run) {
       if (meta?.description || note)
         plot.notes.push(
           `<p>${escape(name)} · ${escape([meta?.description, note].filter(Boolean).join(" · "))}</p>`,
-        );
-      if (expression)
-        plot.notes.push(
-          `<details><summary>${escape(name)} · PromQL</summary><code>${escape(expression)}</code></details>`,
         );
       plots.set(key, plot);
     }
@@ -216,7 +211,7 @@ export function charts(run: Run) {
           : points.length
             ? `${samples.length} 个有效点`
             : "窗口内无可用点";
-      add(id, service, owner, name, points, note, query.expression);
+      add(id, service, owner, name, points, note);
     }
     for (const [id, points] of Object.entries(arm.series ?? {})) {
       if (queried.has(id) || !points.length) continue;
