@@ -96,6 +96,8 @@ population remain missing. Backend-specific increase functions belong to the pro
 
 `buildCallgraph(run)` derives schema 2 without I/O. `writePerfReport(run, directory)` writes
 `callgraph.json` and `report.html`; `renderPerfReport(run)` returns HTML for hosts that own delivery.
+The HTML shows metric values, sample coverage and collection status. For the exact PromQL,
+query window and raw result, inspect the saved observations in `run.json`.
 The report includes request windows and an interactive Operation graph with service/importance/QPS
 filters, full/phase/custom selection, pan/zoom, tooltips and image copy. It makes no capacity or
 bottleneck verdict. Actual edge execution still needs trace evidence.

@@ -179,6 +179,11 @@ test("Case entry trends share range queries, preserve single points, and render 
   const html = renderPerfReport(replay);
   expect(html).toContain("greet、calculate");
   expect(html).toContain("1 个有效点");
+  const queries = replay.executions[0]!.prometheus_observations!;
+  for (const query of [queries.find(q => q.step_s === null)!, queries.find(q => q.step_s !== null)!]) {
+    expect(query.expression).toContain("sum(rate(requests[");
+    expect(html).not.toContain(query.expression);
+  }
   expect(html).toEqual(renderPerfReport(value));
   client.queryRange = async () => { throw new Error("range unavailable"); };
   await recollectMetrics(dir,[client]);
