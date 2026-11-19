@@ -92,13 +92,13 @@ from harness_common.system.graph import NodeKind as NodeKind
 from harness_common.system.graph import Relation as Relation
 from harness_common.system.graph import RelationKind as RelationKind
 
-from harness_common.observation import (
+from harness_common.observe import (
     MetricQuery as MetricQuery,
-    ProbeDefinition as ProbeDefinition,
-    select_probes as select_probes,
+    ObservationDefinition as ObservationDefinition,
+    select_observations as select_observations,
 )
 from harness_common.system.graph import graph_from_services as graph_from_services
 
-from harness_common.observation import HistogramQuantile as HistogramQuantile
+from harness_common.observe import HistogramQuantile as HistogramQuantile
 from harness_common.observation import MetricBinding as MetricBinding
 from harness_common.observation import ObservationBinding as ObservationBinding

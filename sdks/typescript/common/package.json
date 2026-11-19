@@ -1,7 +1,7 @@
 {
   "name": "@compforge/harness-common",
   "license": "MIT",
-  "version": "0.9.3",
+  "version": "0.10.0",
   "description": "Execution-neutral client lifecycle and datasource contracts for harnesses",
   "type": "module",
   "scripts": {

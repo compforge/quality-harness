@@ -81,7 +81,7 @@ test("open codes preserve prototype-like names and distinguish missing judgments
     expect(() => validateEvaluation({code})).toThrow("nonempty string");
 });
 
-/** @case id=operation_request_identity,desc=`Static probes on Operation`,expect=`Requests retain identity without repeating topology or query declarations` */
+/** @case id=operation_request_identity,desc=`Static observations on Operation`,expect=`Requests retain identity without repeating topology or query declarations` */
 test("request serialization does not duplicate static Operation declarations", () => {
   const directory = mkdtempSync(join(tmpdir(), "perf-operation-"));
   try {
@@ -89,7 +89,7 @@ test("request serialization does not duplicate static Operation declarations", (
       copyFileSync(new URL(source!, fixtures), join(directory, target!));
     const run = loadRun(directory), arm = run.executions[0]!, call = arm.operation_runs[0]!;
     arm.operation_runs[0] = {...call, operation: new Operation({...call.operation,
-      calls: ["operation:worker/run"], probes: [{type: "metricdb", metrics: {qps: {unit: "rps", expression: "expensive_query"}}}]})};
+      calls: ["operation:worker/run"], observes: [{type: "metricdb", metrics: {qps: {unit: "rps", expression: "expensive_query"}}}]})};
     const serialized = serializeRequests(run);
     expect(serialized).not.toContain("expensive_query");
     expect(serialized).not.toContain('"calls"');

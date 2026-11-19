@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from urllib.parse import quote
 from typing import TYPE_CHECKING
 
+from harness_common.observe import ObservationDefinition
+
 if TYPE_CHECKING:
     from harness_common.execution.operation import Operation
 
@@ -33,6 +35,7 @@ class Service(Identity):
     component: Component
     environment: Environment
 
+    observes: tuple[ObservationDefinition, ...] = field(default=(), kw_only=True, compare=False)
     description: str | None = field(default=None, kw_only=True, compare=False)
     concepts: str | None = field(default=None, kw_only=True, compare=False)
     workflows: str | None = field(default=None, kw_only=True, compare=False)

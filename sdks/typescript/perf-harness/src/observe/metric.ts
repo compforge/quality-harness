@@ -1,9 +1,19 @@
+import type { ArmRun } from "../model";
 import type { PrometheusObservation, ScalarSummary, HistogramQuantile } from "./model";
 
 export function seriesId(metric: string, labels: Record<string, string>): string {
   const entries = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b));
   return metric + (entries.length ? `{${entries.map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(",")}}` : "");
 }
+/** Read the canonical projection of a range query, including the distinction between a zero sample and an empty result. */
+export function rangeObservation(arm: Pick<ArmRun, "series">, query: PrometheusObservation) {
+  if (query.step_s === null) throw new Error("Expected a range query");
+  const id = seriesId(query.metric, query.labels);
+  const points = arm.series?.[id] ?? [];
+  const status = query.error ? "query_error" : query.collected_at_s === null ? "not_collected" : points.length ? "observed" : "empty_result";
+  return { id, status, points: status === "observed" ? points : [] } as const;
+}
+
 export function finiteNumber(value: unknown): number {
   if ((typeof value !== "string" && typeof value !== "number") || String(value).trim() === "")
     throw new Error("Prometheus query returned an invalid numeric sample");

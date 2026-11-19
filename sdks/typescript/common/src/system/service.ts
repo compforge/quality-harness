@@ -1,3 +1,4 @@
+import type { ObservationDefinition } from "../observe.js";
 import type { Operation } from "../execution.js";
 import type { Identity } from "../identity.js";
 import type { Knowledge } from "./knowledge.js";
@@ -16,6 +17,7 @@ import type { Workload } from "./workload.js";
  */
 export class Service<E extends Environment = Environment> implements Identity {
   readonly name: string;
+  readonly observes?: readonly ObservationDefinition[];
   /** Structured offline knowledge; not part of identity or runtime evidence. */
   readonly knowledge?: Knowledge;
   /**
@@ -38,6 +40,7 @@ export class Service<E extends Environment = Environment> implements Identity {
     this.environment = value.environment;
     this.workloads = value.workloads;
     this.operations = value.operations;
+    this.observes = value.observes === undefined ? undefined : Object.freeze([...value.observes]);
     this.description = value.description;
     this.knowledge = value.knowledge;
     this.upstream = value.upstream;

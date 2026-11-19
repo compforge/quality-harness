@@ -23,7 +23,8 @@ export interface WindowQuery {
   window?: WindowSelector; histogram?: HistogramQuantile;
 }
 export interface PrometheusProbe {
-  scope?: "operation" | "service";
+  scope?: "operation" | "service" | "workload";
+  workload?: string;
   service: string; target: string; method?: string; path?: string; response_mode?: string | null;
   summaries: readonly WindowQuery[];
   metrics: Readonly<Record<string, string>>;

@@ -78,7 +78,7 @@ adapter 已实现；能力家族也不保证其下所有后端共享完整 API�
 OpenSearch 原生实现，MetricDB 提供统一查询入口及 Prometheus / VictoriaMetrics adapter。
 
 例如 `type: metricdb, kind: victoriametrics` 分别表达能力家族与具体后端；两个 VM source
-可有相同 kind，却因租户、目标、凭据或访问路径不同而具有不同身份。Operation probe 的
+可有相同 kind，却因租户、目标、凭据或访问路径不同而具有不同身份。`Operation.observes` 的
 `kind` 匹配这个后端标识；probe 自身的 `type` 表达探测能力类别，例如 `metricdb`。
 
 ## 运行目标与访问绑定
@@ -474,7 +474,7 @@ VM adapter 使用 `nocache=1` 与 `latency_offset=1ms`，避免近期 instant �
 不等同于 false。partial=true 同时产生 warning，防止现有投影将不完整证据解释为成功。
 查询没有结果、访问失败、没有 histogram observations 是不同事实，不能统一补零。
 
-Operation probe 声明 `type: metricdb`，`kind` 匹配实际后端（`prometheus` 或
+Service、Operation 或 Workload 的 `observes` 可声明 `type: metricdb`。TypeScript 的 `bindMetricDBObservations` 按后端选择声明、绑定标签参数；`workloadResourceObservation` 从 K8s Workload 生成 CPU、内存和覆盖数观测。声明中，`kind` 匹配实际后端（`prometheus` 或
 `victoriametrics`）。省略 kind 表示通用表达式；多个匹配声明不能贡献同一个指标，查询失败也不切换后端。
 perf 继续保存既有查询 evidence 格式，历史报告不依赖在线访问。
 新的客户端 import 使用 `metricdb`，不提供旧 Prometheus 访问入口别名。
