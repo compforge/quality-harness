@@ -1,6 +1,6 @@
 # Example: canonical API case
 
-The smallest e2e path is data-driven: a canonical CaseSet contains the request and deterministic assertions; the engine supplies the standard execute/judge lifecycle and writes `verdict.json`.
+The Service declares `create_widget` in `config.yaml` with its HTTP method and route. The Case in `cases.yaml` references that name through `input.operation` and supplies the request body and assertions. The engine validates all bindings before sending requests and writes `verdict.json`.
 
 ```bash
 export WIDGET_TOKEN=...

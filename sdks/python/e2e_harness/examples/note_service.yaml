@@ -1,0 +1,5 @@
+service:
+  name: note
+  base_url: http://localhost:8080
+  operations:
+    - {name: create_note, method: POST, path: /note}

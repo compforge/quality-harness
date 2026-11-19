@@ -14,6 +14,7 @@ from spec_case.model import load_caseset, validate
 from e2e_harness.casegen.contract import Case as NLCase
 from e2e_harness.casegen.discover import DiscoverConfig, DiscoveredCase
 from e2e_harness.casegen import DraftCompiler, compile_cases
+from e2e_harness.core.config import Service
 from e2e_harness.engine import run_case
 from e2e_harness.runner.base import BaseRunner, Outcome, Request
 
@@ -62,7 +63,9 @@ def test_draft_inlines_nl_into_desc_and_leaves_input_assert_empty():
 
 def test_unfilled_draft_errors_in_engine_not_silently_skipped():
     c = DraftCompiler().compile(_dc())
-    v = run_case(c, _NeverRunner())  # errors before firing → runner never reached
+    v = run_case(
+        c, _NeverRunner(), service=Service(name="draft")
+    )  # errors before firing → runner never reached
     assert (
         v.status == "error" and "draft not filled" in v.reason
     )  # can't be hidden green

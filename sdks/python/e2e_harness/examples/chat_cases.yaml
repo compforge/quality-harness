@@ -2,13 +2,13 @@
 #
 # Same engine, same case shape — only the runner differs (SSERunner). The judgment addresses the
 # parsed event stream as data: `events[].event` (the frame names), `events[].data.<…>` (a field
-# projected over frames), and `event_count`. Run: `e2e run chat_cases.yaml --base-url … --protocol sse`.
+# projected over frames), and `event_count`. Run: `e2e run chat_cases.yaml --config chat_service.yaml --protocol sse`.
 caseset: chat
 
 cases:
   - id: stream_completes
     desc: 流式聊天 → 200 + 收到终止帧 done + 至少一个中间帧
-    input: { method: POST, path: /chat, body: { q: "hi" } }
+    input: { operation: stream_chat, body: { q: "hi" } }
     judge:
       e2e:
         assert:

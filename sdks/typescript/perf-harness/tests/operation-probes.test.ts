@@ -30,3 +30,17 @@ test("Operation metric categories select canonical RED slots independently of re
   expect(Object.values(probe!.metrics)).toContain(operation.id()+".qps");
   expect(probe!.summaries.find(q => q.name.endsWith(".memory"))?.category).toBe("resource:mem");
 });
+
+test("shared Operation observes select the backend and preserve custom names and RED bindings", async () => {
+  const fixture = await Bun.file(new URL("../../../../conformance/perf/fixtures/operation-observes.json", import.meta.url)).json();
+  const operation = new HttpOperation({...fixture, serviceName: "entry"});
+  for (const [backend, counter] of [["prometheus", "search_total"], ["victoriametrics", "vm_search_total"]] as const) {
+    const probes = operationMetricProbes([operation], backend);
+    const roles = Object.assign({}, ...probes.map(probe => probe.metrics));
+    expect(roles).toEqual({
+      qps: "operation:entry/search.completed", p95: "operation:entry/search.latency",
+      "metric:qps": "operation:entry/search.qps",
+    });
+    expect(probes[0]!.summaries[0]!.promql).toBe(`sum(rate(${counter}[$window]))`);
+  }
+});

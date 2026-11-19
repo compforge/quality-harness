@@ -19,10 +19,12 @@ the judgment (``judge.e2e.assert``); this engine executes them generically over 
 
 from __future__ import annotations
 
+import re
 import time
+from urllib.parse import quote
 from dataclasses import dataclass
 
-from harness_common import ExperimentRun, HttpOperation, OperationRun
+from harness_common import ExperimentRun, HttpOperation, Operation, OperationRun
 from spec_case.model import Case
 from harness_common.execution.verdict import RunVerdict, build_run_verdict
 from harness_common.execution.verdict import CaseVerdict
@@ -58,6 +60,7 @@ def _execute_case(
     service: Service,
     caseset: str,
     budgets: Budgets,
+    invocation: tuple[HttpOperation, Request] | None,
 ) -> CaseRun:
     """Execute one Case into the common Execution hierarchy."""
     judge_spec = case.judge or {}
@@ -88,19 +91,14 @@ def _execute_case(
     operation_runs: list[OperationRun[Outcome]] = []
 
     def execute(_, run_state: dict[str, Outcome]) -> None:
-        request = _request_of(case)
+        assert invocation is not None
+        operation, request = invocation
         outcome = runner.trigger(request)
-        method = request.method.upper()
         operation_runs.append(
             OperationRun(
                 id=f"{case.id}:{len(operation_runs)}",
                 service=service,
-                operation=HttpOperation(
-                    name=f"{method} {request.path}",
-                    service_name=service.name,
-                    method=method,
-                    path=request.path,
-                ),
+                operation=operation,
                 outcome=outcome,
             )
         )
@@ -145,16 +143,50 @@ def response_view(outcome: Outcome) -> dict:
     }
 
 
-def _request_of(case: Case) -> Request:
-    """Project ``case.input`` (schemaless) into a runner ``Request``.
+def _catalog(service: Service) -> dict[str, Operation]:
+    operations = {}
+    for operation in service.operations:
+        if operation.service_name != service.name or operation.name in operations:
+            raise ValueError(
+                f"Invalid Operation owner or duplicate name: {operation.id()}"
+            )
+        operations[operation.name] = operation
+    return operations
 
-    Recognised keys: ``method`` / ``path`` / ``body`` / ``headers`` / ``query``. Unknown keys
-    are ignored here — a protocol-specific runner may read them off ``case.input`` itself.
-    """
+
+def _bind(
+    case: Case, operations: dict[str, Operation]
+) -> tuple[HttpOperation, Request] | None:
+    """@spec Resolve every runnable Case against declared operations before sending the batch."""
+    if not ((case.judge or {}).get("e2e") or {}).get("assert"):
+        return None
     inp = case.input or {}
-    return Request(
-        method=str(inp.get("method", "POST")),
-        path=str(inp.get("path", "")),
+    name = inp.get("operation")
+    if not isinstance(name, str) or not name:
+        raise ValueError(
+            f"Case {case.id}: input.operation must name a declared HTTP Operation"
+        )
+    operation = operations.get(name)
+    if not isinstance(operation, HttpOperation):
+        raise ValueError(f"Case {case.id}: unknown HTTP Operation {name!r}")
+    if "method" in inp or "path" in inp:
+        raise ValueError(
+            f"Case {case.id}: method and path belong to Operation {name!r}"
+        )
+    params = inp.get("path_params", {})
+    slots = re.findall(r"\{([^{}]+)\}", operation.path)
+    if not isinstance(params, dict) or set(params) != set(slots):
+        raise ValueError(f"Case {case.id}: path_params must match {operation.path!r}")
+
+    def segment(match: re.Match[str]) -> str:
+        value = params[match[1]]
+        if not isinstance(value, (str, int)) or str(value) in ("", ".", ".."):
+            raise ValueError(f"Case {case.id}: invalid path parameter {match[1]!r}")
+        return quote(str(value), safe="")
+
+    return operation, Request(
+        method=operation.method,
+        path=re.sub(r"\{([^{}]+)\}", segment, operation.path),
         body=inp.get("body"),
         headers={k: str(v) for k, v in (inp.get("headers") or {}).items()},
         query={k: str(v) for k, v in (inp.get("query") or {}).items()},
@@ -167,13 +199,14 @@ def run_case(
     *,
     caseset: str = "cases",
     budgets: Budgets = DEFAULT_BUDGETS,
-    service: Service | None = None,
+    service: Service,
 ) -> CaseVerdict:
     """Run one Case and project its Execution to the public CaseVerdict."""
     case_run = _execute_case(
         case,
         runner,
-        service=service or Service(name=caseset),
+        service=service,
+        invocation=_bind(case, _catalog(service)),
         caseset=caseset,
         budgets=budgets,
     )
@@ -187,12 +220,12 @@ def run_cases(
     scope: str,
     run_id: str,
     caseset: str | None = None,
-    service: Service | None = None,
+    service: Service,
 ) -> RunVerdict:
     """Run every case → one e2e ``RunVerdict`` (status = rollup over the per-case verdicts)."""
     experiment = Experiment(
         name=scope,
-        service=service or Service(name=scope),
+        service=service,
         caseset=caseset or scope,
     )
     return run_experiment(experiment, cases, runner, run_id=run_id).verdict
@@ -206,15 +239,18 @@ def run_experiment(
     run_id: str,
 ) -> E2ERun:
     """Execute one E2E Experiment into the common ExperimentRun hierarchy."""
+    operations = _catalog(experiment.service)
+    invocations = [_bind(case, operations) for case in cases]
     case_runs = [
         _execute_case(
             case,
             runner,
+            invocation=invocation,
             service=experiment.service,
             caseset=experiment.caseset,
             budgets=DEFAULT_BUDGETS,
         )
-        for case in cases
+        for case, invocation in zip(cases, invocations, strict=True)
     ]
     verdicts = [case_run.case_verdict() for case_run in case_runs]
     verdict = build_run_verdict("e2e", experiment.name, run_id, verdicts)

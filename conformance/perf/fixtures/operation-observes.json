@@ -1,0 +1,41 @@
+{
+  "name": "search",
+  "method": "POST",
+  "path": "/search",
+  "observes": [
+    {
+      "type": "metricdb",
+      "kind": "prometheus",
+      "metrics": {
+        "completed": {
+          "category": "red:qps",
+          "expression": "sum(rate(search_total[$window]))",
+          "unit": "rps"
+        }
+      }
+    },
+    {
+      "type": "metricdb",
+      "kind": "victoriametrics",
+      "metrics": {
+        "completed": {
+          "category": "red:qps",
+          "expression": "sum(rate(vm_search_total[$window]))",
+          "unit": "rps"
+        }
+      }
+    },
+    {
+      "type": "metricdb",
+      "metrics": {
+        "qps": { "unit": "bytes", "expression": "search_bytes" },
+        "latency": {
+          "category": "red:p95",
+          "unit": "s",
+          "expression": "sum by (le) (increase(search_duration_bucket[$window]))",
+          "histogram": { "quantile": 0.95, "scale": 1 }
+        }
+      }
+    }
+  ]
+}

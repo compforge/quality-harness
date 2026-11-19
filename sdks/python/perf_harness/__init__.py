@@ -82,6 +82,9 @@ from perf_harness.observe import ResourceLimitsProbe as ResourceLimitsProbe
 from perf_harness.observe import RestartProbe as RestartProbe
 from perf_harness.observe import register_probe as register_probe
 from perf_harness.observe.definition import ObservationSpec as ObservationSpec
+from perf_harness.observe.operation import (
+    operation_metric_observation as operation_metric_observation,
+)
 from perf_harness.observe.prometheus import WindowQuery as WindowQuery
 from perf_harness.observe.prometheus_query import PrometheusQueryProbe as PrometheusQueryProbe
 from perf_harness.records import RequestEvaluation as RequestEvaluation

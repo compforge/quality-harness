@@ -75,3 +75,15 @@ def test_universal_probe_and_invalid_backend_kind():
     for kind in ("", " "):
         with pytest.raises(ValueError, match="kind must be a nonempty string"):
             select_observations((replace(probe, kind=kind),), "prometheus")
+
+
+def test_wire_observation_distinguishes_inherited_and_shared_response_modes():
+    wire = {
+        "type": "metricdb",
+        "metrics": {"time": {"unit": "s", "expression": "latency"}},
+    }
+    assert ObservationDefinition.from_dict(wire).response_mode == "inherit"
+    assert (
+        ObservationDefinition.from_dict({**wire, "responseMode": None}).response_mode
+        is None
+    )

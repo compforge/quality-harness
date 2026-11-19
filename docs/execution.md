@@ -39,8 +39,8 @@ OperationRun 是一次真实服务调用的基本单位。ExperimentRun 通过�
 
 ## Operation 与 Case
 
-Operation 静态描述 Service 提供的 API 或能力及其关系；Case 描述具体输入与验证场景。
-多个 Case 可以针对同一个 Operation，例如：
+Service 先声明对外提供的 Operation。Case 再绑定已有的 Operation，用具体输入和预期结果表达一个验证场景。
+一个 Operation 可以先于任何 Case 独立存在，并被多个 Case 引用。例如：
 
 ```text
 Operation: chat/chat
@@ -56,6 +56,12 @@ Case 的执行绑定由消费方提供。Doctor 的 `ServiceCaseSource.operation
 共同针对的 Operation，runner 留在 Case source，负责执行准备和单次调用。
 运行记录同时保留 Case identity 与 Operation identity；通用 Case 格式不强制一对一绑定，
 多步骤 Case 仍可产生多个 OperationRun。
+
+Python HTTP E2E 的 Service 在 `operations` 中声明具名 Operation、HTTP method 和路由模板。
+每个可执行 Case 通过 `input.operation` 引用当前 Service 中的 Operation 名称，提供
+`path_params`、query、headers 和 body。执行器在发送首个请求前检查整批 Case 的绑定，
+用声明的 method 和路由构造请求，并在 OperationRun 中保留同一个 Operation 身份。
+可运行示例见 [API Case](../examples/api-test/README.md)。
 
 ## 环境与 Case 的两层生命周期
 

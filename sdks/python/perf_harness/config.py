@@ -23,6 +23,7 @@ from harness_common import (
     Repository,
     Workload,
 )
+from harness_common.execution.operation import operation_from
 from harness_common.execution.overlay import Overlay
 from harness_toolbox.environment import KubernetesEnvironment, parse_environment
 from harness_toolbox.metricdb import MetricDBDataSource
@@ -134,18 +135,26 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
     # config knob. observe: is the one place for per-service resource observation.
     if "data_sources" in raw:
         raise ValueError("Use one data_source mapping instead of named data_sources")
-    if "data_source" in raw and "observation" not in raw:
+    additional_services = [
+        _parse_service(item, service.environment) for item in raw.get("services", [])
+    ]
+    attached_observes = any(
+        d.type == "metricdb"
+        for target in (service, *additional_services)
+        for op in target.operations
+        for d in op.observes or ()
+    )
+    if "data_source" in raw and "observation" not in raw and not attached_observes:
         raise ValueError("data_source requires observation declarations")
     source, step_s = parse_metricdb(raw.get("prometheus"))
     observation = []
-    if "observation" in raw:
+    if "observation" in raw or attached_observes:
         if "observe" in raw or "prometheus" in raw:
             raise ValueError(
                 "observation uses data_source and services; do not mix inline observe/prometheus"
             )
         services = {service.id(): service}
-        for item in raw.get("services", []):
-            observed = _parse_service(item, service.environment)
+        for observed in additional_services:
             if observed.id() in services:
                 raise ValueError(f"duplicate service: {observed.id()}")
             if observed.environment.name != service.environment.name:
@@ -171,7 +180,7 @@ def load_experiment(path: str, *, mock: bool = False) -> tuple[Experiment, str]:
                 ):
                     raise ValueError("observation_windows must not overlap")
         observation = load_observation(
-            raw["observation"],
+            raw.get("observation", {}),
             config_path.parent,
             services,
             graph,
@@ -456,6 +465,9 @@ def _parse_service(c: dict, fallback_environment: Environment | None = None) -> 
         workloads=tuple(
             KubernetesWorkload(**w) if "location" in w else Workload(**w)
             for w in c.get("workloads", [])
+        ),
+        operations=tuple(
+            operation_from({"service_name": name, **op}) for op in c.get("operations", [])
         ),
         base_url=str(c.get("base_url", "")).rstrip("/"),
         headers={str(k): str(v) for k, v in (c.get("headers") or {}).items()},

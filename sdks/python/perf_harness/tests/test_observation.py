@@ -492,3 +492,88 @@ def test_resource_observation_needs_no_data_source(tmp_path):
     path.write_text(yaml.safe_dump(raw))
     experiment, _ = load_experiment(str(path))
     assert experiment.observation[0].probes[0].kind is None
+
+
+@pytest.mark.parametrize(
+    ("kind", "counter"), [("prometheus", "search_total"), ("victoriametrics", "vm_search_total")]
+)
+async def test_operation_observes_collect_and_restore_shared_window_queries(
+    monkeypatch, tmp_path, kind, counter
+):
+    path, raw, _ = assets(tmp_path)
+    fixture = (
+        Path(__file__).resolve().parents[4] / "conformance/perf/fixtures/operation-observes.json"
+    )
+    operation = json.loads(fixture.read_text())
+    operation["response_mode"] = "sse"
+    raw["data_source"]["kind"] = kind
+    raw["service"]["operations"] = [operation]
+    del raw["observation"]
+    path.write_text(yaml.safe_dump(raw))
+    experiment, _ = load_experiment(str(path))
+    assert experiment.observation[0].operation is experiment.service.operations[0]
+
+    def history(request):
+        params = parse_qs(request.content.decode())
+        timestamp = float(params["time"][0])
+        if "_bucket" in params["query"][0]:
+            rows = [
+                {"metric": {"le": bound}, "value": [timestamp, "10"]} for bound in ["1", "+Inf"]
+            ]
+        else:
+            rows = [{"metric": {}, "value": [timestamp, "8"]}]
+        return httpx.Response(
+            200, json={"status": "success", "data": {"resultType": "vector", "result": rows}}
+        )
+
+    monkeypatch.setattr(
+        HTTPClientProvider,
+        "create_client",
+        lambda *_: HTTPClient(transport=httpx.MockTransport(history)),
+    )
+    run = await Engine(experiment, run_id="shared-observes").run()
+    restored = load_run(write_run(run, str(tmp_path / "runs"), config_path=str(path))["run_dir"])
+    (binding,) = restored.observation_bindings
+    assert binding.target == "operation:entry/search" and binding.response_mode == "sse"
+    assert set(binding.metrics) == {"qps", "p95", "metric:qps"}
+    assert binding.metrics["qps"].semantics == "completed"
+    assert binding.metrics["metric:qps"].unit == "bytes"
+    snapshot = build_callgraph(restored)
+    metrics = snapshot.arms[0].windows[0].nodes[0].properties["perf"]["metrics"]
+    assert metrics["qps"]["value"] == 8
+    assert metrics["p95"]["value"] == pytest.approx(0.95)
+    summaries = [q for q in restored.arm_runs[0].prometheus_observations if q.window_id == "full"]
+    (completed,) = [q for q in summaries if q.metric.endswith(".completed")]
+    assert completed.expression.startswith(f"sum(rate({counter}[")
+    assert "$window" not in completed.expression
+    (latency,) = [q for q in summaries if q.metric.endswith(".latency")]
+    assert latency.histogram.quantile == 0.95
+
+
+def test_operation_metricdb_fails_before_load_for_missing_or_duplicate_roles(tmp_path):
+    path, raw, _ = assets(tmp_path)
+    observe = {
+        "type": "metricdb",
+        "kind": "victoriametrics",
+        "metrics": {"x": {"category": "red:qps", "unit": "rps", "expression": "x"}},
+    }
+    raw["observation"] = {
+        "operations": [
+            {
+                "service_name": "entry",
+                "name": "search",
+                "method": "POST",
+                "path": "/search",
+                "response_mode": "sse",
+                "observes": [observe],
+            }
+        ]
+    }
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="exactly one producer"):
+        load_experiment(str(path))
+    observe["kind"] = "prometheus"
+    observe["metrics"]["other"] = dict(observe["metrics"]["x"])
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="Duplicate metric role"):
+        load_experiment(str(path))

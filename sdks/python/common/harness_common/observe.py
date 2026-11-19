@@ -1,7 +1,7 @@
 """Reusable measurements. The containing Service, Operation or Workload supplies the target."""
 
 from dataclasses import dataclass, field
-from typing import Mapping
+from typing import Mapping, Self
 
 
 @dataclass(frozen=True)
@@ -45,7 +45,55 @@ class ObservationDefinition:
     type: str
     metrics: Mapping[str, MetricQuery]
     kind: str | None = field(default=None, kw_only=True)
-    response_mode: str | None = field(default=None, kw_only=True)
+    # Omitted inherits the target; explicit None covers all response modes.
+    response_mode: str | None = field(default="inherit", kw_only=True)
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> Self:
+        """Decode the shared Observe wire shape without binding a target or backend."""
+        if not isinstance(raw, dict) or set(raw) - {
+            "type",
+            "kind",
+            "responseMode",
+            "metrics",
+        }:
+            raise ValueError("Invalid observation declaration")
+        if not isinstance(raw.get("type"), str) or not isinstance(
+            raw.get("metrics"), dict
+        ):
+            raise ValueError("Observation requires a type and metric roles")
+        if "responseMode" in raw and raw["responseMode"] not in ("unary", "sse", None):
+            raise ValueError("Invalid observation responseMode")
+        if "kind" in raw and not isinstance(raw["kind"], str):
+            raise ValueError("Observation kind must be a nonempty string")
+        metrics = {}
+        for name, fields in raw["metrics"].items():
+            if not isinstance(name, str) or not isinstance(fields, dict):
+                raise ValueError("Invalid observation metric")
+            options = dict(fields)
+            if not all(
+                isinstance(options.get(key), str) for key in ("expression", "unit")
+            ):
+                raise ValueError(f"Metric {name!r} requires expression and unit")
+            if "trendWindowSeconds" in options:
+                seconds = options.pop("trendWindowSeconds")
+                if type(seconds) is not int or seconds <= 0:
+                    raise ValueError(
+                        "Trend lookback must be a positive integer in seconds"
+                    )
+                options["trend_window_seconds"] = seconds
+            try:
+                if "histogram" in options:
+                    options["histogram"] = HistogramQuantile(**options["histogram"])
+                metrics[name] = MetricQuery(**options)
+            except TypeError as exc:
+                raise ValueError(f"Invalid observation metric {name!r}") from exc
+        return cls(
+            raw["type"],
+            metrics,
+            kind=raw.get("kind"),
+            response_mode=raw.get("responseMode", "inherit"),
+        )
 
 
 def select_observations(

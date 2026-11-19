@@ -37,7 +37,7 @@ def run_files(
     runs_dir: str,
     run_id: str,
     scope: str | None = None,
-    service: Service | None = None,
+    service: Service,
 ) -> tuple[RunVerdict, Path]:
     """Load case.yaml file(s) → execute every Case → write ``verdict.json``.
 
@@ -66,7 +66,7 @@ def run_files(
     caseset = casesets[0]
     experiment = Experiment(
         name=scope or caseset,
-        service=service or Service(name=scope or caseset),
+        service=service,
         caseset=caseset,
     )
     run = run_experiment(
@@ -142,7 +142,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("cases", nargs="+", help="case.yaml file(s)")
     run.add_argument("--base-url", help="SUT base url (overrides --config)")
-    run.add_argument("--config", help="e2e config.yaml (base_url / auth / timeout)")
+    run.add_argument(
+        "--config", required=True, help="service and Operation declarations"
+    )
     run.add_argument(
         "--protocol",
         default="json",
@@ -159,8 +161,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    return args.func(args)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return args.func(args)
+    except ValueError as exc:
+        parser.error(str(exc))
 
 
 if __name__ == "__main__":
