@@ -6,7 +6,7 @@ import type { Identity } from "../identity.js";
  * @spec forkedFrom is the direct parent path within the same Forge instance, not repository identity.
  * @see {@link repo://docs/system.md}
  */
-export interface Repository extends Identity {
+export class Repository implements Identity {
   readonly forge: Forge;
   readonly path: string;
   /**
@@ -14,6 +14,16 @@ export interface Repository extends Identity {
    * Cross-Forge import/mirror provenance belongs in separate metadata.
    */
   readonly forkedFrom?: string | null;
+
+  constructor(value: RepositorySnapshot) {
+    this.forge = value.forge;
+    this.path = value.path;
+    this.forkedFrom = value.forkedFrom;
+  }
+
+  id(): string {
+    return repositoryId(this);
+  }
 }
 
 /** Identity fields usable without constructing an in-process Repository. */
