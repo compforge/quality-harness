@@ -86,8 +86,12 @@ test("classic histogram retains overflow, rejects non-monotonic buckets, and zer
     expect(buildCallgraph(value)!.arms[0]!.windows[0]!.nodes[0]!.properties.perf.metrics.p95!).toMatchObject({status,value:expected});
     if (status === "missing") {
       expect(buildCallgraph(value)!.arms[0]!.windows[0]!.nodes[0]!.properties.perf.metrics.p95!.reason).toBe("no_observations");
-      expect(renderPerfReport(value)).toContain("Histogram contains zero observed events");
     }
+    const html = renderPerfReport(value);
+    const display = { observed: expected === "+Inf" ? "N/A" : "1 s", error: "error", missing: "N/A" }[status];
+    expect(html).toContain("chat\\nQPS N/A\\np95 " + display + "\\nerr N/A");
+    expect(html).not.toContain("Histogram contains zero observed events");
+    expect(html).not.toContain("p95 +Inf");
   }
 });
 
@@ -103,6 +107,7 @@ test("empty responses cannot conceal warnings or unrelated errors in saved evide
     });
   }
   query.error=null;query.warnings=["partial result"];
+  expect(renderPerfReport(value)).not.toContain("partial result");
   expect(buildCallgraph(value)!.arms[0]!.windows[0]!.nodes[0]!.properties.perf.metrics.qps!.reason).toBe("query_error");
 });
 

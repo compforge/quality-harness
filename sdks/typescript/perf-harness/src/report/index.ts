@@ -3,52 +3,34 @@ import { join } from "node:path";
 import type { Run } from "../model";
 import { apiRows, apiHeader, reportSections } from "./sections";
 import { escape, section, table } from "./view";
-import { buildCallgraph, entryCallgraph, type CallGraphSnapshot, type CallGraphWindow } from "../callgraph";
+import { buildCallgraph, entryCallgraph, type CallGraphMetric, type CallGraphSnapshot, type CallGraphWindow } from "../callgraph";
 import { chartScript, graphScripts, tabScript, reportStyle, sort } from "./assets";
 
 import { charts } from "./charts";
 import navigationStyle from "./navigation.css" with { type: "text" };
 import navigation from "./navigation.js" with { type: "text" };
 
-function number(value: unknown): string {
-  return value === null || value === undefined ? "N/A" : typeof value === "number" ? Number(value.toPrecision(4)).toString() : String(value);
+function metricValue(metric: CallGraphMetric | undefined, suffix = "", scale = 1): string {
+  if (metric?.status === "error") return "error";
+  if (typeof metric?.value !== "number") return "N/A";
+  return Number((metric.value * scale).toPrecision(4)).toString() + suffix;
 }
-const missingReasons: Record<string,string> = {
-  unbound: "No metric observation is bound",
-  not_collected: "Query has not been collected",
-  empty_result: "Query returned no result; metric absence, insufficient samples and zero activity require separate evidence",
-  no_observations: "Histogram contains zero observed events in this window",
-  no_samples: "No usable samples; cause is not established",
-  query_error: "Query or result validation failed; inspect the recorded error and warnings",
-};
-function frameNodes(window: CallGraphWindow, colors: Map<string,string>, run: Run) {
+
+function frameNodes(window: CallGraphWindow, colors: Map<string,string>) {
   const values = window.nodes.map(node => node.properties.perf.metrics.qps?.value).filter((value): value is number =>
     typeof value === "number" && Number.isFinite(value) && value >= 0);
   const low = Math.min(...values), high = Math.max(...values);
   return window.nodes.map(node => {
     const props = node.properties.perf, metrics = props.metrics, qps = metrics.qps?.value;
-    const cases = Object.entries(run.case_entries ?? {}).filter(([,op]) => op === node.id).map(([id]) => id);
-    const details = [["Operation",node.id],["Service",props.service],["Path",props.path],["Method",props.method],
-      ["Response mode",props.response_mode ?? "unbound"],["Window",`${window.id}: ${window.start_s}–${window.end_s}s`],
-      ["QPS semantics",props.qps_semantics ?? "unbound"]];
-    for (const [role,metric] of Object.entries(metrics)) {
-      details.push([role,`${number(metric.value)} ${metric.unit} (${metric.status})`]);
-      if (metric.description) details.push([`${role} description`,metric.description]);
-      if (metric.reason) details.push([`${role} reason`,missingReasons[metric.reason] ?? metric.reason]);
-      if (metric.metric_ref) details.push([`${role} metric`,metric.metric_ref]);
-      if (metric.histogram) details.push([`${role} histogram`,JSON.stringify(metric.histogram)]);
-      for (const query of metric.queries) {
-        details.push(["Source",`${query.datasource_kind} ${query.source_url}`],
-          ["Query range",`${query.start_s}–${query.end_s}`]);
-        if (query.error) details.push(["Query error",query.error]);
-        if (query.warnings.length) details.push(["Query warnings",query.warnings.join("; ")]);
-      }
-    }
+    const red = [
+      ["QPS", metricValue(metrics.qps)],
+      ["p95", metricValue(metrics.p95, " s")],
+      ["err", metricValue(metrics.error_rate, "%", 100)],
+    ];
     const observedQps = typeof qps === "number" && Number.isFinite(qps) && qps >= 0;
-    const error = metrics.error_rate?.value;
     return {id:node.id, group:props.service, importance:props.importance,
-      label:`${props.name}${cases.length ? "\n" + cases.join(", ") : ""}\nQPS ${number(qps)}\np95 ${number(metrics.p95?.value)} s\nerr ${typeof error === "number" ? number(error*100)+"%" : "N/A"}`,
-      details,tooltip:details.map(([key,value]) => `${key}: ${value}`).join("\n"),color:colors.get(props.service),
+      label:[props.name, ...red.map(([key, value]) => key + " " + value)].join("\n"),
+      details: [["Operation", node.id]], tooltip: node.id, color:colors.get(props.service),
       comparison_value:observedQps ? qps : null,
       diameter: observedQps && high > low ? Math.sqrt(88**2+(qps-low)/(high-low)*(160**2-88**2)) : 112};
   });
@@ -72,8 +54,8 @@ function graphView(snapshot: CallGraphSnapshot, run: Run, description: string): 
     }
     return [
       ...(snapshot.entry_ids.length ? [{label:`Case entry / ${label}`, group:"Case entry",
-        nodes:frameNodes(scoped,colors,run), edges:edges.filter(edge => subset.relations.some(r => r.id === edge.id)), entry_ids:snapshot.entry_ids}] : []),
-      {label:`Full graph / ${label}`, group:"Full graph", nodes:frameNodes(window,colors,run), edges, entry_ids:[]},
+        nodes:frameNodes(scoped,colors), edges:edges.filter(edge => subset.relations.some(r => r.id === edge.id)), entry_ids:snapshot.entry_ids}] : []),
+      {label:`Full graph / ${label}`, group:"Full graph", nodes:frameNodes(window,colors), edges, entry_ids:[]},
     ];
   }));
   const payload = JSON.stringify({title:"Operation metrics",frames,group_filter_label:"Service",importance_filter:true,comparison_filter_label:"QPS"}).replaceAll("<","\\u003c");
@@ -95,7 +77,7 @@ export function renderPerfReport(run: Run, options: { issues?: readonly string[]
   views.push({name: "Resources", content: layout("resources", resources || "<p>本次运行没有资源观测记录。</p>")});
   if (snapshot) {
     const scope = run.case_ids?.length === 1 ? "Case: " + escape(run.case_ids[0]) : "Aggregate case scope; metrics are not attributed to individual cases.";
-    const graph = graphView(snapshot, run, `<p>${scope}</p><p>Operation nodes; service is auxiliary information. Solid: call, dashed: may_call. Metrics describe the selected server/window, including other matching traffic. Node traffic does not prove a particular edge executed. N/A means missing observation, not zero. Latency percentiles cannot be summed along paths. Circle area scales with the current window’s QPS range; missing QPS uses the default size. Hover for details.</p>`);
+    const graph = graphView(snapshot, run, `<p>${scope}</p><p>Operation nodes; service is auxiliary information. Solid: call, dashed: may_call. Metrics describe the selected server/window, including other matching traffic. Node traffic does not prove a particular edge executed. N/A marks a metric without a finite value. Query failures show error. See run.json for query diagnostics. Latency percentiles cannot be summed along paths. Circle area scales with the current window’s QPS range; missing QPS uses the default size. Hover for the full Operation ID. Open the window metrics table for detailed values.</p>`);
     views.push({name: "Callgraph", content: graph});
   }
   const tabs = views.map(({name}, i) => `<button type="button" role="tab" id="rk-tab-${i}" aria-controls="rk-panel-${i}" aria-selected="${i === 0}" tabindex="${i ? -1 : 0}">${name}</button>`);
