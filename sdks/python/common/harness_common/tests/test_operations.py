@@ -5,15 +5,16 @@ from dataclasses import replace
 import pytest
 from harness_common import (
     Operation,
+    Workload,
     Service,
     Component,
     Repository,
     Forge,
     Environment,
-    ProbeDefinition,
+    ObservationDefinition,
     MetricQuery,
     graph_from_services,
-    select_probes,
+    select_observations,
 )
 
 
@@ -51,21 +52,26 @@ def test_shared_operation_declarations():
 
 
 def test_probe_backend_selection():
-    probe = ProbeDefinition(
+    probe = ObservationDefinition(
         "metricdb",
         {"qps": MetricQuery("counter", "rps")},
         kind="prometheus",
     )
-    assert select_probes((probe,), "prometheus") == (probe,)
+    operation = Operation("read", service_name="api", observes=(probe,))
+    workload = Workload("worker", observes=(probe,))
+    service = Service("api", Component(repository=Repository(Forge("test"), "test/api"), name="api"), Environment("test"), workloads=(workload,), observes=(probe,))
+    assert service.observes[0] is workload.observes[0] is operation.observes[0]
+    assert service.id() == replace(service, observes=()).id()
+    assert select_observations(operation.observes, "prometheus") == (probe,)
     with pytest.raises(ValueError, match="exactly one"):
-        select_probes((probe,), "victoriametrics")
+        select_observations((probe,), "victoriametrics")
     with pytest.raises(ValueError, match="exactly one"):
-        select_probes((probe, probe), "prometheus")
+        select_observations((probe, probe), "prometheus")
 
 
 def test_universal_probe_and_invalid_backend_kind():
-    probe = ProbeDefinition("metricdb", {"qps": MetricQuery("counter", "rps")})
-    assert select_probes((probe,), "victoriametrics") == (probe,)
+    probe = ObservationDefinition("metricdb", {"qps": MetricQuery("counter", "rps")})
+    assert select_observations((probe,), "victoriametrics") == (probe,)
     for kind in ("", " "):
         with pytest.raises(ValueError, match="kind must be a nonempty string"):
-            select_probes((replace(probe, kind=kind),), "prometheus")
+            select_observations((replace(probe, kind=kind),), "prometheus")

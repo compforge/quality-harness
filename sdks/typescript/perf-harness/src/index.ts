@@ -10,6 +10,7 @@ export * from "./judge";
 
 export * from "./observe/model";
 export * from "./observe/history";
+export { rangeObservation } from "./observe/metric";
 export * from "./observe/storage";
 export * from "./callgraph";
 export * from "./report";

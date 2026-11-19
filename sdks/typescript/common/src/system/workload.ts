@@ -1,6 +1,8 @@
+import type { ObservationDefinition } from "../observe.js";
 /** Logical carrier, not proof of existence. Location is data, not a discovery executor. */
 export interface Workload {
   readonly name: string;
+  readonly observes?: readonly ObservationDefinition[];
   /** Safe role/context for discovery; not identity, location or proof of availability. */
   readonly description?: string;
   readonly platform: "kubernetes";

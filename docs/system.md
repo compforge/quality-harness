@@ -175,15 +175,22 @@ TypeScript Service 的可选 upstream 引用调用当前 Service 的标准名称
 
 Common Graph 用带 kind 的 Node / Relation 表达 Service、Operation 和调用关系。
 Service 可通过 `operations` 贡献 Operation；Operation 的 `calls` / `may_calls`（TypeScript：`mayCalls`）
-引用下游 Operation ID，`probes` 声明可观测属性。`graph_from_services` / `graphFromServices`
+引用下游 Operation ID，`observes` 声明该 Operation 的观测指标。`graph_from_services` / `graphFromServices`
 将同一 Environment 的声明组装为 Graph，校验 owner、重复节点、悬空引用与冲突边；允许循环。
 Service.operations 是声明源，Graph 和 Observation model 按需在内存组装，无需维护独立声明文件。
 运行记录保存当次使用的拓扑、查询计划和观测事实，供离线复查；报告视图由这些事实临时生成。
 
-ProbeDefinition、MetricQuery、MetricBinding、ObservationBinding 和 HistogramQuantile 属于 Common，
-不含执行窗口和访问凭据。后端选择要求每个 metric role 恰好有一个 producer；Toolbox 负责协议和
-参数绑定，Perf 负责窗口、RED 单位、MetricStore 地址校验及结果归约。Python Perf 的 binding
-在 Common 结构上保留这些领域校验。Case 与 Operation 的例子见 [执行模型](execution.md#operation-与-case)。
+### Observe
+
+`ObservationDefinition` 定义测量值及测量方式，例如搜索完成速率的单位、分类和查询表达式。
+将声明放在 Service、Operation 或 Workload 的 `observes` 中，该对象就是观测目标。
+同一份声明可以复用。Workload 名称限定在所属 Service 内，查询表达式决定实际测量范围。
+声明模型由 Common 提供，见 [TypeScript](../sdks/typescript/common/src/observe.ts) 和 [Python](../sdks/python/common/harness_common/observe.py)。
+
+对 MetricDB 观测，Toolbox 按后端选择声明、绑定参数。每个指标在选定后端应有一个匹配的声明。
+TypeScript Toolbox 还能根据 Kubernetes Workload 自动生成 CPU、内存用量和配额的观测，并按 Service 汇总。
+Perf 使用实际运行的时间窗口查询 MetricDB，保存结果及其目标，供报告离线展示。
+
 拓扑声明与请求执行事实独立，结构、查询和证据关联边界见 [Graph](#graph)。
 
 ## Graph

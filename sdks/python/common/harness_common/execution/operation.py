@@ -7,7 +7,7 @@ from typing import Generic, TypeVar
 from urllib.parse import quote
 
 from harness_common.identity import Identity
-from harness_common.observation import ProbeDefinition
+from harness_common.observe import ObservationDefinition
 
 from harness_common.execution.outcome import Outcome
 from harness_common.system.service import Service
@@ -23,7 +23,7 @@ class Operation(Identity):
     importance: str | None = field(default=None, kw_only=True, compare=False)
     calls: tuple[str, ...] | None = field(default=None, kw_only=True, compare=False)
     may_calls: tuple[str, ...] | None = field(default=None, kw_only=True, compare=False)
-    probes: tuple[ProbeDefinition, ...] | None = field(
+    observes: tuple[ObservationDefinition, ...] | None = field(
         default=None, kw_only=True, compare=False
     )
 

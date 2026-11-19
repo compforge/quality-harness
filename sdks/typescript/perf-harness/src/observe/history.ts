@@ -1,3 +1,4 @@
+import { workloadObservationTarget } from "./operations";
 import type { MetricDBReader } from "@compforge/harness-toolbox/metricdb";
 import { Graph, RelationKind, serviceId } from "@compforge/harness-common";
 import type { Run, Window } from "../model";
@@ -27,10 +28,12 @@ export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source
 
   const bindings: ObservationBinding[] = probes.flatMap(probe => {
     if (!probe.target || !probe.service) throw new Error("Metric probes require a target and a service");
-    const serviceScope = probe.scope === "service";
+    const serviceScope = probe.scope === "service" || probe.scope === "workload";
     if (serviceScope) {
-      if (probe.target !== serviceId(probe.service) || (graph && graph.node(probe.target)?.kind !== "service"))
-        throw new Error(`Unknown resource Service: ${probe.target}`);
+      const owner = serviceId(probe.service);
+      const target = probe.scope === "workload" ? workloadObservationTarget(probe.service, probe.workload ?? "") : owner;
+      if (probe.target !== target || (graph && graph.node(owner)?.kind !== "service"))
+        throw new Error(`Unknown observation target: ${probe.target}`);
     } else if (graph && (!graph.node(probe.target) || !graph.relationsFrom(probe.target, RelationKind.BelongsTo)
       .some(relation => decodeURIComponent(relation.target.replace(/^service:/,"")) === probe.service)))
       throw new Error(`Metric target or owner missing from graph: ${probe.target}`);
@@ -93,13 +96,14 @@ export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source
       if (end < start) continue;
       for (const query of probe.summaries.filter(item => matches(window,item))) {
         const labels: Record<string,string> = {service: probe.service};
-        if (probe.scope !== "service") labels.operation = probe.target;
+        if (probe.scope === "workload") labels.workload = probe.workload!;
+        else if (probe.scope !== "service") labels.operation = probe.target;
         const instant: PrometheusObservation = {probe: `prometheus_query.${probe.service}.${probe.target}`, metric: `prometheus_query.${query.name}`,
           expression: query.promql.replaceAll("$window", `${Math.round((end-start)*1000)+1}ms`),
           source_url: source.url, datasource_kind: source.kind, start_s: start, end_s: end, step_s: null,
           labels, result_labels: [], window_id: window.id,
           data: null, warnings: [], infos: [], error: null, collected_at_s: null, histogram: query.histogram ?? null};
-        if (probe.scope !== "service") queries.push(instant);
+        if (labels.operation) queries.push(instant);
         if (window.kind === "full") {
           const step = Math.max(15, Math.ceil((end-start)/1000));
           queries.push({...instant, window_id: null, step_s: step,
@@ -116,7 +120,7 @@ export function planMetrics(run: Run, probes: readonly PrometheusProbe[], source
     arm.prometheus_observations = plans[index]!;
     for (const probe of probes) for (const query of probe.summaries) {
       arm.registry[`prometheus_query.${query.name}`] = {unit: query.unit, side: "resource", category: query.category, value_kind: "scalar",
-        source: "prometheus_query", description: query.description ?? "", labels: probe.scope === "service" ? ["service"] : ["operation","service"]};
+        source: "prometheus_query", description: query.description ?? "", labels: probe.scope === "workload" ? ["service","workload"] : probe.scope === "service" ? ["service"] : ["operation","service"]};
     }
   });
 }

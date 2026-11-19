@@ -1,3 +1,4 @@
 export { MetricDBClient } from "./client";
 export type { MetricDBKind, MetricDBReader, MetricDBResult } from "./model";
-export { bindMetricDBProbe } from "./probe";
+export { bindMetricDBObservations, bindMetricDBObservation, bindMetricDBObservation as bindMetricDBProbe, counterIncreaseFunction } from "./observation";
+export { workloadResourceObservation } from "./workload";

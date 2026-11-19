@@ -12,7 +12,7 @@ VictoriaMetrics already scrapes the target; this SDK never starts a scraper or s
 2. Obtain a bounded `HttpApi` through the host's existing toolbox transport/client manager. Configure
    request concurrency, connection/request timeout and response byte limit there. Reuse that channel
    for the entire collection; the host releases it after collection, not after every query.
-3. Select project-owned `PrometheusProbe` declarations for the actual backend and exporter labels.
+3. Use `operationMetricProbes` or `serviceMetricProbes` to bind Common observation declarations to the selected backend and their owning Operation, Service or Workload. The latter accepts a Service-scoped workload name. For standard Kubernetes resources, Toolbox supplies `workloadResourceObservation(service.workloads, namespace)`.
    Their expressions must scope environment/cluster/namespace/job as appropriate; target metadata
    does not silently add selectors. Backend-specific query semantics are not rewritten.
 4. Run the Engine. Freeze the actual query plan, persist it and request facts, then collect metrics.
@@ -139,11 +139,12 @@ including downstream Operations. The rolling `$window` uses `trendWindowSeconds`
 The step is at least 15 seconds and scales to roughly 1,000 points for longer runs. Rolling
 values can include observations before the run; instant window values still drive Callgraph.
 
-Overview contains run status, summaries and coverage. Trends groups time series by the exact
-`category` on each registered metric: `red:qps` (rps), `red:error_rate` (ratio), and `red:p95`
-(seconds) bind standard RED slots, while `resource:cpu` and `resource:mem` group resource
-measurements. Other and absent categories are custom. Names, units and Operation owners are
-retained independently of category. Each series shares its execution's request_qps overlay:
-actual dispatches across all Cases per elapsed bucket second. Completion throughput counts
-completion events. Observation-only runs have zero injected QPS; service-side QPS can still
-include natural traffic. A missing Operation series is shown as unavailable.
+Overview contains run status, summaries and coverage. Metrics shows request RED and custom
+observations. The registered categories `red:qps`, `red:error_rate`, and `red:p95` bind standard
+RED slots. Resources groups `resource:cpu` and `resource:mem` by Service. A `resource:workloads` series reports how many declared workloads matched at each sample. Resources shows its range alongside the totals. All other categories
+retain their registered names and units under custom observations.
+
+During load injection, every Metrics and Resources plot overlays the same execution-wide
+`inflight` count on its right axis. Each dispatched request counts from dispatch until finish,
+across all selected Cases. A request with no recorded finish counts through the end of the window.
+Observation-only runs show collected metrics without an injected-load overlay.

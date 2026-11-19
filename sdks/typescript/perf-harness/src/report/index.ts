@@ -4,7 +4,7 @@ import type { Run } from "../model";
 import { apiRows, apiHeader, reportSections } from "./sections";
 import { escape, section, table } from "./view";
 import { buildCallgraph, entryCallgraph, type CallGraphSnapshot, type CallGraphWindow } from "../callgraph";
-import { graphScripts, tabScript, reportStyle, sort } from "./assets";
+import { chartScript, graphScripts, tabScript, reportStyle, sort } from "./assets";
 
 import { charts } from "./charts";
 import navigationStyle from "./navigation.css" with { type: "text" };
@@ -14,7 +14,7 @@ function number(value: unknown): string {
   return value === null || value === undefined ? "N/A" : typeof value === "number" ? Number(value.toPrecision(4)).toString() : String(value);
 }
 const missingReasons: Record<string,string> = {
-  unbound: "No metric probe is bound",
+  unbound: "No metric observation is bound",
   not_collected: "Query has not been collected",
   empty_result: "Query returned no result; metric absence, insufficient samples and zero activity require separate evidence",
   no_observations: "Histogram contains zero observed events in this window",
@@ -90,8 +90,9 @@ export function renderPerfReport(run: Run, options: { issues?: readonly string[]
   const layout = (menu: string, content: string) =>
     `<div class="perf-layout"><nav id="${menu}-menu" class="perf-menu" aria-label="${menu}"></nav><div class="perf-content">${content}</div></div><script>${navigation}</script>`;
   const views = [{name: "Overview", content: layout("overview", sections)}];
-  const trends = charts(run);
-  if (trends) views.push({name: "Trends", content: layout("trends", trends)});
+  const { trends, resources } = charts(run);
+  if (trends) views.push({name: "Metrics", content: layout("metrics", trends)});
+  views.push({name: "Resources", content: layout("resources", resources || "<p>本次运行没有资源观测记录。</p>")});
   if (snapshot) {
     const scope = run.case_ids?.length === 1 ? "Case: " + escape(run.case_ids[0]) : "Aggregate case scope; metrics are not attributed to individual cases.";
     const graph = graphView(snapshot, run, `<p>${scope}</p><p>Operation nodes; service is auxiliary information. Solid: call, dashed: may_call. Metrics describe the selected server/window, including other matching traffic. Node traffic does not prove a particular edge executed. N/A means missing observation, not zero. Latency percentiles cannot be summed along paths. Circle area scales with the current window’s QPS range; missing QPS uses the default size. Hover for details.</p>`);
@@ -101,7 +102,7 @@ export function renderPerfReport(run: Run, options: { issues?: readonly string[]
   const panels = views.map(({content}, i) => `<div role="tabpanel" id="rk-panel-${i}" aria-labelledby="rk-tab-${i}" data-wide="true"${i ? " hidden" : ""}>${content}</div>`);
   const body = `<div class="report-tabs" role="tablist" aria-label="Report views">${tabs.join("")}</div>${panels.join("")}${tabScript()}`;
   const title = "perf report — " + escape(run.service);
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>${reportStyle}\n${navigationStyle}</style><script>${sort}</script></head><body><h1>${title}</h1><div class="meta"><span><b>service:</b> ${escape(run.service)}</span></div>${body}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>${reportStyle}\n${navigationStyle}</style><script>${sort}</script>${trends || resources ? chartScript() : ""}</head><body><h1>${title}</h1><div class="meta"><span><b>service:</b> ${escape(run.service)}</span></div>${body}</body></html>`;
 }
 export function writePerfReport(run: Run, directory: string): {html:string; callgraph?:string} {
   mkdirSync(directory,{recursive:true});

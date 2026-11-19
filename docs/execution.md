@@ -50,7 +50,7 @@ Operation: chat/chat
 
 两个 Case 的入口能力都是 Chat API。第二个 Case 可能触发 Python 工具；静态 `mayCalls`
 只声明这种可能性，不能证明某次执行发生了该调用。实际调用属于运行证据。
-`calls`、`mayCalls` 和 `probes` 随 Operation 声明，输入变化不产生新的 Operation identity。
+`calls`、`mayCalls` 和 `observes` 随 Operation 声明，输入变化不产生新的 Operation identity。
 
 Case 的执行绑定由消费方提供。Doctor 的 `ServiceCaseSource.operation` 静态引用这一组 Case
 共同针对的 Operation，runner 留在 Case source，负责执行准备和单次调用。

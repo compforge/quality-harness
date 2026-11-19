@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, TypedDict
 
+from harness_common.observe import ObservationDefinition
+
 
 class _ResourceLocation(TypedDict):
     kind: Literal["resource"]
@@ -30,6 +32,7 @@ class Workload:
     """
 
     name: str
+    observes: tuple[ObservationDefinition, ...] = field(default=(), kw_only=True, compare=False)
     description: str | None = field(default=None, kw_only=True, compare=False)
 
 

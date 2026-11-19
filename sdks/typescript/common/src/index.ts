@@ -14,6 +14,7 @@ export * from "./system/host.js";
 export * from "./system/environment.js";
 export * from "./system/service.js";
 export * from "./execution.js";
+export * from "./observe.js";
 export * from "./observation.js";
 export type { Product } from "./system/product.js";
 export * from "./system/knowledge.js";
