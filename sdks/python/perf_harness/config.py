@@ -23,6 +23,7 @@ from harness_common import (
     Repository,
     Workload,
 )
+from harness_common.execution.operation import operation_from
 from harness_common.execution.overlay import Overlay
 from harness_toolbox.environment import KubernetesEnvironment, parse_environment
 from harness_toolbox.metricdb import MetricDBDataSource
@@ -68,7 +69,7 @@ from perf_harness.observe.configuration import (
     parse_prometheus_probe,
     parse_window,
 )
-from perf_harness.observe.declaration import load_observation, operation_from
+from perf_harness.observe.declaration import load_observation
 
 _PROBES = {
     "client": ClientProbe,

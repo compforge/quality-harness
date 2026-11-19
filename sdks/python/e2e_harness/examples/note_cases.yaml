@@ -9,7 +9,7 @@ caseset: note
 cases:
   - id: create_happy
     desc: 合法创建 → 201 + 返回非空 id + 回显 name
-    input: { method: POST, path: /note, body: { name: demo } }
+    input: { operation: create_note, body: { name: demo } }
     judge:
       e2e:
         assert:
@@ -19,7 +19,7 @@ cases:
 
   - id: create_missing_name
     desc: 缺 name → 400 + 预期错误码（负路径，e2e 的主场）
-    input: { method: POST, path: /note, body: {} }
+    input: { operation: create_note, body: {} }
     judge:
       e2e:
         assert:

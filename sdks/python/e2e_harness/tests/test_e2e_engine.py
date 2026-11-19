@@ -7,8 +7,15 @@ runner stands in for the SUT, so the whole "判定即数据" path is exercised w
 from __future__ import annotations
 
 from spec_case.model import Case
+from harness_common import HttpOperation
+from e2e_harness.core.config import Service
 from e2e_harness.engine import response_view, run_case, run_cases
 from e2e_harness.runner.base import BaseRunner, Outcome, Request
+
+
+_SERVICE = Service(
+    name="demo", operations=(HttpOperation("write", "POST", "/x", service_name="demo"),)
+)
 
 
 class _FakeRunner(BaseRunner):
@@ -28,7 +35,10 @@ def _case(asserts=None, *, judge=None, cid="c1") -> Case:
     if judge is None:
         judge = {"e2e": {"assert": asserts}} if asserts is not None else {}
     return Case(
-        id=cid, input={"path": "/x", "body": {"q": 1}}, facets={"k": "v"}, judge=judge
+        id=cid,
+        input={"operation": "write", "body": {"q": 1}},
+        facets={"k": "v"},
+        judge=judge,
     )
 
 
@@ -49,13 +59,16 @@ def test_pass_carries_id_and_facets():
             ]
         ),
         _FakeRunner(_ok()),
+        service=_SERVICE,
     )
     assert v.status == "pass" and v.case_id == "c1" and v.facets == {"k": "v"}
 
 
 def test_fail_carries_reason():
     v = run_case(
-        _case([{"path": "status", "op": "eq", "value": 404}]), _FakeRunner(_ok())
+        _case([{"path": "status", "op": "eq", "value": 404}]),
+        _FakeRunner(_ok()),
+        service=_SERVICE,
     )
     assert v.status == "fail" and "got 200" in v.reason
 
@@ -64,6 +77,7 @@ def test_error_when_runner_raises_is_distinct_from_fail():
     v = run_case(
         _case([{"path": "status", "op": "eq", "value": 200}]),
         _FakeRunner(exc=ConnectionError("down")),
+        service=_SERVICE,
     )
     assert v.status == "error" and "ConnectionError" in v.reason
 
@@ -71,14 +85,18 @@ def test_error_when_runner_raises_is_distinct_from_fail():
 def test_skipped_when_no_e2e_face():
     # no e2e face — the case belongs to another face (eval); e2e neither fires nor judges it
     v = run_case(
-        _case(judge={"eval": {"expected_behavior": "answer"}}), _FakeRunner(_ok())
+        _case(judge={"eval": {"expected_behavior": "answer"}}),
+        _FakeRunner(_ok()),
+        service=_SERVICE,
     )
     assert v.status == "skipped"
 
 
 def test_empty_e2e_assert_errors_not_skipped():
     # an e2e face declared with no asserts = an unfilled draft → error (must not pass green)
-    v = run_case(_case(judge={"e2e": {"assert": []}}), _FakeRunner(_ok()))
+    v = run_case(
+        _case(judge={"e2e": {"assert": []}}), _FakeRunner(_ok()), service=_SERVICE
+    )
     assert v.status == "error" and "draft" in v.reason
 
 
@@ -98,7 +116,9 @@ def test_run_cases_rolls_up_fail_over_pass():
         _case([{"path": "status", "op": "eq", "value": 200}], cid="ok"),
         _case([{"path": "status", "op": "eq", "value": 500}], cid="bad"),
     ]
-    rv = run_cases(cases, _FakeRunner(_ok()), scope="demo", run_id="r1")
+    rv = run_cases(
+        cases, _FakeRunner(_ok()), scope="demo", run_id="r1", service=_SERVICE
+    )
     assert rv.harness == "e2e" and rv.status == "fail"  # fail wins the rollup over pass
     assert (
         rv.summary["total"] == 2 and rv.summary["fail"] == 1 and rv.summary["pass"] == 1

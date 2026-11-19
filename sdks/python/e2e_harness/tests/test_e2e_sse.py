@@ -13,12 +13,14 @@ import httpx
 
 from spec_case.model import load_caseset, validate
 from e2e_harness.cli import _runner as cli_runner
-from e2e_harness.core.config import E2EConfig
+from e2e_harness.core.config import E2EConfig, load_config
 from e2e_harness.engine import response_view, run_cases
 from e2e_harness.runner.base import Outcome
 from e2e_harness.runner.sse_runner import SSERunner
 
 _CASES = Path(__file__).parent.parent / "examples" / "chat_cases.yaml"
+
+_SERVICE = load_config(_CASES.with_name("chat_service.yaml")).service
 
 # a streamed SSE chat response: two content frames + a terminal `done` frame
 _STREAM = (
@@ -62,7 +64,7 @@ def test_response_view_exposes_events_and_count():
 def test_chat_caseset_passes_over_the_event_stream():
     cs = load_caseset(_CASES)
     validate(cs)
-    rv = run_cases(cs.cases, _runner(), scope="chat", run_id="t1")
+    rv = run_cases(cs.cases, _runner(), scope="chat", service=_SERVICE, run_id="t1")
     assert rv.status == "pass"  # status 200, a `done` frame present, event_count > 1
     assert rv.summary["pass"] == 1
 
@@ -82,5 +84,5 @@ def test_engine_flags_a_truncated_stream():
         ),
     )
     cs = load_caseset(_CASES)
-    rv = run_cases(cs.cases, runner, scope="chat", run_id="t2")
+    rv = run_cases(cs.cases, runner, scope="chat", service=_SERVICE, run_id="t2")
     assert rv.status == "fail" and "done" in (rv.cases[0].reason or "")

@@ -57,9 +57,11 @@ Case 的执行绑定由消费方提供。Doctor 的 `ServiceCaseSource.operation
 运行记录同时保留 Case identity 与 Operation identity；通用 Case 格式不强制一对一绑定，
 多步骤 Case 仍可产生多个 OperationRun。
 
-Python E2E 的 `run_experiment` 和 `run_cases` 接受 `operations_by_case={case_id: operation}`，
-单条 `run_case` 可传 `operation=operation`。各 Case 的请求由自己的 input 决定。
-未显式绑定的 HTTP Case 在执行时按 method 和请求路径记录调用名称，该名称仅用于本次执行记录。
+Python HTTP E2E 的 Service 在 `operations` 中声明具名 Operation、HTTP method 和路由模板。
+每个可执行 Case 通过 `input.operation` 引用当前 Service 中的 Operation 名称，提供
+`path_params`、query、headers 和 body。执行器在发送首个请求前检查整批 Case 的绑定，
+用声明的 method 和路由构造请求，并在 OperationRun 中保留同一个 Operation 身份。
+可运行示例见 [API Case](../examples/api-test/README.md)。
 
 ## 环境与 Case 的两层生命周期
 

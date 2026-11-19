@@ -2,8 +2,7 @@ caseset: widget-api
 cases:
   - id: happy
     input:
-      method: POST
-      path: /api/v1/widgets
+      operation: create_widget
       body: {name: e2e-widget}
     judge:
       e2e:

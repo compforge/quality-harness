@@ -1,5 +1,7 @@
 service:
   name: widget-server
+  operations:
+    - {name: create_widget, method: POST, path: /api/v1/widgets}
   component:
     repository: { forge: github, path: example/widget }
     name: widget-server

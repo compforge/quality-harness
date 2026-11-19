@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 from harness_common import Component, Environment, Forge, Repository
 from harness_toolbox.environment import parse_environment
+from harness_common.execution.operation import operation_from
 from harness_common import Experiment as BaseExperiment
 from harness_common import Service as BaseService
 
@@ -187,7 +188,7 @@ def _validate_config(data: Any) -> None:
     _reject_unknown_fields(
         service,
         "service",
-        {"name", "component", "environment", "base_url", "headers"},
+        {"name", "component", "environment", "base_url", "headers", "operations"},
     )
     component = _mapping_field(service, "component", "service.component")
     _reject_unknown_fields(component, "service.component", {"repository", "name"})
@@ -256,6 +257,10 @@ def _parse_config(data: dict) -> E2EConfig:
                 name=str(component.get("name", "")),
             ),
             environment=parse_environment(environment),
+            operations=tuple(
+                operation_from({**item, "service_name": svc.get("name", "")})
+                for item in svc.get("operations", [])
+            ),
             base_url=svc.get("base_url", "").rstrip("/"),
             headers={str(k): str(v) for k, v in headers.items()} if headers else {},
         ),

@@ -15,10 +15,13 @@ import pytest
 
 from harness_common.execution.verdict import CaseVerdict, build_run_verdict
 from e2e_harness.cli import _build_config, _summary, build_parser, run_files
-from e2e_harness.core.config import E2EConfig
+from e2e_harness.core.config import E2EConfig, load_config
 from e2e_harness.runner.json_runner import JSONRunner
 
 _CASES = Path(__file__).parent.parent / "examples" / "note_cases.yaml"
+
+
+_SERVICE = load_config(_CASES.with_name("note_service.yaml")).service
 
 
 def _sut(request: httpx.Request) -> httpx.Response:
@@ -40,7 +43,9 @@ def _runner() -> JSONRunner:
 
 
 def test_run_files_writes_verdict_json_and_passes(tmp_path):
-    rv, path = run_files([str(_CASES)], _runner(), runs_dir=str(tmp_path), run_id="t1")
+    rv, path = run_files(
+        [str(_CASES)], _runner(), service=_SERVICE, runs_dir=str(tmp_path), run_id="t1"
+    )
     assert rv.status == "pass" and rv.scope == "note"
     assert path == tmp_path / "note" / "t1" / "verdict.json"
     data = json.loads(path.read_text())
@@ -59,10 +64,12 @@ def test_run_files_reports_fail_for_a_wrong_contract(tmp_path):
         "caseset: nb\n"
         "cases:\n"
         "  - id: wrong\n"
-        "    input: { method: POST, path: /note, body: { name: x } }\n"
+        "    input: { operation: create_note, body: { name: x } }\n"
         "    judge: { e2e: { assert: [ { path: status, op: eq, value: 500 } ] } }\n"
     )
-    rv, _ = run_files([str(bad)], _runner(), runs_dir=str(tmp_path), run_id="t2")
+    rv, _ = run_files(
+        [str(bad)], _runner(), service=_SERVICE, runs_dir=str(tmp_path), run_id="t2"
+    )
     assert rv.status == "fail"  # SUT returns 201, contract expects 500 → CI gate trips
 
 
@@ -88,7 +95,17 @@ def test_summary_surfaces_failing_cases():
 
 def test_parser_run_subcommand():
     args = build_parser().parse_args(
-        ["run", "a.yaml", "b.yaml", "--base-url", "http://x", "--run-id", "r"]
+        [
+            "run",
+            "--config",
+            "note_service.yaml",
+            "a.yaml",
+            "b.yaml",
+            "--base-url",
+            "http://x",
+            "--run-id",
+            "r",
+        ]
     )
     assert args.cmd == "run" and args.cases == ["a.yaml", "b.yaml"]
     assert args.base_url == "http://x" and args.protocol == "json"
@@ -107,6 +124,7 @@ def test_run_files_rejects_mixed_caseset_identity(tmp_path):
         run_files(
             [str(_CASES), str(other)],
             _runner(),
+            service=_SERVICE,
             runs_dir=str(tmp_path),
             run_id="mixed",
         )

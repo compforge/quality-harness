@@ -10,12 +10,11 @@ from harness_common import (
     Graph,
     HttpOperation,
     NodeKind,
-    ObservationDefinition,
     Operation,
     RelationKind,
-    SSEOperation,
     Workload,
 )
+from harness_common.execution.operation import operation_from
 from harness_toolbox.metricdb import MetricDBDataSource
 
 from perf_harness.metric import series_id
@@ -51,32 +50,6 @@ _KUBE = {
     "limits": ResourceLimitsProbe,
     "restart": RestartProbe,
 }
-
-
-def operation_from(raw: dict) -> Operation:
-    """Construct Common identity once; HTTP path is metadata, never the join key."""
-    fields = dict(raw)
-    mode = fields.pop("response_mode", "unary")
-    if mode not in {"unary", "sse"}:
-        raise ValueError("operation response_mode must be unary or sse")
-    if "path" in fields or "method" in fields:
-        cls = SSEOperation if mode == "sse" else HttpOperation
-    else:
-        if mode == "sse":
-            raise ValueError("SSE operation requires method and path")
-        cls = Operation
-    try:
-        if "observes" in fields:
-            if not isinstance(fields["observes"], list):
-                raise ValueError("Operation observes must be a list")
-            fields["observes"] = tuple(
-                ObservationDefinition.from_dict(item) for item in fields["observes"]
-            )
-        operation = cls(**fields)
-        operation.id()
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError(f"Invalid Common Operation {fields.get('name')!r}: {exc}") from exc
-    return operation
 
 
 def load_observation(
