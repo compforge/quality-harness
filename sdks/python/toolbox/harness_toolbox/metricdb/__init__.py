@@ -5,3 +5,4 @@ from .client import MetricDBDataSource as MetricDBDataSource
 from .model import MetricDBKind as MetricDBKind
 from .model import MetricDBOptions as MetricDBOptions
 from .model import MetricDBResult as MetricDBResult
+from .observation import bind_metricdb_observations as bind_metricdb_observations

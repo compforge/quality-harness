@@ -56,6 +56,10 @@ Case 的执行绑定由消费方提供。Doctor 的 `ServiceCaseSource.operation
 共同针对的 Operation，runner 留在 Case source，负责执行准备和单次调用。
 运行记录同时保留 Case identity 与 Operation identity；通用 Case 格式不强制一对一绑定，
 多步骤 Case 仍可产生多个 OperationRun。
+Python E2E 的 `run_experiment` 和 `run_cases` 接受 `operations_by_case={case_id: operation}`，
+单条 `run_case` 可传 `operation=operation`。同一 Operation 可绑定多个 Case，各 Case 的请求仍由
+自己的 input 决定。未绑定的 HTTP 调用沿用 method 和请求路径生成的名称。
+
 
 ## 环境与 Case 的两层生命周期
 

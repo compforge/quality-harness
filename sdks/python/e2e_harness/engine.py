@@ -20,9 +20,10 @@ the judgment (``judge.e2e.assert``); this engine executes them generically over 
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 
-from harness_common import ExperimentRun, HttpOperation, OperationRun
+from harness_common import ExperimentRun, HttpOperation, Operation, OperationRun
 from spec_case.model import Case
 from harness_common.execution.verdict import RunVerdict, build_run_verdict
 from harness_common.execution.verdict import CaseVerdict
@@ -58,6 +59,7 @@ def _execute_case(
     service: Service,
     caseset: str,
     budgets: Budgets,
+    operation: Operation | None,
 ) -> CaseRun:
     """Execute one Case into the common Execution hierarchy."""
     judge_spec = case.judge or {}
@@ -89,13 +91,18 @@ def _execute_case(
 
     def execute(_, run_state: dict[str, Outcome]) -> None:
         request = _request_of(case)
+        if operation is not None and operation.service_name != service.name:
+            raise ValueError(
+                f"Operation {operation.id()} does not belong to Service {service.name}"
+            )
         outcome = runner.trigger(request)
         method = request.method.upper()
         operation_runs.append(
             OperationRun(
                 id=f"{case.id}:{len(operation_runs)}",
                 service=service,
-                operation=HttpOperation(
+                operation=operation
+                or HttpOperation(
                     name=f"{method} {request.path}",
                     service_name=service.name,
                     method=method,
@@ -168,12 +175,15 @@ def run_case(
     caseset: str = "cases",
     budgets: Budgets = DEFAULT_BUDGETS,
     service: Service | None = None,
+    operation: Operation | None = None,
 ) -> CaseVerdict:
     """Run one Case and project its Execution to the public CaseVerdict."""
     case_run = _execute_case(
         case,
         runner,
-        service=service or Service(name=caseset),
+        service=service
+        or Service(name=operation.service_name if operation else caseset),
+        operation=operation,
         caseset=caseset,
         budgets=budgets,
     )
@@ -188,6 +198,7 @@ def run_cases(
     run_id: str,
     caseset: str | None = None,
     service: Service | None = None,
+    operations_by_case: Mapping[str, Operation] | None = None,
 ) -> RunVerdict:
     """Run every case → one e2e ``RunVerdict`` (status = rollup over the per-case verdicts)."""
     experiment = Experiment(
@@ -195,7 +206,9 @@ def run_cases(
         service=service or Service(name=scope),
         caseset=caseset or scope,
     )
-    return run_experiment(experiment, cases, runner, run_id=run_id).verdict
+    return run_experiment(
+        experiment, cases, runner, run_id=run_id, operations_by_case=operations_by_case
+    ).verdict
 
 
 def run_experiment(
@@ -204,12 +217,14 @@ def run_experiment(
     runner: BaseRunner,
     *,
     run_id: str,
+    operations_by_case: Mapping[str, Operation] | None = None,
 ) -> E2ERun:
     """Execute one E2E Experiment into the common ExperimentRun hierarchy."""
     case_runs = [
         _execute_case(
             case,
             runner,
+            operation=operations_by_case.get(case.id) if operations_by_case else None,
             service=experiment.service,
             caseset=experiment.caseset,
             budgets=DEFAULT_BUDGETS,

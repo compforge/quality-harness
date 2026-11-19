@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 import httpx
+from harness_common import HttpOperation
 
 from spec_case.model import load_caseset, validate
 from e2e_harness.core.config import E2EConfig, Experiment, Service
@@ -80,3 +81,26 @@ def test_experiment_run_retains_case_operation_and_outcome() -> None:
     assert operation_run.service is service
     assert operation_run.operation.method == "POST"
     assert operation_run.outcome.status_code == 201
+
+
+def test_cases_share_the_declared_operation_without_changing_the_request() -> None:
+    caseset = load_caseset(_CASES_YAML)
+    create = HttpOperation("create_note", "POST", "/note", service_name="note")
+    service = Service(name="note", operations=(create,))
+    experiment = Experiment(name="contracts", service=service, caseset=caseset.caseset)
+    run = run_experiment(
+        experiment,
+        caseset.cases,
+        _runner(),
+        run_id="declared",
+        operations_by_case={case.id: create for case in caseset.cases},
+    )
+    assert run.verdict.status == "pass"
+    assert [case.id for case in run.executions] == [case.id for case in caseset.cases]
+    assert all(case.operation_runs[0].operation is create for case in run.executions)
+
+    wrong_service = Service(name="other")
+    verdict = run_case(
+        caseset.cases[0], _runner(), service=wrong_service, operation=create
+    )
+    assert verdict.status == "error" and "does not belong" in verdict.reason

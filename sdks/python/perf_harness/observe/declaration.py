@@ -10,6 +10,7 @@ from harness_common import (
     Graph,
     HttpOperation,
     NodeKind,
+    ObservationDefinition,
     Operation,
     RelationKind,
     SSEOperation,
@@ -36,6 +37,7 @@ from perf_harness.observe.k8s import (
     ResourceLimitsProbe,
     RestartProbe,
 )
+from perf_harness.observe.operation import operation_metric_observation
 from perf_harness.observe.prometheus import WindowQuery
 from perf_harness.observe.prometheus_query import PrometheusQueryProbe
 from perf_harness.observe.registry import ProbeConfig, build_probe
@@ -64,10 +66,16 @@ def operation_from(raw: dict) -> Operation:
             raise ValueError("SSE operation requires method and path")
         cls = Operation
     try:
+        if "observes" in fields:
+            if not isinstance(fields["observes"], list):
+                raise ValueError("Operation observes must be a list")
+            fields["observes"] = tuple(
+                ObservationDefinition.from_dict(item) for item in fields["observes"]
+            )
         operation = cls(**fields)
         operation.id()
-    except (TypeError, ValueError) as exc:
-        raise ValueError("invalid Common Operation declaration") from exc
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid Common Operation {fields.get('name')!r}: {exc}") from exc
     return operation
 
 
@@ -85,6 +93,18 @@ def load_observation(
     if not isinstance(value, dict) or set(value) - {"operations", "observations"}:
         raise ValueError("observation requires a file or operations/observations mapping")
     operations: dict[str, Operation] = {}
+    for service in services.values():
+        for operation in service.operations:
+            if operation.service_name != service.name or operation.id() in operations:
+                raise ValueError(
+                    f"Invalid Operation owner or duplicate declaration: {operation.id()}"
+                )
+            operations[operation.id()] = operation
+    for raw in value.get("operations", []):
+        operation = operation_from(raw)
+        if operation.id() in operations:
+            raise ValueError(f"duplicate operation declaration: {operation.id()}")
+        operations[operation.id()] = operation
     if graph:
         for node in graph.nodes:
             if node.kind == NodeKind.SERVICE:
@@ -108,17 +128,31 @@ def load_observation(
                 operation = operation_from(raw)
                 if operation.id() != node.id:
                     raise ValueError(f"graph operation identity disagrees with owner: {node.id}")
-                operations[node.id] = operation
-    for raw in value.get("operations", []):
-        operation = operation_from(raw)
-        if operation.id() in operations:
-            raise ValueError(f"duplicate operation declaration: {operation.id()}")
-        operations[operation.id()] = operation
+                declared = operations.setdefault(node.id, operation)
+                if isinstance(operation, HttpOperation) and (
+                    not isinstance(declared, HttpOperation)
+                    or declared.method != operation.method
+                    or declared.path != operation.path
+                    or (
+                        "response_mode" in node.properties
+                        and declared.response_mode != operation.response_mode
+                    )
+                ):
+                    raise ValueError(f"Operation metadata disagrees with graph: {node.id}")
     source, step = parse_data_source(data_source)
-    declarations = value.get("observations")
+    result = []
+    for operation in operations.values():
+        if not any(d.type == "metricdb" for d in operation.observes or ()):
+            continue
+        owner = services.get(Service(operation.service_name).id())
+        if owner is None or source is None:
+            raise ValueError(
+                f"{operation.id()} observes require a declared service and data_source"
+            )
+        result.append(operation_metric_observation(owner, operation, source, windows, step_s=step))
+    declarations = value.get("observations", [] if result else None)
     if not isinstance(declarations, list):
         raise ValueError("observation asset requires an observations list")
-    result = []
     for item in declarations:
         if not isinstance(item, dict) or set(item) - {"target", "workload", "probes"}:
             raise ValueError("observation requires target, optional workload and probes")

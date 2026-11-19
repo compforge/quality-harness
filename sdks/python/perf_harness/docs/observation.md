@@ -16,6 +16,35 @@ Workload 的名字在 Service 内限定范围，不额外发明 infra ID；Kuber
 resolve_workload 完成。数据源使用 toolbox MetricDBDataSource，客户端由 Common ClientManager
 复用与回收，perf 不实现另一套连接池、发现或抓取系统。
 
+## 从 Operation 读取 MetricDB 指标
+
+将指标挂在 `service.operations[].observes` 上，实验通过 `data_source` 选择后端，
+通过 `observation_windows` 选择统计窗口。下游服务同样可以用 `services[].operations` 声明。
+例如以下片段为 search 声明每秒完成的请求数：
+
+```yaml
+service:
+  name: search
+  operations:
+    - name: search
+      method: POST
+      path: /search
+      observes:
+        - type: metricdb
+          metrics:
+            completed:
+              category: red:qps
+              unit: rps
+              expression: sum(rate(search_completed_total[$window]))
+data_source: {type: metricdb, kind: prometheus, url: 'http://localhost:9090'}
+```
+
+Python 和 TypeScript 共用 `observes` 内容。Python 将选中声明编译为已有的窗口汇总查询，
+用实际窗口替换 `$window`。RED 槽位取自 category，指标名可由项目定义。
+独立资产可以把同样的声明放入 `observation` 文件的 `operations[]`，并用 `service_name` 指定归属。
+Python 代码通过 `operation_metric_observation(service, operation, data_source, windows)` 完成相同装配；
+查询使用 `{{label}}` 时，通过该函数的 `parameters` 传入标签值。
+
 ## 项目文件与实验装配
 
 ```text
