@@ -39,8 +39,8 @@ Identity 是公共身份协议，提供返回字符串的 `id()`（Go：`ID()`�
 同一业务身份返回相同标识，描述性元数据不参与标识。
 Repository 实现 Identity，标识为 `forge.name + "/" + path`，例如 `github/compforge/quality-harness`；
 `forked_from` 不参与标识。该标识由当前 Forge 名称与仓库路径派生，改名或迁移会改变标识，
-不承诺平台原生 ID 的永久稳定性。TypeScript 的 `id()` 可委托公共函数 `repositoryId(this)`；
-JSON 只保存数据字段，消费方加载后恢复方法。
+不承诺平台原生 ID 的永久稳定性。TypeScript 提供具体的 `Repository` 类，
+消费方可用 `new Repository(snapshot)` 从 JSON 字段恢复实例并调用 `id()`。
 Service 与 Operation 也实现 Identity：Service 的图内 ID 使用服务名，Operation 使用所属服务名与操作名。
 这是环境内 catalog 的局部标识，完整 Service 身份仍包含 Component 与 Environment；环境范围由图或运行记录提供。
 Operation 必须声明 service_name（TypeScript：serviceName）；TypeScript 提供具体 Service / Operation 类以统一 id() 实现。

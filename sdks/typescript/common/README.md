@@ -55,7 +55,7 @@ capabilities, without duplicating these identities. For example:
 
 ```typescript
 import {
-  repositoryId, conceptToMarkdown, knowledgeToMarkdown, stepToMarkdown, workflowToMarkdown,
+  Repository, conceptToMarkdown, knowledgeToMarkdown, stepToMarkdown, workflowToMarkdown,
   Service,
 } from "@compforge/harness-common";
 
@@ -73,7 +73,7 @@ const service = new Service({
   upstream: ["gateway"],
   component: {
     name: "api",
-    repository: { forge: { name: "github" }, path: "example/app", id() { return repositoryId(this); } },
+    repository: new Repository({ forge: { name: "github" }, path: "example/app" }),
   },
   environment: { name: "test" },
   workloads: [{
@@ -83,9 +83,8 @@ const service = new Service({
 });
 ```
 
-Repository extends Identity: `id()` returns `forge.name/path`, excluding `forkedFrom`.
-Use `repositoryId(this)` when implementing the method, including when restoring a Repository
-from JSON; methods are not serialized.
+A Repository implements Identity. Its `id()` returns `forge.name/path` and is independent of
+`forkedFrom`. Use `new Repository(snapshot)` to restore an instance from its JSON fields.
 
 Service and Product accept an optional description for a short introduction, and structured
 `knowledge` for concepts, workflows, articles and dictionaries. Service knowledge covers its own
