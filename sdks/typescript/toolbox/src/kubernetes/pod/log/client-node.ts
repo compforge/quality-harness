@@ -2,6 +2,7 @@
 import { logTimestampNanos } from "./timestamp";
 import { parseDuration } from "../../../duration";
 import { closeSync, openSync, writeSync } from "node:fs";
+import { joinURL } from "ufo";
 import { KubeConfig } from "@kubernetes/client-node";
 // Bun replaces the bare node-fetch import with a shim that ignores HTTPS Agent TLS options.
 // Use the installed implementation so kubeconfig CA, client certificates and proxies reach HTTP(S).
@@ -280,7 +281,8 @@ class ClientNodeLogTransport {
     const cluster = this.kubeConfig.getCurrentCluster()!;
     const path = `/api/v1/namespaces/${encodeURIComponent(this.options.namespace)}`
       + `/pods/${encodeURIComponent(input.request.pod)}/log`;
-    const url = new URL(path, cluster.server.endsWith("/") ? cluster.server : `${cluster.server}/`);
+    const url = new URL(cluster.server);
+    url.pathname = joinURL(url.pathname, path);
     url.searchParams.set("container", input.request.container!);
     url.searchParams.set("follow", "false");
     url.searchParams.set("timestamps", "true");
