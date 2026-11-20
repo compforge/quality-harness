@@ -33,8 +33,9 @@ class KubernetesResourcesClient:
         self._closed = False
 
     async def initialize(self) -> None:
+        """@rule Both local Host spellings borrow the native pool; SSH uses a worker."""
         env = self._source
-        if env.host is None or env.host.transport == "local":
+        if env.host is None or env.host.transport in {"", "local"}:
             client = await self._clients.get(_native_access(env, self._source.options))
             self._native = client
         else:
