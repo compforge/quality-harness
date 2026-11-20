@@ -41,6 +41,14 @@ try {
 } finally { await clients.dispose(); }
 ```
 
+For direct access to a Kubernetes Service, create the shared route with
+`await DirectTransport.forService(kube, { name: "api", namespace: "app" })`, where
+`kube` is the target environment's KubernetesClient. Use the logical Service URL
+in HttpClient. The route reads the Service once and dials its ClusterIP on the
+configured Service port, preserving HTTP Host and TLS identity. Services without
+a ClusterIP (headless or ExternalName) retain their configured hostname. A failed
+Service lookup is reported to the caller.
+
 ## File sources
 
 A FileDataSource is a caller-declared acquisition group. Use `LocalFileDataSource` for local paths

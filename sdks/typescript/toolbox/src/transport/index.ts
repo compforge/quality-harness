@@ -1,3 +1,6 @@
+import { isIP } from "node:net";
+import { serviceIdentity } from "../kubernetes/service/index";
+import type { ResourceAccess, ResourceRequestOptions } from "../kubernetes/resources";
 import { Transport } from "./lifecycle";
 import type { ConnectionAttempt } from "../connection/acquire";
 export { Transport } from "./lifecycle";
@@ -14,9 +17,28 @@ export interface TcpTransport {
 export class DirectTransport extends Transport implements TcpTransport {
   readonly kind = "tcp";
   readonly name = "direct";
+  #service?: { name: string; namespace: string; ip: string };
+
+  /** @spec Resolve a declared Service once per route. Only its dial host changes. */
+  static async forService(kube: Pick<ResourceAccess, "get">, service: { name: string; namespace: string },
+    options?: ResourceRequestOptions): Promise<DirectTransport> {
+    const { namespace, name } = service;
+    const resource = await kube.get({ apiVersion: "v1", resource: "services", namespace, name }, options);
+    const transport = new DirectTransport([], options?.signal);
+    const ip = resource.spec?.clusterIP;
+    if (typeof ip === "string" && isIP(ip)) transport.#service = { namespace, name, ip };
+    return transport;
+  }
+
   protected override paths(): readonly TransportPath[] { return [this]; }
   async connect(endpoint: Endpoint, attempt?: ConnectionAttempt): Promise<Endpoint> {
-    this.signal.throwIfAborted(); attempt?.signal.throwIfAborted(); return endpoint;
+    this.signal.throwIfAborted();
+    attempt?.signal.throwIfAborted();
+    const service = this.#service;
+    if (!service || isIP(endpoint.host)) return endpoint;
+    const identity = serviceIdentity(endpoint.host, service.namespace);
+    if (identity?.name !== service.name || identity.namespace !== service.namespace) return endpoint;
+    return { ...endpoint, host: service.ip, servername: endpoint.servername ?? endpoint.host };
   }
 }
 

@@ -37,6 +37,37 @@ test("HTTP retains logical Host, escaped URL, method and body through a mapped T
   expect(Buffer.from(response.body).toString()).toBe("ok");
 });
 
+test("direct Service HTTP dials the discovered IP and retains the named authority", async () => {
+  const target = await server((req, res) => res.end(req.headers.host));
+  const service = { name: "echo", namespace: "test" };
+  const route = await DirectTransport.forService({ get: async ref => {
+    expect(ref).toEqual({ apiVersion: "v1", resource: "services", ...service });
+    return { spec: { clusterIP: target.host } };
+  } }, service);
+  cleanup.push(() => route.dispose());
+  for (const host of ["echo", "echo.test", "echo.test.svc.cluster.local"]) {
+    const authority = host + ":" + target.port;
+    const response = await client("http://" + authority, route).request("/case");
+    expect(Buffer.from(response.body).toString()).toBe(authority);
+  }
+  for (const host of ["echo.other", "external.example", "::1"]) {
+    const endpoint = { host, port: target.port };
+    expect(await route.connect(endpoint)).toEqual(endpoint);
+  }
+});
+
+test("direct Service routing distinguishes no ClusterIP from a failed lookup", async () => {
+  const service = { name: "api", namespace: "test" };
+  const endpoint = { host: "api.test", port: 443, servername: "custom.example" };
+  for (const clusterIP of ["None", undefined, "fd00::42"]) {
+    const route = await DirectTransport.forService({ get: async () => ({ spec: { clusterIP } }) }, service);
+    cleanup.push(() => route.dispose());
+    expect(await route.connect(endpoint)).toEqual({ ...endpoint, host: clusterIP === "fd00::42" ? clusterIP : endpoint.host });
+  }
+  const failure = new Error("Service access denied");
+  await expect(DirectTransport.forService({ get: async () => { throw failure; } }, service)).rejects.toBe(failure);
+});
+
 test("HTTP statuses and redirects are returned without replay or following another origin", async () => {
   let calls = 0;
   const target = await server((req, res) => { calls++; res.statusCode = Number(req.url!.slice(1)); res.setHeader("location", "http://elsewhere.invalid"); res.end(); });
