@@ -16,12 +16,19 @@ from harness_toolbox.kube import (
 from harness_toolbox.kube.client import _KubernetesAccess
 
 
-@pytest.fixture(params=[False, True], ids=["local", "host-worker"])
+@pytest.fixture(
+    params=[None, "", "local", "ssh"],
+    ids=["native", "empty-local-host", "local-host", "host-worker"],
+)
 async def cluster(tmp_path, monkeypatch, request):
-    remote = request.param
-    monkeypatch.setattr(
-        "harness_toolbox.kube.worker.command", lambda host, argv: [sys.executable, *argv[1:]]
-    )
+    host_transport = request.param
+    worker_starts = []
+
+    def worker_command(host, argv):
+        worker_starts.append(host.transport)
+        return [sys.executable, *argv[1:]]
+
+    monkeypatch.setattr("harness_toolbox.kube.worker.command", worker_command)
     state = {"calls": [], "uid": "original", "deny": False, "deleted": False}
 
     async def serve(request):
@@ -102,12 +109,14 @@ async def cluster(tmp_path, monkeypatch, request):
     )
     try:
         async with ClientManager() as clients:
-            if remote:
+            if host_transport is not None:
                 resources = await clients.get(
                     KubernetesEnvironment(
                         "stub",
                         str(config),
-                        host=Host("worker", "ssh", "stub"),
+                        host=Host(
+                            "worker", host_transport, "stub" if host_transport == "ssh" else ""
+                        ),
                         options=Options("ns", 10, 2),
                     )
                 )
@@ -121,6 +130,9 @@ async def cluster(tmp_path, monkeypatch, request):
                 client = await clients.get(
                     _KubernetesAccess(Options("ns", 2, 2), kubeconfig=str(config))
                 )
+            # Observe process creation at its boundary: local aliases must use the
+            # native pool, rather than an extra local Python worker.
+            assert worker_starts == (["ssh"] if host_transport == "ssh" else [])
             yield client, state
     finally:
         await runner.cleanup()
