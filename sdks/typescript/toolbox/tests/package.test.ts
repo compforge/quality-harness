@@ -414,7 +414,7 @@ test("published Pod and Service entries expose resource capabilities in Node", (
     cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const require = createRequire(import.meta.url);
-    for (const dependency of ["@kubernetes/client-node", "node-fetch"]) {
+    for (const dependency of ["@kubernetes/client-node", "node-fetch", "ufo"]) {
       const link = join(root, "node_modules", dependency);
       mkdirSync(dirname(link), { recursive: true });
       symlinkSync(dirname(require.resolve(`${dependency}/package.json`)), link, "dir");

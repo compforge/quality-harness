@@ -51,7 +51,12 @@ function accessFor(
 }
 
 describe("ClientNodePodLogAccess", () => {
-  test("通过 Pod Log API 流式落盘，并在本地补齐 pod/container 前缀", async () => {
+  test.each([
+    ["", ""],
+    ["/", ""],
+    ["/k8s/clusters/alpha", "/k8s/clusters/alpha"],
+    ["/k8s/clusters/alpha/", "/k8s/clusters/alpha"],
+  ])("Pod Log API 保留 server 路径 %j 并流式落盘", async (serverPath, expectedPrefix) => {
     let requested: URL | undefined;
     const server = Bun.serve({
       hostname: "127.0.0.1",
@@ -66,7 +71,9 @@ describe("ClientNodePodLogAccess", () => {
       },
     });
     servers.push(server);
-    const access = accessFor(server);
+    const access = accessFor(server, undefined, undefined, {
+      cluster: { server: server.url.origin + serverPath },
+    });
     const rawFilePath = join(roots.at(-1)!, "capture.log");
     const lines: string[] = [];
 
@@ -84,7 +91,7 @@ describe("ClientNodePodLogAccess", () => {
     expect(result.captureStatus).toBe("complete");
     expect(result.attempts).toBe(1);
     expect(result.bytesRead).toBeGreaterThan(0);
-    expect(requested?.pathname).toBe("/api/v1/namespaces/doctor-test/pods/api-0/log");
+    expect(requested?.pathname).toBe(`${expectedPrefix}/api/v1/namespaces/doctor-test/pods/api-0/log`);
     expect(requested?.searchParams.get("container")).toBe("app");
     expect(requested?.searchParams.get("sinceSeconds")).toBe(String(6 * 60 * 60));
     expect(lines).toEqual([
