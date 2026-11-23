@@ -1,3 +1,4 @@
+import { TimeoutError, ToolboxError } from "../errors";
 import type { HttpApi } from "../http/types";
 import type { MetricDBKind, MetricDBReader, ScrapeReader, MetricDBResult, MetricDBBackend } from "./model";
 import { backendFor, detectBackend } from "./backend";
@@ -36,12 +37,24 @@ export class MetricDBClient implements MetricDBReader, ScrapeReader {
     return scrapeConfigs(data);
   }
   async listScrapeTargets({ state = "any" }: { state?: "active" | "dropped" | "any" } = {}, signal?: AbortSignal) {
-    if (!["active", "dropped", "any"].includes(state)) throw new Error("Invalid scrape target state");
+    if (!["active", "dropped", "any"].includes(state)) throw new ToolboxError("Invalid scrape target state", {kind: "invalid_argument"});
     return scrapeTargets(await this.scrapeData(`targets?state=${state}`, signal), state);
   }
   private async scrapeData(path: string, signal?: AbortSignal): Promise<unknown> {
-    const response = await this.http.request(`${this.url}/api/v1/${path}`, { headers: this.headers, signal });
-    return decodeEnvelope(response.status, response.body).data;
+    try {
+      signal?.throwIfAborted();
+      const response = await this.http.request(`${this.url}/api/v1/${path}`, { headers: this.headers, signal });
+      return decodeEnvelope(response.status, response.body).data;
+    } catch (error) {
+      const cause = signal?.aborted ? signal.reason : error;
+      if (cause instanceof ToolboxError) throw cause;
+      if (cause instanceof Error && (cause.name === "TimeoutError" || ("code" in cause && cause.code === "ETIMEDOUT"))) {
+        throw new TimeoutError("MetricDB collector request timed out", {cause});
+      }
+      // Explicit cancellation belongs to the caller and keeps its original reason.
+      if (signal?.aborted) throw cause;
+      throw new ToolboxError("MetricDB collector transport failed", {kind: "connection_failed", cause});
+    }
   }
   query(expression: string, time: number, signal?: AbortSignal): Promise<MetricDBResult> {
     if (!Number.isFinite(time)) throw new Error("MetricDB query requires a finite timestamp");

@@ -1,3 +1,4 @@
+import { ToolboxError } from "../src/errors";
 import { readFileSync } from "node:fs";
 import { ScrapeConfig, ScrapeTarget } from "@compforge/harness-common";
 import { afterEach, expect, test } from "bun:test";
@@ -167,4 +168,22 @@ test("empty collector results remain distinct from invalid data and HTTP failure
   await expect(collector(404, {}).listScrapeTargets()).rejects.toMatchObject({code:404});
   await expect(collector(200, {yaml:"credentials: ["}).getScrapeConfig()).rejects.toMatchObject({kind:"invalid_response"});
   await expect(collector(200, {droppedTargets:[]}).listScrapeTargets()).rejects.toMatchObject({kind:"invalid_response"});
+});
+
+test("both scrape reads classify transport failures and deadlines, and preserve caller cancellation", async () => {
+  const cause = new Error("private transport diagnostics");
+  const collector = new MetricDBClient({request: async () => { throw cause; }}, {url: "http://collector"});
+  for (const read of [(signal?: AbortSignal) => collector.getScrapeConfig(signal),
+    (signal?: AbortSignal) => collector.listScrapeTargets({}, signal)]) {
+    const error = await read().catch(error => error);
+    expect(error).toBeInstanceOf(ToolboxError);
+    expect(error).toMatchObject({kind: "connection_failed", cause});
+    expect(error.message).not.toContain("private");
+    const timeout = AbortSignal.abort(new DOMException("deadline exceeded", "TimeoutError"));
+    await expect(read(timeout)).rejects.toMatchObject({kind: "timeout", cause: timeout.reason});
+    const cancelled = AbortSignal.abort(new Error("stop"));
+    await expect(read(cancelled)).rejects.toBe(cancelled.reason);
+  }
+  // @ts-expect-error Runtime callers can supply an invalid target filter.
+  await expect(collector.listScrapeTargets({state: "unknown"})).rejects.toMatchObject({kind: "invalid_argument"});
 });
