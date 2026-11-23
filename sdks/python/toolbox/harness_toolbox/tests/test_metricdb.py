@@ -1,9 +1,12 @@
 import asyncio
+import json
 from dataclasses import replace
+from pathlib import Path
 from urllib.parse import parse_qs
 
 import httpx
 import pytest
+from harness_common import ScrapeConfig, ScrapeTarget
 from harness_common.access.client import ClientManager
 
 from harness_toolbox.data_loader import DataLoader
@@ -308,3 +311,77 @@ async def test_invalid_partial_flag_is_not_silently_accepted(monkeypatch, partia
         with pytest.raises(MetricDBQueryError) as error:
             await client.read(["requests"])
         assert error.value.kind == ErrorKind.INVALID_RESPONSE
+
+
+async def test_collector_reads_return_common_models(monkeypatch):
+    fixture = json.loads(
+        (Path(__file__).resolve().parents[5] / "conformance/metricdb/scrape.json").read_text()
+    )
+    paths = []
+
+    def handler(request):
+        assert request.method == "GET"
+        assert request.headers["Authorization"] == "collector-token"
+        paths.append(request.url.raw_path.decode())
+        data = (
+            fixture["config"] if request.url.path.endswith("/status/config") else fixture["targets"]
+        )
+        return httpx.Response(200, json={"status": "success", "data": data})
+
+    with_transport(monkeypatch, handler)
+    async with ClientManager() as clients:
+        client = await clients.get(
+            MetricDBDataSource(
+                "http://collector/proxy/",
+                kind="victoriametrics",
+                headers={"Authorization": "collector-token"},
+            )
+        )
+        jobs = await client.get_scrape_config()
+        assert jobs == [
+            ScrapeConfig("gateway", "10s", "8s", "/internal/metrics", "https"),
+            ScrapeConfig("worker", "30s", "8s"),
+        ]
+        targets = await client.list_scrape_targets()
+        assert all(isinstance(target, ScrapeTarget) for target in targets)
+        assert targets[0].labels == {"job": "public"}
+        assert (targets[0].scrape_pool, targets[0].last_error, targets[0].last_scrape_duration) == (
+            "gateway",
+            "timeout",
+            0.4,
+        )
+        assert targets[1].scrape_interval is None
+        assert targets[2] == ScrapeTarget("dropped", {"__address__": "retired"})
+        assert await client.list_scrape_targets(state="dropped") == targets[2:]
+    assert paths == [
+        "/proxy/api/v1/status/config",
+        "/proxy/api/v1/targets?state=any",
+        "/proxy/api/v1/targets?state=dropped",
+    ]
+
+
+@pytest.mark.parametrize(
+    "status,data,method,kind",
+    [
+        (200, {"yaml": "scrape_configs: []"}, "config", None),
+        (200, {"activeTargets": [], "droppedTargets": []}, "targets", None),
+        (403, {}, "config", ErrorKind.PERMISSION_DENIED),
+        (404, {}, "targets", ErrorKind.RESOURCE_NOT_FOUND),
+        (200, {"yaml": "credentials: ["}, "config", ErrorKind.INVALID_RESPONSE),
+        (200, {"droppedTargets": []}, "targets", ErrorKind.INVALID_RESPONSE),
+    ],
+)
+async def test_empty_and_unavailable_collector_results(monkeypatch, status, data, method, kind):
+    with_transport(
+        monkeypatch, lambda _: httpx.Response(status, json={"status": "success", "data": data})
+    )
+    async with ClientManager() as clients:
+        client = await clients.get(MetricDBDataSource("http://collector"))
+        read = client.get_scrape_config if method == "config" else client.list_scrape_targets
+        if kind is None:
+            assert await read() == []
+        else:
+            with pytest.raises(MetricDBQueryError) as err:
+                await read()
+            assert err.value.kind == kind
+            assert "credentials" not in str(err.value)

@@ -467,6 +467,18 @@ Service 名称只是 perf 报告的归属标签，不隐式添加查询条件或
 TypeScript `connect` 通过常量表达式识别查询能力；Python DataSource 显式声明 kind。
 身份识别失败不能降级为另一个后端，指标是否存在也不能作为后端识别依据。
 
+在采集器地址上创建 MetricDBClient 后，可调用 `getScrapeConfig()` 和
+`listScrapeTargets({state: "active"})`。Python 对应 `get_scrape_config()` 和
+`list_scrape_targets(state="active")`，解析抓取配置使用 `harness-toolbox[prometheus]`。
+前者读取 `GET /api/v1/status/config`，从返回的 YAML 投影每个 job 的 common `ScrapeConfig`；
+间隔和超时优先取 job，再取配置内的 global，两处均缺失时保留未知。后者读取
+`GET /api/v1/targets`，返回 common `ScrapeTarget`；默认含 active 和 dropped。
+`scrapePool` 可关联到 job 名称。两个模型分别在 common 的 `scrape.ts`、`scrape.py` 定义，并从包根导出。
+采集器与时序查询地址分离时，给采集器单独创建带自身地址、认证和 HTTP 访问路径的客户端；
+TypeScript 的构造函数可直接用于 vmagent。采集器读取不触发查询方言探测。
+配置投影覆盖响应 YAML 内列出的 job；外部配置文件由采集器管理。目标实际抓取周期可用时保留在 target 上。
+空列表表示对应响应内有零条记录，访问失败和响应格式错误通过异常报告。
+
 请求时间保留小数秒，表达式原样传递；MetricDB 不自动把 MetricsQL 翻译为 PromQL。
 VM adapter 使用 `nocache=1` 与 `latency_offset=1ms`，避免近期 instant 求值偏移与 range
 网格对齐，并最小化尾部值替换。这个策略不保证样本已经到库：等待、补采和 RED 解释由 perf 拥有。

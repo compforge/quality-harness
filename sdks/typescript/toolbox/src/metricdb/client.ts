@@ -1,13 +1,14 @@
 import type { HttpApi } from "../http/types";
-import type { MetricDBKind, MetricDBReader, MetricDBResult, MetricDBBackend } from "./model";
+import type { MetricDBKind, MetricDBReader, ScrapeReader, MetricDBResult, MetricDBBackend } from "./model";
 import { backendFor, detectBackend } from "./backend";
-import { decodeResponse } from "./response";
+import { scrapeConfigs, scrapeTargets } from "./scrape";
+import { decodeEnvelope, decodeResponse } from "./response";
 
 /**
  * @spec Reads existing Prometheus history at the requested time; never scrapes exporters or follows redirects.
  * @why Backend adapters encapsulate protocol differences; consumers retain ownership of query meaning.
  */
-export class MetricDBClient implements MetricDBReader {
+export class MetricDBClient implements MetricDBReader, ScrapeReader {
   readonly url: string;
   readonly kind: MetricDBKind;
   private readonly backend: MetricDBBackend;
@@ -30,6 +31,18 @@ export class MetricDBClient implements MetricDBReader {
     return new MetricDBClient(http, {...options, kind});
   }
   private readonly headers: Readonly<Record<string, string>>;
+  async getScrapeConfig(signal?: AbortSignal) {
+    const data = await this.scrapeData("status/config", signal);
+    return scrapeConfigs(data);
+  }
+  async listScrapeTargets({ state = "any" }: { state?: "active" | "dropped" | "any" } = {}, signal?: AbortSignal) {
+    if (!["active", "dropped", "any"].includes(state)) throw new Error("Invalid scrape target state");
+    return scrapeTargets(await this.scrapeData(`targets?state=${state}`, signal), state);
+  }
+  private async scrapeData(path: string, signal?: AbortSignal): Promise<unknown> {
+    const response = await this.http.request(`${this.url}/api/v1/${path}`, { headers: this.headers, signal });
+    return decodeEnvelope(response.status, response.body).data;
+  }
   query(expression: string, time: number, signal?: AbortSignal): Promise<MetricDBResult> {
     if (!Number.isFinite(time)) throw new Error("MetricDB query requires a finite timestamp");
     return this.request("query", {query: expression, time: String(time)}, signal);
