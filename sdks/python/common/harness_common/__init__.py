@@ -92,6 +92,7 @@ from harness_common.system.graph import NodeKind as NodeKind
 from harness_common.system.graph import Relation as Relation
 from harness_common.system.graph import RelationKind as RelationKind
 
+from harness_common.scrape import ScrapeConfig as ScrapeConfig, ScrapeTarget as ScrapeTarget
 from harness_common.observe import (
     MetricQuery as MetricQuery,
     ObservationDefinition as ObservationDefinition,

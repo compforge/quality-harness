@@ -1,0 +1,17 @@
+{
+  "config": {
+    "yaml": "global:\n  scrape_interval: 30s\n  scrape_timeout: 8s\nscrape_configs:\n  - job_name: gateway\n    metrics_path: /internal/metrics\n    scheme: https\n    scrape_interval: 10s\n  - job_name: worker\n"
+  },
+  "targets": {
+    "activeTargets": [
+      {
+        "scrapePool": "gateway", "scrapeUrl": "https://gateway/internal/metrics",
+        "labels": {"job": "public"}, "discoveredLabels": {"__address__": "gateway"},
+        "health": "down", "lastError": "timeout", "lastScrapeDuration": 0.4,
+        "lastScrape": "2026-01-01T00:00:00Z", "scrapeInterval": "10s", "scrapeTimeout": "8s"
+      },
+      {"scrapePool": "worker", "scrapeUrl": "http://worker/metrics", "health": "up", "lastError": ""}
+    ],
+    "droppedTargets": [{"discoveredLabels": {"__address__": "retired"}}]
+  }
+}

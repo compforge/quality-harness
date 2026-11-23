@@ -12,10 +12,11 @@ import math
 import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
+from typing import Literal
 from urllib.parse import urlsplit
 
 import httpx
-from harness_common import ClientProvider, DataSource
+from harness_common import ClientProvider, DataSource, ScrapeConfig, ScrapeTarget
 from harness_common.access.client import _ClientBorrower, client_key
 
 from harness_toolbox.data_loader import DataLoader
@@ -24,6 +25,7 @@ from harness_toolbox.http import HTTPClient, HTTPClientProvider, HTTPRoute
 
 from .backend import backend_for
 from .model import MetricDBKind, MetricDBOptions, MetricDBResult
+from .scrape import scrape_configs, scrape_targets
 
 
 @dataclass(frozen=True)
@@ -204,67 +206,22 @@ class MetricDBClient:
         @spec VM query latency must not silently shift a frozen observation window.
         @why Exact evaluation time does not imply that buffered samples have reached storage.
         """
-        if self._http is None:
-            raise RuntimeError("MetricDB query client is closed")
-        parameters = {**parameters, **self._backend.query_parameters()}
         options = self._source.options
-        timeout = options.timeout_ms / 1000
-        body = bytearray()
+        form = {
+            "query": expression,
+            **parameters,
+            **self._backend.query_parameters(),
+            "timeout": f"{options.timeout_ms}ms",
+        }
+        envelope = await self._envelope("POST", endpoint, form=form)
+        data = envelope["data"]
         try:
-            # POST keeps query text out of URLs. The total deadline includes pool
-            # acquisition and slow streaming; HTTPX's read timeout alone resets per chunk.
-            async with (
-                asyncio.timeout(timeout),
-                self._http.stream(
-                    "POST",
-                    self._source.url.rstrip("/") + "/api/v1/" + endpoint,
-                    headers=self._source.headers,
-                    data={
-                        "query": expression,
-                        **parameters,
-                        "timeout": f"{options.timeout_ms}ms",
-                    },
-                    timeout=timeout,
-                ) as response,
-            ):
-                response.raise_for_status()
-                async for chunk in response.aiter_bytes():
-                    body.extend(chunk)
-                    if len(body) > options.max_response_bytes:
-                        raise MetricDBQueryError(
-                            "MetricDB response exceeds byte limit", kind=ErrorKind.LIMIT_EXCEEDED
-                        )
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            kind = {401: ErrorKind.AUTHENTICATION_FAILED, 403: ErrorKind.PERMISSION_DENIED}.get(
-                status, ErrorKind.OPERATION_FAILED
-            )
-            raise MetricDBQueryError(
-                f"MetricDB query HTTP request failed ({status})", kind=kind, code=status
-            ) from exc
-        except (TimeoutError, httpx.TimeoutException) as exc:
-            raise MetricDBQueryError("MetricDB query timed out", kind=ErrorKind.TIMEOUT) from exc
-        except httpx.RequestError as exc:
-            raise MetricDBQueryError(
-                "MetricDB query transport failed", kind=ErrorKind.CONNECTION_FAILED
-            ) from exc
-        try:
-            envelope = json.loads(body)
-            if not isinstance(envelope, dict):
-                raise ValueError
-            if envelope.get("status") == "error":
-                # Server errors can echo query contents or credentials. Expose only
-                # a safe protocol category; never the remote error text.
-                raise MetricDBQueryError(
-                    "MetricDB rejected the query", kind=ErrorKind.OPERATION_FAILED
-                )
-            data = envelope["data"]
-            if (
-                envelope.get("status") != "success"
-                or not isinstance(data, dict)
-                or data.get("resultType") not in {"scalar", "vector", "matrix", "string"}
-                or not isinstance(data.get("result"), list)
-            ):
+            if data.get("resultType") not in {
+                "scalar",
+                "vector",
+                "matrix",
+                "string",
+            } or not isinstance(data.get("result"), list):
                 raise ValueError
             annotations = []
             for key in ("warnings", "infos"):
@@ -292,3 +249,85 @@ class MetricDBClient:
         if partial:
             warnings += ("Metric backend returned a partial result",)
         return MetricDBResult(data, warnings, infos, is_partial=partial)
+
+    async def get_scrape_config(self) -> list[ScrapeConfig]:
+        envelope = await self._envelope("GET", "status/config")
+        return scrape_configs(envelope["data"])
+
+    async def list_scrape_targets(
+        self, *, state: Literal["active", "dropped", "any"] = "any"
+    ) -> list[ScrapeTarget]:
+        if state not in ("active", "dropped", "any"):
+            raise ValueError("Invalid scrape target state")
+        envelope = await self._envelope("GET", "targets", params={"state": state})
+        return scrape_targets(envelope["data"], state)
+
+    async def _envelope(
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        form: dict[str, str] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> dict:
+        if self._http is None:
+            raise RuntimeError("MetricDB query client is closed")
+        options = self._source.options
+        timeout = options.timeout_ms / 1000
+        body = bytearray()
+        try:
+            # POST keeps query text out of URLs. The total deadline includes pool
+            # acquisition and slow streaming; HTTPX's read timeout alone resets per chunk.
+            async with (
+                asyncio.timeout(timeout),
+                self._http.stream(
+                    method,
+                    self._source.url.rstrip("/") + "/api/v1/" + endpoint,
+                    headers=self._source.headers,
+                    data=form,
+                    params=params,
+                    timeout=timeout,
+                ) as response,
+            ):
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes():
+                    body.extend(chunk)
+                    if len(body) > options.max_response_bytes:
+                        raise MetricDBQueryError(
+                            "MetricDB response exceeds byte limit", kind=ErrorKind.LIMIT_EXCEEDED
+                        )
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            kind = {
+                401: ErrorKind.AUTHENTICATION_FAILED,
+                403: ErrorKind.PERMISSION_DENIED,
+                404: ErrorKind.RESOURCE_NOT_FOUND,
+                405: ErrorKind.UNSUPPORTED_OPERATION,
+                501: ErrorKind.UNSUPPORTED_OPERATION,
+            }.get(status, ErrorKind.OPERATION_FAILED)
+            raise MetricDBQueryError(
+                f"MetricDB query HTTP request failed ({status})", kind=kind, code=status
+            ) from exc
+        except (TimeoutError, httpx.TimeoutException) as exc:
+            raise MetricDBQueryError("MetricDB query timed out", kind=ErrorKind.TIMEOUT) from exc
+        except httpx.RequestError as exc:
+            raise MetricDBQueryError(
+                "MetricDB query transport failed", kind=ErrorKind.CONNECTION_FAILED
+            ) from exc
+        try:
+            envelope = json.loads(body)
+            if not isinstance(envelope, dict):
+                raise ValueError
+            if envelope.get("status") == "error":
+                # Server errors can echo query contents or credentials. Expose only
+                # a safe protocol category; never the remote error text.
+                raise MetricDBQueryError(
+                    "MetricDB rejected the query", kind=ErrorKind.OPERATION_FAILED
+                )
+            if envelope.get("status") != "success" or not isinstance(envelope.get("data"), dict):
+                raise ValueError
+            return envelope
+        except (ValueError, KeyError, TypeError) as exc:
+            raise MetricDBQueryError(
+                "Invalid MetricDB response", kind=ErrorKind.INVALID_RESPONSE
+            ) from exc

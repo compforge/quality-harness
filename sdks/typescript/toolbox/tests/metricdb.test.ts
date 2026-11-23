@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { ScrapeConfig, ScrapeTarget } from "@compforge/harness-common";
 import { afterEach, expect, test } from "bun:test";
 import { createServer } from "node:http";
 import { HttpClient } from "../src/http";
@@ -128,4 +130,41 @@ test("MetricDB preserves explicit completeness and rejects malformed flags", asy
       }
     }
   }
+});
+
+test("collector reads return common scrape models through the supplied route", async () => {
+  const fixture = JSON.parse(readFileSync(new URL("../../../../conformance/metricdb/scrape.json", import.meta.url), "utf8"));
+  const calls: string[] = [];
+  const signal = new AbortController().signal;
+  const client = new MetricDBClient({ request: async (url, options) => {
+    calls.push(url);
+    expect(options?.headers?.authorization).toBe("collector-token");
+    expect(options?.signal).toBe(signal);
+    const data = url.endsWith("/status/config") ? fixture.config : fixture.targets;
+    return { status: 200, headers: {}, body: Buffer.from(JSON.stringify({status: "success", data})) };
+  } }, {url: "http://collector/proxy/", kind: "victoriametrics", headers: {authorization: "collector-token"}});
+  const jobs = await client.getScrapeConfig(signal);
+  expect(jobs[0]).toBeInstanceOf(ScrapeConfig);
+  expect(jobs[0]).toMatchObject({jobName: "gateway", scrapeInterval: "10s", scrapeTimeout: "8s", metricsPath: "/internal/metrics", scheme: "https"});
+  expect(jobs[1]).toMatchObject({jobName: "worker", scrapeInterval: "30s"});
+  const targets = await client.listScrapeTargets({}, signal);
+  expect(targets.every(target => target instanceof ScrapeTarget)).toBe(true);
+  expect(targets[0]).toMatchObject({...fixture.targets.activeTargets[0], state: "active"});
+  expect(targets[1]!.scrapeInterval).toBeUndefined();
+  expect(targets[2]).toMatchObject({...fixture.targets.droppedTargets[0], state: "dropped"});
+  expect(await client.listScrapeTargets({state: "dropped"}, signal)).toHaveLength(1);
+  expect(calls).toEqual(["status/config","targets?state=any","targets?state=dropped"].map(path => "http://collector/proxy/api/v1/"+path));
+});
+
+test("empty collector results remain distinct from invalid data and HTTP failures", async () => {
+  function collector(status: number, data: unknown) {
+    return new MetricDBClient({request: async () => ({status, headers: {},
+      body: Buffer.from(JSON.stringify({status: "success", data}))})}, {url: "http://collector"});
+  }
+  expect(await collector(200, {yaml:"scrape_configs: []"}).getScrapeConfig()).toEqual([]);
+  expect(await collector(200, {activeTargets:[]}).listScrapeTargets({state:"active"})).toEqual([]);
+  await expect(collector(403, {}).getScrapeConfig()).rejects.toMatchObject({code:403,kind:"permission_denied"});
+  await expect(collector(404, {}).listScrapeTargets()).rejects.toMatchObject({code:404});
+  await expect(collector(200, {yaml:"credentials: ["}).getScrapeConfig()).rejects.toMatchObject({kind:"invalid_response"});
+  await expect(collector(200, {droppedTargets:[]}).listScrapeTargets()).rejects.toMatchObject({kind:"invalid_response"});
 });
