@@ -20,3 +20,24 @@ test("matches Kubernetes services, pod selectors and resource identities within 
   expect(match({kind:"resource",resource_kind:"StatefulSet",name:"worker"})).toBe(true);
   expect(match({kind:"resource",resource_kind:"Deployment",name:"worker"})).toBe(false);
 });
+
+test("matches Pod scrape discovery against the observed Service selector in the workload namespace", () => {
+  const service = {name:"chat", workloads:[{name:"chat", platform:"kubernetes" as const, namespace:"app",
+    location:{kind:"service" as const, name:"chat-server"}}]};
+  const services = [{name:"chat-server", namespace:"app", selector:{
+    "app.kubernetes.io/name":"chat-server", "app.kubernetes.io/instance":"chat-server",
+  }}];
+  const discoveredLabels = {
+    __meta_kubernetes_namespace:"app", __meta_kubernetes_pod_name:"chat-server-abc",
+    __meta_kubernetes_pod_label_app_kubernetes_io_name:"chat-server",
+    __meta_kubernetes_pod_label_app_kubernetes_io_instance:"chat-server",
+  };
+  const target: ScrapeTarget = {state:"active", discoveredLabels};
+  expect(matchesScrapeTarget(service, "default", target, services)).toBe(true);
+  expect(matchesScrapeTarget(service, "default", target)).toBe(false);
+  expect(matchesScrapeTarget(service, "default", target, [{...services[0]!, namespace:"other"}])).toBe(false);
+  expect(matchesScrapeTarget(service, "default", target, [{...services[0]!, selector:{}}])).toBe(false);
+  expect(matchesScrapeTarget(service, "default", {state:"active", discoveredLabels:{
+    ...discoveredLabels, __meta_kubernetes_pod_label_app_kubernetes_io_instance:"other",
+  }}, services)).toBe(false);
+});

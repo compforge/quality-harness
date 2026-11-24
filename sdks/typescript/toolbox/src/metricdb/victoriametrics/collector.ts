@@ -1,8 +1,9 @@
 import { MetricDBError } from "../../errors";
-import type { MetricDBReader } from "../model";
+import type { MetricDBReader, ScrapeReader } from "../model";
 import { isIP } from "node:net";
 import type { Resource, ResourceAccess, ResourceListQuery } from "../../kubernetes/resources";
 import { serviceIdentity } from "../../kubernetes/service";
+import { remoteWriteURLs } from "../scrape";
 
 const apiVersion = "operator.victoriametrics.com/v1beta1";
 
@@ -11,6 +12,15 @@ export interface VMAgentCollector {
   agent: string;
   service: string;
   url: string;
+}
+
+export interface PrometheusCollector {
+  namespace: string;
+  service: string;
+  url: string;
+  vmselect: string;
+  vminsert: string;
+  tenant: string;
 }
 
 /** Tenant-qualified vmselect URLs identify the read side of a VM cluster. */
@@ -63,24 +73,31 @@ function writesTo(agent: Resource, inserts: Resource[], tenant: string): boolean
   });
 }
 
-function collectorFor(agent: Resource, service: Resource): VMAgentCollector | undefined {
-  const namespace = agent.metadata?.namespace, name = agent.metadata?.name, serviceName = service.metadata?.name;
+function collectorURL(service: Resource, tls: boolean, path: string): string | undefined {
+  const { namespace, name } = service.metadata ?? {};
   const spec = service.spec;
-  if (!namespace || !name || !serviceName || !spec || !Array.isArray(spec.ports)) return;
+  if (!namespace || !name || !spec || !Array.isArray(spec.ports)) return;
   const port = spec.ports.find(item => item.name === "http")?.port;
-  if (!Number.isInteger(port)) return;
-  const args = agent.spec?.extraArgs as Record<string, string> | undefined;
-  const tls = args?.tls === "true";
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return;
   // TLS uses the Service name for certificate verification; direct HTTP can use a reachable ClusterIP.
-  let host = `${serviceName}.${namespace}.svc`;
+  let host = `${name}.${namespace}.svc`;
   if (!tls && typeof spec.clusterIP === "string") {
     const family = isIP(spec.clusterIP);
     if (family === 4) host = spec.clusterIP;
     if (family === 6) host = `[${spec.clusterIP}]`;
   }
   const url = new URL(`${tls ? "https" : "http"}://${host}:${port}`);
-  url.pathname = args?.["http.pathPrefix"] ?? "/";
-  return {namespace, agent:name, service:serviceName, url:url.href.replace(/\/$/, "")};
+  url.pathname = path;
+  return url.href.replace(/\/$/, "");
+}
+
+function collectorFor(agent: Resource, service: Resource): VMAgentCollector | undefined {
+  const { namespace, name } = agent.metadata ?? {};
+  const serviceName = service.metadata?.name;
+  if (!namespace || !name || !serviceName) return;
+  const args = agent.spec?.extraArgs as Record<string, string> | undefined;
+  const url = collectorURL(service, args?.tls === "true", args?.["http.pathPrefix"] ?? "/");
+  if (url) return {namespace, agent:name, service:serviceName, url};
 }
 
 /** @rule Require a shared VMCluster owner and the writer's tenant before returning an agent Service. */
@@ -111,6 +128,107 @@ export async function findVMAgentCollectors(access: ResourceAccess, queryUrl: st
     }
   }
   return candidates;
+}
+
+function hasRole(service: Resource, role: "vmselect" | "vminsert"): boolean {
+  const labels = service.metadata?.labels as Record<string, string> | undefined;
+  return labels?.app === role || labels?.["app.kubernetes.io/name"] === role
+    || labels?.["app.kubernetes.io/component"] === role;
+}
+
+function storageHosts(service: Resource, deployments: readonly Resource[], port: string): string[] {
+  const selector = Object.entries(service.spec?.selector ?? {});
+  if (!selector.length) return [];
+  const templates = deployments.map(deployment => deployment.spec?.template as {
+    metadata?: { labels?: Record<string, string> };
+    spec?: { containers?: { args?: string[] }[] };
+  } | undefined).filter(template => selector.every(([key, value]) => template?.metadata?.labels?.[key] === value));
+  if (templates.length !== 1) return [];
+  const hosts = new Set<string>();
+  for (const container of templates[0]?.spec?.containers ?? []) {
+    const args = container.args ?? [];
+    for (const [i, arg] of args.entries()) {
+      const flag = /^--?storageNode(?:=(.*))?$/.exec(arg);
+      if (!flag) continue;
+      const value = flag[1] ?? args[i + 1];
+      if (!value) return [];
+      for (const address of value.split(",")) {
+        const endpoint = `http://${address.trim()}`;
+        if (!URL.canParse(endpoint)) return [];
+        const url = new URL(endpoint);
+        if (url.port !== port || url.username || url.password || url.pathname !== "/" || url.search || url.hash) return [];
+        hosts.add(url.hostname.replace(/\.$/, ""));
+      }
+    }
+  }
+  return [...hosts].sort();
+}
+
+function prometheusWriteTenant(url: URL): string | undefined {
+  if (url.protocol !== "http:" && url.protocol !== "https:") return;
+  return /^\/insert\/(\d+(?::\d+)?)\/prometheus(?:\/api\/v1\/write)?\/?$/.exec(url.pathname)?.[1]?.replace(/:0$/, "");
+}
+
+/**
+ * @spec Find Prometheus Services whose loaded configuration writes to the queried VM cluster and tenant.
+ * @rule Kubernetes identity and storage membership establish the VM read/write pair. The caller verifies
+ * active targets and decides whether to use a candidate. Collector readers must use their own authentication.
+ */
+export async function findPrometheusCollectors(access: ResourceAccess, queryUrl: string, namespace: string,
+  readerFor: (url: string) => Pick<ScrapeReader, "getScrapeConfig">, signal?: AbortSignal): Promise<PrometheusCollector[]> {
+  const tenant = vmSelectTenant(queryUrl);
+  if (tenant === undefined) return [];
+  const query = new URL(queryUrl);
+  if (query.protocol !== "http:" && query.protocol !== "https:") return [];
+  const services = await listResources(access, {apiVersion:"v1", resource:"services"}, signal);
+  const selects = services.filter(service => hasRole(service, "vmselect") && serves(service, query, namespace));
+  if (selects.length !== 1) return [];
+  const select = selects[0]!;
+  const vmNamespace = select.metadata?.namespace;
+  const vmselect = select.metadata?.name;
+  if (!vmNamespace || !vmselect) return [];
+
+  const localServices = services.filter(service => service.metadata?.namespace === vmNamespace);
+  const writeServices = localServices.filter(service => hasRole(service, "vminsert"));
+  if (!writeServices.length) return [];
+  const owner = ownerUid(select, "VMCluster");
+  let inserts: Resource[];
+  if (owner) {
+    inserts = writeServices.filter(service => ownerUid(service, "VMCluster") === owner);
+  } else {
+    const deployments = await listResources(access, {apiVersion:"apps/v1", resource:"deployments", namespace:vmNamespace}, signal);
+    const readHosts = storageHosts(select, deployments, "8401");
+    if (!readHosts.length) return [];
+    inserts = writeServices.filter(service => {
+      const writeHosts = storageHosts(service, deployments, "8400");
+      return writeHosts.length === readHosts.length && writeHosts.every((host, index) => host === readHosts[index]);
+    });
+  }
+  if (!inserts.length) return [];
+
+  const prometheus = localServices.flatMap(service => {
+    const labels = service.metadata?.labels as Record<string, string> | undefined;
+    if (labels?.["app.kubernetes.io/name"] !== "prometheus" || labels["app.kubernetes.io/component"] !== "server") return [];
+    const url = collectorURL(service, false, "/");
+    return url && service.metadata?.name ? [{ service: service.metadata.name, url }] : [];
+  });
+  // Bound config reads, since each distinct endpoint can own its own connection pool.
+  if (prometheus.length > 8) throw new MetricDBError("Too many Prometheus Services to verify in the VM namespace", {kind:"operation_failed"});
+  const candidates = await Promise.all(prometheus.map(async ({service, url}) => {
+    let yaml: string | undefined;
+    signal?.throwIfAborted();
+    await readerFor(url).getScrapeConfig(signal, config => { yaml = config; });
+    if (yaml === undefined) throw new MetricDBError("Prometheus config YAML is unavailable", {kind:"invalid_response"});
+    for (const destination of await remoteWriteURLs(yaml)) {
+      if (!URL.canParse(destination)) continue;
+      const endpoint = new URL(destination);
+      if (prometheusWriteTenant(endpoint) !== tenant) continue;
+      const matched = inserts.filter(insert => serves(insert, endpoint, vmNamespace));
+      const vminsert = matched.length === 1 ? matched[0]?.metadata?.name : undefined;
+      if (vminsert) return {namespace:vmNamespace, service, url, vmselect, vminsert, tenant};
+    }
+  }));
+  return candidates.filter(candidate => candidate !== undefined);
 }
 
 /** Stored self-monitoring labels are diagnostic hints, with no guarantee of reachability or scrape ownership. */

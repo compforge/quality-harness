@@ -26,11 +26,7 @@ export async function scrapeConfigs(data: unknown, onYaml?: (yaml: string) => vo
   const yaml = record(data).yaml;
   if (typeof yaml !== "string") return invalid();
   onYaml?.(yaml);
-  const { load } = await import("js-yaml");
-  let parsed: unknown;
-  // Parser diagnostics may contain credentials from the config.
-  try { parsed = load(yaml); } catch { return invalid(); }
-  const config = record(parsed);
+  const config = await parseScrapeYaml(yaml);
   const global = config.global === undefined ? {} : record(config.global);
   const jobs = config.scrape_configs === undefined ? [] : config.scrape_configs;
   if (!Array.isArray(jobs)) return invalid();
@@ -46,6 +42,24 @@ export async function scrapeConfigs(data: unknown, onYaml?: (yaml: string) => vo
       metricsPath: optionalString(job.metrics_path),
       scheme: optionalString(job.scheme),
     });
+  });
+}
+
+async function parseScrapeYaml(yaml: string): Promise<Record<string, unknown>> {
+  const { load } = await import("js-yaml");
+  // Parser diagnostics may contain credentials from the config.
+  try { return record(load(yaml)); } catch { return invalid(); }
+}
+
+export async function remoteWriteURLs(yaml: string): Promise<string[]> {
+  const config = await parseScrapeYaml(yaml);
+  const writes = config.remote_write;
+  if (writes === undefined) return [];
+  if (!Array.isArray(writes)) return invalid();
+  return writes.map(write => {
+    const { url } = record(write);
+    if (typeof url !== "string") return invalid();
+    return url;
   });
 }
 
