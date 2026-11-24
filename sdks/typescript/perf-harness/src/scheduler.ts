@@ -36,6 +36,7 @@ export async function drive(options: {
   execution: ArmRun;
   signal?: AbortSignal;
   stopSignal?: AbortSignal;
+  onErrorRateStop?(snapshot: Readonly<StopSnapshot>, inflight: number): void;
 }): Promise<void> {
   const {
       runner,
@@ -213,6 +214,8 @@ export async function drive(options: {
           threshold: load.abort_on_error_rate,
         };
         control.abort(elapsed);
+        try { options.onErrorRateStop?.({ ...snapshot }, active.size); }
+        catch (error) { errors.push(error); } // Preserve the drain and stop evidence if reporting fails.
         break;
       }
       const [rate, cap] = control.target(elapsed);

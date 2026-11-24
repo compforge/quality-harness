@@ -241,9 +241,11 @@ test("breaker uses completed evaluations and preserves Outcomes", async () => {
       return { status: 500, duration_ms: 1 };
     },
   };
+  const notifications: unknown[] = [];
   const run = await new Engine({
     service,
     runner,
+    onErrorRateStop: (snapshot, inflight) => notifications.push({ snapshot, inflight }),
     loads: [
       {
         request_rate: Infinity,
@@ -256,6 +258,7 @@ test("breaker uses completed evaluations and preserves Outcomes", async () => {
   }).run();
   const arm = run.executions[0]!;
   expect(arm.stop.reason).toBe("error_rate");
+  expect(notifications).toEqual([{ snapshot: arm.stop.snapshot, inflight: arm.stop.inflight_at_stop }]);
   expect(arm.stop.snapshot!.completed).toBeGreaterThanOrEqual(4);
   expect(arm.operation_runs.every((o) => !("ok" in o.outcome))).toBe(true);
 });
