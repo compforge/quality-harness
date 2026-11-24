@@ -1,24 +1,13 @@
 import { MetricDBError } from "../../errors";
 import type { MetricDBReader, ScrapeReader } from "../model";
+import type { PrometheusCollector } from "../prometheus";
+import type { VMAgentCollector } from ".";
 import { isIP } from "node:net";
 import type { Resource, ResourceAccess, ResourceListQuery } from "../../kubernetes/resources";
 import { serviceIdentity } from "../../kubernetes/service";
 import { remoteWriteURLs } from "../scrape";
 
 const apiVersion = "operator.victoriametrics.com/v1beta1";
-
-/** A scrape endpoint identified by the metric store's write topology. */
-export type MetricCollector = {
-  namespace: string;
-  service: string;
-  url: string;
-} & (
-  | { kind: "vmagent"; agent: string }
-  | { kind: "prometheus"; vmselect: string; vminsert: string; tenant: string }
-);
-
-export type VMAgentCollector = Extract<MetricCollector, { kind: "vmagent" }>;
-export type PrometheusCollector = Extract<MetricCollector, { kind: "prometheus" }>;
 
 /** Tenant-qualified vmselect URLs identify the read side of a VM cluster. */
 export function vmSelectTenant(url: string): string | undefined {

@@ -22,6 +22,13 @@ export interface ScrapeReader {
   listScrapeTargets(options?: { state?: "active" | "dropped" | "any" }, signal?: AbortSignal, onBody?: (body: Uint8Array) => void): Promise<ScrapeTarget[]>;
 }
 
+/** Kubernetes identity and address shared by discovered scrape collectors. */
+export interface CollectorEndpoint {
+  namespace: string;
+  service: string;
+  url: string;
+}
+
 /** @spec Backend adapters own wire differences, never expressions, RED semantics or HTTP pools. */
 export interface MetricDBBackend {
   readonly kind: MetricDBKind;
