@@ -1,6 +1,6 @@
-import type { CollectorEndpoint, MetricDBBackend } from "../model";
+import type { MetricCollector, MetricDBBackend } from "../model";
 
-export interface VMAgentCollector extends CollectorEndpoint {
+export interface VMAgentCollector extends MetricCollector {
   kind: "vmagent";
   agent: string;
 }

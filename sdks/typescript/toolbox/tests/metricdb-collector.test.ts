@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { findPrometheusCollectors, findVMAgentCollectors, MetricDBClient, MetricDBError, type MetricCollector } from "../src/metricdb";
+import { findPrometheusCollectors, findVMAgentCollectors, MetricDBClient, MetricDBError } from "../src/metricdb";
 import type { Resource, ResourceAccess } from "../src/kubernetes/resources";
 
 const namespace = "monitoring";
@@ -70,7 +70,7 @@ test("identifies the Operator-managed VMAgent variant", async () => {
       return {items:byRole[role] ? [byRole[role]!] : []};
     },
   };
-  const collectors: MetricCollector[] = await findVMAgentCollectors(access, queryURL, namespace);
+  const collectors = await findVMAgentCollectors(access, queryURL, namespace);
   expect(collectors).toEqual([{kind:"vmagent",namespace,agent:"writer",service:"scraper",url:"http://192.0.2.6:8429"}]);
 });
 

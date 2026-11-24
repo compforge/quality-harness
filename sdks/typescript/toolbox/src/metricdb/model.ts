@@ -22,8 +22,9 @@ export interface ScrapeReader {
   listScrapeTargets(options?: { state?: "active" | "dropped" | "any" }, signal?: AbortSignal, onBody?: (body: Uint8Array) => void): Promise<ScrapeTarget[]>;
 }
 
-/** Kubernetes identity and address shared by discovered scrape collectors. */
-export interface CollectorEndpoint {
+/** A discovered process that owns scraping. */
+export interface MetricCollector {
+  kind: "prometheus" | "vmagent";
   namespace: string;
   service: string;
   url: string;

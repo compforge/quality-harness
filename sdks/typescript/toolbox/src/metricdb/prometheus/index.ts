@@ -1,7 +1,7 @@
-import type { CollectorEndpoint, MetricDBBackend } from "../model";
+import type { MetricCollector, MetricDBBackend } from "../model";
 
 /** A Prometheus Server that writes to the matched VictoriaMetrics cluster and tenant. */
-export interface PrometheusCollector extends CollectorEndpoint {
+export interface PrometheusCollector extends MetricCollector {
   kind: "prometheus";
   vmselect: string;
   vminsert: string;

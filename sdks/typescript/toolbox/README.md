@@ -584,7 +584,7 @@ For tenant-qualified vmselect URLs, `findVMAgentCollectors` reads VM Operator Se
 
 `findPrometheusCollectors` also resolves Prometheus Server Services in the VM namespace. It pairs vmselect with vminsert by VMCluster owner or, for Helm Deployments, by identical vmstorage membership on the read and write ports. It uses caller-supplied collector readers to verify each candidate's loaded `remote_write` destination and tenant. The caller verifies active targets and chooses a collector. Supply observed Kubernetes Services to `matchesScrapeTarget` to match Pod discovery labels against a Service selector when Service discovery labels are absent.
 
-Both discovery functions return variants of `MetricCollector`. Its `kind` is `"vmagent"` or `"prometheus"`, and both variants expose the collector's namespace, Service name and URL.
+Both discovery functions return types that extend `MetricCollector`. The shared interface exposes the collector's kind, namespace, Service name and URL. Each discovery function also returns the topology details for its collector type.
 Scrape reads work before calling `connectQuery(signal)` to detect the query dialect.
 
 MetricDB client failures are `MetricDBError` instances with the shared `ToolboxError.kind` and optional `code`. Explicit caller cancellation propagates its reason.
