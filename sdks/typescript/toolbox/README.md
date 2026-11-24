@@ -579,6 +579,8 @@ For separate origins, supply an async HTTP pool lookup `(url) => Promise<HttpApi
 `connect`. The host sets HTTP response budgets.
 `listScrapeTargets({state: "active"}, signal, onBody)` reads live targets and supplies the original HTTP 200
 response bytes to the optional callback. `getScrapeConfig(signal, onYaml)` supplies original YAML before decoding jobs.
+`matchesScrapeTarget(service, namespace, target)` matches Kubernetes discovery labels offline.
+For tenant-qualified vmselect URLs, `findVMAgentCollectors` reads VM Operator Services and VMAgent remote-write destinations through a supplied Kubernetes resource reader. It returns candidate endpoints for the caller to verify. `listVMAgentInstances` provides self-monitoring label hints.
 Scrape reads work before calling `connectQuery(signal)` to detect the query dialect.
 
 Import `MetricDBClient` and `MetricDBReader` from `@compforge/harness-toolbox/metricdb`.

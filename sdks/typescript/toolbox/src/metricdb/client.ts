@@ -46,6 +46,11 @@ export class MetricDBClient implements MetricDBReader, ScrapeReader {
   get kind() { return this.backend.kind; }
   get scrapeEndpoint(): "collector" | "metricdb" { return this.options.collector ? "collector" : "metricdb"; }
 
+  /** Borrow the same transport for a separately authenticated collector candidate. */
+  forCollector(collector: MetricEndpoint): ScrapeReader {
+    return new MetricDBClient(this.http, {...this.options, collector});
+  }
+
   private borrow(url: string, signal?: AbortSignal) {
     signal?.throwIfAborted();
     if (typeof this.http !== "function") return this.http;
