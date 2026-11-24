@@ -18,8 +18,8 @@ export interface MetricDBReader {
 
 /** Read from the collector that owns discovery and scraping. */
 export interface ScrapeReader {
-  getScrapeConfig(signal?: AbortSignal): Promise<ScrapeConfig[]>;
-  listScrapeTargets(options?: { state?: "active" | "dropped" | "any" }, signal?: AbortSignal): Promise<ScrapeTarget[]>;
+  getScrapeConfig(signal?: AbortSignal, onYaml?: (yaml: string) => void): Promise<ScrapeConfig[]>;
+  listScrapeTargets(options?: { state?: "active" | "dropped" | "any" }, signal?: AbortSignal, onBody?: (body: Uint8Array) => void): Promise<ScrapeTarget[]>;
 }
 
 /** @spec Backend adapters own wire differences, never expressions, RED semantics or HTTP pools. */

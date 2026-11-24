@@ -25,6 +25,7 @@ export class ProtocolError extends ToolboxError {
 
 export class KubernetesError extends ToolboxError {}
 export class FileError extends ToolboxError {}
+export class MetricDBError extends ToolboxError {}
 
 /** A local deadline expiry, distinct from a connection failure reported by a driver. */
 export class TimeoutError extends ToolboxError {
