@@ -1,4 +1,9 @@
-import type { MetricDBBackend } from "../model";
+import type { MetricCollector, MetricDBBackend } from "../model";
+
+export interface VMAgentCollector extends MetricCollector {
+  kind: "vmagent";
+  agent: string;
+}
 
 /**
  * @spec Keep frozen evaluation times and range grids; sample arrival is a separate concern.

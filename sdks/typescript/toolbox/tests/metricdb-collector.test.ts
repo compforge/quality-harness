@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { findPrometheusCollectors, MetricDBClient, MetricDBError } from "../src/metricdb";
+import { findPrometheusCollectors, findVMAgentCollectors, MetricDBClient, MetricDBError } from "../src/metricdb";
 import type { Resource, ResourceAccess } from "../src/kubernetes/resources";
 
 const namespace = "monitoring";
@@ -48,6 +48,32 @@ function fixture(insertArgs: string[]) {
 
 const writeStorage = ["-storageNode=storage-1.storage.monitoring.svc:8400,storage-0.storage.monitoring.svc:8400"];
 
+test("identifies the Operator-managed VMAgent variant", async () => {
+  const operator = "operator.victoriametrics.com/v1beta1";
+  const owner = (kind: string, uid: string) => [{apiVersion:operator,kind,uid,controller:true}];
+  const byRole: Readonly<Record<string, Resource>> = {
+    vmselect:{metadata:{name:"stack-vmselect",namespace,ownerReferences:owner("VMCluster","stack")},
+      spec:{clusterIP:"192.0.2.1",ports:[{name:"http",port:8481}]}},
+    vminsert:{metadata:{name:"stack-vminsert",namespace,ownerReferences:owner("VMCluster","stack")},
+      spec:{ports:[{name:"http",port:8480}]}},
+    vmagent:{metadata:{name:"scraper",namespace,ownerReferences:owner("VMAgent","writer")},
+      spec:{clusterIP:"192.0.2.6",ports:[{name:"http",port:8429}]}},
+  };
+  const access: ResourceAccess = {
+    async get() { throw new Error("unexpected get"); },
+    async list({resource,labelSelector}) {
+      if (resource === "vmagents") return {items:[{
+        metadata:{name:"writer",namespace,uid:"writer"},
+        spec:{remoteWrite:[{url:"http://stack-vminsert:8480/insert/0/prometheus/api/v1/write"}]},
+      }]};
+      const role = labelSelector?.split("=")[1] ?? "";
+      return {items:byRole[role] ? [byRole[role]!] : []};
+    },
+  };
+  const collectors = await findVMAgentCollectors(access, queryURL, namespace);
+  expect(collectors).toEqual([{kind:"vmagent",namespace,agent:"writer",service:"scraper",url:"http://192.0.2.6:8429"}]);
+});
+
 test("finds the Prometheus writer of a Helm VM cluster using loaded config and matching storage membership", async () => {
   const requests: string[] = [];
   const client = new MetricDBClient({
@@ -69,7 +95,7 @@ test("finds the Prometheus writer of a Helm VM cluster using loaded config and m
   const discover = (access: ResourceAccess) =>
     findPrometheusCollectors(access, queryURL, namespace, url => client.forCollector({url}));
   expect(await discover(fixture(writeStorage))).toEqual([{
-    namespace, service:"prometheus-server", url:"http://192.0.2.3",
+    kind:"prometheus", namespace, service:"prometheus-server", url:"http://192.0.2.3",
     vmselect:"stack-vmselect", vminsert:"stack-vminsert", tenant:"0",
   }]);
   expect(requests).toHaveLength(3);

@@ -22,6 +22,14 @@ export interface ScrapeReader {
   listScrapeTargets(options?: { state?: "active" | "dropped" | "any" }, signal?: AbortSignal, onBody?: (body: Uint8Array) => void): Promise<ScrapeTarget[]>;
 }
 
+/** A discovered process that owns scraping. */
+export interface MetricCollector {
+  kind: "prometheus" | "vmagent";
+  namespace: string;
+  service: string;
+  url: string;
+}
+
 /** @spec Backend adapters own wire differences, never expressions, RED semantics or HTTP pools. */
 export interface MetricDBBackend {
   readonly kind: MetricDBKind;
