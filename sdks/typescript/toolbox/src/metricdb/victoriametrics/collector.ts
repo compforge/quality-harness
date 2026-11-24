@@ -7,21 +7,18 @@ import { remoteWriteURLs } from "../scrape";
 
 const apiVersion = "operator.victoriametrics.com/v1beta1";
 
-export interface VMAgentCollector {
+/** A scrape endpoint identified by the metric store's write topology. */
+export type MetricCollector = {
   namespace: string;
-  agent: string;
   service: string;
   url: string;
-}
+} & (
+  | { kind: "vmagent"; agent: string }
+  | { kind: "prometheus"; vmselect: string; vminsert: string; tenant: string }
+);
 
-export interface PrometheusCollector {
-  namespace: string;
-  service: string;
-  url: string;
-  vmselect: string;
-  vminsert: string;
-  tenant: string;
-}
+export type VMAgentCollector = Extract<MetricCollector, { kind: "vmagent" }>;
+export type PrometheusCollector = Extract<MetricCollector, { kind: "prometheus" }>;
 
 /** Tenant-qualified vmselect URLs identify the read side of a VM cluster. */
 export function vmSelectTenant(url: string): string | undefined {
@@ -97,7 +94,7 @@ function collectorFor(agent: Resource, service: Resource): VMAgentCollector | un
   if (!namespace || !name || !serviceName) return;
   const args = agent.spec?.extraArgs as Record<string, string> | undefined;
   const url = collectorURL(service, args?.tls === "true", args?.["http.pathPrefix"] ?? "/");
-  if (url) return {namespace, agent:name, service:serviceName, url};
+  if (url) return {kind:"vmagent", namespace, agent:name, service:serviceName, url};
 }
 
 /** @rule Require a shared VMCluster owner and the writer's tenant before returning an agent Service. */
@@ -214,7 +211,7 @@ export async function findPrometheusCollectors(access: ResourceAccess, queryUrl:
   });
   // Bound config reads, since each distinct endpoint can own its own connection pool.
   if (prometheus.length > 8) throw new MetricDBError("Too many Prometheus Services to verify in the VM namespace", {kind:"operation_failed"});
-  const candidates = await Promise.all(prometheus.map(async ({service, url}) => {
+  const candidates = await Promise.all(prometheus.map(async ({service, url}): Promise<PrometheusCollector | undefined> => {
     let yaml: string | undefined;
     signal?.throwIfAborted();
     await readerFor(url).getScrapeConfig(signal, config => { yaml = config; });
@@ -225,7 +222,7 @@ export async function findPrometheusCollectors(access: ResourceAccess, queryUrl:
       if (prometheusWriteTenant(endpoint) !== tenant) continue;
       const matched = inserts.filter(insert => serves(insert, endpoint, vmNamespace));
       const vminsert = matched.length === 1 ? matched[0]?.metadata?.name : undefined;
-      if (vminsert) return {namespace:vmNamespace, service, url, vmselect, vminsert, tenant};
+      if (vminsert) return {kind:"prometheus", namespace:vmNamespace, service, url, vmselect, vminsert, tenant};
     }
   }));
   return candidates.filter(candidate => candidate !== undefined);

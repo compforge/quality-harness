@@ -5,4 +5,4 @@ export { bindMetricDBObservations, bindMetricDBObservation, bindMetricDBObservat
 export { workloadResourceObservation } from "./workload";
 export { matchesScrapeTarget } from "./target";
 export { vmSelectTenant, listVMAgentInstances, findVMAgentCollectors, findPrometheusCollectors,
-  type VMAgentCollector, type PrometheusCollector } from "./victoriametrics/collector";
+  type MetricCollector, type VMAgentCollector, type PrometheusCollector } from "./victoriametrics/collector";
