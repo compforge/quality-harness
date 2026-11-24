@@ -23,6 +23,7 @@ import type {
   PhaseError,
   ResourceProfile,
   Run,
+  StopSnapshot,
   Service,
   ArmRun,
 } from "./model";
@@ -45,6 +46,8 @@ export interface Experiment {
   timeRanges?: import("./model").TimeRange[];
   signal?: AbortSignal;
   onArmStart?(context: ArmContext, startedAt: Date): Promise<void> | void;
+  /** Notify the host once the breaker stops dispatch, before cooling down in-flight requests. */
+  onErrorRateStop?(snapshot: Readonly<StopSnapshot>, inflight: number): void;
   onArmFinish?(arm_run: ArmRun): Promise<void> | void;
 }
 
@@ -275,6 +278,7 @@ export class Engine {
           weights: this.#weights,
           signal: this.#experiment.signal,
           stopSignal: this.#experiment.stopSignal,
+          onErrorRateStop: this.#experiment.onErrorRateStop,
         });
         execution.enter("cooldown");
         if (!observationOnly) await this.#experiment.runner!.deactivate?.(execution.runner);
