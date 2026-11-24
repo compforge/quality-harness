@@ -6,6 +6,8 @@ import { escape, section, table } from "./view";
 import { buildCallgraph, entryCallgraph, type CallGraphMetric, type CallGraphSnapshot, type CallGraphWindow } from "../callgraph";
 import { chartScript, graphScripts, tabScript, reportStyle, sort } from "./assets";
 
+import { metricQuality, type MetricQualityBaseline, type ServiceScrapeCoverage } from "./quality";
+export type { MetricQualityBaseline, ServiceScrapeCoverage } from "./quality";
 import { charts } from "./charts";
 import navigationStyle from "./navigation.css" with { type: "text" };
 import navigation from "./navigation.js" with { type: "text" };
@@ -103,7 +105,7 @@ function graphView(snapshot: CallGraphSnapshot, run: Run, description: string): 
 ${frames.length ? graphScripts() + `<script>rkGraph(document.getElementById("callgraph"),${payload});</script>` : ""}`;
 }
 /** Render the eval-perf report from persisted facts only. */
-export function renderPerfReport(run: Run, options: { issues?: readonly string[]; facetOrder?: Readonly<Record<string, readonly string[]>> } = {}): string {
+export function renderPerfReport(run: Run, options: { scrapes?: readonly ServiceScrapeCoverage[]; metricBaseline?: MetricQualityBaseline; issues?: readonly string[]; facetOrder?: Readonly<Record<string, readonly string[]>> } = {}): string {
   const snapshot = buildCallgraph(run);
   const sections = reportSections(run, options.facetOrder ?? {}, options.issues ?? []);
   const layout = (menu: string, content: string) =>
@@ -117,6 +119,7 @@ export function renderPerfReport(run: Run, options: { issues?: readonly string[]
     const graph = graphView(snapshot, run, `<p>${scope}</p><p>Operation nodes; service is auxiliary information. Solid: call, dashed: may_call. Metrics describe the selected server/window, including other matching traffic. Node traffic does not prove a particular edge executed. N/A marks a metric without a finite value. Query failures show error. The window metrics table lists reasons for unavailable values. See run.json for raw query diagnostics. Latency percentiles cannot be summed along paths. Circle area scales with the current window’s QPS range; missing QPS uses the default size. Hover for the full Operation ID. Open the window metrics table for detailed values.</p>`);
     views.push({name: "Callgraph", content: graph});
   }
+  views.push({name:"指标质量", content:layout("metric-quality", metricQuality(run, snapshot, options.scrapes ?? [], options.metricBaseline))});
   const tabs = views.map(({name}, i) => `<button type="button" role="tab" id="rk-tab-${i}" aria-controls="rk-panel-${i}" aria-selected="${i === 0}" tabindex="${i ? -1 : 0}">${name}</button>`);
   const panels = views.map(({content}, i) => `<div role="tabpanel" id="rk-panel-${i}" aria-labelledby="rk-tab-${i}" data-wide="true"${i ? " hidden" : ""}>${content}</div>`);
   const body = `<div class="report-tabs" role="tablist" aria-label="Report views">${tabs.join("")}</div>${panels.join("")}${tabScript()}`;
