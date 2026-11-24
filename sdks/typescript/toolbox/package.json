@@ -1,7 +1,7 @@
 {
   "name": "@compforge/harness-toolbox",
   "license": "MIT",
-  "version": "0.14.10",
+  "version": "0.14.11",
   "description": "Shared infrastructure clients, transports and bounded data capture",
   "type": "module",
   "scripts": {

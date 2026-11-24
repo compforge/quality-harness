@@ -1,5 +1,7 @@
 import type { ScrapeTarget, Service } from "@compforge/harness-common";
-import type { KubernetesService } from "../kubernetes/service";
+import { parseServices, type KubernetesService } from "../kubernetes/service";
+
+import type { Resource } from "../kubernetes/resources";
 
 type ServiceSelector = Pick<KubernetesService, "name" | "namespace" | "selector">;
 
@@ -33,4 +35,24 @@ export function matchesScrapeTarget(service: Pick<Service, "name" | "workloads">
     return meta.__meta_kubernetes_pod_controller_kind === location.resource_kind
       && meta.__meta_kubernetes_pod_controller_name === location.name;
   });
+}
+
+/** Resolve only Service selectors needed for Pod targets. Preserve direct matches if an optional read fails. */
+export async function matchServiceScrapeTargets(service: Pick<Service, "name" | "workloads">, namespace: string,
+  targets: readonly ScrapeTarget[], readService: (ref: {name:string; namespace:string}) => Promise<Resource>) {
+  const refs = service.workloads.length ? service.workloads.flatMap(workload => workload.location.kind === "service"
+    ? [{name:workload.location.name, namespace:workload.namespace ?? namespace}] : []) : [{name:service.name, namespace}];
+  const podNamespaces = new Set(targets.filter(target => target.discoveredLabels?.__meta_kubernetes_pod_name
+    && !target.discoveredLabels.__meta_kubernetes_service_name && !target.labels?.service)
+    .map(target => target.discoveredLabels?.__meta_kubernetes_namespace ?? target.labels?.namespace));
+  const needed = new Map(refs.filter(ref => podNamespaces.has(ref.namespace)).map(ref => [ref.namespace + "/" + ref.name, ref]));
+  const reads = await Promise.all([...needed.values()].map(async ref => {
+    try {
+      const item = await readService(ref);
+      return {selectors:parseServices(JSON.stringify({items:[item]}), ref.namespace)};
+    } catch (error) { return {selectors:[], failure:{...ref, error}}; }
+  }));
+  const selectors = reads.flatMap(read => read.selectors);
+  return {targets:targets.filter(target => matchesScrapeTarget(service, namespace, target, selectors)),
+    failures:reads.flatMap(read => read.failure ? [read.failure] : [])};
 }

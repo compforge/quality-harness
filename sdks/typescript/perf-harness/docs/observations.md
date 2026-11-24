@@ -152,3 +152,5 @@ During load injection, every Metrics and Resources plot overlays the same execut
 `inflight` count on its right axis. Each dispatched request counts from dispatch until finish,
 across all selected Cases. A request with no recorded finish counts through the end of the window.
 Observation-only runs show collected metrics without an injected-load overlay.
+
+离线 HTML 的“指标质量”页按 Service 对照运行前的抓取健康和样本密度，以及各 Operation 在实际窗口中的查询结果。宿主可以通过 `renderPerfReport` 的 `scrapes` 和 `metricBaseline` 提供预检证据；旧 Run 仍可用保存的 Operation 查询展示缺口、无事件和直方图量程问题。
