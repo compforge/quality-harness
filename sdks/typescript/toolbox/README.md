@@ -581,6 +581,8 @@ For separate origins, supply an async HTTP pool lookup `(url) => Promise<HttpApi
 response bytes to the optional callback. `getScrapeConfig(signal, onYaml)` supplies original YAML before decoding jobs.
 `matchesScrapeTarget(service, namespace, target)` matches Kubernetes discovery labels offline.
 For tenant-qualified vmselect URLs, `findVMAgentCollectors` reads VM Operator Services and VMAgent remote-write destinations through a supplied Kubernetes resource reader. It returns candidate endpoints for the caller to verify. `listVMAgentInstances` provides self-monitoring label hints.
+
+`findPrometheusCollectors` also resolves Prometheus Server Services in the VM namespace. It pairs vmselect with vminsert by VMCluster owner or, for Helm Deployments, by identical vmstorage membership on the read and write ports. It uses caller-supplied collector readers to verify each candidate's loaded `remote_write` destination and tenant. The caller verifies active targets and chooses a collector. Supply observed Kubernetes Services to `matchesScrapeTarget` to match Pod discovery labels against a Service selector when Service discovery labels are absent.
 Scrape reads work before calling `connectQuery(signal)` to detect the query dialect.
 
 MetricDB client failures are `MetricDBError` instances with the shared `ToolboxError.kind` and optional `code`. Explicit caller cancellation propagates its reason.
