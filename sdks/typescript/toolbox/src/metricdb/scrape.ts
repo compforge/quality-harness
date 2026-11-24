@@ -22,9 +22,10 @@ function labels(value: unknown): Record<string, string> | undefined {
   return fields as Record<string, string>;
 }
 
-export async function scrapeConfigs(data: unknown): Promise<ScrapeConfig[]> {
+export async function scrapeConfigs(data: unknown, onYaml?: (yaml: string) => void): Promise<ScrapeConfig[]> {
   const yaml = record(data).yaml;
   if (typeof yaml !== "string") return invalid();
+  onYaml?.(yaml);
   const { load } = await import("js-yaml");
   let parsed: unknown;
   // Parser diagnostics may contain credentials from the config.

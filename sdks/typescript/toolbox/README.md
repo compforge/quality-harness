@@ -563,7 +563,7 @@ OpenSearch types. Collection returns observations and individual failures; analy
 on a recorded `OpenSearchSnapshot` without I/O. Observation IDs use `opensearch-`, finding kinds
 use `opensearch.`. Consumers own service identity, scope and business verdicts.
 
-### MetricDB query access
+### MetricDB access
 
 `MetricDBClient.connect(http, {url, headers}, signal)` detects the supported query dialect using
 one constant-only `increase_prometheus` capability query. It does not inspect stored application metrics,
@@ -572,6 +572,14 @@ a successful vector response selects VictoriaMetrics semantics. Authentication, 
 responses fail without fallback. Hosts own HTTP budgets and cache the connected reader for their invocation.
 Partial backend results preserve a warning alongside any returned samples. No exporter is scraped.
 
+
+Pass `{url, username, password, collector?: {url, username?, password?}}` to configure query and scrape access.
+An omitted collector shares the query endpoint and credentials. An explicit collector authenticates independently.
+For separate origins, supply an async HTTP pool lookup `(url) => Promise<HttpApi>` to the constructor or
+`connect`. The host sets HTTP response budgets.
+`listScrapeTargets({state: "active"}, signal, onBody)` reads live targets and supplies the original HTTP 200
+response bytes to the optional callback. `getScrapeConfig(signal, onYaml)` supplies original YAML before decoding jobs.
+Scrape reads work before calling `connectQuery(signal)` to detect the query dialect.
 
 Import `MetricDBClient` and `MetricDBReader` from `@compforge/harness-toolbox/metricdb`.
 Prometheus and VictoriaMetrics adapters live under `metricdb/prometheus` and

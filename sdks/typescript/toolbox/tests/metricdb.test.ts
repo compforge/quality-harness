@@ -187,3 +187,28 @@ test("both scrape reads classify transport failures and deadlines, and preserve 
   // @ts-expect-error Runtime callers can supply an invalid target filter.
   await expect(collector.listScrapeTargets({state: "unknown"})).rejects.toMatchObject({kind: "invalid_argument"});
 });
+
+test("split endpoints isolate credentials and preserve API prefixes, even on one origin", async () => {
+  const seen: [string, string | undefined][] = [];
+  const http = {request: async (url: string, options?: {headers?: Record<string,string>}) => {
+    seen.push([url, options?.headers?.Authorization]);
+    return {status:200, headers:{}, body:Buffer.from(JSON.stringify({status:"success", data:{
+      resultType:"vector", result:[], activeTargets:[], droppedTargets:[], yaml:"scrape_configs: []",
+    }}))};
+  }};
+  const query = {url:"http://gateway/select/0/prometheus", username:"query", password:"q"};
+  for (const collector of [undefined, {url:"http://gateway/agent"}, {url:"http://agent", username:"agent", password:"a"}]) {
+    seen.length = 0;
+    const client = await MetricDBClient.connect(http, {...query, collector});
+    await client.queryRange("up", 1, 2, 1);
+    await client.getScrapeConfig();
+    await client.listScrapeTargets({state:"active"});
+    const endpoint = collector ?? query;
+    const auth = (pair: string) => "Basic " + Buffer.from(pair).toString("base64");
+    expect(seen.slice(0,2).map(([url, headers]) => [new URL(url).pathname, headers])).toEqual([
+      ["/select/0/prometheus/api/v1/query", auth("query:q")], ["/select/0/prometheus/api/v1/query_range", auth("query:q")],
+    ]);
+    expect(seen.slice(2)).toEqual(["status/config","targets?state=active"].map(path =>
+      [endpoint.url + "/api/v1/" + path, collector ? collector.username ? auth("agent:a") : undefined : auth("query:q")]));
+  }
+});
