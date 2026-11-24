@@ -72,8 +72,12 @@ function collectorFor(agent: Resource, service: Resource): VMAgentCollector | un
   const args = agent.spec?.extraArgs as Record<string, string> | undefined;
   const tls = args?.tls === "true";
   // TLS uses the Service name for certificate verification; direct HTTP can use a reachable ClusterIP.
-  const ip = typeof spec.clusterIP === "string" && isIP(spec.clusterIP) ? spec.clusterIP : undefined;
-  const host = tls || !ip ? `${serviceName}.${namespace}.svc` : isIP(ip) === 6 ? `[${ip}]` : ip;
+  let host = `${serviceName}.${namespace}.svc`;
+  if (!tls && typeof spec.clusterIP === "string") {
+    const family = isIP(spec.clusterIP);
+    if (family === 4) host = spec.clusterIP;
+    if (family === 6) host = `[${spec.clusterIP}]`;
+  }
   const url = new URL(`${tls ? "https" : "http"}://${host}:${port}`);
   url.pathname = args?.["http.pathPrefix"] ?? "/";
   return {namespace, agent:name, service:serviceName, url:url.href.replace(/\/$/, "")};
