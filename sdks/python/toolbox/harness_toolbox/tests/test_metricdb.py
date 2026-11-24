@@ -385,3 +385,16 @@ async def test_empty_and_unavailable_collector_results(monkeypatch, status, data
                 await read()
             assert err.value.kind == kind
             assert "credentials" not in str(err.value)
+
+
+async def test_scrape_invalid_filter_and_closed_client(monkeypatch):
+    with_transport(monkeypatch, lambda _: pytest.fail("unexpected request"))
+    async with ClientManager() as clients:
+        client = await clients.get(MetricDBDataSource("http://collector"))
+        with pytest.raises(MetricDBQueryError) as invalid:
+            await client.list_scrape_targets(state="unknown")
+        assert invalid.value.kind == ErrorKind.INVALID_ARGUMENT
+    for read in [client.get_scrape_config, client.list_scrape_targets]:
+        with pytest.raises(MetricDBQueryError) as closed:
+            await read()
+        assert closed.value.kind == ErrorKind.OPERATION_FAILED

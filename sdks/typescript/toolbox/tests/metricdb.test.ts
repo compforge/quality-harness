@@ -1,10 +1,11 @@
+import { ToolboxError } from "../src/errors";
 import { readFileSync } from "node:fs";
 import { ScrapeConfig, ScrapeTarget } from "@compforge/harness-common";
 import { afterEach, expect, test } from "bun:test";
 import { createServer } from "node:http";
 import { HttpClient } from "../src/http";
 import { DirectTransport } from "../src/transport";
-import { MetricDBClient } from "../src/metricdb";
+import { MetricDBClient, MetricDBError } from "../src/metricdb";
 const cleanup: Array<()=>Promise<void>>=[];
 afterEach(async()=>{for (const close of cleanup.splice(0).reverse()) await close();});
 
@@ -42,7 +43,7 @@ test("Prometheus adapter rejects redirects, bad JSON, error envelopes and creden
     {status:200,headers:{},body:body({status:"error",error:"sensitive backend details"})}]) {
     const client=new MetricDBClient({request:async()=>response},{url:"http://metrics"});
     try {await client.query("up",1);throw new Error("unexpected success");}
-    catch(error) {expect(String(error)).not.toMatch(/secret|sensitive/);expect(String(error)).toContain("MetricDB");}
+    catch(error) {expect(error).toBeInstanceOf(MetricDBError);expect(String(error)).not.toMatch(/secret|sensitive/);expect(String(error)).toContain("MetricDB");}
   }
   expect(()=>new MetricDBClient({request:async()=>{throw new Error();}},{url:"http://user:secret@metrics"})).toThrow("credentials");
 });
@@ -120,7 +121,7 @@ test("MetricDB preserves explicit completeness and rejects malformed flags", asy
           data:{resultType:"vector",result:[{metric:{},value:[123.456,"2"]}]},
           warnings:["server warning"],infos:["server info"]}))})},{url:"http://metrics",kind});
       if (partial === null || typeof partial === "string") {
-        await expect(client.query("requests",123.456)).rejects.toThrow("partial");
+        await expect(client.query("requests",123.456)).rejects.toMatchObject({name:"MetricDBError", kind:"invalid_response"});
       } else {
         const result = await client.query("requests",123.456);
         expect(result.isPartial).toBe(partial);
@@ -167,4 +168,75 @@ test("empty collector results remain distinct from invalid data and HTTP failure
   await expect(collector(404, {}).listScrapeTargets()).rejects.toMatchObject({code:404});
   await expect(collector(200, {yaml:"credentials: ["}).getScrapeConfig()).rejects.toMatchObject({kind:"invalid_response"});
   await expect(collector(200, {droppedTargets:[]}).listScrapeTargets()).rejects.toMatchObject({kind:"invalid_response"});
+});
+
+test("MetricDB operations classify transport failures and deadlines, and preserve caller cancellation", async () => {
+  const cause = new Error("private transport diagnostics");
+  const collector = new MetricDBClient({request: async () => { throw cause; }}, {url: "http://collector"});
+  for (const read of [(signal?: AbortSignal) => collector.query("up", 1, signal),
+    (signal?: AbortSignal) => collector.connectQuery(signal),
+    (signal?: AbortSignal) => collector.getScrapeConfig(signal),
+    (signal?: AbortSignal) => collector.listScrapeTargets({}, signal)]) {
+    const error = await read().catch(error => error);
+    expect(error).toBeInstanceOf(MetricDBError);
+    expect(error).toBeInstanceOf(ToolboxError);
+    expect(error).toMatchObject({kind: "connection_failed", cause});
+    expect(error.message).not.toContain("private");
+    const timeout = AbortSignal.abort(new DOMException("deadline exceeded", "TimeoutError"));
+    await expect(read(timeout)).rejects.toMatchObject({kind: "timeout", cause: timeout.reason});
+    const cancelled = AbortSignal.abort(new Error("stop"));
+    await expect(read(cancelled)).rejects.toBe(cancelled.reason);
+  }
+  // @ts-expect-error Runtime callers can supply an invalid target filter.
+  await expect(collector.listScrapeTargets({state: "unknown"})).rejects.toMatchObject({name: "MetricDBError", kind: "invalid_argument"});
+});
+
+test("MetricDB retains classified transport errors and their cause", async () => {
+  const cause = new ToolboxError("body too large", {kind: "limit_exceeded", code: "BODY_LIMIT"});
+  const client = new MetricDBClient({request: async () => { throw cause; }}, {url: "http://metrics"});
+  const expected = {name: "MetricDBError", kind: "limit_exceeded", code: "BODY_LIMIT", cause};
+  await expect(client.queryRange("up", 0, 1, 1)).rejects.toMatchObject(expected);
+  await expect(client.getScrapeConfig()).rejects.toMatchObject(expected);
+});
+
+test("malformed endpoint URLs fail before HTTP and a bad collector leaves queries available", async () => {
+  const requests: string[] = [];
+  const http = {request: async (url: string) => {
+    requests.push(url);
+    return {status: 200, headers: {}, body: Buffer.from(JSON.stringify({
+      status: "success", data: {resultType: "vector", result: []},
+    }))};
+  }};
+  await expect(MetricDBClient.connect(http, {url: "agent"})).rejects.toMatchObject({name: "MetricDBError", kind: "invalid_argument"});
+  const client = await MetricDBClient.connect(http, {url: "http://query", kind: "prometheus", collector: {url: "agent"}});
+  await expect(client.getScrapeConfig()).rejects.toMatchObject({name: "MetricDBError", kind: "invalid_argument"});
+  await expect(client.listScrapeTargets({state: "active"})).rejects.toMatchObject({name: "MetricDBError", kind: "invalid_argument"});
+  expect(requests).toHaveLength(0);
+  expect((await client.query("up", 1)).data.result).toEqual([]);
+  expect(requests).toHaveLength(1);
+});
+
+test("split endpoints isolate credentials and preserve API prefixes, even on one origin", async () => {
+  const seen: [string, string | undefined][] = [];
+  const http = {request: async (url: string, options?: {headers?: Record<string,string>}) => {
+    seen.push([url, options?.headers?.Authorization]);
+    return {status:200, headers:{}, body:Buffer.from(JSON.stringify({status:"success", data:{
+      resultType:"vector", result:[], activeTargets:[], droppedTargets:[], yaml:"scrape_configs: []",
+    }}))};
+  }};
+  const query = {url:"http://gateway/select/0/prometheus", username:"query", password:"q"};
+  for (const collector of [undefined, {url:"http://gateway/agent"}, {url:"http://agent", username:"agent", password:"a"}]) {
+    seen.length = 0;
+    const client = await MetricDBClient.connect(http, {...query, collector});
+    await client.queryRange("up", 1, 2, 1);
+    await client.getScrapeConfig();
+    await client.listScrapeTargets({state:"active"});
+    const endpoint = collector ?? query;
+    const auth = (pair: string) => "Basic " + Buffer.from(pair).toString("base64");
+    expect(seen.slice(0,2).map(([url, headers]) => [new URL(url).pathname, headers])).toEqual([
+      ["/select/0/prometheus/api/v1/query", auth("query:q")], ["/select/0/prometheus/api/v1/query_range", auth("query:q")],
+    ]);
+    expect(seen.slice(2)).toEqual(["status/config","targets?state=active"].map(path =>
+      [endpoint.url + "/api/v1/" + path, collector ? collector.username ? auth("agent:a") : undefined : auth("query:q")]));
+  }
 });

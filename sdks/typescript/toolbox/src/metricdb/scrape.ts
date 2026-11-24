@@ -1,8 +1,8 @@
 import { ScrapeConfig, ScrapeTarget } from "@compforge/harness-common";
-import { ToolboxError } from "../errors";
+import { MetricDBError } from "../errors";
 
 function invalid(): never {
-  throw new ToolboxError("Invalid MetricDB scrape response", { kind: "invalid_response" });
+  throw new MetricDBError("Invalid MetricDB scrape response", { kind: "invalid_response" });
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -22,9 +22,10 @@ function labels(value: unknown): Record<string, string> | undefined {
   return fields as Record<string, string>;
 }
 
-export async function scrapeConfigs(data: unknown): Promise<ScrapeConfig[]> {
+export async function scrapeConfigs(data: unknown, onYaml?: (yaml: string) => void): Promise<ScrapeConfig[]> {
   const yaml = record(data).yaml;
   if (typeof yaml !== "string") return invalid();
+  onYaml?.(yaml);
   const { load } = await import("js-yaml");
   let parsed: unknown;
   // Parser diagnostics may contain credentials from the config.

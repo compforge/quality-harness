@@ -470,6 +470,7 @@ TypeScript `connect` 通过常量表达式识别查询能力；Python DataSource
 在采集器地址上创建 MetricDBClient 后，可调用 `getScrapeConfig()` 和
 `listScrapeTargets({state: "active"})`。Python 对应 `get_scrape_config()` 和
 `list_scrape_targets(state="active")`，解析抓取配置使用 `harness-toolbox[prometheus]`。
+两个读取接口用 `ToolboxError.kind` 区分传输失败、超时、HTTP 拒绝、响应格式错误和无效筛选参数。调用方主动取消时保留原始取消原因。
 前者读取 `GET /api/v1/status/config`，从返回的 YAML 投影每个 job 的 common `ScrapeConfig`；
 间隔和超时优先取 job，再取配置内的 global，两处均缺失时保留未知。后者读取
 `GET /api/v1/targets`，返回 common `ScrapeTarget`；默认含 active 和 dropped。

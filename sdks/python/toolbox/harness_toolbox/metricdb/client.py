@@ -258,7 +258,7 @@ class MetricDBClient:
         self, *, state: Literal["active", "dropped", "any"] = "any"
     ) -> list[ScrapeTarget]:
         if state not in ("active", "dropped", "any"):
-            raise ValueError("Invalid scrape target state")
+            raise MetricDBQueryError("Invalid scrape target state", kind=ErrorKind.INVALID_ARGUMENT)
         envelope = await self._envelope("GET", "targets", params={"state": state})
         return scrape_targets(envelope["data"], state)
 
@@ -271,7 +271,7 @@ class MetricDBClient:
         params: dict[str, str] | None = None,
     ) -> dict:
         if self._http is None:
-            raise RuntimeError("MetricDB query client is closed")
+            raise MetricDBQueryError("MetricDB client is closed", kind=ErrorKind.OPERATION_FAILED)
         options = self._source.options
         timeout = options.timeout_ms / 1000
         body = bytearray()
