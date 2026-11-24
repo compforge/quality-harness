@@ -1,3 +1,4 @@
+import { MetricDBError } from "../errors";
 import type { MetricQuery, ObservationDefinition, Workload } from "@compforge/harness-common";
 
 const quote = JSON.stringify;
@@ -31,7 +32,7 @@ function containers(workload: Workload, namespace: string): string {
     }
     case "labels": {
       const match = Object.entries(location.labels).map(([k, v]) => `${kubeLabel(k)}=${quote(v)}`);
-      if (!match.length) throw new Error("Resource observation requires a nonempty Pod selector");
+      if (!match.length) throw new MetricDBError("Resource observation requires a nonempty Pod selector", {kind: "invalid_argument"});
       pods = `kube_pod_labels{${scope},${match.join(",")}}`;
       break;
     }
@@ -56,7 +57,7 @@ export function workloadResourceObservation(workloads: readonly Workload[], name
   const namespaces = new Set<string>();
   for (const workload of workloads) {
     const ns = workload.namespace || namespace;
-    if (!ns) throw new Error(`Missing namespace for ${workload.name}`);
+    if (!ns) throw new MetricDBError(`Missing namespace for ${workload.name}`, {kind: "invalid_argument"});
     members.push(containers(workload, ns));
     namespaces.add(ns);
   }

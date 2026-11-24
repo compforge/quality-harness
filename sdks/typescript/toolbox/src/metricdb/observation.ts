@@ -1,3 +1,4 @@
+import { MetricDBError } from "../errors";
 import { selectObservations, type ObservationDefinition } from "@compforge/harness-common";
 
 import type { MetricDBKind } from "./model";
@@ -18,15 +19,15 @@ export function bindMetricDBObservations(declarations: readonly ObservationDefin
 
 /** @spec Parameters are label string values, never executable PromQL fragments or credentials. */
 export function bindMetricDBObservation(observation: ObservationDefinition, parameters: Readonly<Record<string, string>>): ObservationDefinition {
-  if (observation.type !== "metricdb") throw new Error(`Unsupported observation type: ${observation.type}`);
+  if (observation.type !== "metricdb") throw new MetricDBError(`Unsupported observation type: ${observation.type}`, {kind: "invalid_argument"});
   return {...observation, metrics: Object.fromEntries(Object.entries(observation.metrics).map(([role, metric]) => {
-    if (!role || !metric.unit || !metric.expression?.trim()) throw new Error("Metric requires role, unit and expression");
+    if (!role || !metric.unit || !metric.expression?.trim()) throw new MetricDBError("Metric requires role, unit and expression", {kind: "invalid_argument"});
     const expression = metric.expression.replace(/\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}/g, (_match, name: string) => {
       if (!Object.hasOwn(parameters, name) || typeof parameters[name] !== "string" || !parameters[name])
-        throw new Error(`Missing metric scope parameter: ${name}`);
+        throw new MetricDBError(`Missing metric scope parameter: ${name}`, {kind: "invalid_argument"});
       return JSON.stringify(parameters[name]);
     });
-    if (expression.includes("{{") || expression.includes("}}")) throw new Error("Invalid metric scope placeholder");
+    if (expression.includes("{{") || expression.includes("}}")) throw new MetricDBError("Invalid metric scope placeholder", {kind: "invalid_argument"});
     return [role, {...metric, expression}];
   }))};
 }

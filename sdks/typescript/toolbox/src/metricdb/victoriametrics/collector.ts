@@ -1,3 +1,4 @@
+import { MetricDBError } from "../../errors";
 import type { MetricDBReader } from "../model";
 import { isIP } from "node:net";
 import type { Resource, ResourceAccess, ResourceListQuery } from "../../kubernetes/resources";
@@ -14,6 +15,7 @@ export interface VMAgentCollector {
 
 /** Tenant-qualified vmselect URLs identify the read side of a VM cluster. */
 export function vmSelectTenant(url: string): string | undefined {
+  if (!URL.canParse(url)) throw new MetricDBError("MetricDB requires a valid absolute URL", {kind: "invalid_argument"});
   const match = /^\/select\/(\d+(?::\d+)?)\/prometheus\/?$/.exec(new URL(url).pathname);
   return match?.[1]?.replace(/:0$/, "");
 }

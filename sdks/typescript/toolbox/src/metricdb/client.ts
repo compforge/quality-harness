@@ -1,5 +1,5 @@
 import { raceSignal } from "race-signal";
-import { TimeoutError, ToolboxError } from "../errors";
+import { MetricDBError, ToolboxError } from "../errors";
 import type { HttpApi } from "../http/types";
 import type { MetricDBKind, MetricDBReader, ScrapeReader, MetricDBResult, MetricDBBackend } from "./model";
 import { backendFor, detectBackend } from "./backend";
@@ -21,11 +21,13 @@ export interface MetricDBOptions extends MetricEndpoint {
 type MetricHttp = HttpApi | ((url: string) => Promise<HttpApi>);
 
 function connection(endpoint: MetricEndpoint, headers?: Readonly<Record<string, string>>) {
-  const url = new URL(endpoint.url);
+  let url: URL;
+  try { url = new URL(endpoint.url); }
+  catch { throw new MetricDBError("MetricDB requires a valid absolute URL", {kind: "invalid_argument"}); }
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash)
-    throw new ToolboxError("MetricDB URL requires HTTP(S), without credentials, query or fragment", {kind: "invalid_argument"});
+    throw new MetricDBError("MetricDB URL requires HTTP(S), without credentials, query or fragment", {kind: "invalid_argument"});
   if (!!endpoint.username !== !!endpoint.password)
-    throw new ToolboxError("MetricDB username and password must be provided together", {kind: "invalid_argument"});
+    throw new MetricDBError("MetricDB username and password must be provided together", {kind: "invalid_argument"});
   return {url: url.toString().replace(/\/$/, ""), headers: endpoint.username
     ? {...headers, Authorization: "Basic " + Buffer.from(endpoint.username + ":" + endpoint.password).toString("base64")}
     : {...headers}};
@@ -52,7 +54,6 @@ export class MetricDBClient implements MetricDBReader, ScrapeReader {
   }
 
   private borrow(url: string, signal?: AbortSignal) {
-    signal?.throwIfAborted();
     if (typeof this.http !== "function") return this.http;
     const pending = this.http(url);
     return signal ? raceSignal(pending, signal) : pending;
@@ -62,56 +63,56 @@ export class MetricDBClient implements MetricDBReader, ScrapeReader {
   }
   async connectQuery(signal?: AbortSignal): Promise<this> {
     if (!this.options.kind) {
-      const http = await this.borrow(this.url, signal);
-      this.backend = backendFor(await detectBackend(http, this.url, this.queryEndpoint.headers, signal));
+      this.backend = backendFor(await detectBackend(path => this.send("query", path, signal)));
     }
     return this;
   }
 
   async getScrapeConfig(signal?: AbortSignal, onYaml?: (yaml: string) => void) {
-    const response = await this.scrapeResponse("status/config", signal);
+    const response = await this.send("scrape", "status/config", signal);
     return scrapeConfigs(decodeEnvelope(response.status, response.body).data, onYaml);
   }
   async listScrapeTargets({ state = "any" }: { state?: "active" | "dropped" | "any" } = {}, signal?: AbortSignal, onBody?: (body: Uint8Array) => void) {
-    if (!["active", "dropped", "any"].includes(state)) throw new ToolboxError("Invalid scrape target state", {kind: "invalid_argument"});
-    const response = await this.scrapeResponse(`targets?state=${state}`, signal);
+    if (!["active", "dropped", "any"].includes(state)) throw new MetricDBError("Invalid scrape target state", {kind: "invalid_argument"});
+    const response = await this.send("scrape", `targets?state=${state}`, signal);
     if (response.status === 200) onBody?.(response.body);
     return scrapeTargets(decodeEnvelope(response.status, response.body).data, state);
   }
-  private async scrapeResponse(path: string, signal?: AbortSignal) {
+  private async send(operation: "query" | "scrape", path: string, signal?: AbortSignal) {
     try {
       signal?.throwIfAborted();
-      // @rule An explicit collector owns its credentials even when it shares the query origin.
-      const endpoint = this.options.collector ? connection(this.options.collector) : this.queryEndpoint;
+      // @rule An explicit collector owns its credentials and is validated only for scrape reads.
+      const endpoint = operation === "scrape" && this.options.collector ? connection(this.options.collector) : this.queryEndpoint;
       const http = await this.borrow(endpoint.url, signal);
       return await http.request(`${endpoint.url}/api/v1/${path}`, {headers: endpoint.headers, signal});
     } catch (error) {
       const cause = signal?.aborted ? signal.reason : error;
-      if (cause instanceof ToolboxError) throw cause;
-      if (cause instanceof Error && (cause.name === "TimeoutError" || ("code" in cause && cause.code === "ETIMEDOUT"))) {
-        throw new TimeoutError("MetricDB collector request timed out", {cause});
+      if (cause instanceof MetricDBError) throw cause;
+      if (cause instanceof ToolboxError) {
+        if (signal?.aborted) throw cause;
+        throw new MetricDBError("MetricDB transport failed", {kind: cause.kind, code: cause.code, cause});
       }
-      // Explicit cancellation belongs to the caller and keeps its original reason.
+      if (cause instanceof Error && (cause.name === "TimeoutError" || ("code" in cause && cause.code === "ETIMEDOUT"))) {
+        throw new MetricDBError("MetricDB request timed out", {kind: "timeout", code: "ETIMEDOUT", cause});
+      }
+      // Explicit cancellation keeps the caller's reason, including non-Error values.
       if (signal?.aborted) throw cause;
-      throw new ToolboxError("MetricDB collector transport failed", {kind: "connection_failed", cause});
+      throw new MetricDBError("MetricDB transport failed", {kind: "connection_failed", cause});
     }
   }
   query(expression: string, time: number, signal?: AbortSignal): Promise<MetricDBResult> {
-    if (!Number.isFinite(time)) throw new Error("MetricDB query requires a finite timestamp");
+    if (!Number.isFinite(time)) throw new MetricDBError("MetricDB query requires a finite timestamp", {kind: "invalid_argument"});
     return this.request("query", {query: expression, time: String(time)}, signal);
   }
   queryRange(expression: string, start: number, end: number, step: number, signal?: AbortSignal): Promise<MetricDBResult> {
     if (![start, end, step].every(Number.isFinite) || end < start || step <= 0)
-      throw new Error("MetricDB range requires finite start <= end and positive step");
+      throw new MetricDBError("MetricDB range requires finite start <= end and positive step", {kind: "invalid_argument"});
     return this.request("query_range", {query: expression, start: String(start), end: String(end), step: String(step)}, signal);
   }
   private async request(api: string, params: Record<string, string>, signal?: AbortSignal): Promise<MetricDBResult> {
-    if (!params.query?.trim()) throw new Error("MetricDB expression must not be empty");
+    if (!params.query?.trim()) throw new MetricDBError("MetricDB expression must not be empty", {kind: "invalid_argument"});
     params = {...params, ...this.backend.queryParameters()};
-    const http = await this.borrow(this.url, signal);
-    const response = await http.request(`${this.url}/api/v1/${api}?${new URLSearchParams(params)}`, {
-      headers: this.queryEndpoint.headers, signal,
-    });
+    const response = await this.send("query", `${api}?${new URLSearchParams(params)}`, signal);
     return decodeResponse(response.status, response.body);
   }
 }

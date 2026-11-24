@@ -583,7 +583,9 @@ response bytes to the optional callback. `getScrapeConfig(signal, onYaml)` suppl
 For tenant-qualified vmselect URLs, `findVMAgentCollectors` reads VM Operator Services and VMAgent remote-write destinations through a supplied Kubernetes resource reader. It returns candidate endpoints for the caller to verify. `listVMAgentInstances` provides self-monitoring label hints.
 Scrape reads work before calling `connectQuery(signal)` to detect the query dialect.
 
-Import `MetricDBClient` and `MetricDBReader` from `@compforge/harness-toolbox/metricdb`.
+MetricDB client failures are `MetricDBError` instances with the shared `ToolboxError.kind` and optional `code`. Explicit caller cancellation propagates its reason.
+
+Import `MetricDBClient`, `MetricDBError` and `MetricDBReader` from `@compforge/harness-toolbox/metricdb`.
 Prometheus and VictoriaMetrics adapters live under `metricdb/prometheus` and
 `metricdb/victoriametrics`; the shared client owns HTTP access and response validation.
 Query results retain `data`, `warnings`, `infos` and optional `isPartial`.

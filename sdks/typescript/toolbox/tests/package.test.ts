@@ -25,7 +25,11 @@ test("published lifecycle and transport entries run in Node without protocol dri
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const result = spawnSync("node", ["--input-type=module", "-e", `
       import assert from 'node:assert/strict';
-      import { MetricDBClient } from '@compforge/harness-toolbox/metricdb';
+      import { MetricDBClient, MetricDBError } from '@compforge/harness-toolbox/metricdb';
+      import { MetricDBError as SharedMetricDBError } from '@compforge/harness-toolbox/errors';
+      assert.equal(MetricDBError, SharedMetricDBError);
+      assert.throws(() => new MetricDBClient({request:async () => {}}, {url:'invalid'}),
+        error => error instanceof MetricDBError && error instanceof ToolboxError && error.kind === 'invalid_argument');
       const metricdb = new MetricDBClient({request:async () => ({status:200,headers:{},
         body:new TextEncoder().encode(JSON.stringify({status:'success',isPartial:true,
           data:{resultType:'vector',result:[]}}))})},{url:'http://metrics',kind:'victoriametrics'});

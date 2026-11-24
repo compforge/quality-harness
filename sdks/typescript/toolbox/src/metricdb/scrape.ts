@@ -1,8 +1,8 @@
 import { ScrapeConfig, ScrapeTarget } from "@compforge/harness-common";
-import { ToolboxError } from "../errors";
+import { MetricDBError } from "../errors";
 
 function invalid(): never {
-  throw new ToolboxError("Invalid MetricDB scrape response", { kind: "invalid_response" });
+  throw new MetricDBError("Invalid MetricDB scrape response", { kind: "invalid_response" });
 }
 
 function record(value: unknown): Record<string, unknown> {
