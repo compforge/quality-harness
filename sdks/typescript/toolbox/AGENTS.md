@@ -52,7 +52,8 @@ toolbox/
 
 ## 开发与测试
 
-从本目录运行 `bun install --frozen-lockfile`、`make lint`、`make test` 和 `make build`。
+按 README 准备本地 common 依赖后，`make lint`、`make test`（源码单元测试）和 `make build` 可独立运行。
+`make test-package` 构建产物并运行 `tests/*.check.ts` 中的包与运行时集成用例。
 包版本独立维护；同时按仓库要求提升根 VERSION。
 
 ## References

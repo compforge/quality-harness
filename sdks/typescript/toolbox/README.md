@@ -225,11 +225,13 @@ For coordinated common/toolbox development, install and build common before inst
 bun install --frozen-lockfile
 make lint
 make test
+make build
 ```
 
 The toolbox root override resolves common from `../common` only for local development;
 the published dependency remains a registry version. Publish common before toolbox.
-The Makefile builds common before typechecking or building toolbox.
+With common prepared, lint, unit tests and the toolbox build can run independently.
+Run `make test-package` to build toolbox and exercise the distribution in its supported runtimes.
 
 A `ClientProvider` identifies a reusable client and constructs it; `DataSource` adds data-access semantics.
 Accessible environments implement ClientProvider directly without becoming data sources. The `Client` owns initialization

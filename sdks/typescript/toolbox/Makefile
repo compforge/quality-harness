@@ -1,18 +1,20 @@
-.PHONY: fix lint lint-ci test build common-build
+UNIT_TEST_FILES := $(filter %.test.ts,$(TEST_FILES))
+
+.PHONY: fix lint lint-ci test build test-package
 
 fix:
 	@true
 
-common-build:
-	$(MAKE) -C ../common build
-
-lint: common-build
+lint:
 	bun run typecheck
 
 lint-ci: lint
 
-test: build
-	bun test $(TEST_FILES)
+test:
+	bun test $(UNIT_TEST_FILES)
 
-build: common-build
+build:
 	bun run build
+
+test-package: build
+	bun test ./tests/*.check.ts
