@@ -28,11 +28,16 @@ class _LabelsLocation(TypedDict):
 class Workload:
     """A named runtime carrier of a Service; platform subclasses locate it precisely.
 
+    service names the owning logical Service in the environment. When omitted,
+    ownership comes from the enclosing Service.
     A declaration does not claim that the workload or any instance currently exists.
     """
 
     name: str
-    observes: tuple[ObservationDefinition, ...] = field(default=(), kw_only=True, compare=False)
+    service: str | None = field(default=None, kw_only=True)
+    observes: tuple[ObservationDefinition, ...] = field(
+        default=(), kw_only=True, compare=False
+    )
     description: str | None = field(default=None, kw_only=True, compare=False)
 
 
