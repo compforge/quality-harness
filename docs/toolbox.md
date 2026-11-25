@@ -262,10 +262,18 @@ TypeScript 的根 `KubernetesClient` 直接提供 `get(ref)` / `list(query)`，�
 后续页。根客户端使用配置的 namespace，查询可覆盖；`inNamespace()` 返回固定 namespace 的借用视图。
 
 根客户端拥有一个长期存活的 HTTP transport，跨 namespace 与资源类型复用连接；Workload 解析走
-相同 get/list 入口。每次请求重新应用 kubeconfig 认证，不缓存查询结果。认证配置与连接生命周期
+相同 get/list 入口。直接 get/list 每次请求重新应用 kubeconfig 认证并读取远端。认证配置与连接生命周期
 分别由 KubeConfig 和 transport 持有；SDK 的 Agent 创建细节只存在于 transport 的认证适配处。
 TLS/代理身份变化时旧池待在途读取结束后回收。期限覆盖排队、认证与响应读取，根客户端关闭时取消
 在途任务并销毁池。借用视图没有关闭权，外部注入的资源读取器由其创建方管理。
+
+创建 TypeScript 客户端时可传 `new KubernetesClient({ kubeconfig, namespace, useCache: true })`。
+`useCache` 默认为 false，适合一次性查询。启用后，首次完整 list 按 API 资源、namespace 和 selectors
+启动分页 LIST/WATCH；后续相同范围的查询共享同步与缓存。普通断线从最后处理的 resourceVersion
+续接，版本过期时重新 LIST。缓存就绪后 list 返回独立副本；首次同步或连接故障时自动直读远端，
+直读失败沿用原有错误语义。空集合也是有效缓存。显式分页的 list 与单对象 get 始终直读。
+各集合独立推进，快照最终一致。WATCH 使用独立连接，根 client dispose 释放所有同步任务。需要观测时可订阅 Node diagnostics channel
+`harness-toolbox.kubernetes.cache`，查看资源路径、连接就绪或重试状态及错误类别。
 
 资源读取使用 kubeconfig 中的显式 `proxy-url`，不依据 shell 代理环境变量切换执行方式。失败直接
 返回，不通过另一条路径重放。`exec` 与 `forward` 是独立流式操作；根客户端不提供 `run(argv)`。

@@ -17,6 +17,10 @@ test("environment context acquires a shared Kubernetes client without discovery 
   expect(service.environment.kind).toBe("kubernetes");
   const client = await ctx.clients.get(ctx.environment);
   expect(client).toBe(await ctx.clients.get(new KubernetesEnvironment("dev", { ...environment }, { ...limits })));
+  expect(await clients.get(new KubernetesEnvironment("dev", { ...environment, useCache: false }, limits))).toBe(client);
+  const cached = await clients.get(new KubernetesEnvironment("dev", { ...environment, useCache: true }, limits));
+  expect(cached).not.toBe(client);
+  expect(await clients.get(new KubernetesEnvironment("alias", { ...environment, useCache: true }, limits))).toBe(cached);
   expect(provider.clientKey).not.toContain(environment.kubeconfig);
   const alias = { ...environment, id: "another-label" };
   expect(new KubernetesEnvironment("alias", alias, limits).clientKey).toBe(provider.clientKey);

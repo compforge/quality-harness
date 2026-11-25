@@ -142,7 +142,10 @@ kinds. Authentication refreshes on each request. TLS/proxy identity changes sele
 retire the previous one after its active reads finish. Requests have bounded bytes and a deadline
 covering queueing, authentication and body consumption. `dispose()` cancels work, waits for tracked
 operations, and closes connections. Views and injected borrowed resource readers have no ownership
-of that lifecycle. No query results are cached and failures are never replayed through another transport.
+of that lifecycle. Direct reads are the default. For repeated observations, pass `useCache: true`
+in the Kubernetes client or environment options. Complete lists then share a LIST/WATCH per collection
+and selector. During cold start or disconnection, the same `list()` reads directly from the API.
+Explicit pages and individual object reads always go to the API.
 
 Native resource access uses kubeconfig authentication, TLS and explicit `proxy-url`. It does not
 select transports based on shell proxy environment variables. `exec` and `forward` are separate

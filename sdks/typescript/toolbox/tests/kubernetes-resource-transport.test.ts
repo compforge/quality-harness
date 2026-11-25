@@ -15,7 +15,7 @@ import { KubectlExecutor, type ExecResult } from "../src/kubernetes/executor";
 const result = (): ExecResult => ({ ok: true, stdout: "compatibility", stderr: "", exitCode: 0, timedOut: false, durationMs: 0, command: ["kubectl"] });
 const tlsFixture = (name: string) => readFileSync(join(import.meta.dir, "fixtures/pod-log-tls", name));
 
-async function fixture(tls = false) {
+async function fixture(tls = false, useCache?: boolean) {
   const requests: Array<{ path: string; authorization?: string }> = [];
   let connections = 0;
   let fallbacks = 0;
@@ -45,7 +45,7 @@ async function fixture(tls = false) {
     } }],
     contexts: [{ name: "fixture", context: { cluster: "fixture", user: "fixture" } }], users: [{ name: "fixture", user }],
   }));
-  const kube = { namespace: "first", kubeconfig };
+  const kube = { namespace: "first", kubeconfig, useCache };
   const executor = new KubectlExecutor(kube);
   executor.run = async () => { fallbacks++; return result(); };
   executor.exec = async () => { fallbacks++; return result(); };
@@ -239,4 +239,141 @@ test("credential preparation observes the deadline and late completion releases 
     expect(destroyed).toBe(true);
     expect(f.requests).toHaveLength(0); expect(f.fallbacks).toBe(0);
   } finally { auth.mockRestore(); complete(); await f.dispose(); }
+});
+
+async function until(check: () => boolean | Promise<boolean>) {
+  const start = Date.now();
+  while (!await check()) {
+    if (Date.now() - start > 4000) throw new Error("Timed out waiting for Kubernetes fixture");
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+}
+const manifest = (name: string, resourceVersion: string) => ({ metadata: { name, resourceVersion, namespace: "first" } });
+
+test("useCache routes unchanged list calls through cold, ready, disconnected and recovered states over mTLS", async () => {
+  const f = await fixture(true, true);
+  const q = { ...pods, labelSelector: "app=test", fieldSelector: "status.phase=Running" };
+  const versions: string[] = [];
+  const streams: ServerResponse[] = [];
+  let direct = 0;
+  let pages = 0;
+  let allowWatch = false;
+  f.respond = (req, res) => {
+    const params = new URL(req.url!, "http://fixture").searchParams;
+    if (params.has("watch")) {
+      versions.push(params.get("resourceVersion")!); streams.push(res);
+      if (allowWatch) { res.writeHead(200); res.flushHeaders(); }
+    } else if (params.get("limit") === "100") {
+      pages++;
+      const metadata = { resourceVersion: "10", ...(params.has("continue") ? {} : { continue: "next", remainingItemCount: 1 }) };
+      res.end(JSON.stringify({ kind: "PodList", apiVersion: "v1", metadata, items: [manifest(params.has("continue") ? "b" : "a", "9")] }));
+    } else { direct++; res.end(JSON.stringify({ items: [manifest("remote", "8")] })); }
+  };
+  try {
+    const cold = await f.client.list(q);
+    expect(cold.items[0]?.metadata?.name).toBe("remote");
+    await until(() => streams.length === 1);
+    expect(await f.client.list(q)).toEqual(cold);
+    allowWatch = true; streams[0]!.writeHead(200); streams[0]!.flushHeaders();
+    const view = f.client.inNamespace("first");
+    await until(async () => (await view.list(q)).kind === "PodList");
+    const count = direct;
+    const initial = await f.client.clusterResources().list({ ...q, namespace: "first" });
+    expect(initial).toEqual({ apiVersion: "v1", kind: "PodList", metadata: { resourceVersion: "10" }, items: [manifest("a", "9"), manifest("b", "9")] });
+    initial.items[0]!.metadata!.name = "mutated";
+    expect((await f.client.list(q)).items[0]?.metadata?.name).toBe("a");
+    await expect(f.client.list(q, { signal: AbortSignal.abort(new Error("cancelled")) })).rejects.toThrow("cancelled");
+    await expect(f.client.list(q, { timeoutMs: 0 })).rejects.toMatchObject({ kind: "invalid_argument" });
+    const events = [["ADDED", "c", "11"], ["MODIFIED", "a", "12"], ["DELETED", "b", "13"]]
+      .map(([type, name, rv]) => JSON.stringify({ type, object: manifest(name, rv) }));
+    events.push(JSON.stringify({ type: "BOOKMARK", object: { metadata: { resourceVersion: "14" } } }));
+    const data = events.join("\n") + "\n";
+    streams[0]!.write(data.slice(0, 10)); streams[0]!.write(data.slice(10));
+    await until(async () => (await f.client.list(q)).metadata?.resourceVersion === "14");
+    expect((await f.client.list(q)).items).toEqual([manifest("a", "12"), manifest("c", "11")]);
+    expect(direct).toBe(count); expect(pages).toBe(2);
+    expect(await f.client.list({ ...q, limit: 1, continue: "server-token" })).toEqual(cold);
+    allowWatch = false; streams[0]!.end();
+    await until(async () => (await f.client.list(q)).items[0]?.metadata?.name === "remote");
+    await until(() => streams.length === 2);
+    streams[1]!.writeHead(200); streams[1]!.flushHeaders();
+    await until(async () => (await f.client.list(q)).metadata?.resourceVersion === "14");
+    expect(versions).toEqual(["10", "14"]); expect(pages).toBe(2);
+    for (const { path, authorization } of f.requests) {
+      const params = new URL(path, "http://fixture").searchParams;
+      expect(params.get("labelSelector")).toBe(q.labelSelector);
+      expect(params.get("fieldSelector")).toBe(q.fieldSelector);
+      expect(authorization).toBe("Bearer fixture-token");
+    }
+  } finally { await f.dispose(); }
+});
+
+for (const expiry of ["http", "event"]) {
+  test(`list falls back through ${expiry} 410 and returns an empty cached collection after relist`, async () => {
+    const f = await fixture(false, true);
+    let lists = 0;
+    let watch: ServerResponse | undefined;
+    let replacementWatch: ServerResponse | undefined;
+    let direct = 0;
+    let failDirect = false;
+    f.respond = (req, res) => {
+      const params = new URL(req.url!, "http://fixture").searchParams;
+      if (params.has("limit")) {
+        lists++;
+        res.end(JSON.stringify({ metadata: { resourceVersion: String(lists) }, items: lists === 1 ? [manifest("old", "1")] : [] }));
+      } else if (params.has("watch")) {
+        if (params.get("resourceVersion") === "1") {
+          if (expiry === "http") { res.writeHead(410); res.end(); }
+          else { watch = res; res.writeHead(200); res.flushHeaders(); }
+        } else replacementWatch = res;
+      } else {
+        direct++;
+        if (failDirect) { res.writeHead(403); res.end(); }
+        else res.end(JSON.stringify({ items: [manifest("direct", "1")] }));
+      }
+    };
+    try {
+      await f.client.list(pods);
+      if (expiry === "event") {
+        await until(async () => (await f.client.list(pods)).items[0]?.metadata?.name === "old");
+        watch!.write(JSON.stringify({ type: "ERROR", object: { code: 410 } }) + "\n");
+      }
+      await until(() => !!replacementWatch);
+      expect((await f.client.list(pods)).items[0]?.metadata?.name).toBe("direct");
+      failDirect = true;
+      await expect(f.client.list(pods)).rejects.toMatchObject({ kind: "permission_denied", code: 403 });
+      failDirect = false;
+      replacementWatch!.writeHead(200); replacementWatch!.flushHeaders();
+      await until(async () => (await f.client.list(pods)).items.length === 0);
+      const before = direct;
+      expect((await f.client.list(pods)).items).toEqual([]);
+      expect(direct).toBe(before); expect(lists).toBe(2);
+    } finally { await f.dispose(); }
+  });
+}
+
+test("a failed watch reconnects from the last good event; closing the client cancels pending sync", async () => {
+  const f = await fixture(false, true);
+  const versions: string[] = [];
+  let watch: ServerResponse | undefined;
+  let listing = false;
+  f.respond = (req, res) => {
+    const params = new URL(req.url!, "http://fixture").searchParams;
+    if (params.has("watch")) {
+      versions.push(params.get("resourceVersion")!);
+      watch = res; res.writeHead(200); res.flushHeaders();
+    } else if (params.has("limit") && req.url!.includes("/services")) listing = true;
+    else res.end(JSON.stringify({ metadata: { resourceVersion: "10" }, items: [] }));
+  };
+  try {
+    await f.client.list(pods);
+    await until(() => !!watch);
+    watch!.write("x".repeat(700)); watch!.write("x".repeat(700));
+    await until(() => versions.length === 2);
+    expect(versions).toEqual(["10", "10"]);
+    await f.client.list({ apiVersion: "v1", resource: "services" });
+    await until(() => listing);
+    await f.client.dispose();
+    expect(() => f.client.list(pods)).toThrow("disposed");
+  } finally { await f.dispose(); }
 });

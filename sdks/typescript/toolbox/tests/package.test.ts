@@ -418,7 +418,7 @@ test("published Pod and Service entries expose resource capabilities in Node", (
     cpSync(new URL("../dist", import.meta.url), join(target, "dist"), { recursive: true });
     cpSync(new URL("../package.json", import.meta.url), join(target, "package.json"));
     const require = createRequire(import.meta.url);
-    for (const dependency of ["@kubernetes/client-node", "node-fetch", "ufo"]) {
+    for (const dependency of ["@kubernetes/client-node", "node-fetch", "ufo", "ws"]) {
       const link = join(root, "node_modules", dependency);
       mkdirSync(dirname(link), { recursive: true });
       symlinkSync(dirname(require.resolve(`${dependency}/package.json`)), link, "dir");
@@ -432,6 +432,8 @@ test("published Pod and Service entries expose resource capabilities in Node", (
       assert.equal(logTimestampNanos('invalid'), undefined);
       import { parsePods } from '@compforge/harness-toolbox/kubernetes/pod';
       import { parseServices, findPodsForService } from '@compforge/harness-toolbox/kubernetes/service';
+      import { KubernetesClient } from '@compforge/harness-toolbox/kubernetes/client';
+      assert.equal(typeof KubernetesClient.prototype.list, 'function');
       import { ServicePortForwarder } from '@compforge/harness-toolbox/kubernetes/service/port-forward';
       import { PodLogDataSource } from '@compforge/harness-toolbox/kubernetes/pod/log/datasource';
       import { PodLogByteBudget } from '@compforge/harness-toolbox/kubernetes/pod/log/capture-plan';
