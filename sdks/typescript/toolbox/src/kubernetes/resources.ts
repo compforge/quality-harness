@@ -68,3 +68,6 @@ export function resourcePath(query: ResourceQuery, name?: string): string {
   return prefix + parts.join("/") + (query.namespace === undefined ? "" : "/namespaces/" + query.namespace)
     + "/" + query.resource + (name === undefined ? "" : "/" + name);
 }
+
+/** One complete collection. Selectors have the same meaning on LIST and WATCH. */
+export type ResourceCacheQuery = Omit<ResourceListQuery, "limit" | "continue">;

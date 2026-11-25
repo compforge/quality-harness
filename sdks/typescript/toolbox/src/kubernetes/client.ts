@@ -4,10 +4,18 @@ import { KubectlExecutor, type Executor, type ExecTarget, type RunOptions } from
 import { ServicePortForwarder } from "./service/port-forward";
 import type { KubernetesEndpoint } from "./endpoint";
 import type { Workload, WorkloadInstance } from "@compforge/harness-common";
-import type { ResourceAccess, ResourceLimits, ResourceRef, ResourceListQuery, ResourceRequestOptions, NamespaceResources } from "./resources";
+import type { SyncedCollection } from "./resource-cache";
+import { resourcePath } from "./resources";
+import type { ResourceCacheQuery, ResourceAccess, ResourceLimits, ResourceRef, ResourceListQuery, ResourceRequestOptions, NamespaceResources } from "./resources";
 import { KubernetesResourceTransport, type KubernetesConnectionOptions } from "./resource-transport";
 import { resolveWorkload } from "./workload";
 import { KubernetesError } from "../errors";
+
+export interface KubernetesClientOptions extends KubernetesConnectionOptions {
+  namespace: string;
+  /** Keep complete list queries synchronized via WATCH. Defaults to direct API reads. */
+  useCache?: boolean;
+}
 
 /** Owns cluster transports; protocol callers borrow this client without closing it. */
 export class KubernetesClient implements Client {
@@ -16,13 +24,14 @@ export class KubernetesClient implements Client {
   readonly #executors = new Map<string, Executor>();
   readonly #forwarders = new Map<string, Promise<ServicePortForwarder>>();
   readonly #operations = new Set<Promise<unknown>>();
+  readonly #caches = new Map<string, SyncedCollection>();
   #disposal?: Promise<void>;
   #exec?: KubernetesExecTransport;
   readonly #injectedExecutor?: Executor;
   #resources?: ResourceAccess;
   #transport?: KubernetesResourceTransport;
 
-  constructor(private readonly kube: KubernetesConnectionOptions & { namespace: string }, signal?: AbortSignal, executor?: Executor,
+  constructor(private readonly kube: KubernetesClientOptions, signal?: AbortSignal, executor?: Executor,
     private readonly resourceLimits: ResourceLimits = { timeoutMs: 30_000, concurrency: 4, maxBytes: 8 * 1024 * 1024 },
     resources?: ResourceAccess) {
     this.#injectedExecutor = executor;
@@ -53,7 +62,7 @@ export class KubernetesClient implements Client {
     return executor;
   }
 
-  #track<T>(work: () => Promise<T>): Promise<T> {
+  #track<T>(work: () => T | Promise<T>): Promise<T> {
     this.signal.throwIfAborted();
     const pending = Promise.resolve().then(() => { this.signal.throwIfAborted(); return work(); });
     this.#operations.add(pending);
@@ -76,8 +85,29 @@ export class KubernetesClient implements Client {
   }
 
   list(query: ResourceListQuery, options?: ResourceRequestOptions) {
-    return this.#track(() => this.#resourceAccess().list(
-      { ...query, namespace: query.namespace ?? this.kube.namespace }, this.#options(options)));
+    return this.#list({ ...query, namespace: query.namespace ?? this.kube.namespace }, options);
+  }
+
+  #list(query: ResourceListQuery, options?: ResourceRequestOptions) {
+    return this.#track(() => {
+      const request = this.#options(options);
+      request.signal?.throwIfAborted();
+      const access = this.#resourceAccess();
+      if (!this.kube.useCache || !this.#transport || query.limit !== undefined || query.continue !== undefined) {
+        return access.list(query, request);
+      }
+      if (options?.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0)) {
+        throw new KubernetesError("Resource timeout must be a positive integer", { kind: "invalid_argument" });
+      }
+      const key = collectionKey(query);
+      const cache = this.#caches.get(key);
+      if (cache) return cache.snapshot() ?? access.list(query, request);
+
+      // Give the foreground read the first transport slot on a cold collection.
+      const result = access.list(query, request);
+      this.#caches.set(key, this.#transport.cache({ ...query }));
+      return result;
+    });
   }
 
   /** Explicit root scope for Nodes and all-namespace lists; no default namespace is inserted.
@@ -86,7 +116,7 @@ export class KubernetesClient implements Client {
   clusterResources(): ResourceAccess {
     return {
       get: (ref, options) => this.#track(() => this.#resourceAccess().get(ref, this.#options(options))),
-      list: (query, options) => this.#track(() => this.#resourceAccess().list(query, this.#options(options))),
+      list: (query, options) => this.#list(query, options),
     };
   }
 
@@ -119,7 +149,8 @@ export class KubernetesClient implements Client {
   dispose(): Promise<void> {
     return this.#disposal ??= (async () => {
       this.#controller.abort(new Error("Kubernetes client disposed"));
-      await Promise.allSettled(this.#operations);
+      await Promise.allSettled([...this.#operations, ...Array.from(this.#caches.values(), cache => cache.dispose())]);
+      this.#caches.clear();
       const results = await Promise.allSettled([...this.#forwarders.values()].map(async pending => {
         const forwarder = await pending.catch(() => undefined);
         forwarder?.stop();
@@ -130,4 +161,8 @@ export class KubernetesClient implements Client {
       if (errors.length) throw new AggregateError(errors, "Kubernetes client cleanup failed");
     })();
   }
+}
+
+function collectionKey(query: ResourceCacheQuery): string {
+  return JSON.stringify([resourcePath(query), query.labelSelector || "", query.fieldSelector || ""]);
 }

@@ -4,14 +4,17 @@ import type { Agent } from "node:http";
 import type { Readable } from "node:stream";
 import type { RequestOptions } from "node:https";
 import fetch from "node-fetch/lib/index.js";
-import { Headers } from "node-fetch";
+import { Headers, type Response } from "node-fetch";
 import { clientKey } from "../client";
 import { ConcurrencyPool } from "../concurrency";
 import { KubernetesError, ToolboxError, kubernetesHttpError } from "../errors";
 import { resourcePath, type Resource, type ResourceAccess, type ResourceList, type ResourceListQuery,
-  type ResourceRef, type ResourceRequestOptions, type ResourceLimits } from "./resources";
+  type ResourceRef, type ResourceRequestOptions, type ResourceLimits, type ResourceCacheQuery } from "./resources";
+import { startResourceCache } from "./resource-cache";
+import { consumeWatch } from "./watch-events";
 
 export interface KubernetesConnectionOptions { kubeconfig?: string; context?: string }
+const watchTimeoutSeconds = 300;
 interface PooledAgent { key: string; agent: Agent; users: number }
 
 /**
@@ -73,6 +76,39 @@ export class KubernetesResourceTransport implements ResourceAccess {
     return value as unknown as ResourceList;
   }
 
+  cache(query: ResourceCacheQuery) {
+    const path = resourcePath(query);
+    return startResourceCache(this, this.#config, query, this.#signal, async (version, caller, opened, event) => {
+      // A WATCH owns one socket for its lifetime; it must never occupy a direct-read slot.
+      const deadline = new AbortController();
+      const signal = AbortSignal.any([caller, deadline.signal]);
+      let timer = setTimeout(() => deadline.abort(), this.limits.timeoutMs);
+      let agent: Agent | undefined;
+      try {
+        const request = await this.#authenticate(signal);
+        agent = request.agent as Agent;
+        signal.throwIfAborted();
+        const params = new URLSearchParams({ watch: "true", allowWatchBookmarks: "true",
+          timeoutSeconds: String(watchTimeoutSeconds), resourceVersion: version });
+        if (query.labelSelector) params.set("labelSelector", query.labelSelector);
+        if (query.fieldSelector) params.set("fieldSelector", query.fieldSelector);
+        const response = await this.#fetch(path, params, request, agent, signal);
+        clearTimeout(timer);
+        timer = setTimeout(() => deadline.abort(), watchTimeoutSeconds * 1000 + this.limits.timeoutMs);
+        signal.throwIfAborted();
+        opened();
+        await consumeWatch(response.body as Readable, this.limits.maxBytes, event);
+      } catch (error) {
+        if (caller.aborted) throw caller.reason;
+        throw resourceError(path, error, deadline.signal.aborted);
+      } finally {
+        clearTimeout(timer);
+        deadline.abort();
+        agent?.destroy();
+      }
+    });
+  }
+
   dispose(): void {
     this.#controller.abort(new Error("Kubernetes resource transport disposed"));
     for (const entry of this.#agents) entry.agent.destroy();
@@ -95,21 +131,7 @@ export class KubernetesResourceTransport implements ResourceAccess {
         if (signal.aborted) { (request.agent as Agent).destroy(); signal.throwIfAborted(); }
         const entry = this.#acquireAgent(request);
         try {
-          const url = new URL(this.#server + path);
-          if (params) url.search = params.toString();
-          const headers = new Headers();
-          for (const [name, value] of Object.entries(request.headers ?? {})) {
-            for (const entry of Array.isArray(value) ? value : [value]) {
-              if (entry !== undefined) headers.append(name, String(entry));
-            }
-          }
-          if (request.auth) headers.set("Authorization", "Basic " + Buffer.from(request.auth).toString("base64"));
-          const response = await fetch(url.href, { agent: entry.agent, headers, signal, size: this.limits.maxBytes });
-          if (!response.ok) {
-            (response.body as Readable).destroy();
-            const error = kubernetesHttpError(response.status);
-            throw new KubernetesError("Read Kubernetes resource " + path + " failed", { kind: error.kind, code: error.code });
-          }
+          const response = await this.#fetch(path, params, request, entry.agent, signal);
           const value: unknown = await response.json();
           signal.throwIfAborted();
           if (!isObject(value)) throw new KubernetesError("Resource response is not an object", { kind: "invalid_response" });
@@ -121,18 +143,28 @@ export class KubernetesResourceTransport implements ResourceAccess {
       }, signal);
     } catch (cause) {
       if (caller.aborted) throw caller.reason;
-      if (cause instanceof ToolboxError) throw cause;
-      const type = cause && typeof cause === "object" && "type" in cause ? cause.type : undefined;
-      const code = cause && typeof cause === "object" && "code" in cause && typeof cause.code === "string" ? cause.code : undefined;
-      const tls = code !== undefined && ["CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT",
-        "SELF_SIGNED_CERT_IN_CHAIN", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
-        "ERR_TLS_CERT_ALTNAME_INVALID"].includes(code);
-      throw new KubernetesError("Read Kubernetes resource " + path + " failed", {
-        kind: deadline.signal.aborted ? "timeout" : type === "max-size" ? "limit_exceeded"
-          : type === "invalid-json" ? "invalid_response" : tls ? "tls_verification_failed"
-            : code === "ECONNRESET" ? "connection_lost" : "connection_failed", cause, code,
-      });
+      throw resourceError(path, cause, deadline.signal.aborted);
     } finally { clearTimeout(timer); }
+  }
+
+  async #fetch(path: string, params: URLSearchParams | undefined, request: RequestOptions, agent: Agent,
+    signal: AbortSignal): Promise<Response> {
+    const url = new URL(this.#server + path);
+    if (params) url.search = params.toString();
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(request.headers ?? {})) {
+      for (const entry of Array.isArray(value) ? value : [value]) {
+        if (entry !== undefined) headers.append(name, String(entry));
+      }
+    }
+    if (request.auth) headers.set("Authorization", "Basic " + Buffer.from(request.auth).toString("base64"));
+    const response = await fetch(url.href, { agent, headers, signal, size: this.limits.maxBytes });
+    if (!response.ok) {
+      (response.body as Readable).destroy();
+      const error = kubernetesHttpError(response.status);
+      throw new KubernetesError("Read Kubernetes resource " + path + " failed", { kind: error.kind, code: error.code });
+    }
+    return response;
   }
 
   /**
@@ -184,4 +216,18 @@ export class KubernetesResourceTransport implements ResourceAccess {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function resourceError(path: string, cause: unknown, timedOut: boolean): ToolboxError {
+  if (cause instanceof ToolboxError) return cause;
+  const type = cause && typeof cause === "object" && "type" in cause ? cause.type : undefined;
+  const code = cause && typeof cause === "object" && "code" in cause && typeof cause.code === "string" ? cause.code : undefined;
+  const tls = code !== undefined && ["CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT",
+    "SELF_SIGNED_CERT_IN_CHAIN", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+    "ERR_TLS_CERT_ALTNAME_INVALID"].includes(code);
+  return new KubernetesError("Read Kubernetes resource " + path + " failed", {
+    kind: timedOut ? "timeout" : type === "max-size" ? "limit_exceeded"
+      : type === "invalid-json" ? "invalid_response" : tls ? "tls_verification_failed"
+        : code === "ECONNRESET" ? "connection_lost" : "connection_failed", cause, code,
+  });
 }
