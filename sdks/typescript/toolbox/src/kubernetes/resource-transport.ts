@@ -78,7 +78,7 @@ export class KubernetesResourceTransport implements ResourceAccess {
 
   cache(query: ResourceCacheQuery) {
     const path = resourcePath(query);
-    return startResourceCache(this, this.#config, query, this.#signal, async (version, caller, opened, event) => {
+    return startResourceCache(this, this.#config, query, this.#signal, this.limits.timeoutMs, async (version, caller, opened, event) => {
       // A WATCH owns one socket for its lifetime; it must never occupy a direct-read slot.
       const deadline = new AbortController();
       const signal = AbortSignal.any([caller, deadline.signal]);

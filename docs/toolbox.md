@@ -269,8 +269,8 @@ TLS/代理身份变化时旧池待在途读取结束后回收。期限覆盖排�
 
 创建 TypeScript 客户端时可传 `new KubernetesClient({ kubeconfig, namespace, useCache: true })`。
 `useCache` 默认为 false，适合一次性查询。启用后，首次完整 list 按 API 资源、namespace 和 selectors
-启动分页 LIST/WATCH；后续相同范围的查询共享同步与缓存。普通断线从最后处理的 resourceVersion
-续接，版本过期时重新 LIST。缓存就绪后 list 返回独立副本；首次同步或连接故障时自动直读远端，
+启动分页 LIST/WATCH。同一范围的并发首读共享首轮完整 LIST，各自取得独立副本。LIST 完成后、WATCH 建连中的新查询等待本次建连结果。普通断线从最后处理的 resourceVersion
+续接，版本过期时重新 LIST。缓存就绪后 list 返回独立副本；同步失败或连接中断时自动直读远端。等待与兜底共用调用方的期限，取消单次读取不影响后台同步；
 直读失败沿用原有错误语义。空集合也是有效缓存。显式分页的 list 与单对象 get 始终直读。
 各集合独立推进，快照最终一致。WATCH 使用独立连接，根 client dispose 释放所有同步任务。需要观测时可订阅 Node diagnostics channel
 `harness-toolbox.kubernetes.cache`，查看资源路径、连接就绪或重试状态及错误类别。

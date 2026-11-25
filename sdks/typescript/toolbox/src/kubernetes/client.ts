@@ -100,13 +100,12 @@ export class KubernetesClient implements Client {
         throw new KubernetesError("Resource timeout must be a positive integer", { kind: "invalid_argument" });
       }
       const key = collectionKey(query);
-      const cache = this.#caches.get(key);
-      if (cache) return cache.snapshot() ?? access.list(query, request);
-
-      // Give the foreground read the first transport slot on a cold collection.
-      const result = access.list(query, request);
-      this.#caches.set(key, this.#transport.cache({ ...query }));
-      return result;
+      let cache = this.#caches.get(key);
+      if (!cache) {
+        cache = this.#transport.cache({ ...query });
+        this.#caches.set(key, cache);
+      }
+      return cache.list(request);
     });
   }
 
