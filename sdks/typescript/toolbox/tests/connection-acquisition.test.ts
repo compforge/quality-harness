@@ -1,8 +1,6 @@
 import { Transport as ManagedTransport } from "../src/transport";
 import { expect, test } from "bun:test";
 import { setImmediate } from "node:timers/promises";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import type { Connection } from "mysql2/promise";
 import { MysqlClient, MysqlDatabase } from "../src/db/mysql";
 import { OpenSearchClient } from "../src/vectordb/opensearch";
@@ -150,15 +148,6 @@ test.each(["mysql", "redis"] as const)("%s discards an injected handshake that s
     expect(published).toBe(0);
   } finally { handshake.release(); await close(); }
 });
-
-for (const runtime of ["node", "bun"]) test(`${runtime} releases native MySQL handshake sockets after cancellation`, () => {
-  const result = spawnSync(runtime, [fileURLToPath(new URL("./fixtures/mysql-acquisition.mjs", import.meta.url))],
-    { encoding: "utf8", timeout: 3000 });
-  expect(result.error).toBeUndefined();
-  expect(result.status, result.stderr).toBe(0);
-  expect(result.stderr).toBe("");
-  expect(result.stdout.trim()).toBe("disposed");
-}, 5000);
 
 test("cancellation at handshake delivery boundaries never loses or double-closes a MySQL connection", async () => {
   for (let turns = 0; turns < 8; turns++) {

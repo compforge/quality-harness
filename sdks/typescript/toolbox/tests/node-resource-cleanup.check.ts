@@ -124,3 +124,12 @@ for (const runtime of ["node", "bun"]) test(`Kubernetes stdin ${runtime} preserv
   expect(result.status, result.stderr).toBe(0);
   expect(result.stdout.trim()).toBe("disposed");
 }, 12000);
+
+for (const runtime of ["node", "bun"]) test(`${runtime} releases native MySQL handshake sockets after cancellation`, () => {
+  const result = spawnSync(runtime, [fileURLToPath(new URL("./fixtures/mysql-acquisition.mjs", import.meta.url))],
+    { encoding: "utf8", timeout: 3000 });
+  expect(result.error).toBeUndefined();
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout.trim()).toBe("disposed");
+}, 5000);
