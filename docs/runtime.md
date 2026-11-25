@@ -60,7 +60,9 @@ Workload 身份或定位规则，也不表示目标已部署或可访问。说�
 
 ## Workload
 
-Workload 是 Service 贡献的逻辑负载声明，包含平台定位描述，不代表已经部署。
+Workload 描述逻辑负载及其平台位置。可选字段 `service` 引用当前 Environment 中所属的逻辑 Service 名。
+省略时由所在的 Service 上下文确定归属。跨 Service 贡献时显式填写归属，例如
+`sandbox-server` 贡献一个 `service: "bedbox"` 的 Workload，用 `location` 指定具体 Pod。
 WorkloadInstance 是执行期实际发现的实例。一个声明可以没有实例，也可以对应多个副本；
 声明不会因为 Pod 重建而变化，实例身份则必须区分重建前后。
 

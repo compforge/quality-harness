@@ -11,7 +11,7 @@ const fixture = JSON.parse(readFileSync(
 };
 
 test("shared declaration variants keep logical and physical names separate", () => {
-  expect(fixture.workloads.map(value => value.location.kind)).toEqual(["resource", "service", "labels"]);
+  expect(fixture.workloads.map(value => value.location.kind)).toEqual(["resource", "service", "labels", "resource"]);
   const agent = fixture.workloads[0];
   expect(agent.name).toBe("agent");
   expect(agent.description).toBe("Agent execution runtime");
@@ -20,6 +20,13 @@ test("shared declaration variants keep logical and physical names separate", () 
   expect(agent.location.name).toBe("hibot-agent");
   expect(fixture.workloads[2].namespace).toBeUndefined();
   expect(fixture.instances.map(value => value.workload)).toEqual(["agent", "agent"]);
+});
+
+test("a contributed Pod declaration can name its owning Service", () => {
+  const pod = fixture.workloads[3];
+  expect(pod.service).toBe("bedbox");
+  expect(pod.location).toEqual({ kind: "resource", resource_kind: "Pod", name: "bedbox-42" });
+  expect(fixture.workloads[0].service).toBeUndefined();
 });
 
 test("shared instance identity separates environment and incarnation, not container or provenance", () => {

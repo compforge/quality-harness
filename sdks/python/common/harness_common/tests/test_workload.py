@@ -80,6 +80,7 @@ def test_shared_location_variants_and_replica_relationship():
         "resource",
         "service",
         "labels",
+        "resource",
     ]
     assert workloads[0].name == "agent"
     assert workloads[0].location["name"] == "hibot-agent"
@@ -88,6 +89,17 @@ def test_shared_location_variants_and_replica_relationship():
         "agent",
         "agent",
     ]
+
+
+def test_contributed_pod_declaration_can_name_its_owning_service():
+    pod = declaration(FIXTURE["workloads"][3])
+    assert pod.service == "bedbox"
+    assert pod.location == {
+        "kind": "resource",
+        "resource_kind": "Pod",
+        "name": "bedbox-42",
+    }
+    assert declaration(FIXTURE["workloads"][0]).service is None
 
 
 def test_shared_instance_identity():
