@@ -1,14 +1,15 @@
 import { ListWatch, type Watch } from "@kubernetes/client-node";
+import { EventEmitter, once } from "node:events";
 import { channel } from "node:diagnostics_channel";
 import { setTimeout as delay } from "node:timers/promises";
 import { KubernetesError } from "../errors";
-import { resourcePath, type Resource, type ResourceAccess, type ResourceCacheQuery, type ResourceList } from "./resources";
+import { resourcePath, type Resource, type ResourceAccess, type ResourceCacheQuery, type ResourceList, type ResourceRequestOptions } from "./resources";
 
 const synchronization = channel("harness-toolbox.kubernetes.cache");
 
 export interface SyncedCollection {
   dispose(): Promise<void>;
-  snapshot(): ResourceList | undefined;
+  list(options: ResourceRequestOptions): Promise<ResourceList>;
 }
 
 export type WatchCollection = (version: string, signal: AbortSignal, opened: () => void,
@@ -48,10 +49,13 @@ async function listCollection(access: ResourceAccess, query: ResourceCacheQuery,
  * @why One supervisor owns retries and shutdown; ListWatch owns indexing, bookmarks and version advancement.
  */
 export function startResourceCache(access: ResourceAccess, config: Watch["config"], query: ResourceCacheQuery,
-  parent: AbortSignal, watch: WatchCollection): SyncedCollection {
+  parent: AbortSignal, timeoutMs: number, watch: WatchCollection): SyncedCollection {
   const path = resourcePath(query);
   const controller = new AbortController();
   const signal = AbortSignal.any([parent, controller.signal]);
+  // Each caller may leave independently while the client continues synchronization.
+  const startup = new EventEmitter().setMaxListeners(0);
+  let starting = true;
   let ready = false;
   let collectionFields: ResourceList = { items: [] };
   let informer: ListWatch<Resource> | undefined;
@@ -62,6 +66,8 @@ export function startResourceCache(access: ResourceAccess, config: Watch["config
       const request = new AbortController();
       await watch(String(params.resourceVersion), AbortSignal.any([signal, request.signal]), () => {
         ready = true;
+        starting = false;
+        startup.emit("snapshot");
         if (synchronization.hasSubscribers) synchronization.publish({ path, state: "ready" });
       }, event);
       return request;
@@ -77,6 +83,7 @@ export function startResourceCache(access: ResourceAccess, config: Watch["config
           informer = new ListWatch(path, driver, async () => {
             const collection = await listCollection(access, query, signal);
             collectionFields = { ...collection, items: [] };
+            if (starting) startup.emit("snapshot", collection);
             return collection;
           }, false);
           informer.on("error", error => { throw error; });
@@ -89,6 +96,8 @@ export function startResourceCache(access: ResourceAccess, config: Watch["config
       }
       if (signal.aborted) break;
       ready = false;
+      starting = false;
+      startup.emit("snapshot");
       if (Date.now() - started >= 30_000) retryMs = 250;
       if (synchronization.hasSubscribers) synchronization.publish({ path, state: "retrying", retryMs,
         reason: failure instanceof KubernetesError ? failure.kind : failure ? "sync_failed" : "watch_ended",
@@ -100,12 +109,29 @@ export function startResourceCache(access: ResourceAccess, config: Watch["config
     informer = undefined;
   }
   const done = synchronize();
+  function snapshot(): ResourceList | undefined {
+    if (signal.aborted || !ready || !informer) return undefined;
+    return structuredClone({ ...collectionFields,
+      metadata: { ...collectionFields.metadata, resourceVersion: informer.latestResourceVersion() },
+      items: [...informer.list(query.namespace)] });
+  }
   return {
-    snapshot() {
-      if (signal.aborted || !ready || !informer) return undefined;
-      return structuredClone({ ...collectionFields,
-        metadata: { ...collectionFields.metadata, resourceVersion: informer.latestResourceVersion() },
-        items: [...informer.list(query.namespace)] });
+    /** @spec Cold readers share the first complete LIST. Later readers wait for WATCH readiness or use direct fallback after sync failure. */
+    async list(options) {
+      if (!starting) return snapshot() ?? access.list(query, options);
+      const deadline = new AbortController();
+      const caller = AbortSignal.any([options.signal ?? signal, deadline.signal]);
+      const timer = setTimeout(() => deadline.abort(new KubernetesError("Read Kubernetes resource " + path + " timed out",
+        { kind: "timeout" })), Math.min(options.timeoutMs ?? timeoutMs, timeoutMs));
+      try {
+        const [collection] = await once(startup, "snapshot", { signal: caller });
+        caller.throwIfAborted();
+        if (collection) return structuredClone(collection as ResourceList);
+        return snapshot() ?? await access.list(query, { signal: caller });
+      } catch (error) {
+        caller.throwIfAborted();
+        throw error;
+      } finally { clearTimeout(timer); }
     },
     dispose() { controller.abort(); return done; },
   };

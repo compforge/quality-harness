@@ -270,14 +270,17 @@ test("useCache routes unchanged list calls through cold, ready, disconnected and
     } else { direct++; res.end(JSON.stringify({ items: [manifest("remote", "8")] })); }
   };
   try {
-    const cold = await f.client.list(q);
-    expect(cold.items[0]?.metadata?.name).toBe("remote");
-    await until(() => streams.length === 1);
-    expect(await f.client.list(q)).toEqual(cold);
-    allowWatch = true; streams[0]!.writeHead(200); streams[0]!.flushHeaders();
     const view = f.client.inNamespace("first");
-    await until(async () => (await view.list(q)).kind === "PodList");
-    const count = direct;
+    const [cold, concurrent] = await Promise.all([f.client.list(q), view.list(q)]);
+    expect(cold.items).toEqual([manifest("a", "9"), manifest("b", "9")]);
+    expect(concurrent).toEqual(cold);
+    cold.items.pop();
+    expect(concurrent.items).toHaveLength(2);
+    await until(() => streams.length === 1);
+    const opening = view.list(q);
+    allowWatch = true; streams[0]!.writeHead(200); streams[0]!.flushHeaders();
+    expect(await opening).toEqual(concurrent);
+    expect(direct).toBe(0);
     const initial = await f.client.clusterResources().list({ ...q, namespace: "first" });
     expect(initial).toEqual({ apiVersion: "v1", kind: "PodList", metadata: { resourceVersion: "10" }, items: [manifest("a", "9"), manifest("b", "9")] });
     initial.items[0]!.metadata!.name = "mutated";
@@ -291,8 +294,8 @@ test("useCache routes unchanged list calls through cold, ready, disconnected and
     streams[0]!.write(data.slice(0, 10)); streams[0]!.write(data.slice(10));
     await until(async () => (await f.client.list(q)).metadata?.resourceVersion === "14");
     expect((await f.client.list(q)).items).toEqual([manifest("a", "12"), manifest("c", "11")]);
-    expect(direct).toBe(count); expect(pages).toBe(2);
-    expect(await f.client.list({ ...q, limit: 1, continue: "server-token" })).toEqual(cold);
+    expect(direct).toBe(0); expect(pages).toBe(2);
+    expect((await f.client.list({ ...q, limit: 1, continue: "server-token" })).items).toEqual([manifest("remote", "8")]);
     allowWatch = false; streams[0]!.end();
     await until(async () => (await f.client.list(q)).items[0]?.metadata?.name === "remote");
     await until(() => streams.length === 2);
@@ -305,6 +308,47 @@ test("useCache routes unchanged list calls through cold, ready, disconnected and
       expect(params.get("fieldSelector")).toBe(q.fieldSelector);
       expect(authorization).toBe("Bearer fixture-token");
     }
+  } finally { await f.dispose(); }
+});
+
+test("cold readers can cancel or time out independently while the shared LIST completes", async () => {
+  const f = await fixture(false, true);
+  let page: ServerResponse | undefined;
+  f.respond = (req, res) => {
+    if (req.url!.includes("watch=true")) { res.writeHead(200); res.flushHeaders(); }
+    else page = res;
+  };
+  try {
+    const survivor = f.client.list(pods);
+    const cancel = new AbortController();
+    const cancelled = f.client.list(pods, { signal: cancel.signal }).catch(error => error);
+    const expired = f.client.list(pods, { timeoutMs: 30 }).catch(error => error);
+    await until(() => !!page);
+    cancel.abort(new Error("caller left"));
+    expect(await cancelled).toBe(cancel.signal.reason);
+    expect(await expired).toMatchObject({ kind: "timeout" });
+    expect(f.requests).toHaveLength(1);
+    page!.end(JSON.stringify({ metadata: { resourceVersion: "1" }, items: [] }));
+    expect((await survivor).items).toEqual([]);
+    expect((await f.client.list(pods)).metadata?.resourceVersion).toBe("1");
+    expect(f.requests).toHaveLength(2);
+  } finally { await f.dispose(); }
+});
+
+test("a failed initial paginated LIST falls back to the direct API within the caller budget", async () => {
+  const f = await fixture(false, true);
+  let direct = 0;
+  f.respond = (req, res) => {
+    if (req.url!.includes("limit=")) { res.writeHead(403); res.end(); }
+    else if (++direct === 1) res.end(JSON.stringify({ items: [manifest("remote", "1")] }));
+  };
+  try {
+    const [snapshot] = await Promise.all([
+      f.client.list(pods),
+      expect(f.client.list(pods, { timeoutMs: 100 })).rejects.toMatchObject({ kind: "timeout" }),
+    ]);
+    expect(snapshot.items).toEqual([manifest("remote", "1")]);
+    expect(direct).toBe(2);
   } finally { await f.dispose(); }
 });
 
@@ -371,9 +415,10 @@ test("a failed watch reconnects from the last good event; closing the client can
     watch!.write("x".repeat(700)); watch!.write("x".repeat(700));
     await until(() => versions.length === 2);
     expect(versions).toEqual(["10", "10"]);
-    await f.client.list({ apiVersion: "v1", resource: "services" });
+    const pending = f.client.list({ apiVersion: "v1", resource: "services" }).catch(error => error);
     await until(() => listing);
     await f.client.dispose();
+    expect((await pending).message).toContain("disposed");
     expect(() => f.client.list(pods)).toThrow("disposed");
   } finally { await f.dispose(); }
 });
